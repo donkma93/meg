@@ -1,0 +1,24 @@
+# Python build & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec.bak
+build/
+dist/
+*.log
+gui_err.log
+
+# C# / .NET build artifacts
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+
+# Compiled binaries
+*.exe
+
+# System & IDE
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

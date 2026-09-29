@@ -1,0 +1,159 @@
+{
+  "generated_at": "2026-09-25T13:57:16",
+  "mode": "read-only observation",
+  "dump_checks": {
+    "has_MapServerMove_class": true,
+    "has_TeleportWindow": true,
+    "has_MTeleportWindow": true,
+    "has_TableWorld_Move": true,
+    "has_TableWorld_Gate": true,
+    "has_Game_MapServerMove_field": true,
+    "has_Game_World_field": true,
+    "has_AutoMoveWorking": true,
+    "mapservermove_has_ip_port_signature": true,
+    "mteleport_max_pinned_world": true
+  },
+  "process_count": 5,
+  "processes": [
+    {
+      "pid": 4732,
+      "ok": true,
+      "gameassembly_base": "0x7fff8f620000",
+      "game_instance": "0x1d786b24d20",
+      "world_ptr": "0x1da9ab3c000",
+      "player_ptr": "0x1da65d6c000",
+      "scene_index": 2,
+      "coord": [
+        91,
+        197
+      ],
+      "last_server_coord": [
+        0,
+        0
+      ],
+      "auto_move_working": 0,
+      "auto_move_type": -1,
+      "teleport_last_time_raw": "97ba770c4117ff348a30c77300000000",
+      "map_server_move": {
+        "ptr": "0x1d788767be0",
+        "is_active": 0,
+        "is_server_change": 0,
+        "quit_time": 86683.9453125,
+        "auth_keys_ptr": "0x1da66a67940",
+        "auth_keys_nonzero": true
+      }
+    },
+    {
+      "pid": 6128,
+      "ok": true,
+      "gameassembly_base": "0x7fff8f620000",
+      "game_instance": "0x1d541eb4d20",
+      "world_ptr": "0x1d6ae14bd20",
+      "player_ptr": "0x1d5dc21a800",
+      "scene_index": 2,
+      "coord": [
+        91,
+        196
+      ],
+      "last_server_coord": [
+        0,
+        0
+      ],
+      "auto_move_working": 0,
+      "auto_move_type": -1,
+      "teleport_last_time_raw": "379ba70fb2b60531e3846a7600000000",
+      "map_server_move": {
+        "ptr": "0x1d5cf60f280",
+        "is_active": 0,
+        "is_server_change": 0,
+        "quit_time": 92678.1953125,
+        "auth_keys_ptr": "0x1d62b8c3740",
+        "auth_keys_nonzero": true
+      }
+    },
+    {
+      "pid": 15160,
+      "ok": true,
+      "gameassembly_base": "0x7fff8f620000",
+      "game_instance": "0x251d3864d20",
+      "world_ptr": "0x2528dc1aa80",
+      "player_ptr": "0x252498a6800",
+      "scene_index": 2,
+      "coord": [
+        90,
+        197
+      ],
+      "last_server_coord": [
+        0,
+        0
+      ],
+      "auto_move_working": 0,
+      "auto_move_type": -1,
+      "teleport_last_time_raw": "87a2fe48a0e3380e70ea394900000000",
+      "map_server_move": {
+        "ptr": "0x25240b6f370",
+        "is_active": 0,
+        "is_server_change": 0,
+        "quit_time": 92668.1953125,
+        "auth_keys_ptr": "0x252e92deb80",
+        "auth_keys_nonzero": true
+      }
+    },
+    {
+      "pid": 25616,
+      "ok": true,
+      "gameassembly_base": "0x7fff8f620000",
+      "game_instance": "0x1774ff94d20",
+      "world_ptr": "0x178097dfd20",
+      "player_ptr": "0x177c6764000",
+      "scene_index": 2,
+      "coord": [
+        91,
+        198
+      ],
+      "last_server_coord": [
+        0,
+        0
+      ],
+      "auto_move_working": 0,
+      "auto_move_type": -1,
+      "teleport_last_time_raw": "bfe825601d43832dd460396a00000000",
+      "map_server_move": {
+        "ptr": "0x177bb7a6230",
+        "is_active": 0,
+        "is_server_change": 0,
+        "quit_time": 52828.87109375,
+        "auth_keys_ptr": "0x177eb8d0a40",
+        "auth_keys_nonzero": true
+      }
+    },
+    {
+      "pid": 26556,
+      "ok": true,
+      "gameassembly_base": "0x7fff8f620000",
+      "game_instance": "0x1dbe08d4d20",
+      "world_ptr": "0x1dd384e0a80",
+      "player_ptr": "0x1dc59353800",
+      "scene_index": 2,
+      "coord": [
+        93,
+        199
+      ],
+      "last_server_coord": [
+        0,
+        0
+      ],
+      "auto_move_working": 0,
+      "auto_move_type": -1,
+      "teleport_last_time_raw": "b72d704c03657f13568dbf5400000000",
+      "map_server_move": {
+        "ptr": "0x1dc50feef00",
+        "is_active": 0,
+        "is_server_change": 0,
+        "quit_time": 0.0,
+        "auth_keys_ptr": "0x1dc42bbf080",
+        "auth_keys_nonzero": true
+      }
+    }
+  ]
+}

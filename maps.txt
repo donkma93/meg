@@ -1,0 +1,32 @@
+# ==============================================================================
+# MEGAMU AUTO NAVIGATOR - DANH SÁCH BẢN ĐỒ (.txt)
+# Mỗi dòng là 1 tên bản đồ. Bạn có thể mở Notepad thêm/bớt tùy ý rồi bấm lưu.
+# ==============================================================================
+
+Lorencia
+Noria
+Lost Tower
+Atlans
+Tarkan
+Arena
+Aida
+Crywolf
+Kanturu Remains
+Kanturu Ruins
+Elbeland
+Raklion
+Vulcanus
+Karutan 1
+Karutan 2
+Ferea
+Nixies Lake
+Deep Dungeon 1
+Swamp of Darkness
+Kubera Mine
+Davias 1
+Davias 2
+Davias 3
+Davias 4
+aida1
+aida2
+dungeon
