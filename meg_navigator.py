@@ -1183,19 +1183,66 @@ def get_direction_description(dx: int, dy: int) -> str:
     else:
         return "Phải-Lên / Bắc (+Y)"
 
+def perpendicular_distance(pt: Tuple[float, float], line_start: Tuple[float, float], line_end: Tuple[float, float]) -> float:
+    """Tính khoảng cách vuông góc từ 1 điểm tới đường thẳng nối 2 mốc"""
+    x0, y0 = pt
+    x1, y1 = line_start
+    x2, y2 = line_end
+    dx = x2 - x1
+    dy = y2 - y1
+    denom = math.hypot(dx, dy)
+    if denom == 0.0:
+        return math.hypot(x0 - x1, y0 - y1)
+    nom = abs(dy * x0 - dx * y0 + x2 * y1 - y2 * x1)
+    return nom / denom
+
+def ramer_douglas_peucker(
+    points: List[Tuple[int, int]],
+    epsilon: float = 1.2
+) -> List[Tuple[int, int]]:
+    """
+    Thuật toán Ramer-Douglas-Peucker (RDP) làm mượt và nén đường đi:
+    - Loại bỏ các điểm thừa thãi, rung lắc khi chạy thẳng.
+    - Giữ lại chính xác các điểm rẽ / góc ngoặt then chốt.
+    """
+    if len(points) <= 2:
+        return list(points)
+
+    dmax = 0.0
+    index = 0
+    start = points[0]
+    end = points[-1]
+
+    for i in range(1, len(points) - 1):
+        d = perpendicular_distance(points[i], start, end)
+        if d > dmax:
+            index = i
+            dmax = d
+
+    if dmax > epsilon:
+        rec1 = ramer_douglas_peucker(points[:index + 1], epsilon)
+        rec2 = ramer_douglas_peucker(points[index:], epsilon)
+        return rec1[:-1] + rec2
+    else:
+        return [points[0], points[-1]]
+
 def game_coord_to_screen_pixel(
     cur_x: int, cur_y: int,
     target_x: int, target_y: int,
     client_w: int, client_h: int,
     camera_angle_deg: float = 0.0,
-    step_scale: float = 24.0,
-    max_radius_ratio: float = 0.35
+    is_final_touchdown: bool = False
 ) -> Tuple[int, int]:
     """
     Chuyển đổi vector chênh lệch tọa độ (dx, dy) sang pixel trên màn hình game (px, py).
     Áp dụng hệ phương trình chiếu Isometric chuẩn xác MU Online:
       vx = (dx + dy) * 1.0
       vy = (dx - dy) * 0.55
+
+    Đặc biệt tối ưu hóa bán kính click:
+    - Tuyệt đối KHÔNG click sát chân (< 100px) gây kẹt hitbox pet/nhân vật hoặc không kích hoạt chạy.
+    - Duy trì vòng tròn sải bước nước rút (140px - 245px) để nhân vật bứt tốc tối đa.
+    - Khi áp sát đích cuối cùng (<= 2 ô), chuyển sang bán kính tiếp đất chính xác (~100-115px).
     """
     if client_w <= 0: client_w = 1024
     if client_h <= 0: client_h = 768
@@ -1223,26 +1270,30 @@ def game_coord_to_screen_pixel(
         vy = base_vx * sin_val + base_vy * cos_val
 
     dist = math.sqrt(vx * vx + vy * vy)
-    max_radius = max(120.0, client_h * max_radius_ratio)
-    if dist < 4.0:
-        radius = max(35.0, dist * 22.0)
-    else:
-        min_radius = max(90.0, client_h * 0.09)
-        radius = min(max_radius, max(min_radius, dist * step_scale))
+    if dist < 0.001:
+        return (cx, cy)
 
     norm_x = vx / dist
     norm_y = vy / dist
 
+    if is_final_touchdown:
+        radius = max(100.0, client_h * 0.15)
+    else:
+        min_radius = max(140.0, client_h * 0.20)
+        max_radius = max(190.0, client_h * 0.32)
+        radius = min(max_radius, max(min_radius, dist * 28.0))
+
     px = int(round(cx + norm_x * radius))
     py = int(round(cy + norm_y * radius))
 
-    px = max(40, min(client_w - 40, px))
-    py = max(60, min(client_h - 80, py))
+    # Kẹp an toàn trong phạm vi khung nhìn cửa sổ game
+    px = max(45, min(client_w - 45, px))
+    py = max(65, min(client_h - 85, py))
     return (px, py)
 
 def subdivide_path(start_x: int, start_y: int, end_x: int, end_y: int, max_step: int = 2) -> List[Tuple[int, int]]:
     """
-    Chia đoạn đường thành các bước siêu ngắn thẳng hướng (<= max_step ô, mặc định 2 ô)
+    Chia đoạn đường thành các bước ngắn thẳng hướng (dùng phụ trợ khi cần)
     """
     dx = end_x - start_x
     dy = end_y - start_y
@@ -1565,53 +1616,42 @@ class MegNavigator:
                     prev_dist = rem_dist
             else:
                 # Đang đứng yên
-                if now - last_moved_time > 1.2:
+                if now - last_moved_time > 0.85:
                     stuck_cycles += 1
+                    bypass_angles = [55.0, -55.0, 85.0, -85.0, 120.0, -120.0]
                     bypass_angle_offset = bypass_angles[bypass_idx % len(bypass_angles)]
                     bypass_idx += 1
-                    _log(f"   [🚧 VẬT CẢN/GÓC KẸT] Đứng yên tại ({cur_x}, {cur_y}). Lách góc né {bypass_angle_offset:+0.0f}° để vượt cản...")
+                    _log(f"   [🚧 VẬT CẢN/GÓC KẸT] Đứng yên tại ({cur_x}, {cur_y}). Lách tiếp tuyến {bypass_angle_offset:+0.0f}° để trượt mép tường...")
                     last_moved_time = now
 
-
-
-            # 4. Gửi click sải bước (stride click) - Giới hạn siêu ngắn 1.5 ~ 2 ô sát chân nhân vật
+            # 4. Gửi click sải bước (stride click) hướng thẳng đích
             time_since_click = now - last_click_time
-            need_immediate_click = (stuck_cycles > 0 and time_since_click >= 0.45)
+            need_immediate_click = (stuck_cycles > 0 and time_since_click >= 0.40)
 
             if time_since_click >= stride_interval or need_immediate_click:
-                max_step_dist = 1.8  # Bước click siêu ngắn (1.5-2 ô) sát chân nhân vật để không bị trôi lố
-                dx_full = target_x - cur_x
-                dy_full = target_y - cur_y
-                cheby_dist = max(abs(dx_full), abs(dy_full))
-
-                if cheby_dist > max_step_dist:
-                    scale = max_step_dist / cheby_dist
-                    step_target_x = int(round(cur_x + dx_full * scale))
-                    step_target_y = int(round(cur_y + dy_full * scale))
-                else:
-                    step_target_x = target_x
-                    step_target_y = target_y
-
                 eff_angle = (self.camera_angle_deg + bypass_angle_offset) % 360.0
+                is_touchdown = (rem_dist <= 2)
+
                 px, py = game_coord_to_screen_pixel(
                     cur_x, cur_y,
-                    step_target_x, step_target_y,
+                    target_x, target_y,
                     self.client_w, self.client_h,
-                    camera_angle_deg=eff_angle
+                    camera_angle_deg=eff_angle,
+                    is_final_touchdown=is_touchdown
                 )
 
                 if self.hook and self.hook.is_ready:
-                    self.hook.send_click(self.hwnd, px, py, duration_ms=30)
+                    self.hook.send_click(self.hwnd, px, py, duration_ms=25)
                 elif use_micro_sync:
-                    BackgroundInputSimulator.micro_sync_click(self.hwnd, px, py, duration_ms=20)
+                    BackgroundInputSimulator.micro_sync_click(self.hwnd, px, py, duration_ms=25)
                 else:
-                    BackgroundInputSimulator.pure_background_click(self.hwnd, px, py, duration_ms=50)
+                    BackgroundInputSimulator.pure_background_click(self.hwnd, px, py, duration_ms=45)
 
                 last_click_time = time.time()
                 cur_dir = get_direction_description(target_x - cur_x, target_y - cur_y)
-                _log(f"   [🏃 SPRINT NGẦM (1.8 Ô)] ({cur_x}, {cur_y}) ➔ Bước ({step_target_x}, {step_target_y}) -> Đích ({target_x}, {target_y}) | Còn {rem_dist} ô [{cur_dir}]")
+                _log(f"   [🏃 SPRINT] ({cur_x}, {cur_y}) ➔ Đích ({target_x}, {target_y}) | Còn {rem_dist} ô [{cur_dir}]")
 
-            time.sleep(0.12)
+            time.sleep(0.08)
 
         # Hết timeout an toàn
         final_state = self.get_live_state()
@@ -1973,20 +2013,25 @@ class MegNavigator:
         self,
         waypoints: List[Tuple[int, int]],
         arrival_radius: int = 1,
-        intermediate_radius: int = 1,
+        intermediate_radius: float = 2.5,
         auto_attack_on_arrival: bool = True,
         log_callback=None,
         stop_event=None,
         progress_callback=None,
-        stride_interval: float = 0.85,
+        stride_interval: float = 0.75,
         use_micro_sync: bool = False
     ) -> bool:
         """
-        ĐIỀU HƯỚNG THEO LỘ TRÌNH ĐA ĐIỂM / ĐIỂM TRUNG GIAN (Multi-Waypoint Route):
-        - Chạy tuần tự qua danh sách các mốc tọa độ: [(x1, y1), (x2, y2), ..., (xn, yn)]
-        - Với các mốc trung gian: Chuyển mốc ngay khi cách mốc <= intermediate_radius (2 ô) để nhân vật chạy lướt liên tục không bị dừng khựng.
-        - Với mốc cuối cùng: Dừng chính xác tại arrival_radius (1 ô).
-        - Khi đến mốc cuối cùng: Tự động kích hoạt Auto Đánh (MuHelper) nếu auto_attack_on_arrival=True.
+        THUẬT TOÁN ĐIỀU HƯỚNG PURE PURSUIT (LƯỚT MỐC LIÊN TỤC KHÔNG DỪNG KHỰNG):
+        - Bám theo chuỗi mốc waypoints [(x1, y1), (x2, y2), ..., (xn, yn)].
+        - Tuyệt đối không băm nhỏ lộ trình thành các bước 2 ô gây đứng hình, khựng chuột.
+        - Khi nhân vật lướt tới gần mốc trung gian (cách <= intermediate_radius 2.5 ô)
+          hoặc đã gần mốc tiếp theo hơn mốc hiện tại: Tự động chuyển hướng ngay sang mốc kế tiếp!
+          => Nhân vật chuyển hướng mượt mà như người chơi thật, không giảm tốc độ!
+        - Chỉ dừng lại chuẩn xác tại mốc cuối cùng (cách <= arrival_radius 1 ô).
+        - Cơ chế né vật cản theo phương tiếp tuyến (Tangential Wall-Slide): Khi vướng tường/góc
+          kẹt (> 0.85s), tự động tính toán góc tiếp tuyến lách dọc mép tường thay vì quay vòng tròn.
+        - Tự động bật Auto Đánh (MuHelper) khi tới đích nếu auto_attack_on_arrival=True.
         """
         def _log(msg: str):
             if log_callback:
@@ -2007,99 +2052,137 @@ class MegNavigator:
         total_pts = len(waypoints)
 
         # Tính tổng cự ly toàn bộ lộ trình
-        total_route_dist = 0
+        total_route_dist = 0.0
         prev_p = (start_x, start_y)
         for pt in waypoints:
             total_route_dist += max(abs(pt[0] - prev_p[0]), abs(pt[1] - prev_p[1]))
             prev_p = pt
-        total_route_dist = max(1, total_route_dist)
+        total_route_dist = max(1.0, total_route_dist)
 
         _log(f"========================================================")
-        _log(f" 🗺️ BẮT ĐẦU CHẠY LỘ TRÌNH ĐA ĐIỂM ({total_pts} MỐC DI CHUYỂN)")
-        _log(f" • Tọa độ xuất phát: ({start_x}, {start_y}) | Tổng cự ly ước tính: ~{total_route_dist} ô")
+        _log(f" 🗺️ BẮT ĐẦU CHẠY LỘ TRÌNH PURE PURSUIT ({total_pts} MỐC)")
+        _log(f" • Xuất phát: ({start_x}, {start_y}) | Tổng cự ly: ~{total_route_dist:.0f} ô")
+        _log(f" • Cơ chế: Lướt mốc liên tục (Không dừng khựng) + Né tường tiếp tuyến")
         for i, (wx, wy) in enumerate(waypoints, start=1):
-            role_str = "ĐÍCH CUỐI CÙNG" if i == total_pts else f"Điểm trung gian #{i}"
-            _log(f"   [Mốc {i}/{total_pts}] ({wx}, {wy}) - {role_str}")
+            role_str = "ĐÍCH CUỐI" if i == total_pts else f"Mốc #{i}"
+            _log(f"   [{role_str}] ({wx}, {wy})")
         if auto_attack_on_arrival:
-            _log(f" • Auto Đánh: Sẽ tự động bật MuHelper khi hoàn tất mốc cuối cùng.")
+            _log(f" • Auto Đánh: Sẽ tự động bật MuHelper tại đích.")
         _log(f"========================================================")
 
-        # Tự động phân chia tất cả các chặng đường dài thành các mốc nhỏ sát chân (≤ 2 ô)
-        dense_waypoints = []
-        curr_p = (start_x, start_y)
-        for orig_idx, (wx, wy) in enumerate(waypoints, start=1):
-            sub_steps = subdivide_path(curr_p[0], curr_p[1], wx, wy, max_step=2)
-            is_orig_final = (orig_idx == total_pts)
-            for s_idx, (sx, sy) in enumerate(sub_steps, start=1):
-                is_sub_final = is_orig_final and (s_idx == len(sub_steps))
-                is_orig_target = (s_idx == len(sub_steps))
-                dense_waypoints.append({
-                    "x": sx,
-                    "y": sy,
-                    "is_sub_final": is_sub_final,
-                    "is_orig_target": is_orig_target,
-                    "orig_idx": orig_idx
-                })
-            curr_p = (wx, wy)
+        curr_wp_idx = 0
 
-        dist_traveled = 0
+        # Nếu điểm đầu tiên đã ở ngay cạnh vị trí xuất phát (<= 2 ô) và có mốc tiếp theo, bắt đầu từ mốc 2 luôn
+        if total_pts > 1:
+            d_first = max(abs(waypoints[0][0] - start_x), abs(waypoints[0][1] - start_y))
+            if d_first <= 2:
+                curr_wp_idx = 1
+                _log(f"   [⏩ BỎ QUA MỐC 1] Đã ở gần mốc 1 ({waypoints[0][0]}, {waypoints[0][1]}), hướng thẳng tới mốc 2 ({waypoints[1][0]}, {waypoints[1][1]})")
 
-        for node in dense_waypoints:
+        max_wait_seconds = max(180.0, float(total_route_dist * 4.5))
+        start_time = time.time()
+        last_click_time = 0.0
+        last_pos = (start_x, start_y)
+        last_moved_time = time.time()
+        tangent_offset = 0.0
+        evasion_angles = [55.0, -55.0, 85.0, -85.0, 120.0, -120.0]
+        stuck_cycles = 0
+
+        while time.time() - start_time < max_wait_seconds:
             if stop_event and stop_event.is_set():
                 _log("[⏹] Đã dừng lộ trình theo yêu cầu của bạn.")
                 return False
 
-            wx, wy = node["x"], node["y"]
-            is_final_point = node["is_sub_final"]
-            req_radius = arrival_radius if is_final_point else intermediate_radius
+            state = self.get_live_state()
+            if not state or state[2] is None or state[3] is None:
+                time.sleep(0.08)
+                continue
 
-            if node["is_orig_target"]:
-                point_desc = f"ĐÍCH CUỐI ({wx}, {wy})" if is_final_point else f"Mốc {node['orig_idx']}/{total_pts} ({wx}, {wy})"
-                _log(f"\n👉 [LỘ TRÌNH: MỐC {node['orig_idx']}/{total_pts}] Đang hướng tới {point_desc}...")
+            cur_x, cur_y = state[2], state[3]
+            now = time.time()
 
-            curr_state = self.get_live_state()
-            leg_start_x = curr_state[2] if (curr_state and curr_state[2] is not None) else wx
-            leg_start_y = curr_state[3] if (curr_state and curr_state[3] is not None) else wy
-            leg_total_dist = max(1, max(abs(wx - leg_start_x), abs(wy - leg_start_y)))
-
-            def leg_progress_cb(sub_prog, sub_rem, coord):
-                if progress_callback:
-                    done_dist = dist_traveled + (1.0 - (sub_rem / leg_total_dist)) * leg_total_dist
-                    overall_prog = max(0.0, min(1.0, done_dist / total_route_dist))
-                    progress_callback(overall_prog, sub_rem, coord, node['orig_idx'], total_pts)
-
-            # Chỉ bật auto attack ở mốc cuối cùng toàn bộ lộ trình
-            leg_auto_attack = auto_attack_on_arrival if is_final_point else False
-
-            # Sử dụng continuous sprint để chạy tới mốc micro-step 2-3 ô này
-            success = self.navigate_continuous(
-                target_x=wx,
-                target_y=wy,
-                arrival_radius=req_radius,
-                log_callback=log_callback if node["is_orig_target"] else None,
-                stop_event=stop_event,
-                progress_callback=leg_progress_cb,
-                stride_interval=stride_interval,
-                use_micro_sync=use_micro_sync,
-                auto_attack_on_arrival=leg_auto_attack
-            )
-
-            if not success:
-                if stop_event and stop_event.is_set():
-                    return False
-                _log(f"[!] Không thể tiếp cận mốc {node['orig_idx']}/{total_pts} ({wx}, {wy}). Lộ trình tạm dừng.")
-                return False
-
-            dist_traveled += leg_total_dist
-
-            if not is_final_point:
-                if node["is_orig_target"]:
-                    _log(f"[✔ ĐÃ QUA MỐC {node['orig_idx']}/{total_pts} ({wx}, {wy})] Tiếp tục chạy mốc tiếp theo...")
-                time.sleep(0.05)
+            # 1. Phát hiện kẹt / đứng yên
+            if (cur_x, cur_y) != last_pos:
+                last_pos = (cur_x, cur_y)
+                last_moved_time = now
+                stuck_cycles = 0
+                tangent_offset = 0.0
             else:
-                _log(f"[🎉 HOÀN THÀNH TOÀN BỘ LỘ TRÌNH!] Đã tới đích cuối cùng ({wx}, {wy})!")
+                stuck_dur = now - last_moved_time
+                if stuck_dur > 0.85:
+                    stuck_cycles += 1
+                    tangent_offset = evasion_angles[stuck_cycles % len(evasion_angles)]
+                    _log(f"   [🚧 VẬT CẢN/GÓC KẸT] Đứng yên tại ({cur_x}, {cur_y}) [Kẹt {stuck_dur:.1f}s]. Lách tiếp tuyến {tangent_offset:+0.0f}°...")
+                    last_moved_time = now
 
-        return True
+            target_x, target_y = waypoints[curr_wp_idx]
+            d_curr = max(abs(target_x - cur_x), abs(target_y - cur_y))
+            is_final_wp = (curr_wp_idx == total_pts - 1)
+
+            # 2. Kiểm tra chuyển mốc (Lookahead transition)
+            if not is_final_wp:
+                next_x, next_y = waypoints[curr_wp_idx + 1]
+                d_next = max(abs(next_x - cur_x), abs(next_y - cur_y))
+                # Khi đã áp sát mốc trung gian (<= intermediate_radius ô) hoặc đã gần mốc tiếp theo hơn mốc hiện tại
+                if d_curr <= intermediate_radius or d_next < d_curr:
+                    _log(f"   [⏩ LƯỚT MỐC #{curr_wp_idx + 1}/{total_pts}] Đã qua ({target_x}, {target_y}) [Cách {d_curr:.1f} ô]. Chuyển tiếp mốc #{curr_wp_idx + 2} ({next_x}, {next_y})!")
+                    curr_wp_idx += 1
+                    target_x, target_y = waypoints[curr_wp_idx]
+                    d_curr = max(abs(target_x - cur_x), abs(target_y - cur_y))
+                    is_final_wp = (curr_wp_idx == total_pts - 1)
+                    tangent_offset = 0.0
+            else:
+                # Đang ở mốc cuối cùng -> Kiểm tra đích đến
+                if d_curr <= arrival_radius:
+                    _log(f"========================================================")
+                    _log(f"[🎉 HOÀN THÀNH LỘ TRÌNH!] Đã tới đích cuối ({cur_x}, {cur_y}) [Sai số {d_curr} ô <= {arrival_radius} ô]!")
+                    if auto_attack_on_arrival:
+                        _log(f"[⚔️ AUTO ATTACK] Tự động bật Auto Đánh (MuHelper)...")
+                        self.enable_auto_attack(log_callback=_log)
+                    if progress_callback:
+                        progress_callback(1.0, 0, (cur_x, cur_y), total_pts, total_pts)
+                    _log(f"========================================================")
+                    return True
+
+            # 3. Tính toán tiến độ toàn lộ trình
+            if progress_callback:
+                rem_route = d_curr
+                for k in range(curr_wp_idx + 1, total_pts):
+                    rem_route += max(abs(waypoints[k][0] - waypoints[k-1][0]), abs(waypoints[k][1] - waypoints[k-1][1]))
+                overall_prog = max(0.0, min(1.0, 1.0 - (rem_route / total_route_dist)))
+                progress_callback(overall_prog, d_curr, (cur_x, cur_y), curr_wp_idx + 1, total_pts)
+
+            # 4. Gửi click sải bước (Stride Click)
+            time_since_click = now - last_click_time
+            need_click = (stuck_cycles > 0 and time_since_click >= 0.40) or (time_since_click >= stride_interval)
+            if need_click:
+                eff_angle = (self.camera_angle_deg + tangent_offset) % 360.0
+                is_close_touchdown = is_final_wp and (d_curr <= 2)
+
+                px, py = game_coord_to_screen_pixel(
+                    cur_x, cur_y,
+                    target_x, target_y,
+                    self.client_w, self.client_h,
+                    camera_angle_deg=eff_angle,
+                    is_final_touchdown=is_close_touchdown
+                )
+
+                if self.hook and self.hook.is_ready:
+                    self.hook.send_click(self.hwnd, px, py, duration_ms=25)
+                elif use_micro_sync:
+                    BackgroundInputSimulator.micro_sync_click(self.hwnd, px, py, duration_ms=25)
+                else:
+                    BackgroundInputSimulator.pure_background_click(self.hwnd, px, py, duration_ms=45)
+
+                last_click_time = time.time()
+                role_str = "Đích cuối" if is_final_wp else f"Mốc #{curr_wp_idx + 1}"
+                dir_desc = get_direction_description(target_x - cur_x, target_y - cur_y)
+                _log(f"   [🏃 SPRINT] ({cur_x}, {cur_y}) ➔ {role_str} ({target_x}, {target_y}) | Còn {d_curr} ô [{dir_desc}]")
+
+            time.sleep(0.08)
+
+        _log(f"[!] Hết thời gian chờ tối đa ({max_wait_seconds:.0f}s) cho lộ trình!")
+        return False
 
 def toggle_auto_attack_via_sendmessage(hwnd: int) -> bool:
     """Tắt/Bật Auto Đánh (MuHelper) qua click nút HUD Play (341, 88) kết hợp phím Home (VK_HOME)"""

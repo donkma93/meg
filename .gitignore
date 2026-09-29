@@ -22,3 +22,5 @@ gui_err.log
 .idea/
 Thumbs.db
 Desktop.ini
+*_backup.py
+debug_gui.txt
