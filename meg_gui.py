@@ -89,15 +89,20 @@ class MegNavigatorGUI(ctk.CTk):
         self.stop_event = threading.Event()
         self.is_running = False
 
-        # Quản lý Lộ trình đa điểm (Waypoints) & Phím nóng F5
+        # Quản lý Lộ trình đa điểm (Waypoints) & Phím nóng F8
         self.route_waypoints: List[Dict[str, any]] = []
         self.hotkey_stop_event = threading.Event()
         self.hotkey_enabled = True
-        self.last_f5_time = 0.0
+        self.last_f8_time = 0.0
 
         # Quản lý Chặng Level (Auto-Leveling Route Stages)
         self.level_stages: List[Dict[str, any]] = self._get_default_level_stages()
         self.current_stage_idx: int = 0
+
+        # Quản lý Ghi Vết Đường Đi Tự Động (Auto Path Trace Recording)
+        self.is_recording_trace: bool = False
+        self.recording_stage_idx: Optional[int] = None
+        self.last_recorded_pos: Optional[Tuple[int, int]] = None
 
         self._build_ui()
 
@@ -107,8 +112,8 @@ class MegNavigatorGUI(ctk.CTk):
         # Bật luồng tự động cập nhật tọa độ RAM chu kỳ 1.2s
         self.after(1200, self._auto_update_live_ram)
 
-        # Khởi động luồng lắng nghe phím nóng F5 toàn màn hình
-        self._start_f5_hotkey_listener()
+        # Khởi động luồng lắng nghe phím nóng F8 toàn màn hình
+        self._start_f8_hotkey_listener()
 
         # Xử lý khi đóng cửa sổ app
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -277,14 +282,14 @@ class MegNavigatorGUI(ctk.CTk):
         )
         self.btn_load_plan.pack(side="left", padx=(0, 6))
 
-        self.sw_hotkey_f5 = ctk.CTkSwitch(
+        self.sw_hotkey_f8 = ctk.CTkSwitch(
             master_bar2,
-            text="Phím F5",
+            text="Phím F8",
             font=ctk.CTkFont(size=11),
-            command=self._on_toggle_f5_hotkey
+            command=self._on_toggle_f8_hotkey
         )
-        self.sw_hotkey_f5.select()
-        self.sw_hotkey_f5.pack(side="left", padx=(0, 6))
+        self.sw_hotkey_f8.select()
+        self.sw_hotkey_f8.pack(side="left", padx=(0, 6))
 
         ctk.CTkLabel(master_bar2, text="📷", font=ctk.CTkFont(size=11)).pack(side="left", padx=(2, 2))
         self.slider_angle = ctk.CTkSlider(
@@ -576,7 +581,45 @@ class MegNavigatorGUI(ctk.CTk):
                         text_color=("gray40", "gray70")
                     )
 
-        self.after(1200, self._auto_update_live_ram)
+            # Xử lý Ghi Vết Đường Đi Tự Động (Auto Trace Recorder)
+            if self.is_recording_trace and self.recording_stage_idx is not None:
+                s_idx = self.recording_stage_idx
+                if 0 <= s_idx < len(self.level_stages):
+                    cur_x = self.selected_client.x
+                    cur_y = self.selected_client.y
+                    map_name = self.selected_client.map_name or self.level_stages[s_idx].get("map", "")
+
+                    if cur_x is not None and cur_y is not None:
+                        should_rec = False
+                        if self.last_recorded_pos is None:
+                            should_rec = True
+                        else:
+                            lx, ly = self.last_recorded_pos
+                            d_move = max(abs(cur_x - lx), abs(cur_y - ly))
+                            if d_move >= 2:
+                                should_rec = True
+
+                        if should_rec:
+                            self.last_recorded_pos = (cur_x, cur_y)
+                            stage = self.level_stages[s_idx]
+                            wps = stage.setdefault("waypoints", [])
+                            wps.append({
+                                "x": cur_x,
+                                "y": cur_y,
+                                "desc": f"Vết #{len(wps)+1}",
+                                "map": map_name,
+                                "time": time.strftime("%H:%M:%S")
+                            })
+                            self._refresh_stage_waypoints(s_idx)
+                            self.log(f"[🔴 GHI VẾT RAM] Đã tự lưu mốc #{len(wps)}: ({cur_x}, {cur_y}) [{map_name}]")
+                            try:
+                                if winsound:
+                                    winsound.MessageBeep(winsound.MB_OK)
+                            except Exception:
+                                pass
+
+        interval = 400 if self.is_recording_trace else 1200
+        self.after(interval, self._auto_update_live_ram)
 
     # --------------------------------------------------------------------------
     # Event Handlers & Callbacks
@@ -1293,7 +1336,7 @@ class MegNavigatorGUI(ctk.CTk):
                     ):
                         stage["waypoints"] = []
                         self._refresh_stage_waypoints(stage_idx)
-                        self.log(f"[🗺️ ĐỔI MAP] Đã chuyển sang '{new_m}' và xóa tọa độ cũ của '{old_m}'. Hãy bấm F5 để lấy tọa độ mới!")
+                        self.log(f"[🗺️ ĐỔI MAP] Đã chuyển sang '{new_m}' và xóa tọa độ cũ của '{old_m}'. Hãy bấm F8 để lấy tọa độ mới!")
             on_cfg_changed()
 
         ent_name.bind("<KeyRelease>", on_cfg_changed)
@@ -1340,9 +1383,9 @@ class MegNavigatorGUI(ctk.CTk):
         )
         btn_add_coord.pack(side="left", padx=(0, 4), pady=4)
 
-        btn_f5_coord = ctk.CTkButton(
+        btn_f8_coord = ctk.CTkButton(
             wp_add_bar,
-            text="📍 Lấy RAM [F5]",
+            text="📍 Lấy RAM [F8]",
             width=95,
             height=25,
             fg_color="#0284c7",
@@ -1350,7 +1393,19 @@ class MegNavigatorGUI(ctk.CTk):
             font=ctk.CTkFont(size=11),
             command=lambda idx=stage_idx: self._capture_ram_coord_to_stage(idx)
         )
-        btn_f5_coord.pack(side="left", padx=(0, 4), pady=4)
+        btn_f8_coord.pack(side="left", padx=(0, 4), pady=4)
+
+        btn_trace_record = ctk.CTkButton(
+            wp_add_bar,
+            text="🔴 Ghi Vết Tự Động",
+            width=115,
+            height=25,
+            fg_color="#dc2626",
+            hover_color="#b91c1c",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=lambda idx=stage_idx: self._toggle_trace_recorder(idx)
+        )
+        btn_trace_record.pack(side="left", padx=(0, 4), pady=4)
 
         btn_clear_coords = ctk.CTkButton(
             wp_add_bar,
@@ -1403,6 +1458,7 @@ class MegNavigatorGUI(ctk.CTk):
             "ent_x": ent_x,
             "ent_y": ent_y,
             "ent_desc": ent_desc,
+            "btn_trace_record": btn_trace_record,
             "scroll_wps": scroll_wps,
             "lbl_summary": lbl_summary
         }
@@ -1426,7 +1482,7 @@ class MegNavigatorGUI(ctk.CTk):
             empty_box.pack(fill="x", pady=16)
             ctk.CTkLabel(
                 empty_box,
-                text=f"📍 Chưa có tọa độ nào trong map '{s_map}'.\n👉 Vào game chạy tới bãi farm và bấm [F5] hoặc gõ X, Y để thêm mốc!",
+                text=f"📍 Chưa có tọa độ nào trong map '{s_map}'.\n👉 Vào game chạy tới bãi farm và bấm [F8] hoặc gõ X, Y để thêm mốc!",
                 font=ctk.CTkFont(size=11),
                 text_color="#94a3b8",
                 justify="center"
@@ -1634,8 +1690,10 @@ class MegNavigatorGUI(ctk.CTk):
         try:
             import ctypes
             fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
+            fg_pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(fg_hwnd, ctypes.byref(fg_pid))
             for c in getattr(self, "clients", []):
-                if c.hwnd == fg_hwnd and self.selected_client != c:
+                if (c.hwnd == fg_hwnd or c.pid == fg_pid.value) and self.selected_client != c:
                     self._select_client(c)
                     break
         except Exception:
@@ -1681,7 +1739,7 @@ class MegNavigatorGUI(ctk.CTk):
         if cur_x is None or cur_y is None:
             err_msg = f"Không thể đọc tọa độ RAM từ client {self.selected_client.char_name} (PID: {self.selected_client.pid}). Hãy đảm bảo nhân vật đã đăng nhập vào thế giới game!"
             if from_hotkey:
-                self.log(f"[!] [F5] {err_msg}")
+                self.log(f"[!] [F8] {err_msg}")
             else:
                 messagebox.showerror("Lỗi RAM", err_msg)
             return
@@ -1694,7 +1752,7 @@ class MegNavigatorGUI(ctk.CTk):
         wps.append({
             "x": cur_x,
             "y": cur_y,
-            "desc": f"Mốc #{len(wps)+1} (F5)",
+            "desc": f"Mốc #{len(wps)+1} (F8)",
             "map": map_name,
             "time": time.strftime("%H:%M:%S")
         })
@@ -1714,8 +1772,80 @@ class MegNavigatorGUI(ctk.CTk):
                 r["ent_y"].insert(0, str(cur_y))
 
         self._refresh_stage_waypoints(stage_idx)
-        tag = "[📍 F5]" if from_hotkey else "[📍 LẤY RAM]"
+        tag = "[📍 F8]" if from_hotkey else "[📍 LẤY RAM]"
         self.log(f"{tag} Đã thêm tọa độ ({cur_x}, {cur_y}) [Bản đồ: {map_name}] vào Tab '{stage['name']}'!")
+
+    def _toggle_trace_recorder(self, stage_idx: int):
+        """Bật/Tắt chế độ Ghi Vết Đường Đi Tự Động cho mốc chỉ định"""
+        if not self.selected_client:
+            messagebox.showwarning("Chưa chọn Client", "Vui lòng chọn 1 client game trong danh sách trước!")
+            return
+
+        if self.is_recording_trace and self.recording_stage_idx == stage_idx:
+            # Dừng ghi vết
+            self.is_recording_trace = False
+            self.recording_stage_idx = None
+            self.last_recorded_pos = None
+
+            if 0 <= stage_idx < len(self.stage_tab_refs):
+                btn = self.stage_tab_refs[stage_idx].get("btn_trace_record")
+                if btn:
+                    btn.configure(text="🔴 Ghi Vết Tự Động", fg_color="#dc2626", hover_color="#b91c1c")
+
+            stage_name = self.level_stages[stage_idx].get("name", f"Mốc {stage_idx+1}")
+            wps_cnt = len(self.level_stages[stage_idx].get("waypoints", []))
+            self.log(f"[⏹️ ĐÃ DỪNG GHI VẾT] Đã ghi tổng cộng {wps_cnt} mốc đường đi cho '{stage_name}'!")
+            try:
+                if winsound:
+                    winsound.MessageBeep(winsound.MB_OK)
+            except Exception:
+                pass
+        else:
+            # Nếu đang ghi vết mốc khác -> dừng mốc cũ
+            if self.is_recording_trace and self.recording_stage_idx is not None:
+                old_idx = self.recording_stage_idx
+                if 0 <= old_idx < len(self.stage_tab_refs):
+                    btn = self.stage_tab_refs[old_idx].get("btn_trace_record")
+                    if btn:
+                        btn.configure(text="🔴 Ghi Vết Tự Động", fg_color="#dc2626", hover_color="#b91c1c")
+
+            # Bắt đầu ghi vết mới
+            self.is_recording_trace = True
+            self.recording_stage_idx = stage_idx
+            self.last_recorded_pos = None
+
+            st = ProcessMemoryReader.read_live_state(self.selected_client.pid)
+            if st and st[2] is not None and st[3] is not None:
+                cur_x, cur_y = st[2], st[3]
+                map_name = st[1] if st[1] else self.level_stages[stage_idx].get("map", "")
+                self.last_recorded_pos = (cur_x, cur_y)
+                stage = self.level_stages[stage_idx]
+                wps = stage.setdefault("waypoints", [])
+                wps.append({
+                    "x": cur_x,
+                    "y": cur_y,
+                    "desc": f"Xuất phát vết (#{len(wps)+1})",
+                    "map": map_name,
+                    "time": time.strftime("%H:%M:%S")
+                })
+                self._refresh_stage_waypoints(stage_idx)
+
+            if 0 <= stage_idx < len(self.stage_tab_refs):
+                btn = self.stage_tab_refs[stage_idx].get("btn_trace_record")
+                if btn:
+                    btn.configure(text="⏹️ DỪNG GHI VẾT", fg_color="#ea580c", hover_color="#c2410c")
+
+            stage_name = self.level_stages[stage_idx].get("name", f"Mốc {stage_idx+1}")
+            self.log("==================================================")
+            self.log(f"🔴 [BẮT ĐẦU GHI VẾT ĐƯỜNG ĐỊ] Cho mốc '{stage_name}'")
+            self.log(f"   Hãy mở game và điều khiển nhân vật chạy từ điểm xuất phát tới bãi farm...")
+            self.log(f"   Mỗi khi nhân vật di chuyển 2 ô, ứng dụng sẽ tự động ghi 1 vết tọa độ!")
+            self.log("==================================================")
+            try:
+                if winsound:
+                    winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            except Exception:
+                pass
 
     def _delete_coord_from_stage(self, stage_idx: int, wp_idx: int):
         wps = self.level_stages[stage_idx].get("waypoints", [])
@@ -1744,37 +1874,39 @@ class MegNavigatorGUI(ctk.CTk):
             self._refresh_stage_waypoints(stage_idx)
 
     # --------------------------------------------------------------------------
-    # F5 Hotkey Global Listener
+    # F8 Hotkey Global Listener
     # --------------------------------------------------------------------------
-    def _start_f5_hotkey_listener(self):
-        """Lắng nghe phím nóng F5 toàn màn hình bằng Win32 GetAsyncKeyState"""
+    def _start_f8_hotkey_listener(self):
+        """Lắng nghe phím nóng F8 toàn màn hình bằng Win32 GetAsyncKeyState"""
         def listener():
             import ctypes
             user32 = ctypes.windll.user32
-            VK_F5 = 0x74
+            VK_F8 = 0x77
+            self.log("[⌨️ PHÍM NÓNG F8] Luồng lắng nghe phím F8 toàn màn hình đã được kích hoạt!")
             while not self.hotkey_stop_event.is_set():
                 time.sleep(0.05)
                 if not self.hotkey_enabled:
                     continue
                 try:
-                    state = user32.GetAsyncKeyState(VK_F5)
+                    state = user32.GetAsyncKeyState(VK_F8)
                     if state & 0x8000:
                         now = time.time()
-                        if now - self.last_f5_time > 0.4:
-                            self.last_f5_time = now
-                            self.after(0, self._on_f5_hotkey_pressed)
+                        if now - self.last_f8_time > 0.4:
+                            self.last_f8_time = now
+                            self.log("[⌨️ PHÍM NÓNG F8] Đã phát hiện nút F8 được nhấn!")
+                            self.after(0, self._on_f8_hotkey_pressed)
                 except Exception:
                     pass
 
         threading.Thread(target=listener, daemon=True).start()
 
-    def _on_toggle_f5_hotkey(self):
-        self.hotkey_enabled = bool(self.sw_hotkey_f5.get())
+    def _on_toggle_f8_hotkey(self):
+        self.hotkey_enabled = bool(self.sw_hotkey_f8.get())
         st = "BẬT" if self.hotkey_enabled else "TẮT"
-        self.log(f"[⌨️ PHÍM NÓNG] Đã {st} phím tắt F5 toàn màn hình.")
+        self.log(f"[⌨️ PHÍM NÓNG] Đã {st} phím tắt F8 toàn màn hình.")
 
-    def _on_f5_hotkey_pressed(self):
-        """Kích hoạt khi người dùng nhấn F5 ở bất kỳ cửa sổ nào trong game"""
+    def _on_f8_hotkey_pressed(self):
+        """Kích hoạt khi người dùng nhấn F8 ở bất kỳ cửa sổ nào trong game"""
         self._capture_ram_coord_to_stage(self.current_stage_idx, from_hotkey=True)
 
     # --------------------------------------------------------------------------
@@ -1889,7 +2021,7 @@ class MegNavigatorGUI(ctk.CTk):
                     stop_event=self.stop_event,
                     progress_callback=prog_cb,
                     stride_interval=0.85,
-                    use_micro_sync=True
+                    use_micro_sync=False
                 )
                 self.after(0, lambda: self._on_nav_finished(True))
             except Exception as ex:
@@ -1961,13 +2093,13 @@ class MegNavigatorGUI(ctk.CTk):
                     nav.navigate_multi_points(
                         waypoints=wp_coords,
                         arrival_radius=1,
-                        intermediate_radius=2,
+                        intermediate_radius=1,
                         auto_attack_on_arrival=auto_att,
                         log_callback=self.log,
                         stop_event=self.stop_event,
                         progress_callback=prog_cb,
                         stride_interval=0.85,
-                        use_micro_sync=True
+                        use_micro_sync=False
                     )
                 else:
                     self.log("[ℹ️] Mốc này không có tọa độ trung gian.")
@@ -2169,13 +2301,13 @@ class MegNavigatorGUI(ctk.CTk):
                         nav.navigate_multi_points(
                             waypoints=wp_coords,
                             arrival_radius=1,
-                            intermediate_radius=2,
+                            intermediate_radius=1,
                             auto_attack_on_arrival=auto_att,
                             log_callback=self.log,
                             stop_event=self.stop_event,
                             progress_callback=stage_prog_cb,
                             stride_interval=0.85,
-                            use_micro_sync=True
+                            use_micro_sync=False
                         )
                     else:
                         self.log("[ℹ️] Mốc này không có tọa độ trung gian.")

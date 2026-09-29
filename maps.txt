@@ -23,10 +23,13 @@ Nixies Lake
 Deep Dungeon 1
 Swamp of Darkness
 Kubera Mine
-Davias 1
-Davias 2
-Davias 3
-Davias 4
+Devias
+Devias2
+Devias3
+Devias4
 aida1
 aida2
 dungeon
+dungeon2
+dungeon3
+

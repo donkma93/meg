@@ -1240,9 +1240,9 @@ def game_coord_to_screen_pixel(
     py = max(60, min(client_h - 80, py))
     return (px, py)
 
-def subdivide_path(start_x: int, start_y: int, end_x: int, end_y: int, max_step: int = 8) -> List[Tuple[int, int]]:
+def subdivide_path(start_x: int, start_y: int, end_x: int, end_y: int, max_step: int = 2) -> List[Tuple[int, int]]:
     """
-    Chia đoạn đường thành các bước ngắn thẳng hướng (<= max_step ô)
+    Chia đoạn đường thành các bước siêu ngắn thẳng hướng (<= max_step ô, mặc định 2 ô)
     """
     dx = end_x - start_x
     dy = end_y - start_y
@@ -1311,11 +1311,11 @@ class MegNavigator:
 
         _log(f"[⚔️ AUTO ATTACK] Đang gửi click bật Auto Đánh ngầm vào nút Play trên HUD (341, 88)...")
         
-        # 1. Click vị trí chuẩn xác trên thanh HUD (341, 88) bằng hook
+        # 1. Click vị trí chuẩn xác trên thanh HUD (341, 88) bằng hook hoặc pure background
         if self.hook and self.hook.is_ready:
             self.hook.send_click(self.hwnd, 341, 88, duration_ms=50)
         else:
-            BackgroundInputSimulator.micro_sync_click(self.hwnd, 341, 88, duration_ms=50)
+            BackgroundInputSimulator.pure_background_click(self.hwnd, 341, 88, duration_ms=50)
 
         # Chờ RAM cập nhật is_active == 1
         start_t = time.time()
@@ -1331,7 +1331,7 @@ class MegNavigator:
         if self.hook and self.hook.is_ready:
             self.hook.send_click(self.hwnd, 346, 88, duration_ms=60)
         else:
-            BackgroundInputSimulator.micro_sync_click(self.hwnd, 346, 88, duration_ms=60)
+            BackgroundInputSimulator.pure_background_click(self.hwnd, 346, 88, duration_ms=60)
 
         start_t = time.time()
         while time.time() - start_t < 1.0:
@@ -1341,9 +1341,9 @@ class MegNavigator:
                 _log(f"[⚔️ AUTO ATTACK] ✔ Đã bật Tự Động Đánh (MuHelper) thành công! RAM is_active=1.")
                 return True
 
-        # 3. Fallback Micro-Sync trực tiếp
-        _log(f"[⚔️ AUTO ATTACK] Thử dự phòng Micro-Sync click (341, 88)...")
-        BackgroundInputSimulator.micro_sync_click(self.hwnd, 341, 88, duration_ms=60)
+        # 3. Fallback pure background click trực tiếp
+        _log(f"[⚔️ AUTO ATTACK] Thử dự phòng Pure Background click (341, 88)...")
+        BackgroundInputSimulator.pure_background_click(self.hwnd, 341, 88, duration_ms=60)
 
         start_t = time.time()
         while time.time() - start_t < 1.0:
@@ -1383,7 +1383,7 @@ class MegNavigator:
         if self.hook and self.hook.is_ready:
             self.hook.send_click(self.hwnd, 341, 88, duration_ms=50)
         else:
-            BackgroundInputSimulator.micro_sync_click(self.hwnd, 341, 88, duration_ms=50)
+            BackgroundInputSimulator.pure_background_click(self.hwnd, 341, 88, duration_ms=50)
 
         start_t = time.time()
         while time.time() - start_t < 2.0:
@@ -1458,7 +1458,7 @@ class MegNavigator:
         stop_event=None,
         progress_callback=None,
         stride_interval: float = 0.85,
-        use_micro_sync: bool = True,
+        use_micro_sync: bool = False,
         auto_attack_on_arrival: bool = False
     ) -> bool:
         """
@@ -1572,21 +1572,30 @@ class MegNavigator:
                     _log(f"   [🚧 VẬT CẢN/GÓC KẸT] Đứng yên tại ({cur_x}, {cur_y}). Lách góc né {bypass_angle_offset:+0.0f}° để vượt cản...")
                     last_moved_time = now
 
-            # 3. Phát hiện đi xa hơn (lệch hướng)
-            if rem_dist > prev_dist + 2:
-                _log(f"   [🔄 ĐI XA HƠN] Khoảng cách tăng (+{rem_dist - prev_dist} ô)! Đang điều chỉnh góc quay 180°...")
-                bypass_angle_offset = (bypass_angle_offset + 180.0) % 360.0
-                prev_dist = rem_dist
 
-            # 4. Gửi click sải bước (stride click)
+
+            # 4. Gửi click sải bước (stride click) - Giới hạn siêu ngắn 1.5 ~ 2 ô sát chân nhân vật
             time_since_click = now - last_click_time
             need_immediate_click = (stuck_cycles > 0 and time_since_click >= 0.45)
 
             if time_since_click >= stride_interval or need_immediate_click:
+                max_step_dist = 1.8  # Bước click siêu ngắn (1.5-2 ô) sát chân nhân vật để không bị trôi lố
+                dx_full = target_x - cur_x
+                dy_full = target_y - cur_y
+                cheby_dist = max(abs(dx_full), abs(dy_full))
+
+                if cheby_dist > max_step_dist:
+                    scale = max_step_dist / cheby_dist
+                    step_target_x = int(round(cur_x + dx_full * scale))
+                    step_target_y = int(round(cur_y + dy_full * scale))
+                else:
+                    step_target_x = target_x
+                    step_target_y = target_y
+
                 eff_angle = (self.camera_angle_deg + bypass_angle_offset) % 360.0
                 px, py = game_coord_to_screen_pixel(
                     cur_x, cur_y,
-                    target_x, target_y,
+                    step_target_x, step_target_y,
                     self.client_w, self.client_h,
                     camera_angle_deg=eff_angle
                 )
@@ -1600,7 +1609,7 @@ class MegNavigator:
 
                 last_click_time = time.time()
                 cur_dir = get_direction_description(target_x - cur_x, target_y - cur_y)
-                _log(f"   [🏃 SPRINT NGẦM] ({cur_x}, {cur_y}) ➔ Đích ({target_x}, {target_y}) | Còn {rem_dist} ô [{cur_dir}]")
+                _log(f"   [🏃 SPRINT NGẦM (1.8 Ô)] ({cur_x}, {cur_y}) ➔ Bước ({step_target_x}, {step_target_y}) -> Đích ({target_x}, {target_y}) | Còn {rem_dist} ô [{cur_dir}]")
 
             time.sleep(0.12)
 
@@ -1630,7 +1639,7 @@ class MegNavigator:
         log_callback=None,
         stop_event=None,
         progress_callback=None,
-        use_micro_sync: bool = True,
+        use_micro_sync: bool = False,
         auto_attack_on_arrival: bool = False
     ) -> bool:
         """
@@ -1778,7 +1787,7 @@ class MegNavigator:
         log_callback=None,
         stop_event=None,
         progress_callback=None,
-        use_micro_sync: bool = True,
+        use_micro_sync: bool = False,
         auto_attack_on_arrival: bool = False
     ) -> bool:
         """
@@ -1830,9 +1839,9 @@ class MegNavigator:
                 progress_callback(1.0, 0, (cur_x, cur_y))
             return True
 
-        # Chia đường thành các mốc ngắn (mỗi mốc 6 ô)
-        waypoints = subdivide_path(cur_x, cur_y, target_x, target_y, max_step=6)
-        _log(f" ➔ Lộ trình gồm {len(waypoints)} mốc di chuyển (mỗi mốc ≤ 6 ô).")
+        # Chia đường thành các mốc ngắn sát chân (mỗi mốc ≤ 2 ô)
+        waypoints = subdivide_path(cur_x, cur_y, target_x, target_y, max_step=2)
+        _log(f" ➔ Lộ trình gồm {len(waypoints)} mốc di chuyển (mỗi mốc ≤ 2 ô).")
 
         start_nav_time = time.time()
         dynamic_angle_offset = 0.0
@@ -1928,14 +1937,7 @@ class MegNavigator:
                     if dist_delta < 0:
                         _log(f"   [RAM Live] ({cur_x}, {cur_y}) -> GẦN HƠN ({-dist_delta} ô) ✔ | Còn {remaining_to_final} ô")
                     elif dist_delta > 0:
-                        _log(f"   [🔄 ĐI XA HƠN] Khoảng cách tăng +{dist_delta} ô! Lập tức đảo ngược hướng 180°...")
-                        dynamic_angle_offset = (dynamic_angle_offset + 180.0) % 360.0
-                        eff_angle = (self.camera_angle_deg + dynamic_angle_offset) % 360.0
-                        px, py = game_coord_to_screen_pixel(cur_x, cur_y, step_x, step_y, self.client_w, self.client_h, eff_angle)
-                        if use_micro_sync:
-                            BackgroundInputSimulator.micro_sync_click(self.hwnd, px, py, duration_ms=30)
-                        else:
-                            BackgroundInputSimulator.pure_background_click(self.hwnd, px, py, duration_ms=70)
+                        _log(f"   [RAM Live] ({cur_x}, {cur_y}) -> Tọa độ biến đổi ({+dist_delta} ô) | Còn {remaining_to_final} ô")
 
                     last_pos = (cur_x, cur_y)
                     prev_dist_to_final = remaining_to_final
@@ -1971,13 +1973,13 @@ class MegNavigator:
         self,
         waypoints: List[Tuple[int, int]],
         arrival_radius: int = 1,
-        intermediate_radius: int = 2,
+        intermediate_radius: int = 1,
         auto_attack_on_arrival: bool = True,
         log_callback=None,
         stop_event=None,
         progress_callback=None,
         stride_interval: float = 0.85,
-        use_micro_sync: bool = True
+        use_micro_sync: bool = False
     ) -> bool:
         """
         ĐIỀU HƯỚNG THEO LỘ TRÌNH ĐA ĐIỂM / ĐIỂM TRUNG GIAN (Multi-Waypoint Route):
@@ -2022,18 +2024,38 @@ class MegNavigator:
             _log(f" • Auto Đánh: Sẽ tự động bật MuHelper khi hoàn tất mốc cuối cùng.")
         _log(f"========================================================")
 
+        # Tự động phân chia tất cả các chặng đường dài thành các mốc nhỏ sát chân (≤ 2 ô)
+        dense_waypoints = []
+        curr_p = (start_x, start_y)
+        for orig_idx, (wx, wy) in enumerate(waypoints, start=1):
+            sub_steps = subdivide_path(curr_p[0], curr_p[1], wx, wy, max_step=2)
+            is_orig_final = (orig_idx == total_pts)
+            for s_idx, (sx, sy) in enumerate(sub_steps, start=1):
+                is_sub_final = is_orig_final and (s_idx == len(sub_steps))
+                is_orig_target = (s_idx == len(sub_steps))
+                dense_waypoints.append({
+                    "x": sx,
+                    "y": sy,
+                    "is_sub_final": is_sub_final,
+                    "is_orig_target": is_orig_target,
+                    "orig_idx": orig_idx
+                })
+            curr_p = (wx, wy)
+
         dist_traveled = 0
 
-        for pt_idx, (wx, wy) in enumerate(waypoints, start=1):
+        for node in dense_waypoints:
             if stop_event and stop_event.is_set():
                 _log("[⏹] Đã dừng lộ trình theo yêu cầu của bạn.")
                 return False
 
-            is_final_point = (pt_idx == total_pts)
+            wx, wy = node["x"], node["y"]
+            is_final_point = node["is_sub_final"]
             req_radius = arrival_radius if is_final_point else intermediate_radius
-            point_desc = f"ĐÍCH CUỐI ({wx}, {wy})" if is_final_point else f"Mốc {pt_idx}/{total_pts} ({wx}, {wy})"
 
-            _log(f"\n👉 [LỘ TRÌNH: MỐC {pt_idx}/{total_pts}] Đang hướng tới {point_desc}...")
+            if node["is_orig_target"]:
+                point_desc = f"ĐÍCH CUỐI ({wx}, {wy})" if is_final_point else f"Mốc {node['orig_idx']}/{total_pts} ({wx}, {wy})"
+                _log(f"\n👉 [LỘ TRÌNH: MỐC {node['orig_idx']}/{total_pts}] Đang hướng tới {point_desc}...")
 
             curr_state = self.get_live_state()
             leg_start_x = curr_state[2] if (curr_state and curr_state[2] is not None) else wx
@@ -2044,17 +2066,17 @@ class MegNavigator:
                 if progress_callback:
                     done_dist = dist_traveled + (1.0 - (sub_rem / leg_total_dist)) * leg_total_dist
                     overall_prog = max(0.0, min(1.0, done_dist / total_route_dist))
-                    progress_callback(overall_prog, sub_rem, coord, pt_idx, total_pts)
+                    progress_callback(overall_prog, sub_rem, coord, node['orig_idx'], total_pts)
 
-            # Chỉ bật auto attack ở mốc cuối cùng
+            # Chỉ bật auto attack ở mốc cuối cùng toàn bộ lộ trình
             leg_auto_attack = auto_attack_on_arrival if is_final_point else False
 
-            # Sử dụng continuous sprint để chạy tới mốc này
+            # Sử dụng continuous sprint để chạy tới mốc micro-step 2-3 ô này
             success = self.navigate_continuous(
                 target_x=wx,
                 target_y=wy,
                 arrival_radius=req_radius,
-                log_callback=log_callback,
+                log_callback=log_callback if node["is_orig_target"] else None,
                 stop_event=stop_event,
                 progress_callback=leg_progress_cb,
                 stride_interval=stride_interval,
@@ -2065,14 +2087,15 @@ class MegNavigator:
             if not success:
                 if stop_event and stop_event.is_set():
                     return False
-                _log(f"[!] Không thể tiếp cận mốc {pt_idx}/{total_pts} ({wx}, {wy}). Lộ trình tạm dừng.")
+                _log(f"[!] Không thể tiếp cận mốc {node['orig_idx']}/{total_pts} ({wx}, {wy}). Lộ trình tạm dừng.")
                 return False
 
             dist_traveled += leg_total_dist
 
             if not is_final_point:
-                _log(f"[✔ ĐÃ QUA MỐC {pt_idx}/{total_pts} ({wx}, {wy})] Tiếp tục chạy mốc tiếp theo...")
-                time.sleep(0.15)
+                if node["is_orig_target"]:
+                    _log(f"[✔ ĐÃ QUA MỐC {node['orig_idx']}/{total_pts} ({wx}, {wy})] Tiếp tục chạy mốc tiếp theo...")
+                time.sleep(0.05)
             else:
                 _log(f"[🎉 HOÀN THÀNH TOÀN BỘ LỘ TRÌNH!] Đã tới đích cuối cùng ({wx}, {wy})!")
 
@@ -2080,7 +2103,7 @@ class MegNavigator:
 
 def toggle_auto_attack_via_sendmessage(hwnd: int) -> bool:
     """Tắt/Bật Auto Đánh (MuHelper) qua click nút HUD Play (341, 88) kết hợp phím Home (VK_HOME)"""
-    BackgroundInputSimulator.micro_sync_click(hwnd, 341, 88, duration_ms=50)
+    BackgroundInputSimulator.pure_background_click(hwnd, 341, 88, duration_ms=50)
     time.sleep(0.08)
     BackgroundInputSimulator.send_key(hwnd, 0x24, 0.05)
     return True

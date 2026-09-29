@@ -1,0 +1,78 @@
+{
+  "version": "2.0",
+  "updated_at": "2026-09-29 11:38:00",
+  "camera_angle": 0.0,
+  "hotkey_enabled": true,
+  "current_stage_idx": 0,
+  "stages": [
+    {
+      "map": "Lorencia",
+      "min_level": 1,
+      "max_level": 300,
+      "auto_attack": true,
+      "auto_warp": true,
+      "waypoints": [
+        {
+          "x": 128,
+          "y": 112,
+          "desc": "Mốc #1 (F8)",
+          "map": "Lorencia",
+          "time": "09:04:43"
+        },
+        {
+          "x": 117,
+          "y": 119,
+          "desc": "Mốc #2 (F8)",
+          "map": "Lorencia",
+          "time": "09:04:48"
+        },
+        {
+          "x": 116,
+          "y": 128,
+          "desc": "Mốc #3 (F8)",
+          "map": "Lorencia",
+          "time": "09:04:51"
+        },
+        {
+          "x": 70,
+          "y": 144,
+          "desc": "Mốc #4 (F8)",
+          "map": "Lorencia",
+          "time": "09:05:07"
+        }
+      ]
+    },
+    {
+      "map": "dungeon",
+      "min_level": 30,
+      "max_level": 100,
+      "auto_attack": true,
+      "auto_warp": true,
+      "waypoints": [
+        {
+          "x": 84,
+          "y": 212,
+          "desc": "Mốc #1 (F8)",
+          "map": "Dungeon",
+          "time": "09:07:22"
+        }
+      ]
+    },
+    {
+      "map": "Arena",
+      "min_level": 100,
+      "max_level": 159,
+      "auto_attack": true,
+      "auto_warp": true,
+      "waypoints": [
+        {
+          "x": 48,
+          "y": 38,
+          "desc": "Mốc #1 (F8)",
+          "map": "Arena",
+          "time": "09:07:58"
+        }
+      ]
+    }
+  ]
+}
