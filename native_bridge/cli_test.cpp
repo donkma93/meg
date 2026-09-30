@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
         std::cout << "[✓] Mã định danh máy tính (HWID): " << hwid << std::endl;
     }
 
-    std::string serverUrl = "http://127.0.0.1:8000";
+    std::string serverUrl = "https://megamuoffical.com";
 
     if (argc >= 2) {
         std::string cmd = argv[1];

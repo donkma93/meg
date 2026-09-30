@@ -17,12 +17,33 @@ try:
     import urllib.error
 except ImportError:
     pass
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
 
-BASE_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = BASE_DIR / "config"
 LICENSE_FILE = CONFIG_DIR / "license.json"
 BRIDGE_DLL_FILE = BASE_DIR / "meg_license_bridge.dll"
-DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
+# Fallback check for DLL if in _MEIPASS or _internal
+if not BRIDGE_DLL_FILE.exists():
+    _meipass = getattr(sys, "_MEIPASS", None)
+    if _meipass and (Path(_meipass) / "meg_license_bridge.dll").exists():
+        BRIDGE_DLL_FILE = Path(_meipass) / "meg_license_bridge.dll"
+    elif (BASE_DIR / "_internal" / "meg_license_bridge.dll").exists():
+        BRIDGE_DLL_FILE = BASE_DIR / "_internal" / "meg_license_bridge.dll"
+
+DEFAULT_SERVER_URL = "https://megamuoffical.com"
+
+def _get_ssl_context():
+    try:
+        import ssl
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    except Exception:
+        return None
 
 _native_bridge = None
 
@@ -202,7 +223,8 @@ def activate_license(license_key: str, server_url: str = DEFAULT_SERVER_URL) -> 
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=5) as response:
+        ssl_ctx = _get_ssl_context()
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=8) as response:
             res_body = response.read().decode("utf-8")
             data = json.loads(res_body)
             if data.get("success"):
@@ -231,7 +253,9 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
     if not key:
         return False, "Chưa nhập key bản quyền.", {}
 
-    srv = lic_data.get("server_url", server_url)
+    srv = lic_data.get("server_url", server_url) or server_url
+    if "127.0.0.1" in srv or "localhost" in srv:
+        srv = DEFAULT_SERVER_URL
 
     bridge = _get_native_bridge()
     if bridge:
@@ -246,6 +270,7 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
                 data = json.loads(res_str)
                 if data.get("valid"):
                     lic_data.update(data)
+                    lic_data["server_url"] = srv
                     save_license_data(lic_data)
                     return True, "Bản quyền hợp lệ.", lic_data
                 else:
@@ -273,11 +298,13 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=4) as response:
+        ssl_ctx = _get_ssl_context()
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=6) as response:
             res_body = response.read().decode("utf-8")
             data = json.loads(res_body)
             if data.get("valid"):
                 lic_data.update(data)
+                lic_data["server_url"] = srv
                 save_license_data(lic_data)
                 return True, "Bản quyền hợp lệ.", lic_data
             else:
@@ -355,4 +382,38 @@ def get_license_display_text() -> str:
 
     exp_date = str(exp).split(" ")[0] if exp else "--"
     return f"{plan} (Hạn: {exp_date})"
+
+def get_secure_game_offsets() -> Dict[str, Any]:
+    """
+    Trích xuất Game Offsets được giải mã an toàn trong RAM từ Native C++ Bridge.
+    Hoàn toàn không cần để file megamu_offsets.json lộ ngoài đĩa.
+    """
+    bridge = _get_native_bridge()
+    if not bridge:
+        return {}
+
+    try:
+        # Nếu chưa authenticated, thử xác thực offline qua signature đã lưu trong license.json
+        if not bridge.Bridge_IsAuthenticated():
+            lic = load_license_data()
+            k = lic.get("license_key", "")
+            sig = lic.get("signature", "")
+            if k and sig:
+                bridge.Bridge_VerifyOfflineSignature.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+                bridge.Bridge_VerifyOfflineSignature.restype = ctypes.c_int
+                bridge.Bridge_VerifyOfflineSignature(k.encode("utf-8"), sig.encode("utf-8"))
+
+        bridge.Bridge_GetGameOffsets.argtypes = [ctypes.c_char_p, ctypes.c_int]
+        bridge.Bridge_GetGameOffsets.restype = ctypes.c_int
+        buf = ctypes.create_string_buffer(4096)
+        if bridge.Bridge_GetGameOffsets(buf, 4096) == 1:
+            raw = buf.value.decode("utf-8", errors="ignore")
+            if raw and raw.startswith("{"):
+                data = json.loads(raw)
+                if isinstance(data, dict) and data.get("move_to"):
+                    return data
+    except Exception as e:
+        print(f"[LicenseClient] Lỗi trích xuất Native Offsets: {e}", flush=True)
+
+    return {}
 

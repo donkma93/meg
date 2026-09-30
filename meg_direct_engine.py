@@ -37,21 +37,21 @@ def _safe_log(msg: str):
 
 DEFAULT_OFFSETS = {
     "game_module": "GameAssembly.dll",
-    "get_player": "0x12310D0",
-    "move_to": "0xD72750",
-    "chat_send": "0x14B9250",
-    "chat_update": "0x14B6AF0",
-    "helper_start": "0x2A3B580",
-    "helper_stop": "0x2A3C660",
-    "player_name": "0x28",
-    "player_level": "0x30",
-    "player_class": "0x34",
-    "player_coord": "0x68",
-    "player_move": "0xF0",
-    "player_helper": "0x1E8",
-    "player_last_coord": "0x4E0",
-    "move_flag": "0x3C",
-    "helper_state": "0x20",
+    "get_player": "",
+    "move_to": "",
+    "chat_send": "",
+    "chat_update": "",
+    "helper_start": "",
+    "helper_stop": "",
+    "player_name": "",
+    "player_level": "",
+    "player_class": "",
+    "player_coord": "",
+    "player_move": "",
+    "player_helper": "",
+    "player_last_coord": "",
+    "move_flag": "",
+    "helper_state": "",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -444,8 +444,20 @@ class MegDirectEngine:
             _safe_log(f"[MegDirectEngine] Lỗi trích xuất Native Offsets: {e}")
 
         # 2. Fallback đọc file config cục bộ nếu C++ bridge chưa nạp
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        for p in [os.path.join(base_dir, "config", "megamu_offsets.json"), os.path.join(base_dir, "megamu_offsets.json")]:
+        if getattr(sys, "frozen", False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        candidate_paths = [
+            os.path.join(base_dir, "config", "megamu_offsets.json"),
+            os.path.join(base_dir, "megamu_offsets.json"),
+        ]
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidate_paths.append(os.path.join(meipass, "config", "megamu_offsets.json"))
+            candidate_paths.append(os.path.join(meipass, "megamu_offsets.json"))
+
+        for p in candidate_paths:
             if os.path.exists(p):
                 try:
                     with open(p, "r", encoding="utf-8") as f:

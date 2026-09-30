@@ -31,9 +31,10 @@ static std::string g_customServerUrl = "";
 // 1. MÃ HÓA XOR CHUỖI NHẠY CẢM (URL VÀ SECRET TOKEN)
 // ==============================================================================
 
-// URL mặc định: "http://127.0.0.1:8000" (XOR key: 0x5C)
+// URL mặc định: "https://megamuoffical.com" (XOR key: 0x5C)
 static const unsigned char ENC_DEFAULT_URL[] = {
-    0x34, 0x28, 0x28, 0x2C, 0x66, 0x73, 0x73, 0x6D, 0x6E, 0x6B, 0x72, 0x6C, 0x72, 0x6C, 0x72, 0x6D, 0x66, 0x64, 0x6C, 0x6C, 0x6C, 0x00
+    0x34, 0x28, 0x28, 0x2C, 0x2F, 0x66, 0x73, 0x73, 0x31, 0x39, 0x3B, 0x3D, 0x31, 0x29, 0x33, 0x3A,
+    0x3A, 0x35, 0x3F, 0x3D, 0x30, 0x72, 0x3F, 0x33, 0x31, 0x00
 };
 static const unsigned char XOR_KEY_URL = 0x5C;
 
@@ -430,6 +431,14 @@ static bool HttpPostJson(const std::string& fullUrl, const std::string& jsonPayl
         return false;
     }
 
+    if (parsed.isHttps) {
+        DWORD dwSecurityFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
+                                SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                                SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                                SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+        WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwSecurityFlags, sizeof(dwSecurityFlags));
+    }
+
     LPCWSTR headers = L"Content-Type: application/json\r\nAccept: application/json\r\n";
     DWORD headersLen = (DWORD)wcslen(headers);
 
@@ -668,6 +677,26 @@ BRIDGE_API int Bridge_VerifyLicense(
 
     strncpy_s(outJson, maxLen, response.c_str(), _TRUNCATE);
     return g_isLicenseAuthenticated ? 1 : 0;
+}
+
+// Xác thực chữ ký số Offline trực tiếp từ file license local (HMAC-SHA256 theo HWID)
+BRIDGE_API int Bridge_VerifyOfflineSignature(const char* licenseKey, const char* signature) {
+    if (!licenseKey || !signature || !licenseKey[0] || !signature[0]) return 0;
+    if (CheckDebuggerPresent()) {
+        g_isLicenseAuthenticated = false;
+        return 0;
+    }
+    char hwidBuf[64] = { 0 };
+    Bridge_GetHwid(hwidBuf, sizeof(hwidBuf));
+    std::string secretSalt = GetDecryptedSecretSalt();
+    std::string expectedPayload = ToUpperStr(licenseKey) + "|" + ToUpperStr(hwidBuf) + "|active";
+    std::string expectedSig = NativeCrypto::ComputeHmacSha256(expectedPayload, secretSalt);
+
+    if (!expectedSig.empty() && _stricmp(signature, expectedSig.c_str()) == 0) {
+        g_isLicenseAuthenticated = true;
+        return 1;
+    }
+    return 0;
 }
 
 // Giải mã Game Offsets - CHỈ CẤP KHI BẢN QUYỀN ĐÃ XÁC THỰC MẬT MÃ THÀNH CÔNG
