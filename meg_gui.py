@@ -57,12 +57,26 @@ APP_NAME = "MEGAMU Auto Train Dashboard"
 APP_VERSION = "v1.5.1"
 MAX_SLOTS = 10
 
-BASE_DIR = Path(__file__).resolve().parent
+def app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+def resource_path(name: str) -> Path:
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", sys.executable)).resolve()
+        p = base / name
+        if p.exists():
+            return p
+        return Path(sys.executable).resolve().parent / name
+    return Path(__file__).resolve().parent / name
+
+BASE_DIR = app_dir()
 CONFIG_DIR = BASE_DIR / "config"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-LOGO_FILE = BASE_DIR / "megamu_dashboard_logo.png"
-ICON_FILE = BASE_DIR / "megamu_dashboard_icon.ico"
+LOGO_FILE = resource_path("megamu_dashboard_logo.png")
+ICON_FILE = resource_path("megamu_dashboard_icon.ico")
 
 PROFILE_FILE = CONFIG_DIR / "autotrain_profiles.json"
 DEFAULT_CONFIG_FILE = CONFIG_DIR / "autotrain_megamu_config.json"
