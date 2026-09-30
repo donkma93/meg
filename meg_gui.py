@@ -659,12 +659,16 @@ class DashboardApp(ctk.CTk):
         self.minsize(980, 640)
         self.configure(fg_color="#18181b")
 
-        # Đặt Icon
-        if ICON_FILE.exists():
-            try:
-                self.iconbitmap(str(ICON_FILE))
-            except Exception:
-                pass
+        # Đặt App ID cho Windows để hiển thị icon DAuto trên Taskbar thay vì icon Python
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("dauto.megamu.dashboard.v1")
+        except Exception:
+            pass
+
+        # Đặt Icon cho cửa sổ và Taskbar
+        self._apply_window_icon()
+        self.after(250, self._apply_window_icon)
 
         # Quản lý danh sách Map
         self.map_resolver = MapResolver.get_instance() if MapResolver else None
@@ -739,7 +743,11 @@ class DashboardApp(ctk.CTk):
         if LOGO_FILE.exists():
             try:
                 logo_img = Image.open(str(LOGO_FILE))
-                self.logo_ctk = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=(38, 38))
+                lw, lh = logo_img.size
+                aspect = lw / max(1, lh)
+                target_h = 44
+                target_w = int(target_h * aspect)
+                self.logo_ctk = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=(target_w, target_h))
                 logo_label = ctk.CTkLabel(left_box, image=self.logo_ctk, text="")
                 logo_label.pack(side="left", padx=(0, 10))
             except Exception:
@@ -1890,6 +1898,25 @@ class DashboardApp(ctk.CTk):
         metric_str = f"PID RPC Lanes | AVG 0.4 ms | P95 1.1 ms | Active {num_auto}/{num_conn} | Q 0 | STATE MAX 0.6 ms"
         self.metrics_lbl.configure(text=metric_str)
 
+    def _apply_window_icon(self):
+        """Áp dụng icon DAuto cho cửa sổ và thanh Taskbar Windows."""
+        if ICON_FILE.exists():
+            try:
+                self.iconbitmap(str(ICON_FILE))
+            except Exception:
+                pass
+            try:
+                self.wm_iconbitmap(str(ICON_FILE))
+            except Exception:
+                pass
+            try:
+                from PIL import ImageTk
+                _ico_img = Image.open(str(ICON_FILE))
+                self._tk_icon = ImageTk.PhotoImage(_ico_img)
+                self.iconphoto(False, self._tk_icon)
+            except Exception:
+                pass
+
     def on_closing(self):
         self.running = False
         self.stop_all()
@@ -1904,6 +1931,11 @@ class DashboardApp(ctk.CTk):
 
 # ==============================================================================
 def main():
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("dauto.megamu.dashboard.v1")
+    except Exception:
+        pass
     try:
         app = DashboardApp()
         app.mainloop()

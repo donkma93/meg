@@ -85,10 +85,10 @@
                     },
                     {
                         "min_level": 160,
-                        "max_level": 399,
+                        "max_level": 1100,
                         "map_name": "Tarkan 2",
-                        "x": 135,
-                        "y": 150
+                        "x": 134,
+                        "y": 158
                     }
                 ],
                 "poll_interval": 0.55,
