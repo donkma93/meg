@@ -8,7 +8,7 @@
     {
       "map": "Lorencia",
       "min_level": 1,
-      "max_level": 300,
+      "max_level": 400,
       "auto_attack": true,
       "auto_warp": true,
       "waypoints": [

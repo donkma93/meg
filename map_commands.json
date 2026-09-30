@@ -1,0 +1,530 @@
+{
+  "maps": [
+    {
+      "name": "Lorencia",
+      "command": "lorencia",
+      "aliases": [
+        "lorencia"
+      ],
+      "map_id": 0
+    },
+    {
+      "name": "Noria",
+      "command": "noria",
+      "aliases": [
+        "noria"
+      ],
+      "map_id": 3
+    },
+    {
+      "name": "Elbeland",
+      "command": "elbeland",
+      "aliases": [
+        "elbeland",
+        "elbeland1",
+        "elbeland 1"
+      ],
+      "map_id": 51
+    },
+    {
+      "name": "Elbeland 2",
+      "command": "elbeland2",
+      "aliases": [
+        "elbeland2",
+        "elbeland 2"
+      ],
+      "map_id": 51
+    },
+    {
+      "name": "Elbeland 3",
+      "command": "elbeland3",
+      "aliases": [
+        "elbeland3",
+        "elbeland 3"
+      ],
+      "map_id": 51
+    },
+    {
+      "name": "Devias",
+      "command": "devias",
+      "aliases": [
+        "devias",
+        "devias1",
+        "devias 1"
+      ],
+      "map_id": 2
+    },
+    {
+      "name": "Devias 2",
+      "command": "devias2",
+      "aliases": [
+        "devias2",
+        "devias 2"
+      ],
+      "map_id": 2
+    },
+    {
+      "name": "Devias 3",
+      "command": "devias3",
+      "aliases": [
+        "devias3",
+        "devias 3"
+      ],
+      "map_id": 2
+    },
+    {
+      "name": "Devias 4",
+      "command": "devias4",
+      "aliases": [
+        "devias4",
+        "devias 4"
+      ],
+      "map_id": 2
+    },
+    {
+      "name": "Dungeon",
+      "command": "dungeon",
+      "aliases": [
+        "dungeon",
+        "dungeon1",
+        "dungeon 1"
+      ],
+      "map_id": 1
+    },
+    {
+      "name": "Dungeon 2",
+      "command": "dungeon2",
+      "aliases": [
+        "dungeon2",
+        "dungeon 2"
+      ],
+      "map_id": 1
+    },
+    {
+      "name": "Dungeon 3",
+      "command": "dungeon3",
+      "aliases": [
+        "dungeon3",
+        "dungeon 3"
+      ],
+      "map_id": 1
+    },
+    {
+      "name": "Atlans",
+      "command": "atlans",
+      "aliases": [
+        "atlans",
+        "atlans1",
+        "atlans 1"
+      ],
+      "map_id": 7
+    },
+    {
+      "name": "Atlans 2",
+      "command": "atlans2",
+      "aliases": [
+        "atlans2",
+        "atlans 2"
+      ],
+      "map_id": 7
+    },
+    {
+      "name": "Atlans 3",
+      "command": "atlans3",
+      "aliases": [
+        "atlans3",
+        "atlans 3"
+      ],
+      "map_id": 7
+    },
+    {
+      "name": "Lost Tower",
+      "command": "losttower",
+      "aliases": [
+        "losttower",
+        "losttower1",
+        "lost tower",
+        "lost tower 1"
+      ],
+      "map_id": 4
+    },
+    {
+      "name": "Lost Tower 2",
+      "command": "losttower2",
+      "aliases": [
+        "losttower2",
+        "lost tower 2"
+      ],
+      "map_id": 4
+    },
+    {
+      "name": "Lost Tower 3",
+      "command": "losttower3",
+      "aliases": [
+        "losttower3",
+        "lost tower 3",
+        "LostTower3"
+      ],
+      "map_id": 4
+    },
+    {
+      "name": "Lost Tower 4",
+      "command": "losttower4",
+      "aliases": [
+        "losttower4",
+        "lost tower 4"
+      ],
+      "map_id": 4
+    },
+    {
+      "name": "Lost Tower 5",
+      "command": "losttower5",
+      "aliases": [
+        "losttower5",
+        "lost tower 5"
+      ],
+      "map_id": 4
+    },
+    {
+      "name": "Lost Tower 6",
+      "command": "losttower6",
+      "aliases": [
+        "losttower6",
+        "lost tower 6"
+      ],
+      "map_id": 4
+    },
+    {
+      "name": "Lost Tower 7",
+      "command": "losttower7",
+      "aliases": [
+        "losttower7",
+        "lost tower 7"
+      ],
+      "map_id": 4
+    },
+    {
+      "name": "Arena",
+      "command": "arena",
+      "aliases": [
+        "arena",
+        "stadium"
+      ],
+      "map_id": 6
+    },
+    {
+      "name": "Stadium",
+      "command": "stadium",
+      "aliases": [
+        "stadium"
+      ],
+      "map_id": 6
+    },
+    {
+      "name": "Acheron",
+      "command": "acheron",
+      "aliases": [
+        "acheron",
+        "acheron town"
+      ]
+    },
+    {
+      "name": "Tarkan",
+      "command": "tarkan",
+      "aliases": [
+        "tarkan",
+        "tarkan1",
+        "tarkan 1"
+      ],
+      "map_id": 8
+    },
+    {
+      "name": "Tarkan 2",
+      "command": "tarkan2",
+      "aliases": [
+        "tarkan2",
+        "tarkan 2"
+      ],
+      "map_id": 8
+    },
+    {
+      "name": "Aida 1",
+      "command": "aida1",
+      "aliases": [
+        "aida1",
+        "aida 1",
+        "aida"
+      ],
+      "prefix": "/m",
+      "map_id": 33
+    },
+    {
+      "name": "Aida 2",
+      "command": "aida2",
+      "aliases": [
+        "aida2",
+        "aida 2"
+      ],
+      "prefix": "/m",
+      "map_id": 33
+    },
+    {
+      "name": "Icarus",
+      "command": "icarus",
+      "aliases": [
+        "icarus"
+      ],
+      "map_id": 10
+    },
+    {
+      "name": "Kanturu",
+      "command": "kanturu",
+      "aliases": [
+        "kanturu",
+        "kanturu1",
+        "kanturu ruins",
+        "kanturu ruins 1",
+        "kantururuins1"
+      ],
+      "map_id": 37
+    },
+    {
+      "name": "Kanturu 2",
+      "command": "kanturu2",
+      "aliases": [
+        "kanturu2",
+        "kanturu ruins 2",
+        "kantururuins2"
+      ],
+      "map_id": 37
+    },
+    {
+      "name": "Kanturu 3",
+      "command": "kanturu3",
+      "aliases": [
+        "kanturu3",
+        "kanturu ruins 3",
+        "kantururuins3"
+      ],
+      "map_id": 37
+    },
+    {
+      "name": "Kanturu Relics",
+      "command": "kantururelics",
+      "aliases": [
+        "kanturu relics",
+        "kantururelics"
+      ],
+      "map_id": 38
+    },
+    {
+      "name": "Karutan",
+      "command": "karutan",
+      "aliases": [
+        "karutan",
+        "karutan1",
+        "karutan 1"
+      ],
+      "map_id": 80
+    },
+    {
+      "name": "Karutan 2",
+      "command": "karutan2",
+      "aliases": [
+        "karutan2",
+        "karutan 2"
+      ],
+      "map_id": 81
+    },
+    {
+      "name": "Crywolf",
+      "command": "crywolf",
+      "aliases": [
+        "crywolf"
+      ]
+    },
+    {
+      "name": "Vulcanus",
+      "command": "vulcanus",
+      "aliases": [
+        "vulcanus"
+      ],
+      "map_id": 63
+    },
+    {
+      "name": "Raklion",
+      "command": "raklion",
+      "aliases": [
+        "raklion"
+      ],
+      "map_id": 57
+    },
+    {
+      "name": "Ferea",
+      "command": "ferea",
+      "aliases": [
+        "ferea"
+      ],
+      "map_id": 112
+    },
+    {
+      "name": "Peace Swamp",
+      "command": "peaceswamp",
+      "aliases": [
+        "peace swamp",
+        "peaceswamp"
+      ]
+    },
+    {
+      "name": "Alkmar",
+      "command": "alkmar",
+      "aliases": [
+        "alkmar",
+        "alcmar",
+        "alcmaru"
+      ]
+    },
+    {
+      "name": "Abyss of Atlans 1",
+      "command": "Atlans Abyss 1",
+      "aliases": [
+        "abyss of atlans 1",
+        "atlans abyss 1"
+      ],
+      "map_id": 128
+    },
+    {
+      "name": "Abyss of Atlans 2",
+      "command": "Atlans Abyss 2",
+      "aliases": [
+        "abyss of atlans 2",
+        "atlans abyss 2"
+      ],
+      "map_id": 129
+    },
+    {
+      "name": "Abyss of Atlans 3",
+      "command": "Atlans Abyss 3",
+      "aliases": [
+        "abyss of atlans 3",
+        "atlans abyss 3"
+      ],
+      "map_id": 130
+    },
+    {
+      "name": "Debenter",
+      "command": "debenter",
+      "aliases": [
+        "debenter"
+      ]
+    },
+    {
+      "name": "Deep Dungeon 1",
+      "command": "Deep Dungeon 1",
+      "aliases": [
+        "deep dungeon 1"
+      ],
+      "map_id": 116
+    },
+    {
+      "name": "Deep Dungeon 2",
+      "command": "Deep Dungeon 2",
+      "aliases": [
+        "deep dungeon 2"
+      ],
+      "map_id": 117
+    },
+    {
+      "name": "Deep Dungeon 3",
+      "command": "Deep Dungeon 3",
+      "aliases": [
+        "deep dungeon 3"
+      ],
+      "map_id": 118
+    },
+    {
+      "name": "Deep Dungeon 4",
+      "command": "Deep Dungeon 4",
+      "aliases": [
+        "deep dungeon 4"
+      ],
+      "map_id": 119
+    },
+    {
+      "name": "Deep Dungeon 5",
+      "command": "Deep Dungeon 5",
+      "aliases": [
+        "deep dungeon 5"
+      ],
+      "map_id": 120
+    },
+    {
+      "name": "Kubera Mine",
+      "command": "Kubera Mine",
+      "aliases": [
+        "kubera mine"
+      ]
+    },
+    {
+      "name": "Loren Market",
+      "command": "lorenmarket",
+      "aliases": [
+        "loren market",
+        "lorenmarket",
+        "loren market 1"
+      ]
+    },
+    {
+      "name": "Loren Market 2",
+      "command": "lorenmarket2",
+      "aliases": [
+        "loren market 2",
+        "lorenmarket2"
+      ]
+    },
+    {
+      "name": "Loren Market 3",
+      "command": "lorenmarket3",
+      "aliases": [
+        "loren market 3",
+        "lorenmarket3"
+      ]
+    },
+    {
+      "name": "Nars",
+      "command": "nars",
+      "aliases": [
+        "nars"
+      ]
+    },
+    {
+      "name": "Nixies",
+      "command": "nixies",
+      "aliases": [
+        "nixies"
+      ]
+    },
+    {
+      "name": "Swamp of Darkness",
+      "command": "Swamp of Darkness",
+      "aliases": [
+        "swamp of darkness"
+      ],
+      "map_id": 122
+    },
+    {
+      "name": "Ubaid",
+      "command": "ubaid",
+      "aliases": [
+        "ubaid"
+      ]
+    },
+    {
+      "name": "Uruk",
+      "command": "uruk",
+      "aliases": [
+        "uruk"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+    "game_module": "GameAssembly.dll",
+    "get_player": "0x12310D0",
+    "move_to": "0xD72750",
+    "chat_send": "0x14B9250",
+    "chat_update": "0x14B6AF0",
+    "helper_start": "0x2A3B580",
+    "helper_stop": "0x2A3C660",
+    "player_name": "0x28",
+    "player_level": "0x30",
+    "player_class": "0x34",
+    "player_coord": "0x68",
+    "player_move": "0xF0",
+    "player_helper": "0x1E8",
+    "player_last_coord": "0x4E0",
+    "move_flag": "0x3C",
+    "helper_state": "0x20"
+}

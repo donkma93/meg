@@ -60,9 +60,9 @@ Add-Type @"
   }
 "@
 
-$py = "C:\Users\donpv\AppData\Local\Programs\Python\Python312\python.exe"
-$script = "C:\Users\donpv\OneDrive\Desktop\meg\meg_gui.py"
-$dir = "C:\Users\donpv\OneDrive\Desktop\meg"
+$py = (Get-Command python).Source
+$dir = $PSScriptRoot
+$script = Join-Path $dir "meg_gui.py"
 $cmd = "`"$py`" `"$script`""
 
 $procId = [DesktopProcessLauncher]::Start($cmd, $dir, "WinSta0\Default")

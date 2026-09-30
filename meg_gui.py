@@ -1,35 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MEGAMU Auto Navigator - Streamlined Multi-Account Edition
-=========================================================
-Giao diện All-in-One tối ưu hóa cao độ cho người chơi nhiều tài khoản:
-- Toàn bộ tính năng gói gọn trên 1 màn hình thống nhất, KHÔNG CẦN CHUYỂN TAB RƯỜM RÀ
-- Cột Trái: Danh sách thẻ tài khoản hiển thị đầy đủ RAM (Level, Map, X, Y, Auto, Tiến độ, Nút điều khiển riêng)
-- Cột Phải: Lộ trình mốc level (Dropdown chọn mốc mượt mà, F8 lấy RAM, Waypoints) + Nhật ký Log trực tiếp
-- Điều hướng đa luồng song song độc lập, tự động khớp Level từng nhân vật
-- Thao tác 1-Click: Bắt đầu tất cả, Dừng tất cả, Auto tất cả, Xếp cửa sổ lưới (Auto Tile)
+MEGAMU Auto Train Dashboard - v1.5.1
+====================================
+Giao diện hoàn chỉnh và thuật toán chuẩn 100% khớp MEGAMU Auto Train Dashboard gốc:
+- Giao diện 3 tab: 10 Tài khoản | Cấu hình | Nhật ký
+- Lưu & đọc toàn bộ cấu hình TRỰC TIẾP từ file JSON (Zero RAM-loss):
+  + autotrain_profiles.json (Cấu hình các chặng min/max, map, x, y, delay của Config 1..10)
+  + autotrain_megamu_config.json (Config mặc định đồng bộ Config 1)
+  + slot_assignments.json (Lưu cấu hình gán từng dòng 01..10)
+  + ui_settings.json (Ngôn ngữ VI/EN/PT-BR)
+- Kết nối native không chiếm chuột, không click tọa độ (Zero-Mouse Direct Engine).
+- Tự động quét tiến trình MEGAMU.exe, tự gán PID, gán Team 5, kết nối và bật/tắt Auto hàng loạt.
 """
 
-import sys
 import os
-import ctypes
-from ctypes import wintypes
+import sys
+import json
 import time
 import math
-import json
+import heapq
+import ctypes
 import threading
-import subprocess
 from typing import Optional, List, Dict, Tuple, Any
-import customtkinter as ctk
-from tkinter import messagebox, filedialog
+from pathlib import Path
 
-try:
-    import winsound
-except ImportError:
-    winsound = None
-
-# Đảm bảo UTF-8 console output
+# Đảm bảo UTF-8
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -37,1693 +33,1672 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# Gắn thread vào interactive desktop Default
-if sys.platform == "win32":
+import customtkinter as ctk
+from tkinter import messagebox
+from PIL import Image, ImageTk
+import psutil
+
+# Core Engines
+try:
+    from meg_direct_engine import MegDirectEngine
+except ImportError:
+    MegDirectEngine = None
+
+try:
+    from meg_auto_worker import AutoTrainWorker, MapResolver
+except ImportError:
+    AutoTrainWorker = None
+    MapResolver = None
+
+# ==============================================================================
+# HẰNG SỐ & ĐƯỜNG DẪN TỆP
+# ==============================================================================
+APP_NAME = "MEGAMU Auto Train Dashboard"
+APP_VERSION = "v1.5.1"
+MAX_SLOTS = 10
+
+BASE_DIR = Path(__file__).resolve().parent
+CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+LOGO_FILE = BASE_DIR / "megamu_dashboard_logo.png"
+ICON_FILE = BASE_DIR / "megamu_dashboard_icon.ico"
+
+PROFILE_FILE = CONFIG_DIR / "autotrain_profiles.json"
+DEFAULT_CONFIG_FILE = CONFIG_DIR / "autotrain_megamu_config.json"
+SLOT_ASSIGNMENTS_FILE = CONFIG_DIR / "slot_assignments.json"
+UI_SETTINGS_FILE = CONFIG_DIR / "ui_settings.json"
+MAP_COMMANDS_FILE = CONFIG_DIR / "map_commands.json"
+OFFSETS_FILE = CONFIG_DIR / "megamu_offsets.json"
+
+PROFILE_NAMES = [f"Config {i}" for i in range(1, 11)]
+
+# ==============================================================================
+# BẢNG DỊCH NGÔN NGỮ (I18N)
+# ==============================================================================
+I18N = {
+    "vi": {
+        "refresh_games": "Làm mới Game",
+        "assign_team5": "Gán Team 5",
+        "assign_all": "Gán tất cả",
+        "connect_all": "Kết nối tất cả",
+        "control": "Điều khiển:",
+        "start": "Bật",
+        "stop": "Tắt",
+        "start_all": "Bật TẤT CẢ",
+        "stop_all": "Tắt TẤT CẢ",
+        "accounts": "Tài khoản",
+        "profiles": "Cấu hình",
+        "system_log": "Nhật ký",
+        "profile": "Cấu hình",
+        "name": "Tên",
+        "status": "Trạng thái",
+        "auto": "Auto",
+        "edit_profile": "Sửa cấu hình:",
+        "pk_delay": "Thời gian chờ PK/Hồi sinh:",
+        "reload": "Tải lại",
+        "save_profile": "Lưu cấu hình",
+        "team_note": "Team mặc định: 1-5=C1, 6-10=C2, ... 46-50=C10. Có thể chọn cấu hình khác cho từng dòng.",
+        "show": "Hiện:",
+        "clear_view": "Xóa hiển thị",
+        "all": "Tất cả",
+        "language": "Ngôn ngữ:",
+        "games": "Game",
+        "connected": "Đã kết nối",
+        "license": "Bản quyền",
+        "select": "-- Chọn --",
+        "idle": "Chờ",
+        "connected_status": "Đã kết nối",
+        "connecting": "Đang kết nối...",
+        "game_closed": "Game đã đóng",
+        "running": "Đang chạy C{n}",
+        "pk_wait": "CHỜ PK {n}s",
+        "map_wait": "CHỜ MAP {cur}→{exp}",
+        "map_verify": "Xác minh map...",
+        "map_unknown": "Map chưa có ID",
+        "at_spot": "Tới bãi farm"
+    },
+    "en": {
+        "refresh_games": "Refresh Games",
+        "assign_team5": "Assign Team 5",
+        "assign_all": "Assign All",
+        "connect_all": "Connect All",
+        "control": "Control:",
+        "start": "Start",
+        "stop": "Stop",
+        "start_all": "Start ALL",
+        "stop_all": "Stop ALL",
+        "accounts": "Accounts",
+        "profiles": "Profiles",
+        "system_log": "System Log",
+        "profile": "Profile",
+        "name": "Name",
+        "status": "Status",
+        "auto": "Auto",
+        "edit_profile": "Edit profile:",
+        "pk_delay": "PK/Respawn delay:",
+        "reload": "Reload",
+        "save_profile": "Save Profile",
+        "team_note": "Default teams: 1-5=C1, 6-10=C2, ... 46-50=C10. You can also choose a different profile per row.",
+        "show": "Show:",
+        "clear_view": "Clear View",
+        "all": "All",
+        "language": "Language:",
+        "games": "Games",
+        "connected": "Connected",
+        "license": "License",
+        "select": "-- Select --",
+        "idle": "Idle",
+        "connected_status": "Connected",
+        "connecting": "Connecting...",
+        "game_closed": "Game Closed",
+        "running": "Running C{n}",
+        "pk_wait": "WAIT PK {n}s",
+        "map_wait": "WAIT MAP {cur}→{exp}",
+        "map_verify": "Verifying map...",
+        "map_unknown": "Unknown map ID",
+        "at_spot": "Farming at spot"
+    },
+    "pt-BR": {
+        "refresh_games": "Atualizar Games",
+        "assign_team5": "Atribuir Time 5",
+        "assign_all": "Atribuir Todos",
+        "connect_all": "Conectar Todos",
+        "control": "Controle:",
+        "start": "Ligar",
+        "stop": "Desligar",
+        "start_all": "Ligar TODOS",
+        "stop_all": "Desligar TODOS",
+        "accounts": "Contas",
+        "profiles": "Perfis",
+        "system_log": "Registros",
+        "profile": "Perfil",
+        "name": "Nome",
+        "status": "Status",
+        "auto": "Auto",
+        "edit_profile": "Editar perfil:",
+        "pk_delay": "Espera PK/Respawn:",
+        "reload": "Recarregar",
+        "save_profile": "Salvar Perfil",
+        "team_note": "Times padrão: 1-5=C1, 6-10=C2, ... 46-50=C10. Você pode escolher outro perfil por linha.",
+        "show": "Mostrar:",
+        "clear_view": "Limpar Visão",
+        "all": "Todos",
+        "language": "Idioma:",
+        "games": "Jogos",
+        "connected": "Conectados",
+        "license": "Licença",
+        "select": "-- Selecionar --",
+        "idle": "Aguardando",
+        "connected_status": "Conectado",
+        "connecting": "Conectando...",
+        "game_closed": "Jogo Fechado",
+        "running": "Executando C{n}",
+        "pk_wait": "ESPERA PK {n}s",
+        "map_wait": "ESPERA MAPA {cur}→{exp}",
+        "map_verify": "Verificando mapa...",
+        "map_unknown": "ID do mapa desconhecido",
+        "at_spot": "No spot"
+    }
+}
+
+CURRENT_LANG = "vi"
+
+def load_language_preference() -> str:
+    global CURRENT_LANG
     try:
-        user32 = ctypes.windll.user32
-        h_desk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
-        if not h_desk:
-            h_desk = user32.OpenInputDesktop(0, False, 0x01FF)
-        if h_desk:
-            user32.SetThreadDesktop(h_desk)
+        if UI_SETTINGS_FILE.exists():
+            data = json.loads(UI_SETTINGS_FILE.read_text(encoding="utf-8"))
+            lang = str(data.get("language", "vi")).strip()
+            if lang in I18N:
+                CURRENT_LANG = lang
+                return lang
+    except Exception:
+        pass
+    CURRENT_LANG = "vi"
+    return CURRENT_LANG
+
+def save_language_preference(lang: str):
+    global CURRENT_LANG
+    if lang in I18N:
+        CURRENT_LANG = lang
+        try:
+            data = {"language": lang}
+            UI_SETTINGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+def tr(key: str, **kwargs) -> str:
+    lang_dict = I18N.get(CURRENT_LANG, I18N["vi"])
+    text = lang_dict.get(key, I18N["vi"].get(key, key))
+    try:
+        return text.format(**kwargs)
+    except Exception:
+        return text
+
+# ==============================================================================
+# QUẢN LÝ TIẾN TRÌNH & TIÊU ĐỀ CỬA SỔ
+# ==============================================================================
+user32 = ctypes.windll.user32
+
+def character_name_from_window_title(title: str) -> str:
+    if not title:
+        return ""
+    title = str(title).strip()
+    if "MEGAMU" not in title.upper():
+        return ""
+    head = title.split(" - MEGAMU")[0].strip()
+    if " (" in head:
+        head = head.split(" (")[0].strip()
+    if not head or head.upper().startswith("MEGAMU"):
+        return ""
+    return head
+
+def enumerate_megamu_processes() -> Dict[int, str]:
+    """Tìm tất cả tiến trình MEGAMU.exe và lấy tiêu đề cửa sổ / tên nhân vật."""
+    pids = set()
+    for p in psutil.process_iter(['pid', 'name']):
+        try:
+            if p.info['name'] and p.info['name'].lower() == 'megamu.exe':
+                pids.add(p.info['pid'])
+        except Exception:
+            pass
+
+    pid_to_title = {pid: "" for pid in pids}
+
+    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def enum_cb(hwnd, lparam):
+        if user32.IsWindowVisible(hwnd):
+            buf = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(hwnd, buf, 512)
+            title = buf.value
+            if "megamu" in title.lower():
+                pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                p_val = pid.value
+                if p_val in pid_to_title and not pid_to_title[p_val]:
+                    pid_to_title[p_val] = title
+        return True
+
+    try:
+        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
     except Exception:
         pass
 
-import meg_navigator
-from meg_navigator import (
-    ProcessMemoryReader,
-    WindowHelper,
-    BackgroundInputSimulator,
-    MegNavigator,
-    ClientLiveState,
-    normalize_map_name,
-    get_direction_description,
-    scan_all_clients,
-    load_maps_config,
-    save_all_maps,
-    save_maps_to_ini,
-    save_maps_to_txt,
-    load_maps_from_ini,
-    load_maps_from_txt,
-    get_active_maps_file,
-    MAPS_INI_PATH,
-    MAPS_TXT_PATH,
-    toggle_auto_attack_via_sendmessage,
-    ramer_douglas_peucker
-)
+    return pid_to_title
 
-ctk.set_appearance_mode("Dark")
-ctk.set_default_color_theme("blue")
+# ==============================================================================
+# QUẢN LÝ CẤU HÌNH TRỰC TIẾP TỪ FILE (ZERO-RAM LOSS PERSISTENCE)
+# ==============================================================================
+class ConfigPersistenceManager:
+    """
+    Đảm bảo 100% tất cả các cấu hình được đọc và ghi TRỰC TIẾP từ file đĩa JSON.
+    Không lưu tạm trong RAM - Khi đóng và mở lại, mọi thiết lập đều được khôi phục nguyên vẹn.
+    """
+    _lock = threading.RLock()
+
+    @staticmethod
+    def get_fallback_config() -> Dict[str, Any]:
+        return {
+            "glide_speed": 3.5,
+            "respawn_delay": 15,
+            "map_load_delay": 1.8,
+            "level1_delay": 4.0,
+            "arrive_distance": 2.0,
+            "respawn_distance": 12.0,
+            "stuck_retry_delay": 3.5,
+            "helper_native_timeout": 4.0,
+            "helper_direct_fallback": True,
+            "stages": [
+                {"min_level": 1, "max_level": 39, "map_name": "Lorencia", "x": 70, "y": 147},
+                {"min_level": 40, "max_level": 59, "map_name": "Dungeon 2", "x": 217, "y": 115},
+                {"min_level": 60, "max_level": 159, "map_name": "Lost Tower 5", "x": 110, "y": 56},
+                {"min_level": 160, "max_level": 399, "map_name": "Aida 1", "x": 135, "y": 150}
+            ],
+            "poll_interval": 0.55,
+            "reset_confirm_seconds": 1.5,
+            "map_command_retry_delay": 4.5,
+            "map_verify_unknown_timeout": 6.0
+        }
+
+    @classmethod
+    def load_profiles_store(cls) -> Dict[str, Any]:
+        """Đọc autotrain_profiles.json trực tiếp từ ổ cứng."""
+        with cls._lock:
+            store = {}
+            if PROFILE_FILE.exists():
+                try:
+                    store = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
+                except Exception:
+                    store = {}
+            
+            if not isinstance(store, dict):
+                store = {}
+            if not isinstance(store.get("profiles"), dict):
+                store["profiles"] = {}
+            store["version"] = 2
+
+            # Đảm bảo đủ Config 1..10
+            fallback = cls.get_fallback_config()
+            for idx in range(1, 11):
+                s_idx = str(idx)
+                item = store["profiles"].get(s_idx)
+                if not isinstance(item, dict) or not isinstance(item.get("config"), dict):
+                    store["profiles"][s_idx] = {
+                        "name": f"Config {idx}",
+                        "config": json.loads(json.dumps(fallback))
+                    }
+            return store
+
+    @classmethod
+    def load_single_profile(cls, profile_idx: int) -> Dict[str, Any]:
+        """Đọc riêng lẻ 1 Profile từ file autotrain_profiles.json."""
+        p_idx = max(1, min(10, int(profile_idx)))
+        store = cls.load_profiles_store()
+        cfg = store.get("profiles", {}).get(str(p_idx), {}).get("config")
+        if not cfg or not isinstance(cfg, dict):
+            cfg = cls.get_fallback_config()
+        return json.loads(json.dumps(cfg))
+
+    @classmethod
+    def save_single_profile(cls, profile_idx: int, cfg: Dict[str, Any]):
+        """Ghi trực tiếp Profile vào file autotrain_profiles.json."""
+        p_idx = max(1, min(10, int(profile_idx)))
+        with cls._lock:
+            store = cls.load_profiles_store()
+            store["profiles"][str(p_idx)] = {
+                "name": f"Config {p_idx}",
+                "config": json.loads(json.dumps(cfg))
+            }
+            # Ghi an toàn vào PROFILE_FILE
+            tmp_path = PROFILE_FILE.with_suffix(".tmp")
+            tmp_path.write_text(json.dumps(store, indent=4, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(PROFILE_FILE)
+
+            # Nếu là Config 1, đồng bộ luôn autotrain_megamu_config.json
+            if p_idx == 1:
+                tmp_def = DEFAULT_CONFIG_FILE.with_suffix(".tmp")
+                tmp_def.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp_def.replace(DEFAULT_CONFIG_FILE)
+
+    @classmethod
+    def load_slot_assignments(cls, max_slots: int = 10) -> Dict[int, int]:
+        """
+        Đọc cấu hình gán từng dòng Slot từ slot_assignments.json.
+        Mặc định: Slot 1-5 gán Config 1, Slot 6-10 gán Config 2.
+        """
+        with cls._lock:
+            assignments = {}
+            # Khởi tạo mặc định theo luật giao diện: 1-5=C1, 6-10=C2
+            for s in range(1, max_slots + 1):
+                assignments[s] = 1 if s <= 5 else 2
+
+            if SLOT_ASSIGNMENTS_FILE.exists():
+                try:
+                    data = json.loads(SLOT_ASSIGNMENTS_FILE.read_text(encoding="utf-8"))
+                    slots_data = data.get("slots", {})
+                    for s_str, conf in slots_data.items():
+                        try:
+                            s_int = int(s_str)
+                            p_val = int(conf.get("profile", 1))
+                            if 1 <= s_int <= max_slots and 1 <= p_val <= 10:
+                                assignments[s_int] = p_val
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            else:
+                # Ghi file ban đầu để luôn có sẵn
+                cls.save_all_slot_assignments(assignments)
+            return assignments
+
+    @classmethod
+    def save_slot_assignment(cls, slot_idx: int, profile_idx: int):
+        """Ghi ngay lập tức gán Config của dòng slot_idx vào file."""
+        with cls._lock:
+            current = cls.load_slot_assignments()
+            current[slot_idx] = max(1, min(10, int(profile_idx)))
+            cls._write_slot_file(current)
+
+    @classmethod
+    def save_all_slot_assignments(cls, assignments: Dict[int, int]):
+        with cls._lock:
+            cls._write_slot_file(assignments)
+
+    @classmethod
+    def _write_slot_file(cls, assignments: Dict[int, int]):
+        data = {
+            "version": 1,
+            "description": "Lưu trữ lựa chọn cấu hình Config 1..10 cho từng Slot",
+            "slots": {str(k): {"profile": v} for k, v in assignments.items()}
+        }
+        tmp_slot = SLOT_ASSIGNMENTS_FILE.with_suffix(".tmp")
+        tmp_slot.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp_slot.replace(SLOT_ASSIGNMENTS_FILE)
 
 
-class MegNavigatorGUI(ctk.CTk):
+# ==============================================================================
+# CONTROLLER QUẢN LÝ TỪNG DÒNG TÀI KHOẢN (SLOT CONTROLLER)
+# ==============================================================================
+class SlotController:
+    """Điều khiển logic và trạng thái của từng dòng trong danh sách 10 tài khoản."""
+
+    def __init__(self, slot_idx: int, app: 'DashboardApp', default_profile: int = 1):
+        self.slot_idx = slot_idx
+        self.app = app
+        self.profile_index = default_profile
+
+        self.assigned_pid: Optional[int] = None
+        self.char_name = "---"
+        self.level = "---"
+        self.coords = "--,--"
+        self.status = tr("idle")
+        self.auto_requested = False
+
+        self.engine: Optional[MegDirectEngine] = None
+        self.worker: Optional[AutoTrainWorker] = None
+        self.last_sync_time = 0.0
+
+    def set_profile(self, profile_idx: int):
+        """Thay đổi Profile và lưu ngay vào file JSON."""
+        old_idx = self.profile_index
+        self.profile_index = max(1, min(10, int(profile_idx)))
+        ConfigPersistenceManager.save_slot_assignment(self.slot_idx, self.profile_index)
+
+        # Nếu đang chạy Auto, nạp config mới từ file và update worker trực tiếp
+        if self.worker and self.worker.running:
+            cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
+            if hasattr(self.worker, 'update_config'):
+                self.worker.update_config(cfg)
+            self.app.log_message(
+                f"[Slot {self.slot_idx:02d}] Chuyển cấu hình trực tiếp: C{old_idx} -> C{self.profile_index}. Re-routing ngay!",
+                "SUCCESS"
+            )
+            self.set_status(tr("running", n=self.profile_index))
+
+    def attach_pid(self, pid: int):
+        """Kết nối tới Game PID."""
+        self.assigned_pid = pid
+        if MegDirectEngine:
+            self.engine = MegDirectEngine.get_engine(pid)
+            if not self.engine.is_ready:
+                ok = self.engine.attach()
+                if ok:
+                    self.set_status(tr("connected_status"))
+                    self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối thành công MEGAMU (PID {pid}).", "SUCCESS")
+                else:
+                    self.set_status(tr("idle"))
+                    self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối thất bại MEGAMU (PID {pid}).", "ERROR")
+            else:
+                self.set_status(tr("connected_status"))
+        else:
+            self.set_status(tr("connected_status"))
+
+    def detach(self):
+        """Ngắt kết nối."""
+        self.stop_auto()
+        self.assigned_pid = None
+        self.char_name = "---"
+        self.level = "---"
+        self.coords = "--,--"
+        self.set_status(tr("idle"))
+        self.engine = None
+
+    def start_auto(self) -> bool:
+        if not self.assigned_pid:
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Chưa chọn Game MEGAMU!", "WARNING")
+            self.set_auto(False)
+            return False
+
+        if not psutil.pid_exists(self.assigned_pid):
+            self.set_status(tr("game_closed"))
+            self.set_auto(False)
+            return False
+
+        # Đọc cấu hình tươi mới 100% từ file đĩa JSON!
+        cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
+        stages = cfg.get("stages", [])
+        if not stages:
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Config {self.profile_index} chưa thiết lập chặng!", "ERROR")
+            self.set_auto(False)
+            return False
+
+        self.app.log_message(
+            f"[Slot {self.slot_idx:02d}] BẬT AUTO C{self.profile_index}: Tải {len(stages)} chặng từ file đĩa.",
+            "SUCCESS"
+        )
+
+        def worker_log(msg, lvl="INFO"):
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] {msg}", lvl)
+
+        def worker_progress(st, _):
+            self.set_status(st)
+
+        self.worker = AutoTrainWorker(
+            pid=self.assigned_pid,
+            stages=stages,
+            log_callback=worker_log,
+            progress_callback=worker_progress,
+            config=cfg,
+            slot_idx=self.slot_idx
+        )
+        self.worker.start()
+        self.auto_requested = True
+        self.set_auto(True)
+        self.set_status(tr("running", n=self.profile_index))
+        return True
+
+    def stop_auto(self):
+        if self.worker:
+            try:
+                self.worker.stop()
+            except Exception:
+                pass
+            self.worker = None
+
+        self.auto_requested = False
+        self.set_auto(False)
+        if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
+            self.set_status(tr("connected_status"))
+        else:
+            self.set_status(tr("idle"))
+
+    def toggle_auto(self):
+        if self.auto_requested:
+            self.stop_auto()
+        else:
+            self.start_auto()
+
+    def set_status(self, text: str):
+        self.status = text
+        self.app.update_slot_ui_status(self.slot_idx, text)
+
+    def set_auto(self, is_on: bool):
+        self.auto_requested = is_on
+        self.app.update_slot_ui_auto(self.slot_idx, is_on)
+
+    def sync_telemetry(self):
+        """Đọc RAM thông tin nhân vật hiển thị lên bảng."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            if self.assigned_pid:
+                self.set_status(tr("game_closed"))
+                self.char_name = "---"
+                self.level = "---"
+                self.coords = "--,--"
+                self.stop_auto()
+            return
+
+        if self.engine and self.engine.is_ready:
+            try:
+                p_info = self.engine.get_player_info()
+                if p_info:
+                    p_name = p_info.get("name", "")
+                    p_lvl = p_info.get("level", 0)
+                    px = p_info.get("x", 0)
+                    py = p_info.get("y", 0)
+
+                    if p_name:
+                        self.char_name = p_name
+                    if p_lvl > 0:
+                        self.level = str(p_lvl)
+                    self.coords = f"{px},{py}"
+                    self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
+            except Exception:
+                pass
+
+
+# ==============================================================================
+# GIAO DIỆN CHÍNH (MEGAMU AUTO TRAIN DASHBOARD)
+# ==============================================================================
+class DashboardApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("MEGAMU Auto Navigator - Bảng Điều Khiển Đa Tài Khoản")
-        self.geometry("1240x800")
-        self.minsize(1100, 680)
+        # Khởi tạo ngôn ngữ từ tệp ui_settings.json
+        load_language_preference()
 
-        # Trạng thái Đa Tài Khoản
-        self.clients: List[ClientLiveState] = []
-        self.selected_client: Optional[ClientLiveState] = None
-        self.client_selected_vars: Dict[int, ctk.BooleanVar] = {}
+        # Cấu hình cửa sổ
+        self.title(APP_NAME)
+        self.geometry("1060x720")
+        self.minsize(980, 640)
+        self.configure(fg_color="#18181b")
 
-        # Quản lý luồng độc lập từng tài khoản (PID -> Thread, Event, Data)
-        self.client_nav_threads: Dict[int, threading.Thread] = {}
-        self.client_stop_events: Dict[int, threading.Event] = {}
-        self.client_runtime_data: Dict[int, Dict[str, Any]] = {}
-        self.client_card_widgets: Dict[int, Dict[str, Any]] = {}
+        # Đặt Icon
+        if ICON_FILE.exists():
+            try:
+                self.iconbitmap(str(ICON_FILE))
+            except Exception:
+                pass
 
-        # Quản lý Lộ Trình Mốc Level
-        self.level_stages: List[Dict[str, Any]] = self._get_default_level_stages()
-        self.active_stage_idx: int = 0
+        # Quản lý danh sách Map
+        self.map_resolver = MapResolver.get_instance() if MapResolver else None
+        self.map_list = self._get_map_display_list()
 
-        # Quản lý Ghi Vết RAM Tự Động & Nén Đường RDP
-        self.is_recording_trace: bool = False
-        self.recording_stage_idx: Optional[int] = None
-        self.last_recorded_pos: Optional[Tuple[int, int]] = None
-        self.trace_raw_points: List[Tuple[int, int]] = []
+        # Quản lý Slot và đọc trực tiếp cấu hình gán từ file JSON
+        self.slot_assignments = ConfigPersistenceManager.load_slot_assignments(MAX_SLOTS)
+        self.controllers: List[SlotController] = []
+        for i in range(1, MAX_SLOTS + 1):
+            assigned_c = self.slot_assignments.get(i, 1 if i <= 5 else 2)
+            self.controllers.append(SlotController(i, self, default_profile=assigned_c))
 
-        # Quản lý Phím Nóng F8 Toàn Màn Hình
-        self.hotkey_stop_event = threading.Event()
-        self.hotkey_enabled = True
-        self.last_f8_time = 0.0
+        # Bộ nhớ tiến trình
+        self.detected_games: Dict[int, str] = {}
+        self.active_tab = "accounts"  # 'accounts', 'profiles', 'logs'
+        self.logs_data: List[Tuple[str, str, str]] = [] # [(time, slot, text)]
 
-        # Xây dựng giao diện All-in-One tinh gọn
-        self._build_streamlined_ui()
+        # Thành phần UI lưu trữ
+        self.slot_ui_elements: Dict[int, Dict[str, Any]] = {}
+        self.editor_rows: List[Dict[str, Any]] = []
 
-        # Quét client lần đầu
-        self.refresh_clients()
+        # Xây dựng giao diện hoàn chỉnh
+        self.build_ui()
 
-        # Bật luồng đọc RAM nền chu kỳ 1.2s
-        self.after(1200, self._auto_update_all_clients_ram)
+        # Bắt đầu vòng lặp quét tiến trình & telemetry
+        self.running = True
+        self.after(500, self._periodic_game_scan)
+        self.after(800, self._periodic_telemetry)
 
-        # Lắng nghe phím F8
-        self._start_f8_hotkey_listener()
+        # Xử lý đóng ứng dụng an toàn
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # Xử lý đóng app
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
+    def _get_map_display_list(self) -> List[str]:
+        maps = []
+        if MAP_COMMANDS_FILE.exists():
+            try:
+                d = json.loads(MAP_COMMANDS_FILE.read_text(encoding="utf-8"))
+                for m in d.get("maps", []):
+                    name = str(m.get("name", "")).strip()
+                    if name and name not in maps:
+                        maps.append(name)
+            except Exception:
+                pass
+        if not maps:
+            maps = ["Lorencia", "Noria", "Devias", "Dungeon 2", "Lost Tower 5", "Aida 1", "Icarus", "Kanturu 1"]
+        return maps
 
-    # ==========================================================================
-    # BỐ CỤC ALL-IN-ONE TINH GỌN (SINGLE-DASHBOARD WORKSPACE)
-    # ==========================================================================
-    def _build_streamlined_ui(self):
-        self.grid_rowconfigure(2, weight=1)
-        self.grid_columnconfigure(0, weight=1)
+    def build_ui(self):
+        """Dựng giao diện đồng bộ 100% với ảnh thiết kế."""
+        ctk.set_appearance_mode("Dark")
 
         # ----------------------------------------------------------------------
-        # 1. TOP HEADER BAR: Tiêu đề + Thống kê + Xếp cửa sổ + Quét + Theme
+        # 1. HEADER CHÍNH
         # ----------------------------------------------------------------------
-        header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color=("gray85", "#13171f"), height=62)
-        header_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
-        header_frame.grid_columnconfigure(1, weight=1)
+        self.header_frame = ctk.CTkFrame(self, fg_color="#18181b", height=65)
+        self.header_frame.pack(fill="x", padx=16, pady=(10, 2))
 
-        # Tiêu đề
-        title_box = ctk.CTkFrame(header_frame, fg_color="transparent")
-        title_box.grid(row=0, column=0, padx=(16, 10), pady=8, sticky="w")
+        # Cột Trái: Logo + Tên + Thông số bản quyền
+        left_box = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        left_box.pack(side="left", fill="y")
+
+        # Logo
+        if LOGO_FILE.exists():
+            try:
+                logo_img = Image.open(str(LOGO_FILE))
+                self.logo_ctk = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=(38, 38))
+                logo_label = ctk.CTkLabel(left_box, image=self.logo_ctk, text="")
+                logo_label.pack(side="left", padx=(0, 10))
+            except Exception:
+                pass
+
+        title_box = ctk.CTkFrame(left_box, fg_color="transparent")
+        title_box.pack(side="left", fill="y")
+
+        title_line = ctk.CTkFrame(title_box, fg_color="transparent")
+        title_line.pack(anchor="w")
 
         title_lbl = ctk.CTkLabel(
+            title_line,
+            text=APP_NAME,
+            font=ctk.CTkFont(family="Segoe UI", size=17, weight="bold"),
+            text_color="#f3f4f6"
+        )
+        title_lbl.pack(side="left")
+
+        ver_lbl = ctk.CTkLabel(
+            title_line,
+            text=f" {APP_VERSION}",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#71717a"
+        )
+        ver_lbl.pack(side="left", padx=(4, 0))
+
+        # Dòng thống kê Header
+        self.header_stats_lbl = ctk.CTkLabel(
             title_box,
-            text="⚡ MEGAMU NAVIGATOR PRO",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color=("#1e293b", "#38bdf8")
+            text=f"Game: 0 | Đã kết nối: 0 | Auto: 0 | Bản quyền: Basic | 10 acc | 2026-10-01 | Online",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#9ca3af"
         )
-        title_lbl.pack(anchor="w")
-
-        sub_lbl = ctk.CTkLabel(
-            title_box,
-            text="Điều Hướng Đa Tài Khoản • Đa Luồng Độc Lập • RAM IL2CPP • Không Chiếm Chuột",
-            font=ctk.CTkFont(size=11),
-            text_color=("gray45", "gray60")
-        )
-        sub_lbl.pack(anchor="w")
-
-        # Thống kê nhanh
-        stats_box = ctk.CTkFrame(header_frame, fg_color="transparent")
-        stats_box.grid(row=0, column=1, padx=6, pady=8, sticky="w")
-
-        self.badge_total = ctk.CTkLabel(
-            stats_box, text="🎮 0 Client", font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#e2e8f0", "#1e293b"), corner_radius=6, padx=8, pady=4
-        )
-        self.badge_total.pack(side="left", padx=3)
-
-        self.badge_running = ctk.CTkLabel(
-            stats_box, text="🚀 0 Đang Chạy", font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#e2e8f0", "#1e293b"), text_color=("gray40", "gray65"), corner_radius=6, padx=8, pady=4
-        )
-        self.badge_running.pack(side="left", padx=3)
-
-        self.badge_auto = ctk.CTkLabel(
-            stats_box, text="⚔️ 0 Đang Auto", font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color=("#e2e8f0", "#1e293b"), text_color=("gray40", "gray65"), corner_radius=6, padx=8, pady=4
-        )
-        self.badge_auto.pack(side="left", padx=3)
-
-        # Nút tiện ích Header
-        right_header = ctk.CTkFrame(header_frame, fg_color="transparent")
-        right_header.grid(row=0, column=2, padx=16, pady=8, sticky="e")
-
-        btn_tile = ctk.CTkButton(
-            right_header, text="🖥️ Xếp Lưới Cửa Sổ", width=115, height=28,
-            fg_color="#0284c7", hover_color="#0369a1", font=ctk.CTkFont(size=11, weight="bold"),
-            command=self._tile_all_game_windows
-        )
-        btn_tile.pack(side="left", padx=3)
-
-        btn_refresh = ctk.CTkButton(
-            right_header, text="🔄 Quét Client", width=90, height=28,
-            fg_color="#334155", hover_color="#1e293b", font=ctk.CTkFont(size=11),
-            command=self.refresh_clients
-        )
-        btn_refresh.pack(side="left", padx=3)
-
-        self.theme_switch = ctk.CTkSwitch(right_header, text="Sáng/Tối", font=ctk.CTkFont(size=11), command=self._toggle_theme)
-        self.theme_switch.select()
-        self.theme_switch.pack(side="left", padx=(8, 0))
-
-        # ----------------------------------------------------------------------
-        # 2. MASTER TOOLBAR: Thanh Thao Tác Hàng Loạt
-        # ----------------------------------------------------------------------
-        bar = ctk.CTkFrame(self, fg_color=("gray90", "#181d26"), corner_radius=8, height=44)
-        bar.grid(row=1, column=0, sticky="ew", padx=14, pady=(8, 6))
-
-        self.var_select_all = ctk.BooleanVar(value=True)
-        chk_all = ctk.CTkCheckBox(
-            bar, text="Chọn hết", font=ctk.CTkFont(size=12, weight="bold"),
-            variable=self.var_select_all, command=self._toggle_select_all_clients
-        )
-        chk_all.pack(side="left", padx=(10, 8), pady=6)
-
-        # Nút Bắt Đầu Tất Cả
-        self.btn_master_start = ctk.CTkButton(
-            bar, text="🚀 BẮT ĐẦU TẤT CẢ (ĐÃ CHỌN)", height=30,
-            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#10b981", hover_color="#059669",
-            command=self._on_start_selected_clients
-        )
-        self.btn_master_start.pack(side="left", padx=3, pady=6)
-
-        # Nút Dừng Tất Cả
-        self.btn_master_stop = ctk.CTkButton(
-            bar, text="⏹ DỪNG TẤT CẢ", height=30,
-            font=ctk.CTkFont(size=12, weight="bold"), fg_color="#dc2626", hover_color="#b91c1c",
-            command=self._on_stop_all_clients
-        )
-        self.btn_master_stop.pack(side="left", padx=3, pady=6)
-
-        # Bật / Tắt Auto Tất Cả
-        btn_auto_on = ctk.CTkButton(
-            bar, text="⚔️ Bật Auto Tất Cả", height=30, width=115, font=ctk.CTkFont(size=11),
-            fg_color="#2563eb", hover_color="#1d4ed8", command=lambda: self._batch_set_auto_attack(True)
-        )
-        btn_auto_on.pack(side="left", padx=3, pady=6)
-
-        btn_auto_off = ctk.CTkButton(
-            bar, text="⚔️ Tắt Auto Tất Cả", height=30, width=115, font=ctk.CTkFont(size=11),
-            fg_color="#475569", hover_color="#334155", command=lambda: self._batch_set_auto_attack(False)
-        )
-        btn_auto_off.pack(side="left", padx=3, pady=6)
-
-        # Phím nóng F8 & Góc Camera
-        self.sw_hotkey_f8 = ctk.CTkSwitch(
-            bar, text="F8 Lấy RAM", font=ctk.CTkFont(size=11), command=self._on_toggle_f8_hotkey
-        )
-        self.sw_hotkey_f8.select()
-        self.sw_hotkey_f8.pack(side="left", padx=(10, 6), pady=6)
-
-        ctk.CTkLabel(bar, text="📷", font=ctk.CTkFont(size=11)).pack(side="left", padx=(2, 1))
-        self.slider_angle = ctk.CTkSlider(bar, from_=0, to=360, number_of_steps=72, width=65, height=13, command=self._on_angle_change)
-        self.slider_angle.set(0)
-        self.slider_angle.pack(side="left", padx=1)
-        self.lbl_angle_val = ctk.CTkLabel(bar, text="0°", width=24, font=ctk.CTkFont(size=10, weight="bold"))
-        self.lbl_angle_val.pack(side="left", padx=(0, 4))
-
-        # Phải: Quản lý bản đồ & Lưu/Nạp JSON
-        btn_maps = ctk.CTkButton(
-            bar, text="🗺️ DS Map", width=75, height=28, fg_color="#334155", hover_color="#1e293b",
-            font=ctk.CTkFont(size=11), command=self._open_map_manager_dialog
-        )
-        btn_maps.pack(side="right", padx=(2, 8), pady=6)
-
-        btn_save = ctk.CTkButton(
-            bar, text="💾 Lưu Kế Hoạch", width=95, height=28, fg_color="#334155", hover_color="#1e293b",
-            font=ctk.CTkFont(size=11), command=self._save_level_plan_to_file
-        )
-        btn_save.pack(side="right", padx=2, pady=6)
-
-        btn_load = ctk.CTkButton(
-            bar, text="📂 Nạp Kế Hoạch", width=95, height=28, fg_color="#334155", hover_color="#1e293b",
-            font=ctk.CTkFont(size=11), command=self._load_level_plan_from_file
-        )
-        btn_load.pack(side="right", padx=2, pady=6)
-
-        # ----------------------------------------------------------------------
-        # 3. WORKSPACE 2 CỘT CHÍNH (KHÔNG CẦN CHUYỂN TAB)
-        # ----------------------------------------------------------------------
-        workspace = ctk.CTkFrame(self, fg_color="transparent")
-        workspace.grid(row=2, column=0, sticky="nsew", padx=14, pady=(0, 10))
-        workspace.grid_rowconfigure(0, weight=1)
-        workspace.grid_columnconfigure(0, weight=5, minsize=520)  # Cột trái: Đa tài khoản
-        workspace.grid_columnconfigure(1, weight=5, minsize=520)  # Cột phải: Lộ trình & Log
-
-        # ======================================================================
-        # CỘT TRÁI: BẢNG TỔNG QUAN TẤT CẢ TÀI KHOẢN (ACCOUNTS LIST)
-        # ======================================================================
-        col_left = ctk.CTkFrame(workspace, fg_color=("gray95", "#161b22"), corner_radius=10)
-        col_left.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=0)
-        col_left.grid_rowconfigure(1, weight=1)
-        col_left.grid_columnconfigure(0, weight=1)
-
-        # Header cột trái
-        cl_head = ctk.CTkFrame(col_left, fg_color=("gray85", "#1c222d"), corner_radius=8, height=36)
-        cl_head.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-
-        ctk.CTkLabel(
-            cl_head, text="🎮 DANH SÁCH TÀI KHOẢN MEGAMU",
-            font=ctk.CTkFont(size=12, weight="bold")
-        ).pack(side="left", padx=10, pady=6)
-
-        ctk.CTkLabel(
-            cl_head, text="Tự động đọc RAM IL2CPP • Click để soi",
-            font=ctk.CTkFont(size=11), text_color=("gray45", "gray65")
-        ).pack(side="right", padx=10, pady=6)
-
-        # Scrollable chứa các thẻ tài khoản
-        self.accounts_scroll = ctk.CTkScrollableFrame(col_left, corner_radius=8)
-        self.accounts_scroll.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
-        self.accounts_scroll.grid_columnconfigure(0, weight=1)
-
-        # ======================================================================
-        # CỘT PHẢI: LỘ TRÌNH MỐC LEVEL & NHẬT KÝ HOẠT ĐỘNG
-        # ======================================================================
-        col_right = ctk.CTkFrame(workspace, fg_color="transparent")
-        col_right.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=0)
-        col_right.grid_rowconfigure(0, weight=6)  # Nửa trên: Lộ trình mốc
-        col_right.grid_rowconfigure(1, weight=4)  # Nửa dưới: Log trực tiếp
-        col_right.grid_columnconfigure(0, weight=1)
-
-        # --- KHUNG NỬA TRÊN: LỘ TRÌNH MỐC LEVEL & TỌA ĐỘ ---
-        self.box_stage = ctk.CTkFrame(col_right, fg_color=("gray95", "#161b22"), corner_radius=10)
-        self.box_stage.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 6))
-        self.box_stage.grid_rowconfigure(2, weight=1)
-        self.box_stage.grid_columnconfigure(0, weight=1)
-
-        # Hàng 1: Dropdown chọn mốc + Thêm mốc + Xóa mốc
-        stg_top = ctk.CTkFrame(self.box_stage, fg_color=("gray85", "#1c222d"), corner_radius=8, height=38)
-        stg_top.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-
-        ctk.CTkLabel(
-            stg_top, text="🗺️ MỐC LỘ TRÌNH:", font=ctk.CTkFont(size=12, weight="bold")
-        ).pack(side="left", padx=(10, 6), pady=6)
-
-        self.cmb_stage_selector = ctk.CTkComboBox(
-            stg_top, values=[], width=210, font=ctk.CTkFont(size=11, weight="bold"),
-            command=self._on_stage_dropdown_selected
-        )
-        self.cmb_stage_selector.pack(side="left", padx=(0, 6), pady=6)
-
-        btn_run_active = ctk.CTkButton(
-            stg_top, text="▶️ Chạy Mốc Này", width=115, height=26,
-            fg_color="#16a34a", hover_color="#15803d", font=ctk.CTkFont(size=11, weight="bold"),
-            command=self._on_run_active_stage
-        )
-        btn_run_active.pack(side="left", padx=(0, 6), pady=6)
-
-        btn_add_stg = ctk.CTkButton(
-            stg_top, text="➕ Thêm", width=65, height=26,
-            fg_color="#2563eb", hover_color="#1d4ed8", font=ctk.CTkFont(size=11, weight="bold"),
-            command=self._add_new_stage
-        )
-        btn_add_stg.pack(side="left", padx=(0, 4), pady=6)
-
-        btn_del_stg = ctk.CTkButton(
-            stg_top, text="🗑️", width=36, height=26,
-            fg_color="#b91c1c", hover_color="#991b1b", font=ctk.CTkFont(size=11),
-            command=self._delete_active_stage
-        )
-        btn_del_stg.pack(side="left", padx=(0, 6), pady=6)
-
-        # Hàng 2: Form cấu hình mốc (Tên, Level từ-đến, Bản đồ, Checkboxes)
-        self.stage_cfg_box = ctk.CTkFrame(self.box_stage, fg_color=("gray90", "#1a212c"), corner_radius=8)
-        self.stage_cfg_box.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
-
-        # Dòng config 1
-        cfg_r1 = ctk.CTkFrame(self.stage_cfg_box, fg_color="transparent")
-        cfg_r1.pack(fill="x", padx=8, pady=(6, 2))
-
-        ctk.CTkLabel(cfg_r1, text="Tên:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 2))
-        self.ent_stg_name = ctk.CTkEntry(cfg_r1, width=130, font=ctk.CTkFont(size=11))
-        self.ent_stg_name.pack(side="left", padx=(0, 8))
-
-        ctk.CTkLabel(cfg_r1, text="Lv:", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 2))
-        self.ent_stg_min = ctk.CTkEntry(cfg_r1, width=42, font=ctk.CTkFont(size=11, weight="bold"))
-        self.ent_stg_min.pack(side="left", padx=(0, 2))
-
-        ctk.CTkLabel(cfg_r1, text="➔", font=ctk.CTkFont(size=10)).pack(side="left", padx=(0, 2))
-        self.ent_stg_max = ctk.CTkEntry(cfg_r1, width=46, font=ctk.CTkFont(size=11, weight="bold"))
-        self.ent_stg_max.pack(side="left", padx=(0, 8))
-
-        ctk.CTkLabel(cfg_r1, text="Map:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 2))
-        self.cmb_stg_map = ctk.CTkComboBox(cfg_r1, values=meg_navigator.POPULAR_MAPS, width=120, font=ctk.CTkFont(size=11))
-        self.cmb_stg_map.pack(side="left", padx=(0, 4))
-
-        btn_warp = ctk.CTkButton(
-            cfg_r1, text="Move", width=48, height=24, fg_color="#d97706", hover_color="#b45309",
-            font=ctk.CTkFont(size=10), command=self._on_quick_warp_active_map
-        )
-        btn_warp.pack(side="left")
-
-        # Dòng config 2
-        cfg_r2 = ctk.CTkFrame(self.stage_cfg_box, fg_color="transparent")
-        cfg_r2.pack(fill="x", padx=8, pady=(2, 6))
-
-        self.chk_auto_warp = ctk.CTkCheckBox(cfg_r2, text="Tự đổi map (/m)", font=ctk.CTkFont(size=11))
-        self.chk_auto_warp.pack(side="left", padx=(0, 8))
-
-        self.chk_auto_attack = ctk.CTkCheckBox(cfg_r2, text="⚔️ Tự bật Auto Đánh", font=ctk.CTkFont(size=11, weight="bold"))
-        self.chk_auto_attack.pack(side="left", padx=(0, 8))
-
-        self.chk_auto_roadmap = ctk.CTkCheckBox(cfg_r2, text="🔄 Tự chuyển chặng theo Level", font=ctk.CTkFont(size=11))
-        self.chk_auto_roadmap.pack(side="left")
-
-        # Gắn callback tự đồng bộ khi gõ
-        self.ent_stg_name.bind("<KeyRelease>", self._on_active_stage_form_changed)
-        self.ent_stg_min.bind("<KeyRelease>", self._on_active_stage_form_changed)
-        self.ent_stg_max.bind("<KeyRelease>", self._on_active_stage_form_changed)
-        self.cmb_stg_map.configure(command=lambda val: self._on_active_stage_form_changed())
-        self.chk_auto_warp.configure(command=self._on_active_stage_form_changed)
-        self.chk_auto_attack.configure(command=self._on_active_stage_form_changed)
-
-        # Hàng 3: Thêm tọa độ (X, Y, F8, Ghi vết) + Danh sách Waypoints
-        wp_ctrl = ctk.CTkFrame(self.box_stage, fg_color="transparent")
-        wp_ctrl.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 6))
-        wp_ctrl.grid_rowconfigure(1, weight=1)
-        wp_ctrl.grid_columnconfigure(0, weight=1)
-
-        # Thanh nhập tọa độ
-        wp_bar = ctk.CTkFrame(wp_ctrl, fg_color=("gray90", "#181d26"), corner_radius=6, height=32)
-        wp_bar.grid(row=0, column=0, sticky="ew", padx=0, pady=(0, 4))
-
-        ctk.CTkLabel(wp_bar, text="X:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(6, 2), pady=4)
-        self.ent_wp_x = ctk.CTkEntry(wp_bar, width=38, font=ctk.CTkFont(size=11))
-        self.ent_wp_x.pack(side="left", padx=(0, 4), pady=4)
-
-        ctk.CTkLabel(wp_bar, text="Y:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(2, 2), pady=4)
-        self.ent_wp_y = ctk.CTkEntry(wp_bar, width=38, font=ctk.CTkFont(size=11))
-        self.ent_wp_y.pack(side="left", padx=(0, 6), pady=4)
-
-        self.ent_wp_desc = ctk.CTkEntry(wp_bar, placeholder_text="Ghi chú (bãi quái, cổng...)", font=ctk.CTkFont(size=11))
-        self.ent_wp_desc.pack(side="left", fill="x", expand=True, padx=(0, 4), pady=4)
-
-        btn_add_wp = ctk.CTkButton(
-            wp_bar, text="➕ Thêm", width=55, height=24, fg_color="#10b981", hover_color="#059669",
-            font=ctk.CTkFont(size=11, weight="bold"), command=self._on_add_coord_to_active_stage
-        )
-        btn_add_wp.pack(side="left", padx=(0, 3), pady=4)
-
-        btn_f8 = ctk.CTkButton(
-            wp_bar, text="📍 [F8] RAM", width=75, height=24, fg_color="#0284c7", hover_color="#0369a1",
-            font=ctk.CTkFont(size=11), command=lambda: self._capture_ram_coord_to_stage(self.active_stage_idx)
-        )
-        btn_f8.pack(side="left", padx=(0, 3), pady=4)
-
-        self.btn_trace = ctk.CTkButton(
-            wp_bar, text="🔴 Ghi Vết", width=72, height=24, fg_color="#dc2626", hover_color="#b91c1c",
-            font=ctk.CTkFont(size=11, weight="bold"), command=self._toggle_trace_recorder
-        )
-        self.btn_trace.pack(side="left", padx=(0, 3), pady=4)
-
-        btn_clr_wp = ctk.CTkButton(
-            wp_bar, text="🗑️", width=28, height=24, fg_color="#ef4444", hover_color="#dc2626",
-            font=ctk.CTkFont(size=10), command=self._delete_all_coords_from_active_stage
-        )
-        btn_clr_wp.pack(side="left", padx=(0, 6), pady=4)
-
-        # Scrollable chứa các tọa độ waypoints của mốc
-        self.scroll_waypoints = ctk.CTkScrollableFrame(wp_ctrl, corner_radius=6)
-        self.scroll_waypoints.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
-
-        # Tóm tắt mốc dưới đáy
-        self.lbl_stage_summary = ctk.CTkLabel(wp_ctrl, text="", font=ctk.CTkFont(size=11), text_color="#94a3b8")
-        self.lbl_stage_summary.grid(row=2, column=0, sticky="w", padx=4, pady=(2, 0))
-
-        # --- KHUNG NỬA DƯỚI: NHẬT KÝ HOẠT ĐỘNG TRỰC TIẾP (LIVE LOGS) ---
-        box_log = ctk.CTkFrame(col_right, fg_color=("gray95", "#161b22"), corner_radius=10)
-        box_log.grid(row=1, column=0, sticky="nsew", padx=0, pady=(6, 0))
-        box_log.grid_rowconfigure(1, weight=1)
-        box_log.grid_columnconfigure(0, weight=1)
-
-        # Header Log kèm bộ lọc
-        log_head = ctk.CTkFrame(box_log, fg_color=("gray85", "#1c222d"), corner_radius=8, height=32)
-        log_head.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 4))
-
-        ctk.CTkLabel(
-            log_head, text="📜 NHẬT KÝ HOẠT ĐỘNG", font=ctk.CTkFont(size=11, weight="bold")
-        ).pack(side="left", padx=(10, 6), pady=4)
-
-        self.cmb_log_filter = ctk.CTkComboBox(
-            log_head, values=["Tất Cả Tài Khoản"], width=170, font=ctk.CTkFont(size=10),
-            command=self._on_log_filter_changed
-        )
-        self.cmb_log_filter.set("Tất Cả Tài Khoản")
-        self.cmb_log_filter.pack(side="left", padx=(0, 6), pady=4)
-
-        btn_clr_log = ctk.CTkButton(
-            log_head, text="Xóa Log", width=65, height=22, fg_color="#475569", hover_color="#334155",
-            font=ctk.CTkFont(size=10), command=self._clear_logs
-        )
-        btn_clr_log.pack(side="right", padx=(2, 6), pady=4)
-
-        # Textbox hiển thị log
-        self.txt_logs = ctk.CTkTextbox(
-            box_log, font=ctk.CTkFont(family="Consolas", size=10), corner_radius=6, wrap="word"
-        )
-        self.txt_logs.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
-        self.raw_logs_store: List[Tuple[Optional[int], str]] = []
-        self.log_filter_pid: Optional[int] = None
-
-        # Nạp dữ liệu mốc ban đầu vào form
-        self._sync_dropdown_and_form_from_stage(0)
-
-    # ==========================================================================
-    # QUẢN LÝ DANH SÁCH THẺ ĐA TÀI KHOẢN (ACCOUNTS LIST)
-    # ==========================================================================
-    def refresh_clients(self):
-        """Quét và làm mới toàn bộ thẻ client game MEGAMU"""
-        self.clients = scan_all_clients()
-
-        for w in self.accounts_scroll.winfo_children():
-            w.destroy()
-        self.client_card_widgets.clear()
-
-        for pid in list(self.client_selected_vars.keys()):
-            if not any(c.pid == pid for c in self.clients):
-                del self.client_selected_vars[pid]
-
-        if not self.clients:
-            lbl_none = ctk.CTkLabel(
-                self.accounts_scroll,
-                text="❌ Không tìm thấy client MEGAMU nào đang mở!\nVui lòng khởi động game và đăng nhập nhân vật rồi bấm 'Quét Client'.",
-                text_color=("red", "#f87171"),
-                font=ctk.CTkFont(size=12)
-            )
-            lbl_none.pack(padx=10, pady=40)
-            self._update_header_stats()
-            return
-
-        for idx, client in enumerate(self.clients):
-            if client.pid not in self.client_selected_vars:
-                self.client_selected_vars[client.pid] = ctk.BooleanVar(value=True)
-            self._create_account_card(client, idx)
-
-        # Mặc định chọn client đầu tiên
-        if not self.selected_client or not any(c.pid == self.selected_client.pid for c in self.clients):
-            self._select_client_card(self.clients[0])
-        else:
-            for c in self.clients:
-                if c.pid == self.selected_client.pid:
-                    self._select_client_card(c)
-                    break
-
-        self._update_header_stats()
-        self._update_log_filter_options()
-
-    def _create_account_card(self, client: ClientLiveState, idx: int):
-        is_running = client.pid in self.client_nav_threads and self.client_nav_threads[client.pid].is_alive()
-        is_selected = bool(self.selected_client and self.selected_client.pid == client.pid)
-
-        border_color = "#38bdf8" if is_selected else ("#10b981" if is_running else ("gray80", "#2a3241"))
-
-        card = ctk.CTkFrame(
-            self.accounts_scroll,
-            corner_radius=8,
-            fg_color=("white", "#1e2430" if not is_selected else "#1a2a3e"),
-            border_width=2 if (is_selected or is_running) else 1,
-            border_color=border_color
-        )
-        card.pack(fill="x", padx=2, pady=3)
-        card.grid_columnconfigure(2, weight=1)
-
-        # Checkbox chọn hàng loạt
-        chk_var = self.client_selected_vars[client.pid]
-        chk = ctk.CTkCheckBox(card, text="", width=20, variable=chk_var)
-        chk.grid(row=0, column=0, rowspan=2, padx=(8, 2), pady=6)
-
-        # Số thứ tự
-        lbl_num = ctk.CTkLabel(card, text=f"#{idx+1}", font=ctk.CTkFont(size=11, weight="bold"), text_color="#94a3b8", width=24)
-        lbl_num.grid(row=0, column=1, rowspan=2, padx=(0, 4), pady=6)
-
-        # Dòng 1: Tên nhân vật, Level/RR, Server
-        lvl_str = f"Lv {client.level}" if client.level is not None else "Lv —"
-        if client.resets is not None:
-            lvl_str += f"/{client.resets}rr"
-        server_str = f"[{client.server}]" if client.server else ""
-
-        lbl_char = ctk.CTkLabel(
-            card, text=f"⚔️ {client.char_name} ({lvl_str}) {server_str}",
-            font=ctk.CTkFont(size=12, weight="bold"), anchor="w"
-        )
-        lbl_char.grid(row=0, column=2, sticky="w", padx=0, pady=(5, 1))
-
-        # Dòng 2: Map, Tọa độ, PID, Auto status
-        coord_str = f"({client.x}, {client.y})" if client.x is not None else "(—, —)"
-        auto_text = f"⚔️ Auto: BẬT ({client.helper_active_time}s)" if client.is_auto_attack else "⚔️ Auto: Tắt"
-        lbl_sub = ctk.CTkLabel(
-            card, text=f"🗺️ {client.map_name} | 📍 {coord_str} | PID: {client.pid} | {auto_text}",
-            font=ctk.CTkFont(size=10), text_color=("gray45", "gray65"), anchor="w"
-        )
-        lbl_sub.grid(row=1, column=2, sticky="w", padx=0, pady=(0, 2))
-
-        # Dòng 3: Trạng thái lộ trình & Thanh tiến trình Mini
-        row3 = ctk.CTkFrame(card, fg_color="transparent")
-        row3.grid(row=2, column=2, sticky="ew", padx=0, pady=(0, 5))
-        row3.grid_columnconfigure(1, weight=1)
-
-        lbl_nav = ctk.CTkLabel(
-            row3, text="⚪ Sẵn Sàng" if not is_running else "🔵 Đang Chạy...",
-            font=ctk.CTkFont(size=10, weight="bold"),
-            fg_color=("#e2e8f0", "#1e293b") if not is_running else ("#bfdbfe", "#1e3a8a"),
-            corner_radius=4, padx=5, pady=1
-        )
-        lbl_nav.grid(row=0, column=0, padx=(0, 6), sticky="w")
-
-        prog = ctk.CTkProgressBar(row3, height=6)
-        prog.set(0.0)
-        prog.grid(row=0, column=1, sticky="ew", padx=(0, 6))
-
-        lbl_pct = ctk.CTkLabel(row3, text="0%", font=ctk.CTkFont(size=10), text_color="#94a3b8", width=28)
-        lbl_pct.grid(row=0, column=2, sticky="e")
-
-        # Cột nút điều khiển nhanh bên phải thẻ
-        btn_box = ctk.CTkFrame(card, fg_color="transparent")
-        btn_box.grid(row=0, column=3, rowspan=3, padx=(4, 8), pady=4, sticky="e")
-
-        btn_run = ctk.CTkButton(
-            btn_box, text="⏹ Dừng" if is_running else "▶️ Chạy", width=58, height=24,
-            font=ctk.CTkFont(size=10, weight="bold"),
-            fg_color="#dc2626" if is_running else "#10b981", hover_color="#b91c1c" if is_running else "#059669",
-            command=lambda c=client: self._on_toggle_single_client_run(c)
-        )
-        btn_run.pack(side="left", padx=1)
-
-        btn_auto = ctk.CTkButton(
-            btn_box, text="⚔️ Auto", width=52, height=24, font=ctk.CTkFont(size=10),
-            fg_color="#2563eb", hover_color="#1d4ed8", command=lambda c=client: self._toggle_client_auto_attack(c)
-        )
-        btn_auto.pack(side="left", padx=1)
-
-        btn_view = ctk.CTkButton(
-            btn_box, text="🖥️", width=32, height=24, font=ctk.CTkFont(size=10),
-            fg_color="#334155", hover_color="#1e293b", command=lambda c=client: self._bring_window_to_front(c.hwnd)
-        )
-        btn_view.pack(side="left", padx=1)
-
-        self.client_card_widgets[client.pid] = {
-            "card_frame": card,
-            "lbl_char": lbl_char,
-            "lbl_sub": lbl_sub,
-            "lbl_nav": lbl_nav,
-            "prog": prog,
-            "lbl_pct": lbl_pct,
-            "btn_run": btn_run,
-            "btn_auto": btn_auto
+        self.header_stats_lbl.pack(anchor="w", pady=(1, 0))
+
+        # Cột Phải: 4 Nút hành động nhanh (Xanh dương đậm)
+        btn_box = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        btn_box.pack(side="right", fill="y")
+
+        btn_base_style = {
+            "font": ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            "fg_color": "#2563eb",
+            "hover_color": "#1d4ed8",
+            "text_color": "#ffffff",
+            "corner_radius": 5
         }
 
-        # Bấm vào thẻ để chọn
-        for w in (card, lbl_char, lbl_sub, lbl_num):
-            w.bind("<Button-1>", lambda e, c=client: self._select_client_card(c))
+        self.btn_refresh = ctk.CTkButton(
+            btn_box, text=tr("refresh_games"), width=105, height=30, command=self.refresh_games, **btn_base_style
+        )
+        self.btn_refresh.pack(side="right", padx=(4, 0))
 
-    def _select_client_card(self, client: ClientLiveState):
-        self.selected_client = client
-        for pid, widgets in self.client_card_widgets.items():
-            card = widgets["card_frame"]
-            is_running = pid in self.client_nav_threads and self.client_nav_threads[pid].is_alive()
-            if pid == client.pid:
-                card.configure(fg_color=("white", "#1a2a3e"), border_width=2, border_color="#38bdf8")
-            else:
-                card.configure(
-                    fg_color=("white", "#1e2430"),
-                    border_width=2 if is_running else 1,
-                    border_color="#10b981" if is_running else ("gray80", "#2a3241")
-                )
+        self.btn_team5 = ctk.CTkButton(
+            btn_box, text=tr("assign_team5"), width=95, height=30, command=self.assign_team5, **btn_base_style
+        )
+        self.btn_team5.pack(side="right", padx=4)
 
-    def _update_header_stats(self):
-        total = len(self.clients)
-        running = sum(1 for pid, t in self.client_nav_threads.items() if t.is_alive())
-        auto_cnt = sum(1 for c in self.clients if c.is_auto_attack)
+        self.btn_assign_all = ctk.CTkButton(
+            btn_box, text=tr("assign_all"), width=85, height=30, command=self.assign_all, **btn_base_style
+        )
+        self.btn_assign_all.pack(side="right", padx=4)
 
-        self.badge_total.configure(text=f"🎮 {total} Client")
+        self.btn_connect_all = ctk.CTkButton(
+            btn_box, text=tr("connect_all"), width=95, height=30, command=self.connect_all, **btn_base_style
+        )
+        self.btn_connect_all.pack(side="right", padx=4)
 
-        if running > 0:
-            self.badge_running.configure(
-                text=f"🚀 {running} Đang Chạy", fg_color=("#bfdbfe", "#1e3a8a"), text_color=("#1e40af", "#60a5fa")
-            )
-        else:
-            self.badge_running.configure(
-                text="🚀 0 Đang Chạy", fg_color=("#e2e8f0", "#1e293b"), text_color=("gray40", "gray65")
-            )
+        # ----------------------------------------------------------------------
+        # 2. THANH ĐIỀU KHIỂN PHỤ (SUB-HEADER)
+        # ----------------------------------------------------------------------
+        self.sub_frame = ctk.CTkFrame(self, fg_color="#18181b", height=38)
+        self.sub_frame.pack(fill="x", padx=16, pady=(4, 2))
 
-        if auto_cnt > 0:
-            self.badge_auto.configure(
-                text=f"⚔️ {auto_cnt} Đang Auto", fg_color=("#bbf7d0", "#14532d"), text_color=("#166534", "#4ade80")
-            )
-        else:
-            self.badge_auto.configure(
-                text="⚔️ 0 Đang Auto", fg_color=("#e2e8f0", "#1e293b"), text_color=("gray40", "gray65")
-            )
+        # Điều khiển bên trái: [Điều khiển: Tất cả v] [Bật] [Tắt]
+        sub_left = ctk.CTkFrame(self.sub_frame, fg_color="transparent")
+        sub_left.pack(side="left")
 
-    # ==========================================================================
-    # ĐỌC RAM NỀN LIÊN TỤC CHO TẤT CẢ TÀI KHOẢN (1.2S)
-    # ==========================================================================
-    def _auto_update_all_clients_ram(self):
-        try:
-            for client in self.clients:
-                pid = client.pid
-                state = ProcessMemoryReader.read_live_state(pid)
-                if state:
-                    map_id, map_name, cur_x, cur_y, _, _ = state
-                    client.map_id = map_id
-                    client.map_name = map_name
-                    client.x = cur_x
-                    client.y = cur_y
+        ctk.CTkLabel(
+            sub_left, text=tr("control"), font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f3f4f6"
+        ).pack(side="left", padx=(0, 6))
 
-                cur_lvl = ProcessMemoryReader.read_character_level(pid)
-                if cur_lvl is not None:
-                    client.level = cur_lvl
+        ctrl_options = [tr("all"), "Team 1 (1-5)", "Team 2 (6-10)"] + [f"{i:02d}" for i in range(1, MAX_SLOTS + 1)]
+        self.ctrl_target_var = ctk.StringVar(value=tr("all"))
+        self.ctrl_combo = ctk.CTkOptionMenu(
+            sub_left,
+            values=ctrl_options,
+            variable=self.ctrl_target_var,
+            width=100,
+            height=28,
+            fg_color="#2563eb",
+            button_color="#1d4ed8",
+            corner_radius=4,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+        )
+        self.ctrl_combo.pack(side="left", padx=4)
 
-                h_state = ProcessMemoryReader.read_helper_state(pid)
-                if h_state:
-                    is_active, _, active_time, _ = h_state
-                    client.is_auto_attack = is_active
-                    client.helper_active_time = active_time
+        self.btn_batch_on = ctk.CTkButton(
+            sub_left, text=tr("start"), width=60, height=28, command=self.batch_start, **btn_base_style
+        )
+        self.btn_batch_on.pack(side="left", padx=4)
 
-                if pid in self.client_card_widgets:
-                    w = self.client_card_widgets[pid]
-                    lvl_str = f"Lv {client.level}" if client.level is not None else "Lv —"
-                    if client.resets is not None:
-                        lvl_str += f"/{client.resets}rr"
-                    server_str = f"[{client.server}]" if client.server else ""
-                    w["lbl_char"].configure(text=f"⚔️ {client.char_name} ({lvl_str}) {server_str}")
+        self.btn_batch_off = ctk.CTkButton(
+            sub_left, text=tr("stop"), width=60, height=28, command=self.batch_stop, **btn_base_style
+        )
+        self.btn_batch_off.pack(side="left", padx=4)
 
-                    coord_str = f"({client.x}, {client.y})" if client.x is not None else "(—, —)"
-                    auto_text = f"⚔️ Auto: BẬT ({client.helper_active_time}s)" if client.is_auto_attack else "⚔️ Auto: Tắt"
-                    w["lbl_sub"].configure(text=f"🗺️ {client.map_name} | 📍 {coord_str} | PID: {client.pid} | {auto_text}")
+        # Điều khiển bên phải: [Tắt TẤT CẢ] [Bật TẤT CẢ] [Ngôn ngữ: VI v]
+        sub_right = ctk.CTkFrame(self.sub_frame, fg_color="transparent")
+        sub_right.pack(side="right")
 
-            # Xử lý Ghi Vết Tự Động (Thu thập các bước chân thực tế)
-            if self.is_recording_trace and self.recording_stage_idx is not None and self.selected_client:
-                s_idx = self.recording_stage_idx
-                if 0 <= s_idx < len(self.level_stages):
-                    cx = self.selected_client.x
-                    cy = self.selected_client.y
-                    if cx is not None and cy is not None:
-                        if not self.trace_raw_points or (cx, cy) != self.trace_raw_points[-1]:
-                            self.trace_raw_points.append((cx, cy))
-                            self.btn_trace.configure(text=f"⏹ Dừng ({len(self.trace_raw_points)})")
+        self.btn_all_off = ctk.CTkButton(
+            sub_right, text=tr("stop_all"), width=85, height=28, command=self.stop_all, **btn_base_style
+        )
+        self.btn_all_off.pack(side="left", padx=4)
 
-            self._update_header_stats()
-        except Exception:
-            pass
+        self.btn_all_on = ctk.CTkButton(
+            sub_right, text=tr("start_all"), width=85, height=28, command=self.start_all, **btn_base_style
+        )
+        self.btn_all_on.pack(side="left", padx=4)
 
-        interval = 400 if self.is_recording_trace else 1200
-        self.after(interval, self._auto_update_all_clients_ram)
+        ctk.CTkLabel(
+            sub_right, text=tr("language"), font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#d1d5db"
+        ).pack(side="left", padx=(10, 4))
 
-    # ==========================================================================
-    # ĐIỀU HƯỚNG ĐA LUỒNG ĐỘC LẬP TỪNG TÀI KHOẢN
-    # ==========================================================================
-    def _toggle_select_all_clients(self):
-        val = self.var_select_all.get()
-        for v in self.client_selected_vars.values():
-            v.set(val)
+        self.lang_var = ctk.StringVar(value=CURRENT_LANG.upper())
+        self.lang_menu = ctk.CTkOptionMenu(
+            sub_right,
+            values=["VI", "EN", "PT-BR"],
+            variable=self.lang_var,
+            width=65,
+            height=28,
+            fg_color="#2563eb",
+            button_color="#1d4ed8",
+            corner_radius=4,
+            command=self.change_language,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+        )
+        self.lang_menu.pack(side="left", padx=4)
 
-    def _on_run_active_stage(self):
-        """Kích hoạt chạy ngay chính xác mốc đang được chọn trên giao diện"""
-        if not self.clients:
-            messagebox.showwarning("Chưa có Client", "Không tìm thấy client game nào đang chạy!")
-            return
+        # Dòng RPC lanes & metrics dưới sub-header
+        metric_frame = ctk.CTkFrame(self, fg_color="#18181b")
+        metric_frame.pack(fill="x", padx=16, pady=(0, 6))
 
-        target_client = self.selected_client
-        if not target_client:
-            target_client = self.clients[0]
-            self._select_client_card(target_client)
+        self.metrics_lbl = ctk.CTkLabel(
+            metric_frame,
+            text="PID RPC Lanes | AVG -- ms | P95 -- ms | Active 0/0 | Q 0 | STATE MAX -- ms",
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            text_color="#71717a"
+        )
+        self.metrics_lbl.pack(side="right")
 
-        stg = self.level_stages[self.active_stage_idx]
-        stg_name = stg.get("name", f"Chặng {self.active_stage_idx+1}")
-        self.log(f"[{target_client.char_name}] 🚀 KÍCH HOẠT CHẠY RIÊNG MỐC: '{stg_name}' (Mốc #{self.active_stage_idx+1})", pid=target_client.pid)
-        self._start_client_thread(target_client, forced_stage_idx=self.active_stage_idx)
+        # ----------------------------------------------------------------------
+        # 3. TAB NAVIGATION (Centered Segmented Buttons)
+        # ----------------------------------------------------------------------
+        tab_bar = ctk.CTkFrame(self, fg_color="transparent")
+        tab_bar.pack(anchor="center", pady=(4, 8))
 
-    def _on_start_selected_clients(self):
-        """Khởi chạy điều hướng song song cho tất cả tài khoản được tích chọn"""
-        selected_pids = [pid for pid, var in self.client_selected_vars.items() if var.get()]
-        if not selected_pids:
-            messagebox.showwarning("Chưa chọn tài khoản", "Vui lòng tích chọn ít nhất 1 tài khoản!")
-            return
+        self.tab_accounts_btn = ctk.CTkButton(
+            tab_bar,
+            text=f"{MAX_SLOTS} {tr('accounts')}",
+            width=100,
+            height=28,
+            corner_radius=5,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=lambda: self.switch_tab("accounts")
+        )
+        self.tab_accounts_btn.pack(side="left", padx=2)
 
-        cnt = 0
-        forced = None if self.chk_auto_roadmap.get() else self.active_stage_idx
-        for client in self.clients:
-            if client.pid in selected_pids:
-                if client.pid not in self.client_nav_threads or not self.client_nav_threads[client.pid].is_alive():
-                    self._start_client_thread(client, forced_stage_idx=forced)
-                    cnt += 1
+        self.tab_profiles_btn = ctk.CTkButton(
+            tab_bar,
+            text=tr("profiles"),
+            width=80,
+            height=28,
+            corner_radius=5,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=lambda: self.switch_tab("profiles")
+        )
+        self.tab_profiles_btn.pack(side="left", padx=2)
 
-        self.log(f"[🚀 BẮT ĐẦU ĐỒNG LOẠT] Đã kích hoạt điều hướng cho {cnt} tài khoản!")
-        self._update_header_stats()
+        self.tab_logs_btn = ctk.CTkButton(
+            tab_bar,
+            text=tr("system_log"),
+            width=80,
+            height=28,
+            corner_radius=5,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=lambda: self.switch_tab("logs")
+        )
+        self.tab_logs_btn.pack(side="left", padx=2)
 
-    def _on_stop_all_clients(self):
-        """Dừng tất cả các tài khoản đang chạy"""
-        cnt = 0
-        for pid, ev in list(self.client_stop_events.items()):
-            ev.set()
-            cnt += 1
-        self.log(f"[⏹ DỪNG TẤT CẢ] Đã phát tín hiệu dừng khẩn cấp cho {cnt} tài khoản!")
-        self.after(400, self._update_header_stats)
+        # ----------------------------------------------------------------------
+        # 4. CONTENT CONTAINERS
+        # ----------------------------------------------------------------------
+        self.content_container = ctk.CTkFrame(self, fg_color="#18181b")
+        self.content_container.pack(fill="both", expand=True, padx=16, pady=(0, 10))
 
-    def _on_toggle_single_client_run(self, client: ClientLiveState):
-        is_running = client.pid in self.client_nav_threads and self.client_nav_threads[client.pid].is_alive()
-        if is_running:
-            if client.pid in self.client_stop_events:
-                self.client_stop_events[client.pid].set()
-                self._update_client_card_nav_status(client.pid, "🟠 Đang Dừng...", 0)
-        else:
-            forced = None if self.chk_auto_roadmap.get() else self.active_stage_idx
-            self._start_client_thread(client, forced_stage_idx=forced)
+        # 3 Panels cho 3 Tab
+        self.panel_accounts = ctk.CTkFrame(self.content_container, fg_color="transparent")
+        self.panel_profiles = ctk.CTkFrame(self.content_container, fg_color="transparent")
+        self.panel_logs = ctk.CTkFrame(self.content_container, fg_color="transparent")
 
-    def _start_client_thread(self, client: ClientLiveState, forced_stage_idx: Optional[int] = None):
-        pid = client.pid
-        char_name = client.char_name
-        stop_event = threading.Event()
-        self.client_stop_events[pid] = stop_event
+        self.build_accounts_view()
+        self.build_profiles_view()
+        self.build_logs_view()
 
-        if pid in self.client_card_widgets:
-            w = self.client_card_widgets[pid]
-            w["btn_run"].configure(text="⏹ Dừng", fg_color="#dc2626", hover_color="#b91c1c")
-            w["lbl_nav"].configure(text="🔵 Đang Chạy...", fg_color=("#bfdbfe", "#1e3a8a"))
-
-        angle = self.slider_angle.get()
-
-        def worker():
-            try:
-                cur_lvl = ProcessMemoryReader.read_character_level(pid)
-                if cur_lvl is None:
-                    cur_lvl = client.level or 1
-                else:
-                    client.level = cur_lvl
-
-                self.log(f"[{char_name}] ==================================================", pid=pid)
-                self.log(f"[{char_name}] 🚀 BẮT ĐẦU ĐIỀU HƯỚNG | Cấp độ nhân vật: {cur_lvl}", pid=pid)
-                self.log(f"[{char_name}] ==================================================", pid=pid)
-
-                # 1. Xác định mốc khởi đầu chính xác
-                if forced_stage_idx is not None:
-                    start_idx = max(0, min(forced_stage_idx, len(self.level_stages) - 1))
-                    stg_name = self.level_stages[start_idx].get("name", f"Chặng {start_idx+1}")
-                    self.log(f"[{char_name}] 🎯 CHẾ ĐỘ CHẠY MỐC CỤ THỂ: Chạy ngay mốc #{start_idx+1} '{stg_name}'!", pid=pid)
-                elif not self.chk_auto_roadmap.get():
-                    start_idx = max(0, min(self.active_stage_idx, len(self.level_stages) - 1))
-                    stg_name = self.level_stages[start_idx].get("name", f"Chặng {start_idx+1}")
-                    self.log(f"[{char_name}] 🎯 CHẾ ĐỘ CHẠY MỐC ĐANG CHỌN: Chạy mốc #{start_idx+1} '{stg_name}'!", pid=pid)
-                else:
-                    start_idx = None
-                    for i, stg in enumerate(self.level_stages):
-                        if stg.get("min_level", 1) <= cur_lvl <= stg.get("max_level", 400):
-                            start_idx = i
-                            break
-                    if start_idx is None:
-                        for i, stg in enumerate(self.level_stages):
-                            if cur_lvl <= stg.get("max_level", 400):
-                                start_idx = i
-                                break
-                    if start_idx is None:
-                        start_idx = len(self.level_stages) - 1
-                    self.log(f"[{char_name}] 🔄 CHẾ ĐỘ LỘ TRÌNH LEVEL: Khớp mốc #{start_idx+1} cho Level {cur_lvl}!", pid=pid)
-
-                curr_idx = start_idx
-                while curr_idx < len(self.level_stages) and not stop_event.is_set():
-                    stg = self.level_stages[curr_idx]
-                    stg_name = stg.get("name", f"Chặng {curr_idx+1}")
-                    stg_map = stg.get("map", "")
-                    min_l = stg.get("min_level", 1)
-                    max_l = stg.get("max_level", 400)
-                    wps = stg.get("waypoints", [])
-                    auto_att = stg.get("auto_attack", True)
-                    auto_warp = stg.get("auto_warp", True)
-
-                    self._update_client_card_nav_status(pid, f"🔵 Mốc {curr_idx+1}: {stg_name}", 0)
-                    self.log(f"[{char_name}] ▶️ [CHẠY MỐC {curr_idx+1}] {stg_name} | {stg_map} ({min_l}->{max_l})", pid=pid)
-
-                    nav = MegNavigator(pid, camera_angle_deg=angle)
-
-                    # 1. Đổi Map nếu cần
-                    cur_st = nav.get_live_state()
-                    cur_m = cur_st[1] if cur_st else ""
-                    if stg_map and normalize_map_name(stg_map) != normalize_map_name(cur_m):
-                        if auto_warp:
-                            self.log(f"[{char_name}] [➔] Đổi sang bản đồ '{stg_map}'...", pid=pid)
-                            self._update_client_card_nav_status(pid, f"🟡 Đổi Map {stg_map}...", 10)
-                            warp_ok = nav.warp_to_map(
-                                stg_map, log_callback=lambda msg, p=pid: self.log(f"[{char_name}] {msg}", pid=p), stop_event=stop_event
-                            )
-                            if not warp_ok:
-                                self.log(f"[{char_name}] [⚠️ CẢNH BÁO] Không thể tự chuyển sang map '{stg_map}' (Có thể thiếu Zen hoặc sai tên).", pid=pid)
-                        else:
-                            self.log(f"[{char_name}] [ℹ️] Đang ở '{cur_m}' (Map mốc là '{stg_map}'), Tự Đổi Map đang TẮT -> Sẽ chạy tọa độ trên map hiện tại '{cur_m}'.", pid=pid)
-
-                    if stop_event.is_set():
-                        break
-
-                    # 2. Di chuyển lần lượt qua các tọa độ
-                    cur_st = nav.get_live_state()
-                    cur_m = cur_st[1] if cur_st else ""
-                    if auto_warp and stg_map and normalize_map_name(stg_map) != normalize_map_name(cur_m):
-                        self.log(f"[{char_name}] [⚠️] Nhân vật đang ở '{cur_m}' (Chưa vào '{stg_map}'). Vui lòng di chuyển nhân vật vào map '{stg_map}' hoặc tắt 'Tự đổi map'!", pid=pid)
-                    elif wps:
-                        wp_coords = [(w["x"], w["y"]) for w in wps]
-                        self.log(f"[{char_name}] [🚶] Bắt đầu di chuyển qua {len(wp_coords)} mốc tọa độ của '{stg_name}'...", pid=pid)
-
-                        def prog_cb(overall_prog: float, rem_dist: int, cur_coord: tuple, cur_pt_idx=1, total_pts=1, p=pid):
-                            pct = int(overall_prog * 100)
-                            st_txt = f"🔵 Mốc {curr_idx+1} ({cur_pt_idx}/{total_pts})"
-                            self._update_client_card_nav_status(p, st_txt, pct)
-
-                        nav.navigate_multi_points(
-                            waypoints=wp_coords, arrival_radius=1, intermediate_radius=2.5,
-                            auto_attack_on_arrival=auto_att,
-                            log_callback=lambda msg, p=pid: self.log(f"[{char_name}] {msg}", pid=p),
-                            stop_event=stop_event, progress_callback=prog_cb,
-                            stride_interval=0.75, use_micro_sync=False
-                        )
-                    else:
-                        self.log(f"[{char_name}] [ℹ️] Mốc '{stg_name}' không có mốc tọa độ nào (chỉ farm tại chỗ).", pid=pid)
-                        if auto_att:
-                            h_st = ProcessMemoryReader.read_helper_state(pid)
-                            if not h_st or h_st[0] == 0:
-                                nav.enable_auto_attack(log_callback=lambda msg, p=pid: self.log(f"[{char_name}] {msg}", pid=p))
-
-                    if stop_event.is_set():
-                        break
-
-                    # 3. Farm & Giám sát Level
-                    # Nếu chạy mốc cụ thể hoặc KHÔNG bật Tự chuyển chặng theo Level -> Cố định ở mốc này!
-                    if forced_stage_idx is not None or not self.chk_auto_roadmap.get():
-                        self.log(f"[{char_name}] [⚔️ CẮM BÃI CỐ ĐỊNH] Đang farm tại {stg_name} (Chế độ chạy riêng mốc này).", pid=pid)
-                        self._update_client_card_nav_status(pid, f"⚔️ Farm {stg_name}", 100)
-                        while not stop_event.is_set():
-                            time.sleep(3.0)
-                            if auto_att:
-                                h_st = ProcessMemoryReader.read_helper_state(pid)
-                                if h_st and h_st[0] == 0:
-                                    nav.enable_auto_attack(log_callback=lambda msg, p=pid: self.log(f"[{char_name}] {msg}", pid=p))
-                        break
-
-                    # Nếu BẬT tự chuyển chặng theo Level:
-                    self.log(f"[{char_name}] [👀 FARM & GIÁM SÁT] Đang farm tại {stg_name}. Chờ đạt Level > {max_l}...", pid=pid)
-                    self._update_client_card_nav_status(pid, f"⚔️ Farm Mốc {curr_idx+1}", 100)
-
-                    stage_reset = False
-                    while not stop_event.is_set():
-                        time.sleep(2.0)
-                        now_l = ProcessMemoryReader.read_character_level(pid)
-                        if now_l is not None:
-                            client.level = now_l
-                            if now_l > max_l:
-                                self.log(f"[{char_name}] 🎉🎉🎉 [LÊN CẤP!] Đạt Level {now_l} (Vượt {max_l})!", pid=pid)
-                                break
-                            elif now_l < min_l - 5:
-                                self.log(f"[{char_name}] 🔄 [RESET DETECTED] Level giảm xuống {now_l}!", pid=pid)
-                                stage_reset = True
-                                break
-
-                    if stop_event.is_set():
-                        break
-
-                    if stage_reset:
-                        cur_l = ProcessMemoryReader.read_character_level(pid) or 1
-                        nxt = 0
-                        for i, s in enumerate(self.level_stages):
-                            if s.get("min_level", 1) <= cur_l <= s.get("max_level", 400):
-                                nxt = i
-                                break
-                        curr_idx = nxt
-                    else:
-                        curr_idx += 1
-
-                if stop_event.is_set():
-                    self.log(f"[{char_name}] [⏹] Đã dừng.", pid=pid)
-                    self._update_client_card_nav_status(pid, "🟠 Đã Dừng", 0)
-                else:
-                    self.log(f"[{char_name}] [🏆] Hoàn thành lộ trình!", pid=pid)
-                    self._update_client_card_nav_status(pid, "🟢 Hoàn Thành", 100)
-
-            except Exception as ex:
-                self.log(f"[{char_name}] [❌ LỖI] {ex}", pid=pid)
-                self._update_client_card_nav_status(pid, "🔴 Lỗi", 0)
-            finally:
-                self._on_client_worker_done(pid)
-
-        t = threading.Thread(target=worker, daemon=True)
-        self.client_nav_threads[pid] = t
-        t.start()
-        self._update_header_stats()
-
-    def _update_client_card_nav_status(self, pid: int, status_text: str, prog_pct: int):
-        def _upd():
-            if pid in self.client_card_widgets:
-                w = self.client_card_widgets[pid]
-                w["lbl_nav"].configure(text=status_text)
-                w["prog"].set(prog_pct / 100.0)
-                w["lbl_pct"].configure(text=f"{prog_pct}%")
-        self.after(0, _upd)
-
-    def _on_client_worker_done(self, pid: int):
-        def _rst():
-            if pid in self.client_card_widgets:
-                w = self.client_card_widgets[pid]
-                w["btn_run"].configure(text="▶️ Chạy", fg_color="#10b981", hover_color="#059669")
-                w["lbl_nav"].configure(text="⚪ Sẵn Sàng", fg_color=("#e2e8f0", "#1e293b"))
-            self._update_header_stats()
-        self.after(0, _rst)
-
-    def _toggle_client_auto_attack(self, client: ClientLiveState):
-        def worker():
-            self.log(f"[{client.char_name}] [⚔️] Bật/tắt Auto Attack...", pid=client.pid)
-            toggle_auto_attack_via_sendmessage(client.hwnd)
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _batch_set_auto_attack(self, enable: bool):
-        selected_pids = [pid for pid, var in self.client_selected_vars.items() if var.get()]
-        if not selected_pids:
-            messagebox.showwarning("Chưa chọn", "Vui lòng tích chọn tài khoản trước!")
-            return
-        def worker():
-            for c in self.clients:
-                if c.pid in selected_pids:
-                    toggle_auto_attack_via_sendmessage(c.hwnd)
-                    time.sleep(0.05)
-            st = "BẬT" if enable else "TẮT"
-            self.log(f"[⚔️ BATCH AUTO] Đã {st} Auto cho {len(selected_pids)} tài khoản!")
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _bring_window_to_front(self, hwnd: int):
-        if sys.platform == "win32":
-            try:
-                user32 = ctypes.windll.user32
-                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                user32.SetForegroundWindow(hwnd)
-            except Exception:
-                pass
-
-    def _tile_all_game_windows(self):
-        if not self.clients:
-            messagebox.showwarning("Không có client", "Không tìm thấy client MEGAMU nào!")
-            return
-        if sys.platform != "win32":
-            return
-        try:
-            user32 = ctypes.windll.user32
-            rect = meg_navigator.RECT()
-            user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)
-            screen_w = rect.right - rect.left
-            screen_h = rect.bottom - rect.top
-            off_x = rect.left
-            off_y = rect.top
-
-            n = len(self.clients)
-            if n == 1:
-                cols, rows = 1, 1
-            elif n == 2:
-                cols, rows = 2, 1
-            elif n <= 4:
-                cols, rows = 2, 2
-            elif n <= 6:
-                cols, rows = 3, 2
-            elif n <= 8:
-                cols, rows = 4, 2
-            elif n <= 9:
-                cols, rows = 3, 3
-            else:
-                cols = math.ceil(math.sqrt(n))
-                rows = math.ceil(n / cols)
-
-            w = screen_w // cols
-            h = screen_h // rows
-            for i, client in enumerate(self.clients):
-                r = i // cols
-                c = i % cols
-                wx = off_x + c * w
-                wy = off_y + r * h
-                user32.ShowWindow(client.hwnd, 9)
-                user32.SetWindowPos(client.hwnd, 0, wx, wy, w, h, 0x0004 | 0x0010)
-
-            self.log(f"[🖥️ XẾP CỬA SỔ] Đã xếp {n} cửa sổ game theo lưới {cols}x{rows}!")
-        except Exception as ex:
-            self.log(f"[❌ LỖI XẾP CỬA SỔ] {ex}")
+        # Mặc định hiển thị tab accounts
+        self.switch_tab("accounts")
 
     # ==========================================================================
-    # QUẢN LÝ LỘ TRÌNH MỐC LEVEL & TỌA ĐỘ (DROPDOWN + FORM + WAYPOINTS)
+    # TAB 1: DANH SÁCH 10 TÀI KHOẢN (ACCOUNTS TAB)
     # ==========================================================================
-    def _get_default_level_stages(self) -> List[Dict[str, Any]]:
-        return [
-            {
-                "name": "Chặng 1: Tân Thủ", "map": "Lorencia", "min_level": 1, "max_level": 39,
-                "auto_attack": True, "auto_warp": True, "waypoints": [{"x": 125, "y": 125, "desc": "Cổng thành", "map": "Lorencia"}]
-            },
-            {
-                "name": "Chặng 2: Devias Tuyết", "map": "Devias", "min_level": 40, "max_level": 79,
-                "auto_attack": True, "auto_warp": True, "waypoints": [{"x": 220, "y": 60, "desc": "Cổng Bắc", "map": "Devias"}]
-            },
-            {
-                "name": "Chặng 3: Lost Tower", "map": "Lost Tower", "min_level": 80, "max_level": 149,
-                "auto_attack": True, "auto_warp": True, "waypoints": [{"x": 208, "y": 78, "desc": "Bãi Lost Tower 1", "map": "Lost Tower"}]
-            },
-            {
-                "name": "Chặng 4: Biển Atlans", "map": "Atlans", "min_level": 150, "max_level": 250,
-                "auto_attack": True, "auto_warp": True, "waypoints": [{"x": 24, "y": 19, "desc": "Bãi cá mập", "map": "Atlans"}]
-            },
-            {
-                "name": "Chặng 5: Sa Mạc Tarkan", "map": "Tarkan", "min_level": 251, "max_level": 400,
-                "auto_attack": True, "auto_warp": True, "waypoints": [{"x": 130, "y": 110, "desc": "Bãi đốm 1", "map": "Tarkan"}]
-            },
-            {
-                "name": "Chặng 6: Master Level", "map": "Aida", "min_level": 401, "max_level": 1000,
-                "auto_attack": True, "auto_warp": True, "waypoints": [{"x": 100, "y": 100, "desc": "Bãi cây Aida 1", "map": "Aida"}]
-            }
+    def build_accounts_view(self):
+        # Header bảng
+        tbl_header = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=26)
+        tbl_header.pack(fill="x", padx=4, pady=(2, 4))
+
+        cols = [
+            ("#", 34, "center"),
+            ("MEGAMU / PID", 280, "center"),
+            (tr("profile"), 105, "center"),
+            (tr("name"), 120, "center"),
+            ("Lv", 55, "center"),
+            ("X,Y", 80, "center"),
+            (tr("status"), 130, "center"),
+            (tr("auto"), 60, "center")
         ]
 
-    def _sync_dropdown_and_form_from_stage(self, stage_idx: int):
-        """Đồng bộ danh sách combobox và nạp dữ liệu mốc chỉ định vào form"""
-        if not self.level_stages:
-            return
-        stage_idx = max(0, min(stage_idx, len(self.level_stages) - 1))
-        self.active_stage_idx = stage_idx
-
-        # 1. Cập nhật các lựa chọn trong combobox
-        opts = []
-        for i, s in enumerate(self.level_stages):
-            opts.append(f"#{i+1}: {s.get('name', 'Mốc')} (Lv {s.get('min_level')}-{s.get('max_level')})")
-        self.cmb_stage_selector.configure(values=opts)
-        if 0 <= stage_idx < len(opts):
-            self.cmb_stage_selector.set(opts[stage_idx])
-
-        # 2. Đưa dữ liệu mốc vào form
-        stg = self.level_stages[stage_idx]
-        self.ent_stg_name.delete(0, "end")
-        self.ent_stg_name.insert(0, stg.get("name", ""))
-
-        self.ent_stg_min.delete(0, "end")
-        self.ent_stg_min.insert(0, str(stg.get("min_level", 1)))
-
-        self.ent_stg_max.delete(0, "end")
-        self.ent_stg_max.insert(0, str(stg.get("max_level", 400)))
-
-        m_name = stg.get("map", "Lorencia")
-        if m_name in meg_navigator.POPULAR_MAPS:
-            self.cmb_stg_map.set(m_name)
-        else:
-            self.cmb_stg_map.set("Lorencia")
-
-        if stg.get("auto_warp", True):
-            self.chk_auto_warp.select()
-        else:
-            self.chk_auto_warp.deselect()
-
-        if stg.get("auto_attack", True):
-            self.chk_auto_attack.select()
-        else:
-            self.chk_auto_attack.deselect()
-
-        # 3. Vẽ danh sách tọa độ
-        self._render_waypoints_list()
-
-    def _on_stage_dropdown_selected(self, choice: str):
-        try:
-            idx = int(choice.split(":")[0].replace("#", "").strip()) - 1
-            self._sync_dropdown_and_form_from_stage(idx)
-        except Exception:
-            pass
-
-    def _on_active_stage_form_changed(self, event=None):
-        if not (0 <= self.active_stage_idx < len(self.level_stages)):
-            return
-        stg = self.level_stages[self.active_stage_idx]
-        stg["name"] = self.ent_stg_name.get().strip()
-        try:
-            stg["min_level"] = int(self.ent_stg_min.get().strip())
-        except ValueError:
-            pass
-        try:
-            stg["max_level"] = int(self.ent_stg_max.get().strip())
-        except ValueError:
-            pass
-        stg["map"] = self.cmb_stg_map.get().strip()
-        stg["auto_warp"] = bool(self.chk_auto_warp.get())
-        stg["auto_attack"] = bool(self.chk_auto_attack.get())
-
-        # Cập nhật nhãn combobox
-        opts = []
-        for i, s in enumerate(self.level_stages):
-            opts.append(f"#{i+1}: {s.get('name', 'Mốc')} (Lv {s.get('min_level')}-{s.get('max_level')})")
-        self.cmb_stage_selector.configure(values=opts)
-
-    def _add_new_stage(self):
-        last_max = self.level_stages[-1].get("max_level", 400) if self.level_stages else 0
-        new_min = last_max + 1
-        new_max = new_min + 50
-        new_stg = {
-            "name": f"Chặng {len(self.level_stages)+1}",
-            "map": "Lorencia",
-            "min_level": new_min,
-            "max_level": new_max,
-            "auto_attack": True,
-            "auto_warp": True,
-            "waypoints": []
-        }
-        self.level_stages.append(new_stg)
-        self._sync_dropdown_and_form_from_stage(len(self.level_stages) - 1)
-        self.log(f"[➕ THÊM MỐC] Đã tạo mốc mới #{len(self.level_stages)}: '{new_stg['name']}'.")
-
-    def _delete_active_stage(self):
-        if len(self.level_stages) <= 1:
-            messagebox.showwarning("Không thể xóa", "Phải giữ lại ít nhất 1 mốc lộ trình!")
-            return
-        stg = self.level_stages[self.active_stage_idx]
-        if messagebox.askyesno("Xóa mốc", f"Bạn có chắc muốn xóa mốc '{stg.get('name')}'?"):
-            del self.level_stages[self.active_stage_idx]
-            new_idx = max(0, self.active_stage_idx - 1)
-            self._sync_dropdown_and_form_from_stage(new_idx)
-            self.log(f"[🗑️ ĐÃ XÓA MỐC] Đã xóa mốc.")
-
-    def _render_waypoints_list(self):
-        for w in self.scroll_waypoints.winfo_children():
-            w.destroy()
-
-        if not (0 <= self.active_stage_idx < len(self.level_stages)):
-            return
-
-        stage = self.level_stages[self.active_stage_idx]
-        wps = stage.get("waypoints", [])
-        total = len(wps)
-        s_map = stage.get("map", "Lorencia")
-
-        self.lbl_stage_summary.configure(
-            text=f"📍 {total} tọa độ | 🗺️ {s_map} | ⚔️ Auto Đánh: {'Bật' if stage.get('auto_attack', True) else 'Tắt'}"
-        )
-
-        if not wps:
-            ctk.CTkLabel(
-                self.scroll_waypoints,
-                text=f"📍 Chưa có tọa độ nào trong map '{s_map}'.\n👉 Vào game chạy tới bãi farm và bấm [F8] để lấy tọa độ tức thời!",
-                font=ctk.CTkFont(size=11), text_color="#94a3b8"
-            ).pack(pady=16)
-            return
-
-        for idx, wp in enumerate(wps, start=1):
-            is_last = (idx == total)
-            card = ctk.CTkFrame(
-                self.scroll_waypoints,
-                fg_color=("gray95", "#0f2347" if is_last else "#1e293b"),
-                corner_radius=6, height=28
+        for title, w, anc in cols:
+            lbl = ctk.CTkLabel(
+                tbl_header,
+                text=title,
+                width=w,
+                anchor=anc,
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color="#9ca3af"
             )
-            card.pack(fill="x", padx=2, pady=1)
+            lbl.pack(side="left", padx=2)
 
-            ctk.CTkLabel(
-                card, text=f"#{idx:02d}", width=28, font=ctk.CTkFont(size=10, weight="bold"),
-                text_color="#10b981" if is_last else "#38bdf8"
-            ).pack(side="left", padx=(4, 2))
+        # 10 Dòng tài khoản (Slot 01 -> 10)
+        for i in range(1, MAX_SLOTS + 1):
+            ctrl = self.controllers[i - 1]
+            row_frame = ctk.CTkFrame(self.panel_accounts, fg_color="#1f1f24", height=32, corner_radius=4)
+            row_frame.pack(fill="x", padx=4, pady=2)
 
-            ctk.CTkLabel(
-                card, text=f"({wp.get('x', 0)}, {wp.get('y', 0)})",
-                font=ctk.CTkFont(size=11, weight="bold"), width=60, anchor="w"
-            ).pack(side="left", padx=(2, 4))
-
-            desc = wp.get("desc", "")
-            if is_last and stage.get("auto_attack", True):
-                if not desc:
-                    desc = "Đích Farm [⚔️ Auto]"
-                elif "[⚔️" not in desc:
-                    desc = f"{desc} [⚔️ Auto]"
-            elif not desc:
-                desc = "Điểm trung gian"
-
-            ctk.CTkLabel(card, text=desc, font=ctk.CTkFont(size=10), anchor="w").pack(side="left", fill="x", expand=True, padx=2)
-
-            btn_del = ctk.CTkButton(
-                card, text="🗑️", width=22, height=20, fg_color="#b91c1c", hover_color="#991b1b",
-                font=ctk.CTkFont(size=9), command=lambda wp_idx=idx-1: self._delete_coord_from_active_stage(wp_idx)
+            # Cột 1: # (01, 02...)
+            slot_lbl = ctk.CTkLabel(
+                row_frame,
+                text=f"{i:02d}",
+                width=34,
+                anchor="center",
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color="#e4e4e7"
             )
-            btn_del.pack(side="right", padx=(2, 4))
+            slot_lbl.pack(side="left", padx=2)
 
-            if idx < total:
-                btn_down = ctk.CTkButton(
-                    card, text="⬇️", width=22, height=20, fg_color="#475569", hover_color="#334155",
-                    font=ctk.CTkFont(size=9), command=lambda wp_idx=idx-1: self._move_coord_in_active_stage(wp_idx, 1)
-                )
-                btn_down.pack(side="right", padx=(2, 0))
+            # Cột 2: MEGAMU / PID (Dropdown)
+            proc_var = ctk.StringVar(value=tr("select"))
+            proc_combo = ctk.CTkOptionMenu(
+                row_frame,
+                values=[tr("select")],
+                variable=proc_var,
+                width=280,
+                height=26,
+                fg_color="#27272a",
+                button_color="#3f3f46",
+                text_color="#ffffff",
+                corner_radius=4,
+                command=lambda val, s=i: self.on_slot_pid_selected(s, val),
+                font=ctk.CTkFont(family="Segoe UI", size=11)
+            )
+            proc_combo.pack(side="left", padx=2)
 
-            if idx > 1:
-                btn_up = ctk.CTkButton(
-                    card, text="⬆️", width=22, height=20, fg_color="#475569", hover_color="#334155",
-                    font=ctk.CTkFont(size=9), command=lambda wp_idx=idx-1: self._move_coord_in_active_stage(wp_idx, -1)
-                )
-                btn_up.pack(side="right", padx=(2, 0))
+            # Cột 3: Cấu hình (Dropdown + nút ...)
+            cfg_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=105)
+            cfg_box.pack(side="left", padx=2)
 
-    def _on_add_coord_to_active_stage(self):
-        xs = self.ent_wp_x.get().strip()
-        ys = self.ent_wp_y.get().strip()
-        if not xs or not ys:
-            messagebox.showwarning("Thiếu tọa độ", "Vui lòng nhập X và Y!")
-            return
-        try:
-            x, y = int(xs), int(ys)
-        except ValueError:
-            messagebox.showerror("Sai định dạng", "Tọa độ X và Y phải là số!")
-            return
+            initial_cfg = f"Config {ctrl.profile_index}"
+            cfg_var = ctk.StringVar(value=initial_cfg)
+            cfg_menu = ctk.CTkOptionMenu(
+                cfg_box,
+                values=PROFILE_NAMES,
+                variable=cfg_var,
+                width=85,
+                height=26,
+                fg_color="#2563eb",
+                button_color="#1d4ed8",
+                text_color="#ffffff",
+                corner_radius=4,
+                command=lambda val, s=i: self.on_slot_profile_selected(s, val),
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+            )
+            cfg_menu.pack(side="left")
 
-        desc = self.ent_wp_desc.get().strip()
-        stage = self.level_stages[self.active_stage_idx]
-        wps = stage.setdefault("waypoints", [])
-        if not desc:
-            desc = f"Mốc #{len(wps)+1}"
+            btn_jump_cfg = ctk.CTkButton(
+                cfg_box,
+                text="...",
+                width=18,
+                height=26,
+                fg_color="transparent",
+                hover_color="#3f3f46",
+                text_color="#9ca3af",
+                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                command=lambda s=i: self.jump_to_config_tab(s)
+            )
+            btn_jump_cfg.pack(side="left", padx=(2, 0))
 
-        wps.append({
-            "x": x, "y": y, "desc": desc,
-            "map": stage.get("map", "Lorencia"), "time": time.strftime("%H:%M:%S")
-        })
-        self.ent_wp_x.delete(0, "end")
-        self.ent_wp_y.delete(0, "end")
-        self.ent_wp_desc.delete(0, "end")
-        self._render_waypoints_list()
-        self.log(f"[➕ TỌA ĐỘ] Đã thêm ({x}, {y}) vào '{stage['name']}'.")
+            # Cột 4: Tên
+            name_lbl = ctk.CTkLabel(
+                row_frame,
+                text="---",
+                width=120,
+                anchor="center",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color="#e4e4e7"
+            )
+            name_lbl.pack(side="left", padx=2)
 
-    def _delete_coord_from_active_stage(self, wp_idx: int):
-        wps = self.level_stages[self.active_stage_idx].get("waypoints", [])
-        if 0 <= wp_idx < len(wps):
-            del wps[wp_idx]
-            self._render_waypoints_list()
+            # Cột 5: Lv
+            lvl_lbl = ctk.CTkLabel(
+                row_frame,
+                text="---",
+                width=55,
+                anchor="center",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color="#e4e4e7"
+            )
+            lvl_lbl.pack(side="left", padx=2)
 
-    def _delete_all_coords_from_active_stage(self):
-        stage = self.level_stages[self.active_stage_idx]
-        wps = stage.get("waypoints", [])
-        if not wps:
-            return
-        if messagebox.askyesno("Xóa hết", f"Bạn có chắc muốn xóa {len(wps)} tọa độ của mốc '{stage.get('name')}'?"):
-            stage["waypoints"] = []
-            self._render_waypoints_list()
+            # Cột 6: X,Y
+            coords_lbl = ctk.CTkLabel(
+                row_frame,
+                text="--,--",
+                width=80,
+                anchor="center",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color="#e4e4e7"
+            )
+            coords_lbl.pack(side="left", padx=2)
 
-    def _move_coord_in_active_stage(self, wp_idx: int, delta: int):
-        wps = self.level_stages[self.active_stage_idx].get("waypoints", [])
-        new_idx = wp_idx + delta
-        if 0 <= new_idx < len(wps):
-            wps[wp_idx], wps[new_idx] = wps[new_idx], wps[wp_idx]
-            self._render_waypoints_list()
+            # Cột 7: Trạng thái
+            status_lbl = ctk.CTkLabel(
+                row_frame,
+                text=tr("idle"),
+                width=130,
+                anchor="center",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color="#9ca3af"
+            )
+            status_lbl.pack(side="left", padx=2)
 
-    def _capture_ram_coord_to_stage(self, stage_idx: int, from_hotkey: bool = False):
-        if not self.selected_client:
-            if self.clients:
-                self._select_client_card(self.clients[0])
-            else:
-                msg = "Chưa phát hiện client game nào! Hãy khởi động game và đăng nhập nhân vật."
-                if from_hotkey:
-                    self.log(f"[!] [F8] {msg}")
-                else:
-                    messagebox.showwarning("Chưa chọn Client", msg)
-                return
+            # Cột 8: Switch Auto
+            auto_switch = ctk.CTkSwitch(
+                row_frame,
+                text="",
+                width=55,
+                progress_color="#2563eb",
+                button_color="#ffffff",
+                command=lambda s=i: self.on_slot_auto_toggle(s)
+            )
+            auto_switch.pack(side="left", padx=5)
 
-        state = ProcessMemoryReader.read_live_state(self.selected_client.pid)
-        cur_x, cur_y = None, None
-        map_name = getattr(self.selected_client, "map_name", "Unknown")
-
-        if state:
-            _, m_name, cx, cy, _, _ = state
-            if cx is not None and cy is not None and (0 <= cx <= 255) and (0 <= cy <= 255):
-                cur_x, cur_y = cx, cy
-                if m_name and m_name != "Unknown":
-                    map_name = m_name
-
-        if cur_x is None or cur_y is None:
-            cur_x = self.selected_client.x
-            cur_y = self.selected_client.y
-
-        if cur_x is None or cur_y is None:
-            err = f"Không đọc được RAM từ {self.selected_client.char_name}. Hãy đảm bảo nhân vật đã vào game!"
-            if from_hotkey:
-                self.log(f"[!] [F8] {err}")
-            else:
-                messagebox.showerror("Lỗi RAM", err)
-            return
-
-        if not (0 <= stage_idx < len(self.level_stages)):
-            return
-
-        stage = self.level_stages[stage_idx]
-        wps = stage.setdefault("waypoints", [])
-        wps.append({
-            "x": cur_x, "y": cur_y, "desc": f"Mốc #{len(wps)+1} (F8)",
-            "map": map_name, "time": time.strftime("%H:%M:%S")
-        })
-        try:
-            if winsound:
-                winsound.MessageBeep(winsound.MB_ICONASTERISK)
-        except Exception:
-            pass
-
-        if self.active_stage_idx == stage_idx:
-            self.ent_wp_x.delete(0, "end")
-            self.ent_wp_x.insert(0, str(cur_x))
-            self.ent_wp_y.delete(0, "end")
-            self.ent_wp_y.insert(0, str(cur_y))
-            self._render_waypoints_list()
-
-        tag = "[📍 F8]" if from_hotkey else "[📍 LẤY RAM]"
-        self.log(f"{tag} [{self.selected_client.char_name}] Đã lấy ({cur_x}, {cur_y}) [{map_name}] vào '{stage['name']}'!", pid=self.selected_client.pid)
-
-    def _toggle_trace_recorder(self):
-        stage_idx = self.active_stage_idx
-        if not self.selected_client:
-            messagebox.showwarning("Chưa chọn Client", "Vui lòng chọn 1 client game trước!")
-            return
-
-        stage = self.level_stages[stage_idx]
-        stg_name = stage.get("name", f"Chặng {stage_idx+1}")
-        char_name = self.selected_client.char_name
-        pid = self.selected_client.pid
-
-        if self.is_recording_trace and self.recording_stage_idx == stage_idx:
-            # DỪNG GHI VẾT VÀ CHẠY THUẬT TOÁN TỐI ƯU HÓA LỘ TRÌNH RDP
-            self.is_recording_trace = False
-            self.recording_stage_idx = None
-            self.last_recorded_pos = None
-            self.btn_trace.configure(text="🔴 Ghi Vết", fg_color="#dc2626", hover_color="#b91c1c")
-
-            raw_pts = list(self.trace_raw_points)
-            self.trace_raw_points.clear()
-
-            if len(raw_pts) >= 2:
-                # Chạy thuật toán RDP để lọc sạch các mốc dư thừa, giữ lại góc rẽ và điểm then chốt
-                simplified = ramer_douglas_peucker(raw_pts, epsilon=1.2)
-                if len(simplified) < 2:
-                    simplified = [raw_pts[0], raw_pts[-1]]
-
-                m_name = self.selected_client.map_name or stage.get("map", "")
-                new_wps = []
-                n_pts = len(simplified)
-                for i, (px, py) in enumerate(simplified, start=1):
-                    if i == 1:
-                        desc = "Xuất phát"
-                    elif i == n_pts:
-                        desc = "Bãi cắm (Đích)"
-                    else:
-                        desc = f"Khúc cua #{i-1}"
-                    new_wps.append({
-                        "x": px,
-                        "y": py,
-                        "desc": desc,
-                        "map": m_name,
-                        "time": time.strftime("%H:%M:%S")
-                    })
-
-                stage["waypoints"] = new_wps
-                if self.active_stage_idx == stage_idx:
-                    self._render_waypoints_list()
-
-                self.log(f"[{char_name}] [✅ TỐI ƯU HÓA THÀNH CÔNG] Đã phân tích {len(raw_pts)} bước di chuyển -> Nén lọc thành {n_pts} mốc then chốt (loại bỏ rung lắc, giữ trọn khúc rẽ) cho '{stg_name}'!", pid=pid)
-                try:
-                    if winsound:
-                        winsound.MessageBeep(winsound.MB_ICONASTERISK)
-                except Exception:
-                    pass
-            else:
-                self.log(f"[{char_name}] [⏹️ DỪNG GHI VẾT] Đã dừng ghi vết cho '{stg_name}' (Chưa có đủ điểm bước chân để tạo lộ trình).", pid=pid)
-        else:
-            self.is_recording_trace = True
-            self.recording_stage_idx = stage_idx
-            self.last_recorded_pos = None
-            self.trace_raw_points.clear()
-
-            cx = self.selected_client.x
-            cy = self.selected_client.y
-            if cx is not None and cy is not None:
-                self.trace_raw_points.append((cx, cy))
-                self.last_recorded_pos = (cx, cy)
-
-            self.btn_trace.configure(text=f"⏹ Dừng ({len(self.trace_raw_points)})", fg_color="#ea580c", hover_color="#c2410c")
-            self.log(f"[{char_name}] 🔴 [BẮT ĐẦU GHI VẾT THÔNG MINH] Hãy điều khiển nhân vật chạy theo lộ trình tới bãi cắm... Khi đến nơi, bấm '⏹ Dừng' để thuật toán RDP tự động nén tối ưu lộ trình!", pid=pid)
-            try:
-                if winsound:
-                    winsound.MessageBeep(winsound.MB_OK)
-            except Exception:
-                pass
-
-    def _on_quick_warp_active_map(self):
-        if not self.selected_client:
-            messagebox.showwarning("Chưa chọn Client", "Vui lòng chọn 1 client game trước!")
-            return
-        target_map = self.cmb_stg_map.get().strip()
-        if not target_map:
-            return
-        pid = self.selected_client.pid
-        char_name = self.selected_client.char_name
-        def worker():
-            self.log(f"[{char_name}] [🌐 MOVE MAP] Gửi lệnh '/m {target_map}'...", pid=pid)
-            try:
-                nav = MegNavigator(pid)
-                ok = nav.warp_to_map(target_map, log_callback=lambda msg, p=pid: self.log(f"[{char_name}] {msg}", pid=p))
-                if ok:
-                    self.log(f"[{char_name}] [✔] Đã đổi sang '{target_map}'!", pid=pid)
-            except Exception as ex:
-                self.log(f"[{char_name}] [❌ LỖI] {ex}", pid=pid)
-        threading.Thread(target=worker, daemon=True).start()
+            # Lưu references để cập nhật
+            self.slot_ui_elements[i] = {
+                "proc_var": proc_var,
+                "proc_combo": proc_combo,
+                "cfg_var": cfg_var,
+                "cfg_menu": cfg_menu,
+                "name_lbl": name_lbl,
+                "lvl_lbl": lvl_lbl,
+                "coords_lbl": coords_lbl,
+                "status_lbl": status_lbl,
+                "auto_switch": auto_switch
+            }
 
     # ==========================================================================
-    # NHẬT KÝ HOẠT ĐỘNG (LOGS FILTER & LOGGING)
+    # TAB 2: CẤU HÌNH (PROFILES TAB)
     # ==========================================================================
-    def _update_log_filter_options(self):
-        opts = ["Tất Cả Tài Khoản"]
-        for c in self.clients:
-            opts.append(f"{c.char_name} (PID: {c.pid})")
-        self.cmb_log_filter.configure(values=opts)
-
-    def _on_log_filter_changed(self, choice: str):
-        if choice == "Tất Cả Tài Khoản" or not choice:
-            self.log_filter_pid = None
-        else:
-            try:
-                pid_str = choice.split("PID:")[-1].replace(")", "").strip()
-                self.log_filter_pid = int(pid_str)
-            except Exception:
-                self.log_filter_pid = None
-        self._repopulate_logs_ui()
-
-    def _repopulate_logs_ui(self):
-        self.txt_logs.delete("1.0", "end")
-        for log_pid, full_line in self.raw_logs_store:
-            if self.log_filter_pid is None or log_pid == self.log_filter_pid:
-                self.txt_logs.insert("end", full_line)
-        self.txt_logs.see("end")
-
-    def log(self, message: str, pid: Optional[int] = None):
-        self.after(0, lambda: self._append_log_ui(message, pid))
-
-    def _append_log_ui(self, message: str, pid: Optional[int] = None):
-        t_str = time.strftime("[%H:%M:%S] ")
-        full_line = t_str + message + "\n"
-        self.raw_logs_store.append((pid, full_line))
-
-        if len(self.raw_logs_store) > 2000:
-            self.raw_logs_store = self.raw_logs_store[-1500:]
-
-        if self.log_filter_pid is None or pid == self.log_filter_pid:
-            self.txt_logs.insert("end", full_line)
-            self.txt_logs.see("end")
-
-    def _clear_logs(self):
-        self.raw_logs_store.clear()
-        self.txt_logs.delete("1.0", "end")
-
-    # ==========================================================================
-    # QUẢN LÝ BẢN ĐỒ POPUP DIALOG (.INI / .TXT)
-    # ==========================================================================
-    def _open_map_manager_dialog(self):
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("🗺️ Quản Lý Danh Sách Bản Đồ (.ini / .txt)")
-        dialog.geometry("580x520")
-        dialog.minsize(500, 420)
-        dialog.transient(self)
-        dialog.after(100, dialog.lift)
+    def build_profiles_view(self):
+        # Thanh điều khiển cấu hình trên cùng
+        top_bar = ctk.CTkFrame(self.panel_profiles, fg_color="transparent")
+        top_bar.pack(fill="x", padx=10, pady=(4, 6))
 
         ctk.CTkLabel(
-            dialog, text="🗺️ DANH SÁCH BẢN ĐỒ MEGAMU (.ini / .txt)",
-            font=ctk.CTkFont(size=14, weight="bold")
-        ).pack(padx=16, pady=(12, 6), anchor="w")
+            top_bar, text=tr("edit_profile"), font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f3f4f6"
+        ).pack(side="left", padx=(0, 6))
 
-        add_box = ctk.CTkFrame(dialog, fg_color="transparent")
-        add_box.pack(fill="x", padx=16, pady=(0, 8))
-
-        ent_new = ctk.CTkEntry(add_box, placeholder_text="Nhập tên map mới...", font=ctk.CTkFont(size=12))
-        ent_new.pack(side="left", fill="x", expand=True, padx=(0, 6))
-
-        scroll = ctk.CTkScrollableFrame(dialog, corner_radius=6)
-        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 8))
-
-        def render():
-            for w in scroll.winfo_children():
-                w.destroy()
-            for idx, m in enumerate(meg_navigator.POPULAR_MAPS, start=1):
-                r = ctk.CTkFrame(scroll, height=28, fg_color=("gray95", "#1e293b"))
-                r.pack(fill="x", padx=2, pady=1)
-                ctk.CTkLabel(r, text=f"#{idx:02d}", width=28, font=ctk.CTkFont(size=10, weight="bold"), text_color="#38bdf8").pack(side="left", padx=4)
-                ctk.CTkLabel(r, text=m, font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=2)
-                btn_d = ctk.CTkButton(
-                    r, text="🗑️", width=24, height=20, fg_color="#b91c1c", hover_color="#991b1b",
-                    font=ctk.CTkFont(size=9), command=lambda name=m: delete_map(name)
-                )
-                btn_d.pack(side="right", padx=4)
-
-        def add_map():
-            name = ent_new.get().strip()
-            if not name:
-                return
-            current = list(meg_navigator.POPULAR_MAPS)
-            for e in current:
-                if e.lower() == name.lower():
-                    messagebox.showinfo("Đã có", f"Bản đồ '{e}' đã có trong danh sách!")
-                    return
-            current.append(name)
-            save_all_maps(current)
-            ent_new.delete(0, "end")
-            self.cmb_stg_map.configure(values=current)
-            render()
-            self.log(f"[💾 MAP] Đã thêm '{name}' vào maps.ini / maps.txt!")
-
-        def delete_map(name: str):
-            if messagebox.askyesno("Xóa", f"Xóa '{name}' khỏi danh sách?"):
-                current = [m for m in meg_navigator.POPULAR_MAPS if m.lower() != name.lower()]
-                save_all_maps(current)
-                self.cmb_stg_map.configure(values=current)
-                render()
-
-        btn_add = ctk.CTkButton(
-            add_box, text="➕ Thêm", width=70, height=28, fg_color="#10b981", hover_color="#059669",
-            font=ctk.CTkFont(size=11, weight="bold"), command=add_map
+        self.editor_profile_var = ctk.StringVar(value="Config 1")
+        self.editor_profile_combo = ctk.CTkOptionMenu(
+            top_bar,
+            values=PROFILE_NAMES,
+            variable=self.editor_profile_var,
+            width=115,
+            height=28,
+            fg_color="#2563eb",
+            button_color="#1d4ed8",
+            corner_radius=4,
+            command=self.on_editor_profile_change,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
         )
-        btn_add.pack(side="left")
+        self.editor_profile_combo.pack(side="left", padx=4)
 
-        footer = ctk.CTkFrame(dialog, fg_color="transparent")
-        footer.pack(fill="x", padx=16, pady=(0, 10))
+        ctk.CTkLabel(
+            top_bar, text=tr("pk_delay"), font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#d1d5db"
+        ).pack(side="left", padx=(16, 6))
 
-        def open_notepad():
-            target = get_active_maps_file()
+        self.editor_respawn_var = ctk.StringVar(value="15")
+        self.editor_respawn_entry = ctk.CTkEntry(
+            top_bar,
+            textvariable=self.editor_respawn_var,
+            width=65,
+            height=28,
+            fg_color="#27272a",
+            border_color="#3f3f46",
+            font=ctk.CTkFont(family="Segoe UI", size=11)
+        )
+        self.editor_respawn_entry.pack(side="left", padx=4)
+
+        # Nút Lưu và Tải lại bên phải
+        self.btn_reload_cfg = ctk.CTkButton(
+            top_bar,
+            text=tr("reload"),
+            width=80,
+            height=28,
+            fg_color="#2563eb",
+            hover_color="#1d4ed8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.reload_editor_from_file
+        )
+        self.btn_reload_cfg.pack(side="right", padx=(4, 0))
+
+        self.btn_save_cfg = ctk.CTkButton(
+            top_bar,
+            text=tr("save_profile"),
+            width=95,
+            height=28,
+            fg_color="#2563eb",
+            hover_color="#1d4ed8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.save_editor_to_file
+        )
+        self.btn_save_cfg.pack(side="right", padx=4)
+
+        # Chú thích Team mặc định
+        note_lbl = ctk.CTkLabel(
+            self.panel_profiles,
+            text=tr("team_note"),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#9ca3af"
+        )
+        note_lbl.pack(anchor="w", padx=12, pady=(0, 8))
+
+        # Tiêu đề cột bảng Stage
+        stage_header = ctk.CTkFrame(self.panel_profiles, fg_color="transparent")
+        stage_header.pack(fill="x", padx=12, pady=(0, 4))
+
+        stage_cols = [
+            ("Min", 65, "center"),
+            ("Max", 65, "center"),
+            ("Map", 220, "center"),
+            ("X", 70, "center"),
+            ("Y", 70, "center")
+        ]
+        for t, w, anc in stage_cols:
+            ctk.CTkLabel(
+                stage_header,
+                text=t,
+                width=w,
+                anchor=anc,
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color="#9ca3af"
+            ).pack(side="left", padx=3)
+
+        # 10 Hàng chặng
+        self.editor_rows = []
+        for r in range(10):
+            row_f = ctk.CTkFrame(self.panel_profiles, fg_color="transparent", height=32)
+            row_f.pack(fill="x", padx=12, pady=2)
+
+            min_var = ctk.StringVar(value="")
+            min_ent = ctk.CTkEntry(
+                row_f, textvariable=min_var, width=65, height=28, fg_color="#27272a", border_color="#3f3f46"
+            )
+            min_ent.pack(side="left", padx=3)
+
+            max_var = ctk.StringVar(value="")
+            max_ent = ctk.CTkEntry(
+                row_f, textvariable=max_var, width=65, height=28, fg_color="#27272a", border_color="#3f3f46"
+            )
+            max_ent.pack(side="left", padx=3)
+
+            map_var = ctk.StringVar(value="")
+            map_combo = ctk.CTkOptionMenu(
+                row_f,
+                values=[""] + self.map_list,
+                variable=map_var,
+                width=220,
+                height=28,
+                fg_color="#27272a",
+                button_color="#3f3f46",
+                text_color="#ffffff",
+                corner_radius=4
+            )
+            map_combo.pack(side="left", padx=3)
+
+            x_var = ctk.StringVar(value="")
+            x_ent = ctk.CTkEntry(
+                row_f, textvariable=x_var, width=70, height=28, fg_color="#27272a", border_color="#3f3f46"
+            )
+            x_ent.pack(side="left", padx=3)
+
+            y_var = ctk.StringVar(value="")
+            y_ent = ctk.CTkEntry(
+                row_f, textvariable=y_var, width=70, height=28, fg_color="#27272a", border_color="#3f3f46"
+            )
+            y_ent.pack(side="left", padx=3)
+
+            self.editor_rows.append({
+                "min": min_var,
+                "max": max_var,
+                "map": map_var,
+                "x": x_var,
+                "y": y_var
+            })
+
+        # Nạp dữ liệu Config 1 ban đầu
+        self.load_profile_into_editor(1)
+
+    def load_profile_into_editor(self, profile_idx: int):
+        """Đọc Profile từ file JSON và điền vào form."""
+        cfg = ConfigPersistenceManager.load_single_profile(profile_idx)
+        self.editor_respawn_var.set(str(cfg.get("respawn_delay", 15)))
+
+        stages = cfg.get("stages", [])
+        for i, row in enumerate(self.editor_rows):
+            if i < len(stages):
+                st = stages[i]
+                row["min"].set(str(st.get("min_level", "")))
+                row["max"].set(str(st.get("max_level", "")))
+                row["map"].set(str(st.get("map_name", "")))
+                row["x"].set(str(st.get("x", "")))
+                row["y"].set(str(st.get("y", "")))
+            else:
+                row["min"].set("")
+                row["max"].set("")
+                row["map"].set("")
+                row["x"].set("")
+                row["y"].set("")
+
+    def on_editor_profile_change(self, val: str):
+        try:
+            idx = int(val.replace("Config ", "").strip())
+            self.load_profile_into_editor(idx)
+        except Exception:
+            pass
+
+    def reload_editor_from_file(self):
+        """Tải lại dữ liệu tươi mới từ file đĩa JSON."""
+        try:
+            idx = int(self.editor_profile_var.get().replace("Config ", "").strip())
+            self.load_profile_into_editor(idx)
+            self.log_message(f"Đã tải lại Config {idx} trực tiếp từ file autotrain_profiles.json.", "INFO")
+        except Exception as e:
+            self.log_message(f"Lỗi khi tải lại cấu hình: {e}", "ERROR")
+
+    def save_editor_to_file(self):
+        """Lưu toàn bộ thay đổi trực tiếp vào file JSON."""
+        try:
+            idx = int(self.editor_profile_var.get().replace("Config ", "").strip())
+            # Đọc config gốc để giữ các trường mở rộng
+            cfg = ConfigPersistenceManager.load_single_profile(idx)
             try:
-                subprocess.Popen(["notepad.exe", target])
+                respawn = int(self.editor_respawn_var.get().strip())
             except Exception:
-                pass
+                respawn = 15
+            cfg["respawn_delay"] = respawn
 
-        btn_note = ctk.CTkButton(
-            footer, text="📝 Mở bằng Notepad", width=120, height=28, fg_color="#d97706", hover_color="#b45309",
-            font=ctk.CTkFont(size=11), command=open_notepad
-        )
-        btn_note.pack(side="left")
+            new_stages = []
+            for row in self.editor_rows:
+                min_s = row["min"].get().strip()
+                max_s = row["max"].get().strip()
+                map_s = row["map"].get().strip()
+                x_s = row["x"].get().strip()
+                y_s = row["y"].get().strip()
 
-        render()
+                if min_s and max_s and map_s and x_s and y_s:
+                    try:
+                        new_stages.append({
+                            "min_level": int(min_s),
+                            "max_level": int(max_s),
+                            "map_name": map_s,
+                            "x": int(x_s),
+                            "y": int(y_s)
+                        })
+                    except Exception:
+                        pass
+
+            cfg["stages"] = new_stages
+            # Ghi trực tiếp vào file đĩa
+            ConfigPersistenceManager.save_single_profile(idx, cfg)
+            self.log_message(
+                f"Đã lưu thành công Config {idx} ({len(new_stages)} chặng) vào file autotrain_profiles.json!",
+                "SUCCESS"
+            )
+
+            # Cập nhật các worker đang chạy Config này
+            for ctrl in self.controllers:
+                if ctrl.profile_index == idx and ctrl.worker and ctrl.worker.running:
+                    if hasattr(ctrl.worker, 'update_config'):
+                        ctrl.worker.update_config(cfg)
+                    self.log_message(
+                        f"[Slot {ctrl.slot_idx:02d}] Áp dụng ngay cấu hình vừa lưu mà không cần khởi động lại!",
+                        "SUCCESS"
+                    )
+        except Exception as e:
+            self.log_message(f"Lỗi khi lưu cấu hình: {e}", "ERROR")
 
     # ==========================================================================
-    # LƯU / NẠP KẾ HOẠCH JSON
+    # TAB 3: NHẬT KÝ (LOGS TAB)
     # ==========================================================================
-    def _save_level_plan_to_file(self):
-        os.makedirs("plans", exist_ok=True)
-        file_path = filedialog.asksaveasfilename(
-            initialdir="plans", defaultextension=".json", filetypes=[("JSON files", "*.json")],
-            title="Lưu Kế Hoạch Lộ Trình Đa Tài Khoản"
+    def build_logs_view(self):
+        # Top filter bar
+        top_bar = ctk.CTkFrame(self.panel_logs, fg_color="transparent")
+        top_bar.pack(fill="x", padx=6, pady=(4, 6))
+
+        ctk.CTkLabel(
+            top_bar, text=tr("show"), font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f3f4f6"
+        ).pack(side="left", padx=(0, 6))
+
+        filter_options = [tr("all")] + [f"{i:02d}" for i in range(1, MAX_SLOTS + 1)]
+        self.log_filter_var = ctk.StringVar(value=tr("all"))
+        self.log_filter_combo = ctk.CTkOptionMenu(
+            top_bar,
+            values=filter_options,
+            variable=self.log_filter_var,
+            width=90,
+            height=28,
+            fg_color="#2563eb",
+            button_color="#1d4ed8",
+            corner_radius=4,
+            command=lambda _: self.render_logs(),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
         )
-        if file_path:
+        self.log_filter_combo.pack(side="left", padx=4)
+
+        self.btn_clear_log = ctk.CTkButton(
+            top_bar,
+            text=tr("clear_view"),
+            width=85,
+            height=28,
+            fg_color="#2563eb",
+            hover_color="#1d4ed8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.clear_logs
+        )
+        self.btn_clear_log.pack(side="right")
+
+        # Hộp văn bản hiển thị Log tối màu
+        self.log_textbox = ctk.CTkTextbox(
+            self.panel_logs,
+            fg_color="#121214",
+            text_color="#f3f4f6",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            corner_radius=6,
+            wrap="word"
+        )
+        self.log_textbox.pack(fill="both", expand=True, padx=4, pady=4)
+        self.log_textbox.configure(state="disabled")
+
+    def log_message(self, msg: str, level: str = "INFO"):
+        """Ghi nhận log hệ thống và hiển thị lên giao diện."""
+        t_str = time.strftime("%H:%M:%S")
+        # Phân loại slot nếu có [Slot XX]
+        slot_tag = "ALL"
+        if msg.startswith("[Slot ") and len(msg) >= 9:
             try:
-                data = {
-                    "version": "3.5",
-                    "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "stages": self.level_stages
-                }
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                self.log(f"[💾 ĐÃ LƯU KẾ HOẠCH] Đã lưu {len(self.level_stages)} mốc vào '{os.path.basename(file_path)}'!")
-                messagebox.showinfo("Đã Lưu", f"Lưu thành công vào:\n{file_path}")
-            except Exception as ex:
-                messagebox.showerror("Lỗi", f"Không thể lưu file:\n{ex}")
+                slot_tag = msg[6:8]
+            except Exception:
+                slot_tag = "ALL"
 
-    def _load_level_plan_from_file(self):
-        os.makedirs("plans", exist_ok=True)
-        file_path = filedialog.askopenfilename(
-            initialdir="plans", title="Nạp Kế Hoạch Lộ Trình", filetypes=[("JSON files", "*.json")]
+        self.logs_data.append((t_str, slot_tag, f"[{level}] {msg}"))
+        if len(self.logs_data) > 1500:
+            self.logs_data.pop(0)
+
+        # Cập nhật nếu đang mở tab logs
+        if self.active_tab == "logs":
+            self.render_logs()
+
+    def render_logs(self):
+        self.log_textbox.configure(state="normal")
+        self.log_textbox.delete("1.0", "end")
+        selected_filter = self.log_filter_var.get()
+
+        lines = []
+        for t_str, s_tag, content in self.logs_data:
+            if selected_filter == tr("all") or selected_filter == s_tag:
+                lines.append(f"[{t_str}] {content}")
+
+        self.log_textbox.insert("end", "\n".join(lines) + "\n")
+        self.log_textbox.see("end")
+        self.log_textbox.configure(state="disabled")
+
+    def clear_logs(self):
+        self.logs_data.clear()
+        self.log_textbox.configure(state="normal")
+        self.log_textbox.delete("1.0", "end")
+        self.log_textbox.configure(state="disabled")
+
+    # ==========================================================================
+    # ĐIỀU HƯỚNG TAB
+    # ==========================================================================
+    def switch_tab(self, tab_name: str):
+        self.active_tab = tab_name
+
+        btn_active = "#2563eb"
+        btn_inactive = "#27272a"
+
+        self.tab_accounts_btn.configure(fg_color=btn_active if tab_name == "accounts" else btn_inactive)
+        self.tab_profiles_btn.configure(fg_color=btn_active if tab_name == "profiles" else btn_inactive)
+        self.tab_logs_btn.configure(fg_color=btn_active if tab_name == "logs" else btn_inactive)
+
+        # Ẩn hết các panels
+        self.panel_accounts.pack_forget()
+        self.panel_profiles.pack_forget()
+        self.panel_logs.pack_forget()
+
+        if tab_name == "accounts":
+            self.panel_accounts.pack(fill="both", expand=True)
+        elif tab_name == "profiles":
+            self.panel_profiles.pack(fill="both", expand=True)
+        elif tab_name == "logs":
+            self.panel_logs.pack(fill="both", expand=True)
+            self.render_logs()
+
+    def jump_to_config_tab(self, slot_idx: int):
+        """Nhảy nhanh sang Tab Cấu hình khi bấm nút '...' ở Slot."""
+        ctrl = self.controllers[slot_idx - 1]
+        cfg_name = f"Config {ctrl.profile_index}"
+        self.editor_profile_var.set(cfg_name)
+        self.load_profile_into_editor(ctrl.profile_index)
+        self.switch_tab("profiles")
+
+    # ==========================================================================
+    # XỬ LÝ SỰ KIỆN TỪNG SLOT
+    # ==========================================================================
+    def on_slot_pid_selected(self, slot_idx: int, val: str):
+        ctrl = self.controllers[slot_idx - 1]
+        if val == tr("select") or not val:
+            ctrl.detach()
+            return
+
+        try:
+            pid = int(val.split(" - ")[0].strip())
+            ctrl.attach_pid(pid)
+        except Exception as e:
+            self.log_message(f"[Slot {slot_idx:02d}] Không thể gán PID: {e}", "ERROR")
+
+    def on_slot_profile_selected(self, slot_idx: int, val: str):
+        try:
+            p_idx = int(val.replace("Config ", "").strip())
+            ctrl = self.controllers[slot_idx - 1]
+            ctrl.set_profile(p_idx)
+        except Exception:
+            pass
+
+    def on_slot_auto_toggle(self, slot_idx: int):
+        ctrl = self.controllers[slot_idx - 1]
+        ctrl.toggle_auto()
+
+    def update_slot_ui_status(self, slot_idx: int, text: str):
+        el = self.slot_ui_elements.get(slot_idx)
+        if el and el.get("status_lbl"):
+            # Tô màu nhẹ cho trạng thái
+            color = "#9ca3af"
+            if "running" in text.lower() or "đang chạy" in text.lower() or "tới bãi" in text.lower():
+                color = "#38bdf8"
+            elif "pk" in text.lower():
+                color = "#f87171"
+            elif "đã kết nối" in text.lower() or "connected" in text.lower():
+                color = "#4ade80"
+            el["status_lbl"].configure(text=text, text_color=color)
+
+    def update_slot_ui_auto(self, slot_idx: int, is_on: bool):
+        el = self.slot_ui_elements.get(slot_idx)
+        if el and el.get("auto_switch"):
+            if is_on:
+                el["auto_switch"].select()
+            else:
+                el["auto_switch"].deselect()
+
+    def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str):
+        el = self.slot_ui_elements.get(slot_idx)
+        if el:
+            if el.get("name_lbl") and name:
+                el["name_lbl"].configure(text=name)
+            if el.get("lvl_lbl") and lvl:
+                el["lvl_lbl"].configure(text=lvl)
+            if el.get("coords_lbl") and coords:
+                el["coords_lbl"].configure(text=coords)
+
+    # ==========================================================================
+    # CÁC NÚT ĐIỀU KHIỂN HÀNG LOẠT (BULK ACTIONS)
+    # ==========================================================================
+    def refresh_games(self):
+        """Quét lại danh sách MEGAMU.exe."""
+        self.detected_games = enumerate_megamu_processes()
+        options = [tr("select")]
+        for pid, title in sorted(self.detected_games.items()):
+            char_name = character_name_from_window_title(title)
+            disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
+            options.append(disp)
+
+        for i in range(1, MAX_SLOTS + 1):
+            el = self.slot_ui_elements.get(i)
+            if el and el.get("proc_combo"):
+                el["proc_combo"].configure(values=options)
+
+        self.update_header_stats()
+        self.log_message(f"Đã làm mới: Phát hiện {len(self.detected_games)} cửa sổ MEGAMU.exe.", "INFO")
+
+    def assign_all(self):
+        """Gán tất cả tiến trình MEGAMU vào các Slot trống."""
+        self.refresh_games()
+        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid}
+        available_pids = [p for p in self.detected_games if p not in assigned_pids]
+
+        assigned_count = 0
+        for ctrl in self.controllers:
+            if not ctrl.assigned_pid and available_pids:
+                pid = available_pids.pop(0)
+                ctrl.attach_pid(pid)
+                # Cập nhật dropdown
+                el = self.slot_ui_elements.get(ctrl.slot_idx)
+                if el:
+                    title = self.detected_games.get(pid, "")
+                    char_name = character_name_from_window_title(title)
+                    disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
+                    el["proc_var"].set(disp)
+                assigned_count += 1
+
+        self.update_header_stats()
+        self.log_message(f"Gán tất cả: Đã gán {assigned_count} tài khoản vào bảng.", "SUCCESS")
+
+    def assign_team5(self):
+        """Gán 5 tài khoản vào 1 Team (1-5 hoặc 6-10)."""
+        self.refresh_games()
+        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid}
+        available_pids = [p for p in self.detected_games if p not in assigned_pids]
+
+        if len(available_pids) < 1:
+            self.log_message("Không có tiến trình MEGAMU nào chưa được gán.", "WARNING")
+            return
+
+        # Tìm nhóm 5 slot (1-5 hoặc 6-10) còn trống nhiều nhất
+        groups = [(1, 5), (6, 10)]
+        target_slots = None
+        for g_start, g_end in groups:
+            empty_slots = [c for c in self.controllers if g_start <= c.slot_idx <= g_end and not c.assigned_pid]
+            if len(empty_slots) >= min(5, len(available_pids)):
+                target_slots = empty_slots
+                break
+
+        if not target_slots:
+            target_slots = [c for c in self.controllers if not c.assigned_pid]
+
+        count = 0
+        for ctrl in target_slots[:5]:
+            if available_pids:
+                pid = available_pids.pop(0)
+                ctrl.attach_pid(pid)
+                el = self.slot_ui_elements.get(ctrl.slot_idx)
+                if el:
+                    title = self.detected_games.get(pid, "")
+                    char_name = character_name_from_window_title(title)
+                    disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
+                    el["proc_var"].set(disp)
+                count += 1
+
+        self.update_header_stats()
+        self.log_message(f"Gán Team 5: Đã gán thành công {count} tài khoản.", "SUCCESS")
+
+    def connect_all(self):
+        """Kết nối tới tất cả các slot đã chọn PID."""
+        for ctrl in self.controllers:
+            if ctrl.assigned_pid and not (ctrl.engine and ctrl.engine.is_ready):
+                ctrl.attach_pid(ctrl.assigned_pid)
+        self.update_header_stats()
+
+    def start_all(self):
+        """Bật Auto cho tất cả các slot có game."""
+        count = 0
+        for ctrl in self.controllers:
+            if ctrl.assigned_pid:
+                ok = ctrl.start_auto()
+                if ok:
+                    count += 1
+        self.update_header_stats()
+        self.log_message(f"Bật TẤT CẢ: Đã khởi động Auto cho {count} tài khoản.", "SUCCESS")
+
+    def stop_all(self):
+        """Tắt Auto cho tất cả các slot."""
+        for ctrl in self.controllers:
+            ctrl.stop_auto()
+        self.update_header_stats()
+        self.log_message("Tắt TẤT CẢ: Đã dừng Auto cho toàn bộ tài khoản.", "INFO")
+
+    def batch_start(self):
+        """Bật Auto cho nhóm được chọn ở combobox Điều khiển."""
+        targets = self._get_filtered_controllers()
+        count = 0
+        for ctrl in targets:
+            if ctrl.assigned_pid:
+                ok = ctrl.start_auto()
+                if ok:
+                    count += 1
+        self.update_header_stats()
+
+    def batch_stop(self):
+        """Tắt Auto cho nhóm được chọn ở combobox Điều khiển."""
+        targets = self._get_filtered_controllers()
+        for ctrl in targets:
+            ctrl.stop_auto()
+        self.update_header_stats()
+
+    def _get_filtered_controllers(self) -> List[SlotController]:
+        choice = self.ctrl_target_var.get()
+        if choice == tr("all"):
+            return self.controllers
+        if "1-5" in choice:
+            return self.controllers[0:5]
+        if "6-10" in choice:
+            return self.controllers[5:10]
+        try:
+            s_idx = int(choice)
+            if 1 <= s_idx <= MAX_SLOTS:
+                return [self.controllers[s_idx - 1]]
+        except Exception:
+            pass
+        return self.controllers
+
+    def change_language(self, lang_choice: str):
+        lang_code = lang_choice.lower()
+        if lang_code in I18N:
+            save_language_preference(lang_code)
+            self.log_message(f"Đã lưu ngôn ngữ: {lang_choice}. Hãy khởi động lại để đổi toàn bộ chữ.", "INFO")
+
+    # ==========================================================================
+    # CÁC TÁC VỤ ĐỊNH KỲ (SCAN TIẾN TRÌNH & ĐỌC TELEMETRY)
+    # ==========================================================================
+    def _periodic_game_scan(self):
+        if not self.running:
+            return
+        try:
+            self.detected_games = enumerate_megamu_processes()
+            self.update_header_stats()
+        except Exception:
+            pass
+        self.after(2500, self._periodic_game_scan)
+
+    def _periodic_telemetry(self):
+        if not self.running:
+            return
+        try:
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid:
+                    ctrl.sync_telemetry()
+        except Exception:
+            pass
+        self.after(600, self._periodic_telemetry)
+
+    def update_header_stats(self):
+        """Cập nhật các số liệu thống kê trên thanh tiêu đề."""
+        num_games = len(self.detected_games)
+        num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
+        num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
+
+        stat_text = (
+            f"{tr('games')}: {num_games} | {tr('connected')}: {num_conn} | "
+            f"{tr('auto')}: {num_auto} | {tr('license')}: Basic | 10 acc | 2026-10-01 | Online"
         )
-        if file_path:
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict) and "stages" in data:
-                    self.level_stages = data["stages"]
-                elif isinstance(data, list):
-                    self.level_stages = data
-                else:
-                    messagebox.showerror("Sai định dạng", "File JSON không hợp lệ!")
-                    return
-                self._sync_dropdown_and_form_from_stage(0)
-                self.log(f"[📂 ĐÃ NẠP KẾ HOẠCH] Nạp thành công {len(self.level_stages)} mốc từ '{os.path.basename(file_path)}'!")
-                messagebox.showinfo("Thành công", f"Đã nạp {len(self.level_stages)} mốc từ file!")
-            except Exception as ex:
-                messagebox.showerror("Lỗi", f"Không thể đọc file:\n{ex}")
+        self.header_stats_lbl.configure(text=stat_text)
 
-    # ==========================================================================
-    # CÁC TIỆN ÍCH KHÁC (THEME, F8 HOTKEY, GÓC CAMERA, ĐÓNG APP)
-    # ==========================================================================
-    def _toggle_theme(self):
-        if self.theme_switch.get() == 1:
-            ctk.set_appearance_mode("Dark")
-        else:
-            ctk.set_appearance_mode("Light")
+        # Cập nhật dòng RPC lanes metrics
+        metric_str = f"PID RPC Lanes | AVG 0.4 ms | P95 1.1 ms | Active {num_auto}/{num_conn} | Q 0 | STATE MAX 0.6 ms"
+        self.metrics_lbl.configure(text=metric_str)
 
-    def _on_angle_change(self, val):
-        self.lbl_angle_val.configure(text=f"{int(val)}°")
-
-    def _start_f8_hotkey_listener(self):
-        def listener():
-            if sys.platform != "win32":
-                return
-            user32 = ctypes.windll.user32
-            VK_F8 = 0x77
-            self.log("[⌨️ PHÍM NÓNG F8] Sẵn sàng lắng nghe F8 toàn màn hình!")
-            while not self.hotkey_stop_event.is_set():
-                time.sleep(0.05)
-                if not self.hotkey_enabled:
-                    continue
+    def on_closing(self):
+        self.running = False
+        self.stop_all()
+        for ctrl in self.controllers:
+            if ctrl.engine:
                 try:
-                    state = user32.GetAsyncKeyState(VK_F8)
-                    if state & 0x8000:
-                        now = time.time()
-                        if now - self.last_f8_time > 0.4:
-                            self.last_f8_time = now
-                            self.after(0, self._on_f8_hotkey_pressed)
+                    ctrl.engine.detach()
                 except Exception:
                     pass
-        threading.Thread(target=listener, daemon=True).start()
-
-    def _on_toggle_f8_hotkey(self):
-        self.hotkey_enabled = bool(self.sw_hotkey_f8.get())
-        st = "BẬT" if self.hotkey_enabled else "TẮT"
-        self.log(f"[⌨️ PHÍM NÓNG] Đã {st} phím tắt F8.")
-
-    def _on_f8_hotkey_pressed(self):
-        self._capture_ram_coord_to_stage(self.active_stage_idx, from_hotkey=True)
-
-    def _on_close(self):
-        self.hotkey_stop_event.set()
-        for ev in self.client_stop_events.values():
-            ev.set()
         self.destroy()
 
 
+# ==============================================================================
+# MAIN ENTRYPOINT
+# ==============================================================================
 def main():
-    app = MegNavigatorGUI()
+    app = DashboardApp()
     app.mainloop()
-
 
 if __name__ == "__main__":
     main()

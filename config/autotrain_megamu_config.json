@@ -1,0 +1,45 @@
+{
+  "glide_speed": 3.5,
+  "respawn_delay": 15,
+  "map_load_delay": 1.8,
+  "level1_delay": 4.0,
+  "arrive_distance": 2.0,
+  "respawn_distance": 12.0,
+  "stuck_retry_delay": 3.5,
+  "helper_native_timeout": 4.0,
+  "helper_direct_fallback": true,
+  "stages": [
+    {
+      "min_level": 1,
+      "max_level": 39,
+      "map_name": "Lorencia",
+      "x": 70,
+      "y": 147
+    },
+    {
+      "min_level": 40,
+      "max_level": 59,
+      "map_name": "Dungeon 2",
+      "x": 217,
+      "y": 115
+    },
+    {
+      "min_level": 60,
+      "max_level": 159,
+      "map_name": "Lost Tower 5",
+      "x": 110,
+      "y": 56
+    },
+    {
+      "min_level": 160,
+      "max_level": 399,
+      "map_name": "Arena",
+      "x": 69,
+      "y": 8
+    }
+  ],
+  "poll_interval": 0.55,
+  "reset_confirm_seconds": 1.5,
+  "map_command_retry_delay": 4.5,
+  "map_verify_unknown_timeout": 6.0
+}
