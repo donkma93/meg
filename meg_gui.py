@@ -55,7 +55,8 @@ except ImportError:
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
 APP_VERSION = "v1.5.1"
-MAX_SLOTS = 10
+DEFAULT_SLOTS = 10
+MAX_SLOTS = 50
 
 def app_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -130,7 +131,10 @@ I18N = {
         "map_wait": "CHỜ MAP {cur}→{exp}",
         "map_verify": "Xác minh map...",
         "map_unknown": "Map chưa có ID",
-        "at_spot": "Tới bãi farm"
+        "at_spot": "Tới bãi farm",
+        "add_account": "+ Thêm Account",
+        "remove_account": "- Xóa Account cuối",
+        "total_accounts": "Tổng số tài khoản: {n}"
     },
     "en": {
         "refresh_games": "Refresh Games",
@@ -171,7 +175,10 @@ I18N = {
         "map_wait": "WAIT MAP {cur}→{exp}",
         "map_verify": "Verifying map...",
         "map_unknown": "Unknown map ID",
-        "at_spot": "Farming at spot"
+        "at_spot": "Farming at spot",
+        "add_account": "+ Add Account",
+        "remove_account": "- Remove Last Account",
+        "total_accounts": "Total accounts: {n}"
     },
     "pt-BR": {
         "refresh_games": "Atualizar Games",
@@ -212,7 +219,10 @@ I18N = {
         "map_wait": "ESPERA MAPA {cur}→{exp}",
         "map_verify": "Verificando mapa...",
         "map_unknown": "ID do mapa desconhecido",
-        "at_spot": "No spot"
+        "at_spot": "No spot",
+        "add_account": "+ Adicionar Conta",
+        "remove_account": "- Remover Última Conta",
+        "total_accounts": "Total de contas: {n}"
     }
 }
 
@@ -396,17 +406,13 @@ class ConfigPersistenceManager:
                 tmp_def.replace(DEFAULT_CONFIG_FILE)
 
     @classmethod
-    def load_slot_assignments(cls, max_slots: int = 10) -> Dict[int, int]:
+    def load_slot_assignments(cls, min_slots: int = 10) -> Dict[int, int]:
         """
         Đọc cấu hình gán từng dòng Slot từ slot_assignments.json.
-        Mặc định: Slot 1-5 gán Config 1, Slot 6-10 gán Config 2.
+        Tự động mở rộng nếu file chứa nhiều hơn min_slots tài khoản.
         """
         with cls._lock:
             assignments = {}
-            # Khởi tạo mặc định theo luật giao diện: 1-5=C1, 6-10=C2
-            for s in range(1, max_slots + 1):
-                assignments[s] = 1 if s <= 5 else 2
-
             if SLOT_ASSIGNMENTS_FILE.exists():
                 try:
                     data = json.loads(SLOT_ASSIGNMENTS_FILE.read_text(encoding="utf-8"))
@@ -415,14 +421,19 @@ class ConfigPersistenceManager:
                         try:
                             s_int = int(s_str)
                             p_val = int(conf.get("profile", 1))
-                            if 1 <= s_int <= max_slots and 1 <= p_val <= 10:
+                            if s_int >= 1 and 1 <= p_val <= 10:
                                 assignments[s_int] = p_val
                         except Exception:
                             pass
                 except Exception:
                     pass
-            else:
-                # Ghi file ban đầu để luôn có sẵn
+
+            target_count = max(len(assignments), min_slots)
+            for s in range(1, target_count + 1):
+                if s not in assignments:
+                    assignments[s] = 1 if s <= 5 else (2 if s <= 10 else 1)
+
+            if not SLOT_ASSIGNMENTS_FILE.exists() or len(assignments) > len(slots_data if 'slots_data' in locals() else {}):
                 cls.save_all_slot_assignments(assignments)
             return assignments
 
@@ -444,7 +455,7 @@ class ConfigPersistenceManager:
         data = {
             "version": 1,
             "description": "Lưu trữ lựa chọn cấu hình Config 1..10 cho từng Slot",
-            "slots": {str(k): {"profile": v} for k, v in assignments.items()}
+            "slots": {str(k): {"profile": v} for k, v in sorted(assignments.items(), key=lambda x: int(x[0]))}
         }
         tmp_slot = SLOT_ASSIGNMENTS_FILE.with_suffix(".tmp")
         tmp_slot.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -660,9 +671,9 @@ class DashboardApp(ctk.CTk):
         self.map_list = self._get_map_display_list()
 
         # Quản lý Slot và đọc trực tiếp cấu hình gán từ file JSON
-        self.slot_assignments = ConfigPersistenceManager.load_slot_assignments(MAX_SLOTS)
+        self.slot_assignments = ConfigPersistenceManager.load_slot_assignments(DEFAULT_SLOTS)
         self.controllers: List[SlotController] = []
-        for i in range(1, MAX_SLOTS + 1):
+        for i in sorted(self.slot_assignments.keys()):
             assigned_c = self.slot_assignments.get(i, 1 if i <= 5 else 2)
             self.controllers.append(SlotController(i, self, default_profile=assigned_c))
 
@@ -811,7 +822,7 @@ class DashboardApp(ctk.CTk):
             sub_left, text=tr("control"), font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f3f4f6"
         ).pack(side="left", padx=(0, 6))
 
-        ctrl_options = [tr("all"), "Team 1 (1-5)", "Team 2 (6-10)"] + [f"{i:02d}" for i in range(1, MAX_SLOTS + 1)]
+        ctrl_options = [tr("all")]
         self.ctrl_target_var = ctk.StringVar(value=tr("all"))
         self.ctrl_combo = ctk.CTkOptionMenu(
             sub_left,
@@ -889,7 +900,7 @@ class DashboardApp(ctk.CTk):
 
         self.tab_accounts_btn = ctk.CTkButton(
             tab_bar,
-            text=f"{MAX_SLOTS} {tr('accounts')}",
+            text=f"{len(self.controllers)} {tr('accounts')}",
             width=100,
             height=28,
             corner_radius=5,
@@ -935,14 +946,17 @@ class DashboardApp(ctk.CTk):
         self.build_profiles_view()
         self.build_logs_view()
 
+        # Đồng bộ danh sách Slot vào combobox và nhãn điều khiển
+        self.update_combo_slot_options()
+
         # Mặc định hiển thị tab accounts
         self.switch_tab("accounts")
 
     # ==========================================================================
-    # TAB 1: DANH SÁCH 10 TÀI KHOẢN (ACCOUNTS TAB)
+    # TAB 1: DANH SÁCH TÀI KHOẢN (ACCOUNTS TAB) - HỖ TRỢ ĐA ACCOUNT KHÔNG GIỚI HẠN
     # ==========================================================================
     def build_accounts_view(self):
-        # Header bảng
+        # Header bảng cố định ở trên
         tbl_header = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=26)
         tbl_header.pack(fill="x", padx=4, pady=(2, 4))
 
@@ -968,141 +982,275 @@ class DashboardApp(ctk.CTk):
             )
             lbl.pack(side="left", padx=2)
 
-        # 10 Dòng tài khoản (Slot 01 -> 10)
-        for i in range(1, MAX_SLOTS + 1):
-            ctrl = self.controllers[i - 1]
-            row_frame = ctk.CTkFrame(self.panel_accounts, fg_color="#1f1f24", height=32, corner_radius=4)
-            row_frame.pack(fill="x", padx=4, pady=2)
+        # Khung cuộn chứa danh sách các dòng tài khoản
+        self.accounts_scroll_frame = ctk.CTkScrollableFrame(
+            self.panel_accounts,
+            fg_color="transparent"
+        )
+        self.accounts_scroll_frame.pack(fill="both", expand=True, padx=2, pady=2)
 
-            # Cột 1: # (01, 02...)
-            slot_lbl = ctk.CTkLabel(
-                row_frame,
-                text=f"{i:02d}",
-                width=34,
-                anchor="center",
-                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-                text_color="#e4e4e7"
-            )
-            slot_lbl.pack(side="left", padx=2)
+        # Tạo từng dòng tài khoản đã cấu hình
+        for i in range(1, len(self.controllers) + 1):
+            self.create_slot_row(i)
 
-            # Cột 2: MEGAMU / PID (Dropdown)
-            proc_var = ctk.StringVar(value=tr("select"))
-            proc_combo = ctk.CTkOptionMenu(
-                row_frame,
-                values=[tr("select")],
-                variable=proc_var,
-                width=280,
-                height=26,
-                fg_color="#27272a",
-                button_color="#3f3f46",
-                text_color="#ffffff",
-                corner_radius=4,
-                command=lambda val, s=i: self.on_slot_pid_selected(s, val),
-                font=ctk.CTkFont(family="Segoe UI", size=11)
-            )
-            proc_combo.pack(side="left", padx=2)
+        # Thanh chức năng thêm / bớt slot ở dưới cùng
+        bottom_slot_bar = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=36)
+        bottom_slot_bar.pack(fill="x", padx=6, pady=(4, 6))
 
-            # Cột 3: Cấu hình (Dropdown + nút ...)
-            cfg_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=105)
-            cfg_box.pack(side="left", padx=2)
+        self.btn_add_slot = ctk.CTkButton(
+            bottom_slot_bar,
+            text=tr("add_account"),
+            width=140,
+            height=30,
+            fg_color="#16a34a",
+            hover_color="#15803d",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            command=self.add_new_slot
+        )
+        self.btn_add_slot.pack(side="left", padx=4)
 
-            initial_cfg = f"Config {ctrl.profile_index}"
-            cfg_var = ctk.StringVar(value=initial_cfg)
-            cfg_menu = ctk.CTkOptionMenu(
-                cfg_box,
-                values=PROFILE_NAMES,
-                variable=cfg_var,
-                width=85,
-                height=26,
-                fg_color="#2563eb",
-                button_color="#1d4ed8",
-                text_color="#ffffff",
-                corner_radius=4,
-                command=lambda val, s=i: self.on_slot_profile_selected(s, val),
-                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
-            )
-            cfg_menu.pack(side="left")
+        self.btn_remove_slot = ctk.CTkButton(
+            bottom_slot_bar,
+            text=tr("remove_account"),
+            width=150,
+            height=30,
+            fg_color="#27272a",
+            hover_color="#dc2626",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            command=self.remove_last_slot
+        )
+        self.btn_remove_slot.pack(side="left", padx=4)
 
-            btn_jump_cfg = ctk.CTkButton(
-                cfg_box,
-                text="...",
-                width=18,
-                height=26,
-                fg_color="transparent",
-                hover_color="#3f3f46",
-                text_color="#9ca3af",
-                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-                command=lambda s=i: self.jump_to_config_tab(s)
-            )
-            btn_jump_cfg.pack(side="left", padx=(2, 0))
+        self.lbl_slot_count = ctk.CTkLabel(
+            bottom_slot_bar,
+            text=tr("total_accounts").format(n=len(self.controllers)),
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color="#9ca3af"
+        )
+        self.lbl_slot_count.pack(side="right", padx=10)
 
-            # Cột 4: Tên
-            name_lbl = ctk.CTkLabel(
-                row_frame,
-                text="---",
-                width=120,
-                anchor="center",
-                font=ctk.CTkFont(family="Segoe UI", size=11),
-                text_color="#e4e4e7"
-            )
-            name_lbl.pack(side="left", padx=2)
+    def create_slot_row(self, i: int):
+        """Tạo 1 dòng giao diện cho Slot thứ i trong khung cuộn."""
+        ctrl = self.controllers[i - 1]
+        row_frame = ctk.CTkFrame(self.accounts_scroll_frame, fg_color="#1f1f24", height=32, corner_radius=4)
+        row_frame.pack(fill="x", padx=2, pady=2)
 
-            # Cột 5: Lv
-            lvl_lbl = ctk.CTkLabel(
-                row_frame,
-                text="---",
-                width=55,
-                anchor="center",
-                font=ctk.CTkFont(family="Segoe UI", size=11),
-                text_color="#e4e4e7"
-            )
-            lvl_lbl.pack(side="left", padx=2)
+        # Cột 1: # (01, 02...)
+        slot_lbl = ctk.CTkLabel(
+            row_frame,
+            text=f"{i:02d}",
+            width=34,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#e4e4e7"
+        )
+        slot_lbl.pack(side="left", padx=2)
 
-            # Cột 6: X,Y
-            coords_lbl = ctk.CTkLabel(
-                row_frame,
-                text="--,--",
-                width=80,
-                anchor="center",
-                font=ctk.CTkFont(family="Segoe UI", size=11),
-                text_color="#e4e4e7"
-            )
-            coords_lbl.pack(side="left", padx=2)
+        # Cột 2: MEGAMU / PID (Dropdown)
+        proc_var = ctk.StringVar(value=tr("select"))
+        options = [tr("select")]
+        for pid, title in sorted(self.detected_games.items()):
+            char_name = character_name_from_window_title(title)
+            disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
+            options.append(disp)
 
-            # Cột 7: Trạng thái
-            status_lbl = ctk.CTkLabel(
-                row_frame,
-                text=tr("idle"),
-                width=130,
-                anchor="center",
-                font=ctk.CTkFont(family="Segoe UI", size=11),
-                text_color="#9ca3af"
-            )
-            status_lbl.pack(side="left", padx=2)
+        proc_combo = ctk.CTkOptionMenu(
+            row_frame,
+            values=options,
+            variable=proc_var,
+            width=280,
+            height=26,
+            fg_color="#27272a",
+            button_color="#3f3f46",
+            text_color="#ffffff",
+            corner_radius=4,
+            command=lambda val, s=i: self.on_slot_pid_selected(s, val),
+            font=ctk.CTkFont(family="Segoe UI", size=11)
+        )
+        proc_combo.pack(side="left", padx=2)
 
-            # Cột 8: Switch Auto
-            auto_switch = ctk.CTkSwitch(
-                row_frame,
-                text="",
-                width=55,
-                progress_color="#2563eb",
-                button_color="#ffffff",
-                command=lambda s=i: self.on_slot_auto_toggle(s)
-            )
-            auto_switch.pack(side="left", padx=5)
+        # Cột 3: Cấu hình (Dropdown + nút ...)
+        cfg_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=105)
+        cfg_box.pack(side="left", padx=2)
 
-            # Lưu references để cập nhật
-            self.slot_ui_elements[i] = {
-                "proc_var": proc_var,
-                "proc_combo": proc_combo,
-                "cfg_var": cfg_var,
-                "cfg_menu": cfg_menu,
-                "name_lbl": name_lbl,
-                "lvl_lbl": lvl_lbl,
-                "coords_lbl": coords_lbl,
-                "status_lbl": status_lbl,
-                "auto_switch": auto_switch
-            }
+        initial_cfg = f"Config {ctrl.profile_index}"
+        cfg_var = ctk.StringVar(value=initial_cfg)
+        cfg_menu = ctk.CTkOptionMenu(
+            cfg_box,
+            values=PROFILE_NAMES,
+            variable=cfg_var,
+            width=85,
+            height=26,
+            fg_color="#2563eb",
+            button_color="#1d4ed8",
+            text_color="#ffffff",
+            corner_radius=4,
+            command=lambda val, s=i: self.on_slot_profile_selected(s, val),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+        )
+        cfg_menu.pack(side="left")
+
+        btn_jump_cfg = ctk.CTkButton(
+            cfg_box,
+            text="...",
+            width=18,
+            height=26,
+            fg_color="transparent",
+            hover_color="#3f3f46",
+            text_color="#9ca3af",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: self.jump_to_config_tab(s)
+        )
+        btn_jump_cfg.pack(side="left", padx=(2, 0))
+
+        # Cột 4: Tên
+        name_lbl = ctk.CTkLabel(
+            row_frame,
+            text="---",
+            width=120,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#e4e4e7"
+        )
+        name_lbl.pack(side="left", padx=2)
+
+        # Cột 5: Lv
+        lvl_lbl = ctk.CTkLabel(
+            row_frame,
+            text="---",
+            width=55,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#e4e4e7"
+        )
+        lvl_lbl.pack(side="left", padx=2)
+
+        # Cột 6: X,Y
+        coords_lbl = ctk.CTkLabel(
+            row_frame,
+            text="--,--",
+            width=80,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#e4e4e7"
+        )
+        coords_lbl.pack(side="left", padx=2)
+
+        # Cột 7: Trạng thái
+        status_lbl = ctk.CTkLabel(
+            row_frame,
+            text=tr("idle"),
+            width=130,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#9ca3af"
+        )
+        status_lbl.pack(side="left", padx=2)
+
+        # Cột 8: Switch Auto
+        auto_switch = ctk.CTkSwitch(
+            row_frame,
+            text="",
+            width=55,
+            progress_color="#2563eb",
+            button_color="#ffffff",
+            command=lambda s=i: self.on_slot_auto_toggle(s)
+        )
+        auto_switch.pack(side="left", padx=5)
+
+        # Lưu references để cập nhật
+        self.slot_ui_elements[i] = {
+            "row_frame": row_frame,
+            "proc_var": proc_var,
+            "proc_combo": proc_combo,
+            "cfg_var": cfg_var,
+            "cfg_menu": cfg_menu,
+            "name_lbl": name_lbl,
+            "lvl_lbl": lvl_lbl,
+            "coords_lbl": coords_lbl,
+            "status_lbl": status_lbl,
+            "auto_switch": auto_switch
+        }
+
+    def add_new_slot(self):
+        """Thêm 1 slot tài khoản mới vào cuối danh sách."""
+        new_slot_idx = len(self.controllers) + 1
+        if new_slot_idx > MAX_SLOTS:
+            self.log_message(f"Đã đạt giới hạn tối đa {MAX_SLOTS} tài khoản.", "WARNING")
+            return
+
+        default_profile = 1
+        self.slot_assignments[new_slot_idx] = default_profile
+        ConfigPersistenceManager.save_slot_assignment(new_slot_idx, default_profile)
+
+        ctrl = SlotController(new_slot_idx, self, default_profile=default_profile)
+        self.controllers.append(ctrl)
+
+        self.create_slot_row(new_slot_idx)
+        self.update_combo_slot_options()
+        self.update_header_stats()
+        self.log_message(f"Đã thêm Account Slot #{new_slot_idx:02d} thành công.", "SUCCESS")
+
+    def remove_last_slot(self):
+        """Xóa slot tài khoản cuối cùng."""
+        if len(self.controllers) <= 1:
+            self.log_message("Không thể xóa: Cần giữ lại ít nhất 1 tài khoản.", "WARNING")
+            return
+
+        last_idx = len(self.controllers)
+        ctrl = self.controllers[-1]
+
+        # Dừng auto và ngắt kết nối an toàn nếu đang chạy
+        if ctrl.worker and ctrl.worker.running:
+            ctrl.stop_auto()
+        if ctrl.engine:
+            try:
+                ctrl.engine.detach()
+            except Exception:
+                pass
+
+        # Xóa UI row
+        el = self.slot_ui_elements.pop(last_idx, None)
+        if el and el.get("row_frame"):
+            try:
+                el["row_frame"].destroy()
+            except Exception:
+                pass
+
+        self.controllers.pop()
+        self.slot_assignments.pop(last_idx, None)
+        ConfigPersistenceManager.save_all_slot_assignments(self.slot_assignments)
+
+        self.update_combo_slot_options()
+        self.update_header_stats()
+        self.log_message(f"Đã xóa Account Slot #{last_idx:02d}.", "INFO")
+
+    def update_combo_slot_options(self):
+        """Cập nhật danh sách Slot trong các combobox Điều khiển và Nhật ký."""
+        n = len(self.controllers)
+        teams = []
+        for i in range(0, n, 5):
+            t_num = (i // 5) + 1
+            t_end = min(i + 5, n)
+            teams.append(f"Team {t_num} ({i + 1}-{t_end})")
+
+        ctrl_opts = [tr("all")] + teams + [f"{i:02d}" for i in range(1, n + 1)]
+        if hasattr(self, "ctrl_combo"):
+            self.ctrl_combo.configure(values=ctrl_opts)
+            if self.ctrl_target_var.get() not in ctrl_opts:
+                self.ctrl_target_var.set(tr("all"))
+
+        log_opts = [tr("all")] + [f"{i:02d}" for i in range(1, n + 1)]
+        if hasattr(self, "log_filter_combo"):
+            self.log_filter_combo.configure(values=log_opts)
+            if self.log_filter_var.get() not in log_opts:
+                self.log_filter_var.set(tr("all"))
+
+        if hasattr(self, "tab_accounts_btn"):
+            self.tab_accounts_btn.configure(text=f"{n} {tr('accounts')}")
+
+        if hasattr(self, "lbl_slot_count"):
+            self.lbl_slot_count.configure(text=tr("total_accounts").format(n=n))
 
     # ==========================================================================
     # TAB 2: CẤU HÌNH (PROFILES TAB)
@@ -1558,7 +1706,7 @@ class DashboardApp(ctk.CTk):
             disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
             options.append(disp)
 
-        for i in range(1, MAX_SLOTS + 1):
+        for i in self.slot_ui_elements.keys():
             el = self.slot_ui_elements.get(i)
             if el and el.get("proc_combo"):
                 el["proc_combo"].configure(values=options)
@@ -1590,7 +1738,7 @@ class DashboardApp(ctk.CTk):
         self.log_message(f"Gán tất cả: Đã gán {assigned_count} tài khoản vào bảng.", "SUCCESS")
 
     def assign_team5(self):
-        """Gán 5 tài khoản vào 1 Team (1-5 hoặc 6-10)."""
+        """Gán 5 tài khoản vào 1 Team còn trống."""
         self.refresh_games()
         assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid}
         available_pids = [p for p in self.detected_games if p not in assigned_pids]
@@ -1599,8 +1747,12 @@ class DashboardApp(ctk.CTk):
             self.log_message("Không có tiến trình MEGAMU nào chưa được gán.", "WARNING")
             return
 
-        # Tìm nhóm 5 slot (1-5 hoặc 6-10) còn trống nhiều nhất
-        groups = [(1, 5), (6, 10)]
+        # Tìm nhóm 5 slot (Team 1, Team 2, Team 3...) còn trống nhiều nhất
+        groups = []
+        n = len(self.controllers)
+        for i in range(0, n, 5):
+            groups.append((i + 1, min(i + 5, n)))
+
         target_slots = None
         for g_start, g_end in groups:
             empty_slots = [c for c in self.controllers if g_start <= c.slot_idx <= g_end and not c.assigned_pid]
@@ -1674,13 +1826,18 @@ class DashboardApp(ctk.CTk):
         choice = self.ctrl_target_var.get()
         if choice == tr("all"):
             return self.controllers
-        if "1-5" in choice:
-            return self.controllers[0:5]
-        if "6-10" in choice:
-            return self.controllers[5:10]
+
+        # Khớp theo Team dạng "Team X (start-end)"
+        import re
+        m = re.search(r"\((\d+)-(\d+)\)", choice)
+        if m:
+            start_i = max(0, int(m.group(1)) - 1)
+            end_i = min(len(self.controllers), int(m.group(2)))
+            return self.controllers[start_i:end_i]
+
         try:
             s_idx = int(choice)
-            if 1 <= s_idx <= MAX_SLOTS:
+            if 1 <= s_idx <= len(self.controllers):
                 return [self.controllers[s_idx - 1]]
         except Exception:
             pass
@@ -1721,10 +1878,11 @@ class DashboardApp(ctk.CTk):
         num_games = len(self.detected_games)
         num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
         num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
+        num_slots = len(self.controllers)
 
         stat_text = (
             f"{tr('games')}: {num_games} | {tr('connected')}: {num_conn} | "
-            f"{tr('auto')}: {num_auto} | {tr('license')}: Basic | 10 acc | 2026-10-01 | Online"
+            f"{tr('auto')}: {num_auto} | {tr('license')}: Basic | {num_slots} acc | 2026-10-01 | Online"
         )
         self.header_stats_lbl.configure(text=stat_text)
 
