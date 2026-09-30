@@ -563,15 +563,26 @@ class SlotController:
         return True
 
     def stop_auto(self):
-        if self.worker:
+        worker = self.worker
+        self.worker = None
+        if worker:
             try:
-                self.worker.stop()
+                worker.stop()
             except Exception:
                 pass
-            self.worker = None
+        elif self.engine and self.engine.is_ready:
+            try:
+                self.engine.stop_helper()
+                self.engine.cancel_move()
+            except Exception:
+                pass
 
         self.auto_requested = False
         self.set_auto(False)
+        self.app.log_message(
+            f"[Slot {self.slot_idx:02d}] TẮT AUTO: Đã dừng auto, nhân vật đứng yên tại vị trí hiện tại, MuHelper đã TẮT.",
+            "INFO"
+        )
         if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
             self.set_status(tr("connected_status"))
         else:
@@ -608,8 +619,8 @@ class SlotController:
                 if p_info:
                     p_name = p_info.get("name", "")
                     p_lvl = p_info.get("level", 0)
-                    px = p_info.get("x", 0)
-                    py = p_info.get("y", 0)
+                    px = p_info.get("tileX", p_info.get("x", 0))
+                    py = p_info.get("tileY", p_info.get("y", 0))
 
                     if p_name:
                         self.char_name = p_name
@@ -677,15 +688,24 @@ class DashboardApp(ctk.CTk):
 
     def _get_map_display_list(self) -> List[str]:
         maps = []
-        if MAP_COMMANDS_FILE.exists():
-            try:
-                d = json.loads(MAP_COMMANDS_FILE.read_text(encoding="utf-8"))
-                for m in d.get("maps", []):
-                    name = str(m.get("name", "")).strip()
-                    if name and name not in maps:
-                        maps.append(name)
-            except Exception:
-                pass
+        candidate_paths = [
+            MAP_COMMANDS_FILE,
+            BASE_DIR / "config" / "map_commands.json",
+            BASE_DIR / "map_commands.json",
+            Path(r"C:\Users\donpv\Downloads\MEGAMU Auto Train Dashboad\config\map_commands.json")
+        ]
+        for p in candidate_paths:
+            if p and p.exists():
+                try:
+                    d = json.loads(p.read_text(encoding="utf-8"))
+                    for m in d.get("maps", []):
+                        name = str(m.get("name", "")).strip()
+                        if name and name not in maps:
+                            maps.append(name)
+                    if maps:
+                        break
+                except Exception:
+                    pass
         if not maps:
             maps = ["Lorencia", "Noria", "Devias", "Dungeon 2", "Lost Tower 5", "Aida 1", "Icarus", "Kanturu 1"]
         return maps
@@ -1479,35 +1499,52 @@ class DashboardApp(ctk.CTk):
         ctrl.toggle_auto()
 
     def update_slot_ui_status(self, slot_idx: int, text: str):
-        el = self.slot_ui_elements.get(slot_idx)
-        if el and el.get("status_lbl"):
-            # Tô màu nhẹ cho trạng thái
-            color = "#9ca3af"
-            if "running" in text.lower() or "đang chạy" in text.lower() or "tới bãi" in text.lower():
-                color = "#38bdf8"
-            elif "pk" in text.lower():
-                color = "#f87171"
-            elif "đã kết nối" in text.lower() or "connected" in text.lower():
-                color = "#4ade80"
-            el["status_lbl"].configure(text=text, text_color=color)
+        def _apply():
+            el = self.slot_ui_elements.get(slot_idx)
+            if el and el.get("status_lbl"):
+                color = "#9ca3af"
+                tl = text.lower()
+                if "tự động đánh" in tl or "tại bãi" in tl:
+                    color = "#c084fc"
+                elif "running" in tl or "đang chạy" in tl or "chạy ra bãi" in tl:
+                    color = "#38bdf8"
+                elif "pk" in tl:
+                    color = "#f87171"
+                elif "đã kết nối" in tl or "connected" in tl:
+                    color = "#4ade80"
+                el["status_lbl"].configure(text=text, text_color=color)
+        try:
+            self.after(0, _apply)
+        except Exception:
+            _apply()
 
     def update_slot_ui_auto(self, slot_idx: int, is_on: bool):
-        el = self.slot_ui_elements.get(slot_idx)
-        if el and el.get("auto_switch"):
-            if is_on:
-                el["auto_switch"].select()
-            else:
-                el["auto_switch"].deselect()
+        def _apply():
+            el = self.slot_ui_elements.get(slot_idx)
+            if el and el.get("auto_switch"):
+                if is_on:
+                    el["auto_switch"].select()
+                else:
+                    el["auto_switch"].deselect()
+        try:
+            self.after(0, _apply)
+        except Exception:
+            _apply()
 
     def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str):
-        el = self.slot_ui_elements.get(slot_idx)
-        if el:
-            if el.get("name_lbl") and name:
-                el["name_lbl"].configure(text=name)
-            if el.get("lvl_lbl") and lvl:
-                el["lvl_lbl"].configure(text=lvl)
-            if el.get("coords_lbl") and coords:
-                el["coords_lbl"].configure(text=coords)
+        def _apply():
+            el = self.slot_ui_elements.get(slot_idx)
+            if el:
+                if el.get("name_lbl") and name:
+                    el["name_lbl"].configure(text=name)
+                if el.get("lvl_lbl") and lvl:
+                    el["lvl_lbl"].configure(text=lvl)
+                if el.get("coords_lbl") and coords:
+                    el["coords_lbl"].configure(text=coords)
+        try:
+            self.after(0, _apply)
+        except Exception:
+            _apply()
 
     # ==========================================================================
     # CÁC NÚT ĐIỀU KHIỂN HÀNG LOẠT (BULK ACTIONS)
@@ -1677,7 +1714,7 @@ class DashboardApp(ctk.CTk):
                     ctrl.sync_telemetry()
         except Exception:
             pass
-        self.after(600, self._periodic_telemetry)
+        self.after(200, self._periodic_telemetry)
 
     def update_header_stats(self):
         """Cập nhật các số liệu thống kê trên thanh tiêu đề."""
@@ -1708,11 +1745,24 @@ class DashboardApp(ctk.CTk):
 
 
 # ==============================================================================
-# MAIN ENTRYPOINT
-# ==============================================================================
 def main():
-    app = DashboardApp()
-    app.mainloop()
+    try:
+        app = DashboardApp()
+        app.mainloop()
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        print(err_msg, flush=True)
+        try:
+            with open("gui_crash.log", "w", encoding="utf-8") as f:
+                f.write(err_msg)
+        except Exception:
+            pass
+        try:
+            from tkinter import messagebox
+            messagebox.showerror("Lỗi khởi động", f"Chương trình gặp lỗi khi chạy:\n{e}\n\nXem chi tiết tại gui_crash.log")
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()

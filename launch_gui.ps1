@@ -50,8 +50,10 @@ Add-Type @"
       STARTUPINFO si = new STARTUPINFO();
       si.cb = Marshal.SizeOf(si);
       si.lpDesktop = desktop;
+      si.lpTitle = "MEGAMU Auto Train - Debug Console";
       PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
-      bool res = CreateProcess(null, cmdLine, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, workDir, ref si, out pi);
+      // 0x00000010 = CREATE_NEW_CONSOLE
+      bool res = CreateProcess(null, cmdLine, IntPtr.Zero, IntPtr.Zero, false, 0x00000010, IntPtr.Zero, workDir, ref si, out pi);
       if (!res) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
       CloseHandle(pi.hProcess);
       CloseHandle(pi.hThread);
@@ -63,7 +65,7 @@ Add-Type @"
 $py = (Get-Command python).Source
 $dir = $PSScriptRoot
 $script = Join-Path $dir "meg_gui.py"
-$cmd = "`"$py`" `"$script`""
+$cmd = "cmd.exe /k `"$py`" -u `"$script`""
 
 $procId = [DesktopProcessLauncher]::Start($cmd, $dir, "WinSta0\Default")
 Write-Host "Started MEGAMU Auto Navigator GUI on user desktop with PID: $procId"

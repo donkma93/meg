@@ -17,9 +17,11 @@ import sys
 import json
 import time
 import ctypes
+if sys.platform == "win32":
+    from ctypes import wintypes
 import threading
 import atexit
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Callable
 
 try:
     import frida
@@ -180,6 +182,19 @@ function readPlayerInfoSnapshot(readName) {
                 tileX = curCoord.add(0x10).readS32();
                 tileY = curCoord.add(0x14).readS32();
             }
+            if ((tileX === 0 && tileY === 0) || curCoord.isNull()) {
+                var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                if (!lastCoord.isNull()) {
+                    var lm = lastCoord.add(0x0C).readS32();
+                    var lx = lastCoord.add(0x10).readS32();
+                    var ly = lastCoord.add(0x14).readS32();
+                    if (mapId < 0 && lm >= 0) mapId = lm;
+                    if (tileX === 0 && tileY === 0 && (lx > 0 || ly > 0)) {
+                        tileX = lx;
+                        tileY = ly;
+                    }
+                }
+            }
         } catch (e) {}
 
         var isMoving = false;
@@ -194,7 +209,18 @@ function readPlayerInfoSnapshot(readName) {
             if (!h.isNull()) helperState = h.add(off('__HELPER_STATE__')).readU8();
         } catch (e) {}
 
-        return {name: charName, level: level, classId: classId, mapId: mapId, tileX: tileX, tileY: tileY, isMoving: isMoving, helperState: helperState};
+        return {
+            name: charName,
+            level: level,
+            classId: classId,
+            mapId: mapId,
+            tileX: tileX,
+            tileY: tileY,
+            x: tileX,
+            y: tileY,
+            isMoving: isMoving,
+            helperState: helperState
+        };
     } catch (e) {
         return null;
     }
@@ -245,6 +271,19 @@ rpc.exports = {
                 if (!move.isNull()) {
                     try { move.add(off('__MOVE_FLAG__')).writeU8(0); } catch (e1) {}
                 }
+                var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
+                if (!curCoord.isNull()) {
+                    var curX = curCoord.add(0x10).readS32();
+                    var curY = curCoord.add(0x14).readS32();
+                    var klass = curCoord.readPointer();
+                    if (!klass.isNull()) {
+                        coordBuf.writePointer(klass);
+                        coordBuf.add(0x08).writePointer(ptr(0));
+                        coordBuf.add(0x10).writeS32(curX);
+                        coordBuf.add(0x14).writeS32(curY);
+                        moveToNative(p, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
+                    }
+                }
             }
             return true;
         } catch (e) {
@@ -278,6 +317,11 @@ rpc.exports = {
     },
 
     sendChatNative: function(cmd) {
+        pendingCommand = cmd;
+        return true;
+    },
+
+    send_chat_native: function(cmd) {
         pendingCommand = cmd;
         return true;
     },
@@ -368,6 +412,7 @@ class MegDirectEngine:
         self.last_fast_state: Optional[Dict[str, Any]] = None
         self.last_fast_state_time: float = 0.0
         self.last_fast_seq: int = 0
+        self.telemetry_callbacks: List[Callable[[Dict[str, Any]], None]] = []
 
         # Load offsets
         self.offsets = dict(DEFAULT_OFFSETS)
@@ -376,6 +421,15 @@ class MegDirectEngine:
         # Connect
         self._claim_mutex()
         self._attach()
+
+    def register_telemetry_callback(self, cb: Callable[[Dict[str, Any]], None]):
+        """Đăng ký callback nhận dữ liệu telemetry RAM thời gian thực (150ms)."""
+        if cb and cb not in self.telemetry_callbacks:
+            self.telemetry_callbacks.append(cb)
+
+    def unregister_telemetry_callback(self, cb: Callable[[Dict[str, Any]], None]):
+        if cb in self.telemetry_callbacks:
+            self.telemetry_callbacks.remove(cb)
 
     def _load_offsets_file(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -439,9 +493,24 @@ class MegDirectEngine:
                 if isinstance(payload, dict):
                     p_type = payload.get("type")
                     if p_type == "fast_state":
-                        self.last_fast_state = payload.get("info")
-                        self.last_fast_state_time = time.time()
-                        self.last_fast_seq = payload.get("seq", 0)
+                        info = payload.get("info")
+                        if isinstance(info, dict):
+                            if "tileX" in info and "x" not in info:
+                                info["x"] = info["tileX"]
+                            if "tileY" in info and "y" not in info:
+                                info["y"] = info["tileY"]
+                            if "x" in info and "tileX" not in info:
+                                info["tileX"] = info["x"]
+                            if "y" in info and "tileY" not in info:
+                                info["tileY"] = info["y"]
+                            self.last_fast_state = info
+                            self.last_fast_state_time = time.time()
+                            self.last_fast_seq = payload.get("seq", 0)
+                            for cb in list(self.telemetry_callbacks):
+                                try:
+                                    cb(info)
+                                except Exception:
+                                    pass
                     elif p_type == "chat_dispatched":
                         cmd_val = payload.get("cmd")
                         if payload.get("success"):
@@ -480,6 +549,14 @@ class MegDirectEngine:
         with self._rpc_lock:
             try:
                 fn = getattr(self.script.exports_sync, func_name, None)
+                if not fn:
+                    if "_" in func_name:
+                        camel = "".join(w.capitalize() if i > 0 else w for i, w in enumerate(func_name.split("_")))
+                        fn = getattr(self.script.exports_sync, camel, None)
+                    else:
+                        import re
+                        snake = re.sub(r'(?<!^)(?=[A-Z])', '_', func_name).lower()
+                        fn = getattr(self.script.exports_sync, snake, None)
                 if fn:
                     return fn(*args)
             except Exception as e:
@@ -498,6 +575,14 @@ class MegDirectEngine:
 
         res = self._call("getPlayerInfo")
         if res and isinstance(res, dict):
+            if "tileX" in res and "x" not in res:
+                res["x"] = res["tileX"]
+            if "tileY" in res and "y" not in res:
+                res["y"] = res["tileY"]
+            if "x" in res and "tileX" not in res:
+                res["tileX"] = res["x"]
+            if "y" in res and "tileY" not in res:
+                res["tileY"] = res["y"]
             self.last_fast_state = res
             self.last_fast_state_time = now
             return res
@@ -515,101 +600,295 @@ class MegDirectEngine:
         return bool(res)
 
     def get_hwnd(self) -> Optional[int]:
-        """Lấy HWND cửa sổ của tiến trình game qua PID bằng pure ctypes."""
+        """Lấy HWND cửa sổ Unity của tiến trình game qua PID."""
         if sys.platform != "win32" or not self.pid:
             return None
         user32 = ctypes.windll.user32
-        result_hwnd = None
+        cached = getattr(self, "_cached_hwnd", None)
+        if cached and user32.IsWindow(cached):
+            lp_pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(cached, ctypes.byref(lp_pid))
+            if lp_pid.value == self.pid:
+                return cached
 
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        candidates = []
+
         def enum_cb(hwnd, lparam):
-            nonlocal result_hwnd
-            if user32.IsWindowVisible(hwnd):
-                lp_pid = ctypes.c_ulong()
-                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(lp_pid))
-                if lp_pid.value == self.pid:
-                    buf = ctypes.create_unicode_buffer(512)
-                    user32.GetWindowTextW(hwnd, buf, 512)
-                    title = buf.value
-                    if "megamu" in title.lower():
-                        result_hwnd = hwnd
-                        return False
+            class_name = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, class_name, 256)
+            lp_pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(lp_pid))
+            if lp_pid.value == self.pid:
+                is_unity = (class_name.value.lower() == "unitywndclass")
+                rect = wintypes.RECT()
+                user32.GetClientRect(hwnd, ctypes.byref(rect))
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                score = (10000000 if is_unity else 0) + (w * h)
+                candidates.append((score, hwnd))
             return True
 
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        cb = WNDENUMPROC(enum_cb)
+
+        h_desk = user32.OpenInputDesktop(0, False, 0x01FF)
+        if h_desk:
+            user32.EnumDesktopWindows(h_desk, cb, 0)
+            user32.CloseDesktop(h_desk)
+
+        if not candidates:
+            try:
+                user32.EnumWindows(cb, 0)
+            except Exception:
+                pass
+
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            self._cached_hwnd = candidates[0][1]
+            return candidates[0][1]
+        return None
+
+    @staticmethod
+    def send_background_click(hwnd: int, client_x: int, client_y: int, duration_ms: int = 50) -> bool:
+        """Gửi click chuột nền vào cửa sổ Unity bằng Win32 PostMessage (không cướp chuột vật lý)."""
+        if not hwnd or sys.platform != "win32":
+            return False
+        user32 = ctypes.windll.user32
+        WM_ACTIVATE = 0x0006
+        WM_SETFOCUS = 0x0007
+        WM_MOUSEMOVE = 0x0200
+        WM_LBUTTONDOWN = 0x0201
+        WM_LBUTTONUP = 0x0202
+        WA_ACTIVE = 1
+        lparam = ((int(client_y) & 0xFFFF) << 16) | (int(client_x) & 0xFFFF)
         try:
-            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+            user32.SendMessageW(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
+            user32.SendMessageW(hwnd, WM_SETFOCUS, 0, 0)
+            user32.PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam)
+            user32.PostMessageW(hwnd, WM_LBUTTONDOWN, 1, lparam)
+            time.sleep(max(duration_ms, 30) / 1000.0)
+            user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+            return True
         except Exception:
-            pass
-        return result_hwnd
+            return False
+
+    @staticmethod
+    def send_background_key(hwnd: int, vk_code: int, duration_s: float = 0.05) -> bool:
+        """Gửi phím nền chuẩn Unity lParam scan-code vào cửa sổ game."""
+        if not hwnd or sys.platform != "win32":
+            return False
+        user32 = ctypes.windll.user32
+        WM_KEYDOWN = 0x0100
+        WM_KEYUP = 0x0101
+        scan_code = user32.MapVirtualKeyW(vk_code, 0)
+        lparam_down = 1 | (scan_code << 16) | (1 << 24)
+        lparam_up = 1 | (scan_code << 16) | (1 << 24) | (1 << 30) | (1 << 31)
+        try:
+            user32.PostMessageW(hwnd, WM_KEYDOWN, vk_code, lparam_down)
+            if duration_s > 0:
+                time.sleep(duration_s)
+            user32.PostMessageW(hwnd, WM_KEYUP, vk_code, lparam_up)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def send_hardware_key(hwnd: int, vk_code: int, duration_s: float = 0.04) -> bool:
+        """Gửi phím phần cứng chuẩn qua keybd_event kết hợp AttachThreadInput (chuẩn Unity Engine)."""
+        if not hwnd or sys.platform != "win32":
+            return False
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        cur_tid = kernel32.GetCurrentThreadId()
+        fg_hwnd = user32.GetForegroundWindow()
+        fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, None)
+        target_tid = user32.GetWindowThreadProcessId(hwnd, None)
+
+        attached_fg = False
+        attached_target = False
+        try:
+            if fg_tid and fg_tid != cur_tid:
+                attached_fg = bool(user32.AttachThreadInput(cur_tid, fg_tid, True))
+            if target_tid and target_tid != cur_tid:
+                attached_target = bool(user32.AttachThreadInput(cur_tid, target_tid, True))
+
+            user32.SetForegroundWindow(hwnd)
+            time.sleep(0.04)
+
+            user32.keybd_event(vk_code, 0, 0, 0)
+            if duration_s > 0:
+                time.sleep(duration_s)
+            user32.keybd_event(vk_code, 0, 2, 0)
+            time.sleep(0.04)
+
+            if fg_hwnd and fg_hwnd != hwnd:
+                user32.SetForegroundWindow(fg_hwnd)
+            return True
+        except Exception:
+            return False
+        finally:
+            if attached_fg:
+                try: user32.AttachThreadInput(cur_tid, fg_tid, False)
+                except Exception: pass
+            if attached_target:
+                try: user32.AttachThreadInput(cur_tid, target_tid, False)
+                except Exception: pass
 
     def send_chat(self, command: str) -> bool:
         """
         Gửi lệnh chat (chuyển map /move hoặc lệnh trong game):
-        1. Ưu tiên tuyệt đối gửi qua Frida Native Hook (an toàn, chuẩn xác, không mở khung chat).
-        2. Fallback qua Windows Background PostMessage chỉ khi Frida chưa sẵn sàng hoặc gọi native thất bại.
+        1. Gọi Frida Native Hook (chuẩn 100% như MEGAMU Dashboard gốc: nhanh, không phụ thuộc focus cửa sổ).
+        2. Nếu Native Hook chưa sẵn sàng hoặc thất bại, fallback sang PostMessage nền.
         """
         cmd = str(command).strip()
         if not cmd:
             return False
 
-        native_ok = False
+        # 1. Gọi Frida Native Hook (chuẩn theo cơ chế MEGAMUCore của dashboard gốc)
         if self.is_ready:
             try:
-                res = self._call("sendChatNative", cmd)
-                native_ok = bool(res)
+                native_ok = self._call("send_chat_native", cmd)
+                if native_ok:
+                    _safe_log(f"[MegDirectEngine] Đã gửi lệnh chat native: '{cmd}'")
+                    return True
             except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi gọi sendChatNative: {e}")
+                _safe_log(f"[MegDirectEngine] Lỗi gọi send_chat_native: {e}")
 
-        if native_ok:
-            return True
-
-        # Fallback Background PostMessage chỉ khi không dùng được native hook
+        # 2. Gửi Background PostMessage khi native hook chưa kết nối hoặc thất bại
         hwnd = self.get_hwnd()
-        if hwnd and sys.platform == "win32":
+        if not hwnd:
+            _safe_log(f"[MegDirectEngine] PID {self.pid}: Không tìm thấy HWND cửa sổ game để gửi lệnh chat fallback.")
+            return False
+
+        user32 = ctypes.windll.user32
+        WM_KEYDOWN = 0x0100
+        WM_KEYUP = 0x0101
+        WM_CHAR = 0x0102
+        VK_RETURN = 0x0D
+
+        try:
+            self.send_background_key(hwnd, VK_RETURN, 0.04)
+            time.sleep(0.04)
+
+            for ch in cmd:
+                scan_code = user32.MapVirtualKeyW(ord(ch), 0)
+                lparam = 1 | (scan_code << 16)
+                user32.PostMessageW(hwnd, WM_CHAR, ord(ch), lparam)
+                time.sleep(0.005)
+
+            time.sleep(0.04)
+            self.send_background_key(hwnd, VK_RETURN, 0.04)
+            _safe_log(f"[MegDirectEngine] Đã gửi lệnh chat PostMessage fallback: '{cmd}' vào HWND 0x{hwnd:X}.")
+            return True
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi PostMessage chat fallback: {e}")
+            return False
+
+    def is_helper_active(self, force_refresh: bool = False) -> bool:
+        """Kiểm tra trạng thái MuHelper đang BẬT hay TẮT."""
+        if not force_refresh:
+            info = self.get_player_info(max_age=0.35)
+            if info and "helperState" in info:
+                try:
+                    return int(info.get("helperState", 0)) == 1
+                except Exception:
+                    pass
+        res = self._call("getHelperState")
+        if res is not None:
             try:
-                user32 = ctypes.windll.user32
-                WM_KEYDOWN = 0x0100
-                WM_KEYUP = 0x0101
-                WM_CHAR = 0x0102
-                VK_RETURN = 0x0D
-
-                # Enter mở thanh chat
-                user32.PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, 0)
-                user32.PostMessageW(hwnd, WM_KEYUP, VK_RETURN, 0)
-                time.sleep(0.05)
-
-                # Gửi từng ký tự vào ô chat
-                for ch in cmd:
-                    user32.PostMessageW(hwnd, WM_CHAR, ord(ch), 0)
-                    time.sleep(0.005)
-
-                time.sleep(0.05)
-                # Enter gửi lệnh
-                user32.PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, 0)
-                user32.PostMessageW(hwnd, WM_KEYUP, VK_RETURN, 0)
-                return True
-            except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi PostMessage chat: {e}")
-
+                return int(res) == 1
+            except Exception:
+                pass
+        if self.last_fast_state and "helperState" in self.last_fast_state:
+            try:
+                return int(self.last_fast_state.get("helperState", 0)) == 1
+            except Exception:
+                pass
         return False
 
-    def is_helper_active(self) -> bool:
-        """Kiểm tra trạng thái MuHelper đang BẬT hay TẮT."""
-        info = self.get_player_info(max_age=0.8)
-        if info:
-            return int(info.get("helperState", 0)) == 1
-        res = self._call("getHelperState")
-        return bool(res)
-
     def start_helper(self) -> bool:
-        """Kích hoạt bật MuHelper."""
-        res = self._call("startHelper")
-        return bool(res)
+        """Kích hoạt bật MuHelper (từng kênh một cách an toàn, dừng ngay khi đã BẬT)."""
+        self.last_fast_state = None
+        if self.is_helper_active(force_refresh=True):
+            return True
+
+        hwnd = self.get_hwnd()
+        if not hwnd or sys.platform != "win32":
+            self._call("startHelper")
+            time.sleep(0.2)
+            return self.is_helper_active(force_refresh=True)
+
+        # Kênh 1: Phím Home phần cứng (VK_HOME = 0x24) - Chuẩn xác 100% cho Unity MEGAMU
+        self.send_hardware_key(hwnd, 0x24, 0.04)
+        for _ in range(5):
+            time.sleep(0.08)
+            if self.is_helper_active(force_refresh=True):
+                return True
+
+        # Kênh 2: Gửi phím Home ngầm Win32 PostMessage
+        self.send_background_key(hwnd, 0x24, 0.05)
+        for _ in range(4):
+            time.sleep(0.08)
+            if self.is_helper_active(force_refresh=True):
+                return True
+
+        # Kênh 3: Click nút Play trên HUD (341, 88)
+        self.send_background_click(hwnd, 341, 88, duration_ms=50)
+        for _ in range(4):
+            time.sleep(0.08)
+            if self.is_helper_active(force_refresh=True):
+                return True
+
+        # Kênh 4: Phím Z phần cứng
+        self.send_hardware_key(hwnd, 0x5A, 0.04)
+        for _ in range(4):
+            time.sleep(0.08)
+            if self.is_helper_active(force_refresh=True):
+                return True
+
+        # Kênh 5: Frida RPC
+        self._call("startHelper")
+        time.sleep(0.15)
+        return self.is_helper_active(force_refresh=True)
 
     def stop_helper(self) -> bool:
-        """Kích hoạt tắt MuHelper."""
-        res = self._call("stopHelper")
-        return bool(res)
+        """Kích hoạt tắt MuHelper (chỉ tắt khi đang BẬT, tuyệt đối không toggle nếu đã TẮT)."""
+        self.last_fast_state = None
+        # NẾU ĐÃ TẮT RỒI -> TUYỆT ĐỐI KHÔNG GỬI GÌ CẢ (chống vô tình bật lên)
+        if not self.is_helper_active(force_refresh=True):
+            return True
+
+        hwnd = self.get_hwnd()
+        if not hwnd or sys.platform != "win32":
+            self._call("stopHelper")
+            time.sleep(0.2)
+            return not self.is_helper_active(force_refresh=True)
+
+        # Đang BẬT -> gửi tắt:
+        # Kênh 1: Phím Home phần cứng (VK_HOME = 0x24)
+        self.send_hardware_key(hwnd, 0x24, 0.04)
+        for _ in range(5):
+            time.sleep(0.08)
+            if not self.is_helper_active(force_refresh=True):
+                return True
+
+        # Kênh 2: Phím Home ngầm Win32 PostMessage
+        self.send_background_key(hwnd, 0x24, 0.05)
+        for _ in range(4):
+            time.sleep(0.08)
+            if not self.is_helper_active(force_refresh=True):
+                return True
+
+        # Kênh 3: Click nút Play/Stop trên thanh HUD (341, 88)
+        self.send_background_click(hwnd, 341, 88, duration_ms=50)
+        for _ in range(4):
+            time.sleep(0.08)
+            if not self.is_helper_active(force_refresh=True):
+                return True
+
+        self._call("stopHelper")
+        time.sleep(0.15)
+        return not self.is_helper_active(force_refresh=True)
 
     def detach(self):
         """

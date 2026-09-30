@@ -222,9 +222,24 @@ class AutoTrainWorker:
         self.stop_event.set()
         if self.core and self.core.is_ready:
             try:
+                # 1. Tắt MuHelper an toàn (chỉ gửi lệnh tắt khi đang BẬT)
+                self.core.stop_helper()
+
+                # 2. Hãm phanh cố định nhân vật đứng yên tại vị trí hiện tại
                 self.core.cancel_move()
-            except Exception:
-                pass
+
+                # Đọc tọa độ hiện tại và ghim tại chỗ
+                info = self.core.get_player_info(max_age=0.2)
+                if info and info.get("tileX") and info.get("tileY"):
+                    cx = int(info["tileX"])
+                    cy = int(info["tileY"])
+                    self.core.move_to(cx, cy)
+                    self.core.cancel_move()
+                    self._log(f"Đã dừng Auto: Nhân vật đứng yên tại ({cx}, {cy}), MuHelper đã TẮT.", "SUCCESS")
+                else:
+                    self._log("Đã dừng Auto: Đã hãm phanh di chuyển và tắt MuHelper.", "SUCCESS")
+            except Exception as e:
+                self._log(f"Lỗi khi dừng auto: {e}", "WARNING")
 
     def _get_stage_target(self, stage: Dict[str, Any]) -> Tuple[int, int]:
         wps = stage.get("waypoints", [])
@@ -264,22 +279,44 @@ class AutoTrainWorker:
         # Lấy tọa độ đích từ waypoints[-1] hoặc stage['x'], stage['y']
         self.current_target = self._get_stage_target(stage)
         self.map_move_sent = False
+        self.map_wait_active = False
+        self.map_command_sent_at = 0.0
+        self.map_id_before_command = None
+        self.map_unknown_fallback_at = 0.0
+        self.map_soft_verify_at = 0.0
         self.arrived_at_spot = False
+        self.respawn_armed = False
         self.last_dist = None
         self.last_move_issue = 0.0
+        self.map_sensor_trusted = False
+        self.map_sensor_suspect = False
 
     def _send_map_command(self, stage: Dict[str, Any], reason: str, current_map_id: Optional[int]) -> bool:
         map_name = stage.get("map_name") or stage.get("map", "")
         command = self.map_resolver.resolve(map_name)
         if not command:
-            self._log(f"Không thể phân giải lệnh chuyển map cho '{map_name}'.", "WARNING")
+            self._log(f"Stage has no map command for '{map_name}'.", "ERROR")
             return False
 
+        x, y = self._get_stage_target(stage)
+        self.route_map_name = str(map_name).strip()
+        self.expected_map_id = self.map_resolver.expected_map_id(self.route_map_name)
+        self.current_target = (x, y)
+
         exp_str = f" [MapID: {self.expected_map_id}]" if self.expected_map_id is not None else ""
-        self._log(f"{reason}: Gửi lệnh chuyển map '{command}'{exp_str}...")
+        self._log(f"{reason}: {command} -> ({x}, {y}){exp_str}")
+
+        # TRƯỚC KHI GỬI LỆNH CHUYỂN MAP: TẮT MUHELPER VÀ HÃM PHANH DI CHUYỂN!
+        # Game MU / MEGAMU chặn tuyệt đối lệnh /move khi đang bật auto đánh hoặc đang di chuyển!
+        try:
+            self.core.stop_helper()
+            self.core.cancel_move()
+            time.sleep(0.08)
+        except Exception:
+            pass
 
         if not self.core.send_chat(command):
-            self._log("Không thể gửi lệnh chat chuyển map.", "WARNING")
+            self._log("Could not send map command.", "WARNING")
             return False
 
         now = time.time()
@@ -287,6 +324,7 @@ class AutoTrainWorker:
         self.map_wait_active = True
         self.map_id_before_command = current_map_id
         self.map_unknown_fallback_at = now + max(4.0, float(self.config.get("map_verify_unknown_timeout", 6.0)))
+        self.map_soft_verify_at = now + max(2.2, float(self.config.get("map_verify_grace_seconds", 2.8)))
         self.map_move_sent = False
         self.next_map_retry_at = now + max(3.5, float(self.config.get("map_command_retry_delay", 4.5)))
         self.arrived_at_spot = False
@@ -295,12 +333,9 @@ class AutoTrainWorker:
         self.last_dist = None
 
         if self.expected_map_id is not None:
-            if current_map_id is not None and current_map_id >= 0:
-                self._set_state(f"CHỜ MAP {current_map_id}→{self.expected_map_id}")
-            else:
-                self._set_state(f"XÁC THỰC MAP {self.expected_map_id}")
+            self._set_state("MAP VERIFY")
         else:
-            self._set_state("CHỜ VÀO MAP MỚI")
+            self._set_state("MAP ID UNKNOWN")
         return True
 
     def _move_to_target_after_map_verified(self):
@@ -314,6 +349,86 @@ class AutoTrainWorker:
         self._set_state(f"CHẠY RA BÃI ({x}, {y})")
         self._log(f"Đã xác thực bản đồ; game đang tự tìm đường tới bãi ({x}, {y}).", "SUCCESS")
 
+    def _route_map_gate(self, stage: Dict[str, Any], current_map_id: Optional[int]) -> bool:
+        """
+        Cổng kiểm soát chuyển bản đồ chuẩn v1.3.6 từ MEGAMU Dashboard gốc:
+        - Khớp MapID lập tức chuyển trusted và cho phép chạy ra bãi.
+        - Lệch MapID kích hoạt lệnh /move.
+        - Sau grace period (2.8s) nếu MapID RAM chưa cập nhật, đánh dấu sensor suspect
+          và an toàn cho phép chạy XY ra bãi đích, chống kẹt vô tận.
+        """
+        now = time.time()
+        expected = self.map_resolver.expected_map_id(stage.get("map_name") or stage.get("map", ""))
+        if expected is not None:
+            self.expected_map_id = expected
+
+        if self.expected_map_id is None:
+            return False
+
+        try:
+            cur = int(current_map_id) if current_map_id is not None else -1
+            exp = int(self.expected_map_id)
+        except Exception:
+            return False
+
+        # 1. Đang tải map (cur < 0)
+        if cur < 0:
+            if self.map_wait_active and self.map_command_sent_at > 0:
+                self._set_state("MAP VERIFY")
+                if self.map_soft_verify_at > 0 and now >= self.map_soft_verify_at:
+                    self.map_sensor_suspect = True
+                    self.map_wait_active = False
+                    self._log("MapID telemetry invalid after /move; using safe XY fallback for this route.", "WARNING")
+                    self._move_to_target_after_map_verified()
+                return True
+            return False
+
+        # 2. Đã đúng MapID mong muốn (cur == exp)
+        if cur == exp:
+            self.map_sensor_trusted = True
+            self.map_sensor_suspect = False
+            if self.map_wait_active or not self.map_move_sent:
+                self._move_to_target_after_map_verified()
+                return True
+            return False
+
+        # 3. Sensor đã từng trusted nhưng hiện tại bị lệch map
+        if self.map_sensor_trusted and not self.map_wait_active:
+            self._set_state(f"MAP WAIT {cur}→{exp}")
+            self._send_map_command(stage, reason=f"Wrong map {cur}; expected {exp}", current_map_id=cur)
+            return True
+
+        # 4. Chưa gửi lệnh chuyển map lần nào
+        if not self.map_wait_active and self.map_command_sent_at <= 0.0:
+            self._set_state(f"MAP CHECK {cur}→{exp}")
+            self._send_map_command(stage, reason=f"Map check {cur}; expected {exp}", current_map_id=cur)
+            return True
+
+        # 5. Đang trong thời gian chờ map sau khi đã gửi lệnh
+        if self.map_wait_active:
+            if cur == exp:
+                self.map_sensor_trusted = True
+                self.map_sensor_suspect = False
+                self._move_to_target_after_map_verified()
+                return True
+
+            # Quá thời gian chờ kiểm chứng mềm (map_soft_verify_at ~2.8s)
+            if self.map_soft_verify_at > 0 and now >= self.map_soft_verify_at:
+                self.map_sensor_suspect = True
+                self.map_wait_active = False
+                self._log(
+                    f"MapID still reports {cur} instead of {exp} after /move; "
+                    "sensor marked suspect. Continuing with legacy XY movement without further /move spam.",
+                    "WARNING"
+                )
+                self._move_to_target_after_map_verified()
+                return True
+
+            self._set_state(f"MAP CHECK {cur}→{exp}")
+            return True
+
+        return False
+
     def _go_to_stage(self, stage: Dict[str, Any], reason: str, current_map_id: Optional[int], force_command: bool = False) -> bool:
         self._reset_route_tracking(stage)
         expected = self.expected_map_id
@@ -322,7 +437,7 @@ class AutoTrainWorker:
         if not force_command and expected is not None and current_map_id is not None:
             try:
                 if int(current_map_id) == int(expected):
-                    self._log(f"{reason}: Đã ở đúng MapID {expected}; chạy thẳng tới bãi {self.current_target}.", "SUCCESS")
+                    self._log(f"{reason}: already on MapID {expected}; moving directly to {self.current_target}.")
                     self._move_to_target_after_map_verified()
                     return True
             except Exception:
@@ -338,27 +453,16 @@ class AutoTrainWorker:
 
     def _ensure_helper(self) -> bool:
         """Đảm bảo bật Auto Đánh (MuHelper) khi đã tới bãi."""
-        if self.core.is_helper_active():
+        if self.core.is_helper_active(force_refresh=True):
             return True
 
-        self._log("Auto Đánh (MuHelper) đang Tắt. Đang bật...")
-        self.core.start_helper()
+        self._log("Đã tới bãi đích. Đang kích hoạt bật Auto Đánh (MuHelper)...", "SUCCESS")
+        ok = self.core.start_helper()
+        if ok or self.core.is_helper_active(force_refresh=True):
+            self._log("🎉 Auto Đánh (MuHelper) đã BẬT thành công.", "SUCCESS")
+            return True
 
-        deadline = time.time() + float(self.config.get("helper_native_timeout", 3.5))
-        while self.running and time.time() < deadline:
-            time.sleep(0.35)
-            if self.core.is_helper_active():
-                self._log("Auto Đánh (MuHelper) đã BẬT thành công.", "SUCCESS")
-                return True
-
-        # Fallback bật trực tiếp trạng thái RAM nếu hàm gọi native bị trễ
-        if self.config.get("helper_direct_fallback", True):
-            if hasattr(self.core, "_call"):
-                self.core._call("setHelperStateDirect", 1)
-                time.sleep(0.25)
-                if self.core.is_helper_active():
-                    self._log("Auto Đánh đã được kích hoạt qua direct state fallback.", "SUCCESS")
-                    return True
+        self._log("Chưa phát hiện phản hồi bật MuHelper từ game; sẽ tự động thử lại ở chu kỳ tiếp theo...", "WARNING")
         return False
 
     def _run(self):
@@ -367,189 +471,170 @@ class AutoTrainWorker:
         self._log(f"Smart AutoTrain worker đã bắt đầu (Chu kỳ poll: {self.poll_interval:.3f}s).", "SUCCESS")
 
         while self.running and not self.stop_event.is_set():
-            # 1. Lấy thông tin nhân vật từ Fast Telemetry
-            cache_age = 0.55 if not self.arrived_at_spot else 0.9
-            info = self.core.get_player_info(max_age=cache_age)
-            if info is None:
-                time.sleep(0.18)
-                continue
-
-            level = int(info.get("level", 0))
-            current_map_id = info.get("mapId", -1)
-            px = int(info.get("tileX", 0))
-            py = int(info.get("tileY", 0))
-
-            # 2. Xử lý trạng thái nhân vật chưa tải xong
-            if level <= 0:
-                if not self.invalid_level_logged:
-                    self._log("Nhân vật đang tải cảnh hoặc chuyển đổi trạng thái...", "WARNING")
-                    self.invalid_level_logged = True
-                time.sleep(max(0.45, self.poll_interval))
-                continue
-            self.invalid_level_logged = False
-
-            # 3. Phát hiện Reset (Level từ > 1 giảm xuống 1)
-            if self.last_level is not None and self.last_level > 1 and level == 1:
-                now_mono = time.monotonic()
-                if self.reset_candidate_since <= 0:
-                    self.reset_candidate_since = now_mono
-                    self._log("Phát hiện nhân vật đạt Level 1 (Reset); đang xác nhận...")
-                confirm_s = float(self.config.get("reset_confirm_seconds", 1.5))
-                if (now_mono - self.reset_candidate_since) < confirm_s:
-                    time.sleep(max(0.35, self.poll_interval))
-                    continue
-
-                self._log("Xác nhận nhân vật vừa Reset! Đang chờ khởi tạo lại...")
-                time.sleep(float(self.config.get("level1_delay", 4.0)))
-                self.current_stage_key = None
-                self.arrived_at_spot = False
-                self.reset_candidate_since = 0.0
-                self._set_state("")
-
-            self.last_level = level
-
-            # 4. Khớp chặng bãi train tương ứng với Level
-            idx, stage = self._match_stage(level)
-            if not stage:
-                if not self.out_of_range_logged:
-                    self._log(f"Level {level} không nằm trong chặng nào đã cấu hình. Tạm dừng di chuyển.", "WARNING")
-                    self.out_of_range_logged = True
-                time.sleep(0.75)
-                continue
-            self.out_of_range_logged = False
-
-            # Tạo khóa nhận diện chặng (bất biến từ cấu hình stage)
-            tx, ty = self._get_stage_target(stage)
-            stage_key = (
-                idx,
-                int(stage.get("min_level", 1)),
-                int(stage.get("max_level", 400)),
-                str(stage.get("map_name") or stage.get("map", "")),
-                tx, ty
-            )
-
-            # 5. Nếu chuyển chặng mới -> bắt đầu chuyển map hoặc chạy tới bãi mới
-            if stage_key != self.current_stage_key:
-                self.current_stage_key = stage_key
-                stg_title = stage.get("name", f"Chặng #{idx + 1}")
-                map_str = stage.get("map_name") or stage.get("map", "")
-                self._log(f"Level {level} khớp {stg_title} [{stage.get('min_level')}-{stage.get('max_level')}] tại '{map_str}'.")
-                self._go_to_stage(stage, reason=f"Bắt đầu {stg_title}", current_map_id=current_map_id)
-                time.sleep(0.3)
-                continue
-
-            # 6. Kiểm tra cổng đổi map (Strict Gate Verification)
             now = time.time()
-            if self.map_wait_active:
-                expected = self.expected_map_id
-
-                if expected is not None:
-                    # Có MapID mục tiêu để kiểm chứng
-                    if current_map_id is not None and current_map_id >= 0:
-                        if int(current_map_id) == int(expected):
-                            # ĐÃ VÀO ĐÚNG MAP MỤC TIÊU!
-                            # Chờ nhân vật tải xong cảnh (tránh vị trí (0, 0) lúc mới vào map)
-                            if px == 0 and py == 0:
-                                self._set_state(f"TẢI BẢN ĐỒ {self.route_map_name}")
-                                time.sleep(0.3)
-                                continue
-
-                            self._log(f"Đã vào map '{self.route_map_name}' (MapID {current_map_id}) thành công! Xuất phát ra bãi {self.current_target}...", "SUCCESS")
-                            self._move_to_target_after_map_verified()
-                            time.sleep(0.3)
-                            continue
-                        else:
-                            # ĐANG Ở MAP KHÁC (chưa đổi map xong hoặc lệnh chưa ăn)
-                            # TUYỆT ĐỐI KHÔNG CHẠY RA BÃI TẠI MAP CŨ!
-                            self._set_state(f"CHỜ MAP {current_map_id}→{expected}")
-                            if now >= self.next_map_retry_at:
-                                self._log(f"Chưa vào đúng map '{self.route_map_name}' (hiện tại MapID {current_map_id}, cần {expected}). Gửi lại lệnh...", "WARNING")
-                                self._send_map_command(stage, reason="Gửi lại lệnh chuyển map", current_map_id=current_map_id)
-                            time.sleep(0.35)
-                            continue
-                    else:
-                        # Nhân vật đang ở màn hình tải map (MapID == -1)
-                        self._set_state("ĐANG TẢI MAP...")
-                        time.sleep(0.35)
-                        continue
-                else:
-                    # Map không có MapID trong cơ sở dữ liệu -> chờ timeout an toàn
-                    timeout = float(self.config.get("map_verify_unknown_timeout", 5.0))
-                    if (now - self.map_command_sent_at) >= timeout:
-                        self._log(f"Bản đồ '{self.route_map_name}' không có MapID kiểm chứng. Bắt đầu tìm đường ra bãi {self.current_target}...", "INFO")
-                        self._move_to_target_after_map_verified()
-                        time.sleep(0.3)
-                        continue
-                    time.sleep(0.35)
+            try:
+                # 1. Lấy thông tin nhân vật từ Fast Telemetry
+                cache_age = 0.55 if not self.arrived_at_spot else 0.9
+                info = self.core.get_player_info(max_age=cache_age)
+                if info is None:
+                    time.sleep(0.18)
                     continue
 
-            # 6b. Cơ chế bảo vệ bản đồ (Map Guard):
-            # Nếu không trong trạng thái chờ đổi map, nhưng nhân vật bị lệch map (chết về thành, bị kéo đi,...)
-            if self.expected_map_id is not None and current_map_id is not None and current_map_id >= 0:
-                if int(current_map_id) != int(self.expected_map_id):
-                    self._log(f"Phát hiện lệch bản đồ: đang ở MapID {current_map_id}, cấu hình yêu cầu MapID {self.expected_map_id} ({self.route_map_name}). Kích hoạt chuyển lại map...", "WARNING")
-                    self._go_to_stage(stage, reason="Chuyển lại map do lệch vị trí", current_map_id=current_map_id, force_command=True)
+                level = int(info.get("level", 0))
+                current_map_id = info.get("mapId", -1)
+                px = int(info.get("tileX", 0))
+                py = int(info.get("tileY", 0))
+
+                # 2. Xử lý trạng thái nhân vật chưa tải xong
+                if level <= 0:
+                    if not self.invalid_level_logged:
+                        self._log("Nhân vật đang tải cảnh hoặc chuyển đổi trạng thái...", "WARNING")
+                        self.invalid_level_logged = True
+                    time.sleep(max(0.45, self.poll_interval))
+                    continue
+                self.invalid_level_logged = False
+
+                # 3. Phát hiện Reset (Level từ > 1 giảm xuống 1)
+                if self.last_level is not None and self.last_level > 1 and level == 1:
+                    if self.reset_candidate_since <= 0:
+                        self.reset_candidate_since = now
+                        self._log("Phát hiện nhân vật đạt Level 1 (Reset); đang xác nhận...")
+                    confirm_s = float(self.config.get("reset_confirm_seconds", 1.5))
+                    if (now - self.reset_candidate_since) < confirm_s:
+                        time.sleep(max(0.35, self.poll_interval))
+                        continue
+
+                    self._log("Xác nhận nhân vật vừa Reset! Đang chờ khởi tạo lại...")
+                    time.sleep(float(self.config.get("level1_delay", 4.0)))
+                    self.current_stage_key = None
+                    self.arrived_at_spot = False
+                    self.reset_candidate_since = 0.0
+                    self._set_state("")
+
+                self.last_level = level
+
+                # 4. Khớp chặng bãi train tương ứng với Level
+                idx, stage = self._match_stage(level)
+                if not stage:
+                    if not self.out_of_range_logged:
+                        self._log(f"Level {level} không nằm trong chặng nào đã cấu hình. Tạm dừng di chuyển.", "WARNING")
+                        self.out_of_range_logged = True
+                    time.sleep(0.75)
+                    continue
+                self.out_of_range_logged = False
+
+                # Tạo khóa nhận diện chặng (bất biến từ cấu hình stage)
+                tx, ty = self._get_stage_target(stage)
+                stage_key = (
+                    idx,
+                    int(stage.get("min_level", 1)),
+                    int(stage.get("max_level", 400)),
+                    str(stage.get("map_name") or stage.get("map", "")),
+                    tx, ty
+                )
+
+                # 5. Nếu chuyển chặng mới -> bắt đầu chuyển map hoặc chạy tới bãi mới
+                if stage_key != self.current_stage_key:
+                    self.current_stage_key = stage_key
+                    stg_title = stage.get("name", f"Chặng #{idx + 1}")
+                    map_str = stage.get("map_name") or stage.get("map", "")
+                    self._log(f"Level {level} khớp {stg_title} [{stage.get('min_level')}-{stage.get('max_level')}] tại '{map_str}'.")
+                    self._go_to_stage(stage, reason=f"Bắt đầu {stg_title}", current_map_id=current_map_id)
                     time.sleep(0.3)
                     continue
 
-            # 7. Di chuyển tới bãi train (Movement & Anti-Stuck Tracking)
-            if not self.current_target:
-                time.sleep(0.5)
-                continue
+                # 6. Kiểm tra cổng chuyển map (Safe Map Gate matching v1.3.6)
+                if self._route_map_gate(stage, current_map_id):
+                    time.sleep(min(0.7, max(0.25, self.poll_interval)))
+                    continue
 
-            tx, ty = self.current_target
-            dist = math.hypot(px - tx, py - ty)
-            arrive_thresh = float(self.config.get("arrival_distance", 2.0))
+                # 7. Di chuyển tới bãi train (Movement & Anti-Stuck Tracking)
+                if not self.current_target:
+                    time.sleep(0.5)
+                    continue
 
-            # A. Đã tới đích bãi train
-            if dist <= arrive_thresh:
-                if not self.arrived_at_spot:
-                    self.arrived_at_spot = True
-                    self.core.cancel_move()
-                    self._log(f"🎉 ĐÃ TỚI BÃI TRAIN ({px}, {py})! Khoảng cách tới đích: {dist:.1f} ô.", "SUCCESS")
-                    self._set_state(f"TẠI BÃI ({tx}, {ty})")
-                    if stage.get("auto_attack", True):
-                        self._ensure_helper()
+                tx, ty = self.current_target
+                dist = math.hypot(px - tx, py - ty)
+                arrive_thresh = max(4.0, float(self.config.get("arrive_distance", self.config.get("arrival_distance", 4.0))))
 
-                # Kiểm tra định kỳ để giữ MuHelper luôn BẬT khi đang cắm bãi
-                if now >= self.next_helper_check:
-                    if stage.get("auto_attack", True):
-                        self._ensure_helper()
-                    self.next_helper_check = time.monotonic() + self.helper_recheck_interval
+                # Trường hợp bãi không yêu cầu tọa độ (tx=0, ty=0) -> tự đánh ngay khi vào map
+                if tx == 0 and ty == 0:
+                    if not self.arrived_at_spot:
+                        self.arrived_at_spot = True
+                        self.core.cancel_move()
+                        self._log(f"🎉 ĐÃ VÀO MAP ({px}, {py})! Kích hoạt Auto Đánh (MuHelper)...", "SUCCESS")
+                        self._set_state(f"TỰ ĐỘNG ĐÁNH ({px}, {py})")
+                        self.next_helper_check = now + self.helper_recheck_interval
+                        if stage.get("auto_attack", True):
+                            self._ensure_helper()
+                    if now >= self.next_helper_check:
+                        if stage.get("auto_attack", True):
+                            self._ensure_helper()
+                        self.next_helper_check = now + self.helper_recheck_interval
+                    time.sleep(self.stable_poll_interval)
+                    continue
+
+                # A. Đã tới đích bãi train (hoặc dừng lại rất sát bãi <= 7.5 ô do vật cản/hàng rào)
+                is_moving = bool(info.get("isMoving", False))
+                time_since_move = (now - self.last_move_issue) if self.last_move_issue > 0 else 0.0
+                is_arrived = (dist <= arrive_thresh) or (
+                    dist <= 7.5 and not is_moving and time_since_move >= 1.2
+                )
+
+                if is_arrived:
+                    if not self.arrived_at_spot:
+                        self.arrived_at_spot = True
+                        self.core.cancel_move()
+                        self._log(f"🎉 ĐÃ TỚI BÃI TRAIN ({px}, {py})! Khoảng cách tới đích: {dist:.1f} ô. Kích hoạt Auto Đánh...", "SUCCESS")
+                        self._set_state(f"TỰ ĐỘNG ĐÁNH ({tx}, {ty})")
+                        if stage.get("auto_attack", True):
+                            self._ensure_helper()
+                        self.next_helper_check = now + self.helper_recheck_interval
+
+                    # Kiểm tra định kỳ để giữ MuHelper luôn BẬT khi đang cắm bãi
+                    if now >= self.next_helper_check:
+                        if stage.get("auto_attack", True):
+                            self._ensure_helper()
+                        self.next_helper_check = now + self.helper_recheck_interval
+
+                    self.last_dist = dist
+                    self.last_px = px
+                    self.last_py = py
+                    time.sleep(self.stable_poll_interval)
+                    continue
+
+                # B. Đang trên đường chạy ra bãi
+                self.arrived_at_spot = False
+                self.next_helper_check = 0.0
+
+                if (now - self.last_progress_log_time) >= 1.5:
+                    self._log(f"Đang tự tìm đường tới ({tx}, {ty}) [Hiện tại: ({px}, {py})] | Cự ly còn: {dist:.1f} ô...")
+                    self._set_state(f"ĐANG CHẠY ({dist:.0f} ô)")
+                    self.last_progress_log_time = now
+
+                # Phát hiện kẹt (Stuck Check): đứng yên tại 1 ô hoặc cự ly không giảm sau 3.5s
+                stuck_retry = float(self.config.get("stuck_retry_delay", 3.5))
+                time_since_move = now - self.last_move_issue
+                is_stuck = False
+                if self.last_dist is not None and dist >= (self.last_dist - 0.25) and time_since_move >= stuck_retry:
+                    is_stuck = True
+                elif px == self.last_px and py == self.last_py and time_since_move >= stuck_retry:
+                    is_stuck = True
+
+                if is_stuck or self.last_move_issue == 0.0:
+                    self.core.move_to(tx, ty)
+                    self.last_move_issue = now
+                    if is_stuck:
+                        self._log(f"Khựng bước tại ({px}, {py}). Tự động kích hoạt lại MoveTo tới bãi ({tx}, {ty}) [Còn {dist:.1f} ô]...")
+                    else:
+                        self._log(f"Bắt đầu chạy ra bãi: ({px}, {py}) ➔ ({tx}, {ty}) [Còn {dist:.1f} ô]...")
 
                 self.last_dist = dist
                 self.last_px = px
                 self.last_py = py
-                time.sleep(self.stable_poll_interval)
-                continue
-
-            # B. Đang trên đường chạy ra bãi
-            self.arrived_at_spot = False
-            self.next_helper_check = 0.0
-
-            if (now - self.last_progress_log_time) >= 2.0:
-                self._log(f"Đang tự tìm đường tới ({tx}, {ty}) | Cự ly còn: {dist:.1f} ô...")
-                self._set_state(f"ĐANG CHẠY ({dist:.0f} ô)")
-                self.last_progress_log_time = now
-
-            # Phát hiện kẹt (Stuck Check): đứng yên tại 1 ô hoặc cự ly không giảm sau 3.5s
-            stuck_retry = float(self.config.get("stuck_retry_delay", 3.5))
-            time_since_move = now - self.last_move_issue
-            is_stuck = False
-            if self.last_dist is not None and dist >= (self.last_dist - 0.25) and time_since_move >= stuck_retry:
-                is_stuck = True
-            elif px == self.last_px and py == self.last_py and time_since_move >= stuck_retry:
-                is_stuck = True
-
-            if is_stuck or self.last_move_issue == 0.0:
-                self.core.move_to(tx, ty)
-                self.last_move_issue = now
-                if is_stuck:
-                    self._log(f"Khựng bước tại ({px}, {py}). Tự động kích hoạt lại MoveTo tới bãi ({tx}, {ty}) [Còn {dist:.1f} ô]...")
-                else:
-                    self._log(f"Bắt đầu chạy ra bãi: ({px}, {py}) ➔ ({tx}, {ty}) [Còn {dist:.1f} ô]...")
-
-            self.last_dist = dist
-            self.last_px = px
-            self.last_py = py
-            time.sleep(0.2)
+                time.sleep(0.2)
+            except Exception as e:
+                import traceback
+                print(f"[Worker Error] {traceback.format_exc()}", flush=True)
+                self._log(f"Lỗi vòng lặp worker: {e}", "WARNING")
+                time.sleep(0.5)

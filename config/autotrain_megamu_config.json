@@ -3,7 +3,7 @@
   "respawn_delay": 15,
   "map_load_delay": 1.8,
   "level1_delay": 4.0,
-  "arrive_distance": 2.0,
+  "arrive_distance": 4.5,
   "respawn_distance": 12.0,
   "stuck_retry_delay": 3.5,
   "helper_native_timeout": 4.0,
@@ -32,9 +32,9 @@
     },
     {
       "min_level": 160,
-      "max_level": 399,
+      "max_level": 1000,
       "map_name": "Arena",
-      "x": 69,
+      "x": 68,
       "y": 8
     }
   ],
