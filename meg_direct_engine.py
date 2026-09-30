@@ -432,16 +432,29 @@ class MegDirectEngine:
             self.telemetry_callbacks.remove(cb)
 
     def _load_offsets_file(self):
+        # 1. LỚP 3 BẢO MẬT: Ưu tiên giải mã Offsets trực tiếp từ C++ Native Bridge (Chống crack)
+        try:
+            from license_client import get_secure_game_offsets
+            sec_offsets = get_secure_game_offsets()
+            if sec_offsets and isinstance(sec_offsets, dict) and sec_offsets.get("move_to"):
+                self.offsets.update(sec_offsets)
+                _safe_log("[MegDirectEngine] Đã nạp thành công Game Offsets từ Native C++ Security Bridge.")
+                return
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi trích xuất Native Offsets: {e}")
+
+        # 2. Fallback đọc file config cục bộ nếu C++ bridge chưa nạp
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(base_dir, "megamu_offsets.json")
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    self.offsets.update(data)
-            except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi đọc megamu_offsets.json: {e}")
+        for p in [os.path.join(base_dir, "config", "megamu_offsets.json"), os.path.join(base_dir, "megamu_offsets.json")]:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if isinstance(data, dict):
+                        self.offsets.update(data)
+                        return
+                except Exception as e:
+                    _safe_log(f"[MegDirectEngine] Lỗi đọc megamu_offsets.json: {e}")
 
     def _claim_mutex(self):
         """Khóa Named Mutex trên Windows để đảm bảo mỗi PID chỉ gắn 1 Frida engine duy nhất."""

@@ -65,7 +65,7 @@ Add-Type @"
 $py = (Get-Command python).Source
 $dir = $PSScriptRoot
 $script = Join-Path $dir "meg_gui.py"
-$cmd = "cmd.exe /k `"$py`" -u `"$script`""
+$cmd = "`"$py`" -u `"$script`""
 
 $procId = [DesktopProcessLauncher]::Start($cmd, $dir, "WinSta0\Default")
 Write-Host "Started MEGAMU Auto Navigator GUI on user desktop with PID: $procId"
@@ -73,6 +73,7 @@ Start-Sleep -Seconds 3
 $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
 if ($p) {
     Write-Host "Process $procId is RUNNING successfully! (CPU: $($p.CPU), Responding: $($p.Responding))"
+    Wait-Process -Id $procId
 } else {
     Write-Host "Process $procId exited."
 }

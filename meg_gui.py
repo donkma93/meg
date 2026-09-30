@@ -22,7 +22,7 @@ import math
 import heapq
 import ctypes
 import threading
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple, Any, Callable
 from pathlib import Path
 
 # Đảm bảo UTF-8
@@ -35,7 +35,7 @@ if sys.platform == "win32":
 
 import customtkinter as ctk
 from tkinter import messagebox
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 import psutil
 
 # Core Engines
@@ -50,11 +50,17 @@ except ImportError:
     AutoTrainWorker = None
     MapResolver = None
 
+try:
+    import license_client
+except ImportError:
+    license_client = None
+
 # ==============================================================================
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
 APP_VERSION = "v1.5.1"
+CURRENT_LICENSE = "--"  # Tạm thời chưa có license để --, khi nào xây dựng xong sẽ điền thông tin
 DEFAULT_SLOTS = 10
 MAX_SLOTS = 50
 
@@ -87,28 +93,353 @@ MAP_COMMANDS_FILE = CONFIG_DIR / "map_commands.json"
 OFFSETS_FILE = CONFIG_DIR / "megamu_offsets.json"
 
 PROFILE_NAMES = [f"Config {i}" for i in range(1, 11)]
+ 
+# ==============================================================================
+# BỘ TẠO VECTOR ICON CHẤT LƯỢNG CAO (HIGH-DPI VECTOR ICONS)
+# ==============================================================================
+class UiIconFactory:
+    """Tạo vector icon mượt mà sắc nét anti-aliased chất lượng cao (High-DPI)."""
+    _cache: Dict[Tuple[str, str, Tuple[int, int]], ctk.CTkImage] = {}
+
+    @classmethod
+    def get(cls, name: str, color: str = "#cbd5e1", size: Tuple[int, int] = (16, 16)) -> ctk.CTkImage:
+        key = (name, color, size)
+        if key in cls._cache:
+            return cls._cache[key]
+
+        scale = 4
+        cw = size[0] * scale
+        ch = size[1] * scale
+        im = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+
+        lw = max(2, int(1.4 * scale))
+        pad = int(2.5 * scale)
+
+        if name == "play":
+            poly = [(int(cw * 0.32), int(ch * 0.22)), (int(cw * 0.78), int(ch * 0.5)), (int(cw * 0.32), int(ch * 0.78))]
+            d.polygon(poly, fill=color)
+        elif name == "stop":
+            d.rounded_rectangle([int(cw * 0.26), int(ch * 0.26), int(cw * 0.74), int(ch * 0.74)], radius=int(2 * scale), fill=color)
+        elif name == "gear":
+            r_out = int(cw * 0.38)
+            r_in = int(cw * 0.25)
+            cx, cy = cw // 2, ch // 2
+            d.ellipse([cx - r_in, cy - r_in, cx + r_in, cy + r_in], outline=color, width=lw)
+            teeth = 8
+            for i in range(teeth):
+                ang = i * (2 * math.pi / teeth)
+                x1 = cx + int(r_in * math.cos(ang))
+                y1 = cy + int(r_in * math.sin(ang))
+                x2 = cx + int(r_out * math.cos(ang))
+                y2 = cy + int(r_out * math.sin(ang))
+                d.line([(x1, y1), (x2, y2)], fill=color, width=lw)
+            hub_r = max(2, int(cw * 0.08))
+            d.ellipse([cx - hub_r, cy - hub_r, cx + hub_r, cy + hub_r], fill=color)
+        elif name == "file":
+            d.rounded_rectangle([int(cw * 0.24), int(ch * 0.15), int(cw * 0.76), int(ch * 0.85)], radius=int(2 * scale), outline=color, width=lw)
+            d.line([(int(cw * 0.36), int(ch * 0.36)), (int(cw * 0.64), int(ch * 0.36))], fill=color, width=lw)
+            d.line([(int(cw * 0.36), int(ch * 0.50)), (int(cw * 0.64), int(ch * 0.50))], fill=color, width=lw)
+            d.line([(int(cw * 0.36), int(ch * 0.64)), (int(cw * 0.52), int(ch * 0.64))], fill=color, width=lw)
+        elif name == "user":
+            cx, cy = cw // 2, ch // 2
+            hr = int(cw * 0.18)
+            d.ellipse([cx - hr, int(ch * 0.14), cx + hr, int(ch * 0.14) + 2 * hr], fill=color)
+            d.pieslice([int(cw * 0.18), int(ch * 0.46), int(cw * 0.82), int(ch * 1.10)], start=180, end=360, fill=color)
+        elif name == "link":
+            lw_link = max(2, int(1.4 * scale))
+            d.rounded_rectangle([int(cw * 0.16), int(ch * 0.32), int(cw * 0.56), int(ch * 0.68)], radius=int(3 * scale), outline=color, width=lw_link)
+            d.rounded_rectangle([int(cw * 0.44), int(ch * 0.32), int(cw * 0.84), int(ch * 0.68)], radius=int(3 * scale), outline=color, width=lw_link)
+        elif name == "refresh":
+            d.arc([int(cw * 0.2), int(ch * 0.2), int(cw * 0.8), int(ch * 0.8)], start=40, end=310, fill=color, width=lw)
+            arrow = [(int(cw * 0.76), int(ch * 0.34)), (int(cw * 0.92), int(ch * 0.18)), (int(cw * 0.66), int(ch * 0.16))]
+            d.polygon(arrow, fill=color)
+        elif name == "plus":
+            cx, cy = cw // 2, ch // 2
+            hl = int(cw * 0.28)
+            d.line([(cx, cy - hl), (cx, cy + hl)], fill=color, width=int(1.8 * scale))
+            d.line([(cx - hl, cy), (cx + hl, cy)], fill=color, width=int(1.8 * scale))
+        elif name == "minus":
+            cx, cy = cw // 2, ch // 2
+            hl = int(cw * 0.28)
+            d.line([(cx - hl, cy), (cx + hl, cy)], fill=color, width=int(1.8 * scale))
+        elif name == "chat":
+            d.rounded_rectangle([int(cw * 0.18), int(ch * 0.20), int(cw * 0.82), int(ch * 0.68)], radius=int(3 * scale), outline=color, width=lw)
+            poly = [(int(cw * 0.32), int(ch * 0.68)), (int(cw * 0.46), int(ch * 0.68)), (int(cw * 0.24), int(ch * 0.85))]
+            d.polygon(poly, fill=color)
+        elif name == "chevron_down":
+            cx, cy = cw // 2, ch // 2
+            hw = int(cw * 0.22)
+            hh = int(ch * 0.14)
+            d.line([(cx - hw, cy - hh), (cx, cy + hh)], fill=color, width=lw)
+            d.line([(cx, cy + hh), (cx + hw, cy - hh)], fill=color, width=lw)
+        elif name == "dot":
+            cx, cy = cw // 2, ch // 2
+            r = int(cw * 0.35)
+            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
+
+        res_img = im.resize(size, Image.Resampling.LANCZOS)
+        ctk_img = ctk.CTkImage(light_image=res_img, dark_image=res_img, size=size)
+        cls._cache[key] = ctk_img
+        return ctk_img
+
+# ==============================================================================
+# DROPDOWN HIỆN ĐẠI (MODERN OPTION MENU - FULL WIDTH & THEMED POPUP)
+# ==============================================================================
+class ModernOptionMenu(ctk.CTkFrame):
+    """
+    Dropdown menu phong cách hiện đại thay thế CTkOptionMenu:
+    - Popup mở rộng 100% khớp đúng chiều rộng nút bấm (full-width), không bị ngắn cụt.
+    - Giao diện đen sang trọng đồng bộ Dark mode, không bị viền trắng 3D của Windows Menu.
+    - Tự động đóng khi click ra ngoài hoặc chọn xong.
+    - Tích hợp 2-way binding với StringVar và hàm callback.
+    """
+    def __init__(
+        self,
+        master,
+        values: Optional[List[str]] = None,
+        variable: Optional[ctk.StringVar] = None,
+        command: Optional[Callable[[str], Any]] = None,
+        width: int = 220,
+        height: int = 32,
+        font: Optional[ctk.CTkFont] = None,
+        fg_color: str = "#181c26",
+        border_color: str = "transparent",
+        hover_color: str = "#222736",
+        text_color: str = "#f1f5f9",
+        **kwargs
+    ):
+        # Bỏ qua các tham số riêng của CTkOptionMenu nếu truyền vào
+        kwargs.pop("button_color", None)
+        kwargs.pop("button_hover_color", None)
+        kwargs.pop("dropdown_fg_color", None)
+        kwargs.pop("dropdown_hover_color", None)
+        kwargs.pop("dropdown_text_color", None)
+        kwargs.pop("anchor", None)
+
+        super().__init__(
+            master,
+            width=width,
+            height=height,
+            fg_color=fg_color,
+            border_width=0,
+            corner_radius=6,
+            **kwargs
+        )
+        self.pack_propagate(False)
+
+        self._base_fg = fg_color
+        self._hover_bg = hover_color
+        self._text_color = text_color
+        self._font = font or ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+        self._req_width = width
+        self._req_height = height
+        self._last_close_time = 0.0
+
+        self.values = list(values) if values else ["--"]
+        self.variable = variable or ctk.StringVar(value=self.values[0] if self.values else "--")
+        self.command = command
+        self._popup = None
+
+        # Text hiển thị giá trị hiện tại
+        self._lbl = ctk.CTkLabel(
+            self,
+            text=self.variable.get(),
+            font=self._font,
+            text_color=self._text_color,
+            anchor="w"
+        )
+        self._lbl.pack(side="left", fill="both", expand=True, padx=(10, 4))
+
+        # Vector Icon Chevron Down
+        self._chevron = ctk.CTkLabel(
+            self,
+            text="",
+            image=UiIconFactory.get("chevron_down", color="#94a3b8", size=(10, 10))
+        )
+        self._chevron.pack(side="right", padx=(0, 10))
+
+        # Đồng bộ khi biến StringVar thay đổi từ bên ngoài
+        try:
+            self.variable.trace_add("write", lambda *_: self._on_var_changed())
+        except Exception:
+            pass
+
+        # Gán sự kiện click & hover cho toàn bộ frame và label
+        for w in (self, self._lbl, self._chevron):
+            w.bind("<Button-1>", lambda e: self._toggle_popup())
+            w.bind("<Enter>", lambda e: self._on_enter())
+            w.bind("<Leave>", lambda e: self._on_leave())
+            w.configure(cursor="hand2")
+
+    def _on_enter(self):
+        self.configure(fg_color=self._hover_bg)
+
+    def _on_leave(self):
+        if not self._popup or not self._popup.winfo_exists():
+            self.configure(fg_color=self._base_fg)
+
+    def _on_var_changed(self):
+        val = self.variable.get() if self.variable else "--"
+        if hasattr(self, "_lbl") and self._lbl.winfo_exists():
+            self._lbl.configure(text=val)
+
+    def _toggle_popup(self):
+        if self._popup and self._popup.winfo_exists():
+            self._close_popup()
+            return
+        if time.time() - self._last_close_time < 0.15:
+            return
+        self._open_popup()
+
+    def _open_popup(self):
+        self._close_popup()
+        self.update_idletasks()
+        rx = self.winfo_rootx()
+        ry = self.winfo_rooty() + self.winfo_height() + 2
+        w = max(self.winfo_width(), self._req_width)
+
+        num_items = len(self.values)
+        item_h = 30
+        h = max(38, min(240, num_items * item_h + 8))
+
+        # Kiểm tra tràn đáy màn hình
+        try:
+            screen_h = self.winfo_screenheight()
+            if ry + h > screen_h - 40:
+                ry = max(10, self.winfo_rooty() - h - 2)
+        except Exception:
+            pass
+
+        self._popup = ctk.CTkToplevel(self)
+        self._popup.overrideredirect(True)
+        self._popup.attributes("-topmost", True)
+        self._popup.geometry(f"{w}x{h}+{rx}+{ry}")
+
+        outer = ctk.CTkFrame(
+            self._popup,
+            fg_color="#141722",
+            border_width=0,
+            corner_radius=6
+        )
+        outer.pack(fill="both", expand=True)
+
+        container = outer
+        if num_items > 7:
+            container = ctk.CTkScrollableFrame(outer, fg_color="transparent", height=h - 8)
+            container.pack(fill="both", expand=True, padx=2, pady=2)
+
+        cur_val = self.variable.get()
+        for val in self.values:
+            is_active = (val == cur_val)
+            btn = ctk.CTkButton(
+                container,
+                text=f"  {val}",
+                anchor="w",
+                height=item_h - 2,
+                corner_radius=4,
+                font=self._font,
+                fg_color="#1c2436" if is_active else "transparent",
+                hover_color="#222838",
+                text_color="#38bdf8" if is_active else "#f1f5f9",
+                command=lambda v=val: self._on_select(v)
+            )
+            btn.pack(fill="x", padx=3, pady=1)
+
+        # Lắng nghe click bên ngoài thông qua root toplevel
+        try:
+            top_win = self.winfo_toplevel()
+            self._popup.after(80, lambda: top_win.bind_all("<Button-1>", self._on_global_click, add="+"))
+        except Exception:
+            pass
+
+    def _on_global_click(self, event):
+        if not self._popup or not self._popup.winfo_exists():
+            return
+        try:
+            px = self._popup.winfo_rootx()
+            py = self._popup.winfo_rooty()
+            pw = self._popup.winfo_width()
+            ph = self._popup.winfo_height()
+            if not (px <= event.x_root <= px + pw and py <= event.y_root <= py + ph):
+                self._close_popup()
+        except Exception:
+            self._close_popup()
+
+    def _close_popup(self):
+        self._last_close_time = time.time()
+        try:
+            top_win = self.winfo_toplevel()
+            top_win.unbind_all("<Button-1>")
+        except Exception:
+            pass
+        if self._popup:
+            try:
+                self._popup.destroy()
+            except Exception:
+                pass
+            self._popup = None
+        self._on_leave()
+
+    def _on_select(self, value: str):
+        self.set(value)
+        self._close_popup()
+        if self.command:
+            self.command(value)
+
+    def set(self, value: str):
+        self.variable.set(value)
+        if hasattr(self, "_lbl") and self._lbl.winfo_exists():
+            self._lbl.configure(text=value)
+
+    def get(self) -> str:
+        return self.variable.get()
+
+    def configure(self, **kwargs):
+        if "values" in kwargs:
+            self.values = list(kwargs.pop("values"))
+        if "variable" in kwargs:
+            self.variable = kwargs.pop("variable")
+            if hasattr(self, "_lbl") and self._lbl.winfo_exists() and self.variable:
+                self._lbl.configure(text=self.variable.get())
+        if "command" in kwargs:
+            self.command = kwargs.pop("command")
+        if "fg_color" in kwargs:
+            self._base_fg = kwargs.pop("fg_color")
+            super().configure(fg_color=self._base_fg)
+        if "text_color" in kwargs:
+            self._text_color = kwargs.pop("text_color")
+            if hasattr(self, "_lbl") and self._lbl.winfo_exists():
+                self._lbl.configure(text_color=self._text_color)
+        kwargs.pop("button_color", None)
+        kwargs.pop("button_hover_color", None)
+        kwargs.pop("dropdown_fg_color", None)
+        kwargs.pop("dropdown_hover_color", None)
+        kwargs.pop("dropdown_text_color", None)
+        kwargs.pop("anchor", None)
+        if kwargs:
+            super().configure(**kwargs)
 
 # ==============================================================================
 # BẢNG DỊCH NGÔN NGỮ (I18N)
 # ==============================================================================
 I18N = {
     "vi": {
-        "refresh_games": "Làm mới Game",
-        "assign_team5": "Gán Team 5",
-        "assign_all": "Gán tất cả",
+        "characters": "Tài khoản",
+        "configuration": "Cấu hình",
+        "logs": "Nhật ký",
+        "text_config": "Mở thư mục",
         "connect_all": "Kết nối tất cả",
-        "control": "Điều khiển:",
-        "start": "Bật",
-        "stop": "Tắt",
-        "start_all": "Bật TẤT CẢ",
-        "stop_all": "Tắt TẤT CẢ",
-        "accounts": "Tài khoản",
-        "profiles": "Cấu hình",
-        "system_log": "Nhật ký",
-        "profile": "Cấu hình",
-        "name": "Tên",
-        "status": "Trạng thái",
-        "auto": "Auto",
+        "assign_team5": "Gán Team 5",
+        "refresh_games": "Làm mới Game",
+        "add": "Thêm",
+        "remove": "Xóa",
+        "col_no": "STT",
+        "col_char_pid": "Nhân vật / PID",
+        "col_route_preset": "Tuyến đường cấu hình",
+        "col_coordinates": "Tọa độ",
+        "col_status": "Trạng thái",
+        "col_actions": "Thao tác",
         "edit_profile": "Sửa cấu hình:",
         "pk_delay": "Thời gian chờ PK/Hồi sinh:",
         "reload": "Tải lại",
@@ -117,42 +448,40 @@ I18N = {
         "show": "Hiện:",
         "clear_view": "Xóa hiển thị",
         "all": "Tất cả",
-        "language": "Ngôn ngữ:",
-        "games": "Game",
+        "stage_min": "Min",
+        "stage_max": "Max",
+        "stage_map": "Map",
+        "stage_x": "X",
+        "stage_y": "Y",
+        "status_running": "Đang chạy",
+        "status_moving": "Di chuyển",
+        "status_disconnected": "Mất kết nối",
+        "status_stopped": "Đã dừng",
+        "status_idle": "Chờ",
+        "total_accounts": "Tổng số tài khoản: {n}",
         "connected": "Đã kết nối",
         "license": "Bản quyền",
-        "select": "-- Chọn --",
-        "idle": "Chờ",
-        "connected_status": "Đã kết nối",
-        "connecting": "Đang kết nối...",
-        "game_closed": "Game đã đóng",
-        "running": "Đang chạy C{n}",
-        "pk_wait": "CHỜ PK {n}s",
-        "map_wait": "CHỜ MAP {cur}→{exp}",
-        "map_verify": "Xác minh map...",
-        "map_unknown": "Map chưa có ID",
-        "at_spot": "Tới bãi farm",
-        "add_account": "+ Thêm Account",
-        "remove_account": "- Xóa Account cuối",
-        "total_accounts": "Tổng số tài khoản: {n}"
+        "expiry_label": "Hạn",
+        "header_stats": "Game: {games} | Đã kết nối: {conn}/{slots} | Auto: {auto} | Bản quyền: {license}",
+        "footer_stats": "Tổng số: {slots} Tài khoản | Đã kết nối: {conn} | Đang chạy: {auto}",
+        "lang_changed": "Đã chuyển đổi ngôn ngữ sang: {lang}"
     },
     "en": {
-        "refresh_games": "Refresh Games",
-        "assign_team5": "Assign Team 5",
-        "assign_all": "Assign All",
+        "characters": "Characters",
+        "configuration": "Configuration",
+        "logs": "Logs",
+        "text_config": "Text config",
         "connect_all": "Connect All",
-        "control": "Control:",
-        "start": "Start",
-        "stop": "Stop",
-        "start_all": "Start ALL",
-        "stop_all": "Stop ALL",
-        "accounts": "Accounts",
-        "profiles": "Profiles",
-        "system_log": "System Log",
-        "profile": "Profile",
-        "name": "Name",
-        "status": "Status",
-        "auto": "Auto",
+        "assign_team5": "Assign Team 5",
+        "refresh_games": "Refresh Game",
+        "add": "Add",
+        "remove": "Remove",
+        "col_no": "No.",
+        "col_char_pid": "Character / PID",
+        "col_route_preset": "Target Route Preset",
+        "col_coordinates": "Coordinates",
+        "col_status": "Status",
+        "col_actions": "Actions",
         "edit_profile": "Edit profile:",
         "pk_delay": "PK/Respawn delay:",
         "reload": "Reload",
@@ -161,68 +490,65 @@ I18N = {
         "show": "Show:",
         "clear_view": "Clear View",
         "all": "All",
-        "language": "Language:",
-        "games": "Games",
+        "stage_min": "Min",
+        "stage_max": "Max",
+        "stage_map": "Map",
+        "stage_x": "X",
+        "stage_y": "Y",
+        "status_running": "Running",
+        "status_moving": "Moving",
+        "status_disconnected": "Disconnected",
+        "status_stopped": "Stopped",
+        "status_idle": "Idle",
+        "total_accounts": "Total accounts: {n}",
         "connected": "Connected",
         "license": "License",
-        "select": "-- Select --",
-        "idle": "Idle",
-        "connected_status": "Connected",
-        "connecting": "Connecting...",
-        "game_closed": "Game Closed",
-        "running": "Running C{n}",
-        "pk_wait": "WAIT PK {n}s",
-        "map_wait": "WAIT MAP {cur}→{exp}",
-        "map_verify": "Verifying map...",
-        "map_unknown": "Unknown map ID",
-        "at_spot": "Farming at spot",
-        "add_account": "+ Add Account",
-        "remove_account": "- Remove Last Account",
-        "total_accounts": "Total accounts: {n}"
+        "expiry_label": "Exp",
+        "header_stats": "Games: {games} | Connected: {conn}/{slots} | Auto: {auto} | License: {license}",
+        "footer_stats": "Total: {slots} Accounts | Connected: {conn} | Running: {auto}",
+        "lang_changed": "Language switched to: {lang}"
     },
     "pt-BR": {
-        "refresh_games": "Atualizar Games",
-        "assign_team5": "Atribuir Time 5",
-        "assign_all": "Atribuir Todos",
+        "characters": "Personagens",
+        "configuration": "Configurações",
+        "logs": "Registros",
+        "text_config": "Arquivos config",
         "connect_all": "Conectar Todos",
-        "control": "Controle:",
-        "start": "Ligar",
-        "stop": "Desligar",
-        "start_all": "Ligar TODOS",
-        "stop_all": "Desligar TODOS",
-        "accounts": "Contas",
-        "profiles": "Perfis",
-        "system_log": "Registros",
-        "profile": "Perfil",
-        "name": "Nome",
-        "status": "Status",
-        "auto": "Auto",
+        "assign_team5": "Atribuir Time 5",
+        "refresh_games": "Atualizar Jogos",
+        "add": "Adicionar",
+        "remove": "Remover",
+        "col_no": "Nº",
+        "col_char_pid": "Personagem / PID",
+        "col_route_preset": "Rota / Perfil",
+        "col_coordinates": "Coordenadas",
+        "col_status": "Status",
+        "col_actions": "Ações",
         "edit_profile": "Editar perfil:",
         "pk_delay": "Espera PK/Respawn:",
         "reload": "Recarregar",
         "save_profile": "Salvar Perfil",
-        "team_note": "Times padrão: 1-5=C1, 6-10=C2, ... 46-50=C10. Você pode escolher outro perfil por linha.",
+        "team_note": "Times padrão: 1-5=C1, 6-10=C2, ... 46-50=C10. Você có pode escolher outro perfil por linha.",
         "show": "Mostrar:",
         "clear_view": "Limpar Visão",
         "all": "Todos",
-        "language": "Idioma:",
-        "games": "Jogos",
+        "stage_min": "Mín",
+        "stage_max": "Máx",
+        "stage_map": "Mapa",
+        "stage_x": "X",
+        "stage_y": "Y",
+        "status_running": "Executando",
+        "status_moving": "Movendo",
+        "status_disconnected": "Desconectado",
+        "status_stopped": "Parado",
+        "status_idle": "Aguardando",
+        "total_accounts": "Total de contas: {n}",
         "connected": "Conectados",
         "license": "Licença",
-        "select": "-- Selecionar --",
-        "idle": "Aguardando",
-        "connected_status": "Conectado",
-        "connecting": "Conectando...",
-        "game_closed": "Jogo Fechado",
-        "running": "Executando C{n}",
-        "pk_wait": "ESPERA PK {n}s",
-        "map_wait": "ESPERA MAPA {cur}→{exp}",
-        "map_verify": "Verificando mapa...",
-        "map_unknown": "ID do mapa desconhecido",
-        "at_spot": "No spot",
-        "add_account": "+ Adicionar Conta",
-        "remove_account": "- Remover Última Conta",
-        "total_accounts": "Total de contas: {n}"
+        "expiry_label": "Val",
+        "header_stats": "Jogos: {games} | Conectados: {conn}/{slots} | Auto: {auto} | Licença: {license}",
+        "footer_stats": "Total: {slots} Contas | Conectados: {conn} | Executando: {auto}",
+        "lang_changed": "Idioma alterado para: {lang}"
     }
 }
 
@@ -233,10 +559,11 @@ def load_language_preference() -> str:
     try:
         if UI_SETTINGS_FILE.exists():
             data = json.loads(UI_SETTINGS_FILE.read_text(encoding="utf-8"))
-            lang = str(data.get("language", "vi")).strip()
-            if lang in I18N:
-                CURRENT_LANG = lang
-                return lang
+            lang = str(data.get("language", "vi")).strip().lower()
+            for k in I18N.keys():
+                if k.lower() == lang:
+                    CURRENT_LANG = k
+                    return CURRENT_LANG
     except Exception:
         pass
     CURRENT_LANG = "vi"
@@ -244,17 +571,25 @@ def load_language_preference() -> str:
 
 def save_language_preference(lang: str):
     global CURRENT_LANG
-    if lang in I18N:
-        CURRENT_LANG = lang
-        try:
-            data = {"language": lang}
-            UI_SETTINGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
+    for k in I18N.keys():
+        if k.lower() == lang.lower():
+            CURRENT_LANG = k
+            break
+    try:
+        data = {"language": CURRENT_LANG}
+        UI_SETTINGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 def tr(key: str, **kwargs) -> str:
-    lang_dict = I18N.get(CURRENT_LANG, I18N["vi"])
-    text = lang_dict.get(key, I18N["vi"].get(key, key))
+    lang_dict = None
+    for k, v in I18N.items():
+        if k.lower() == CURRENT_LANG.lower():
+            lang_dict = v
+            break
+    if not lang_dict:
+        lang_dict = I18N.get("vi", {})
+    text = lang_dict.get(key, I18N.get("vi", {}).get(key, key))
     try:
         return text.format(**kwargs)
     except Exception:
@@ -530,6 +865,11 @@ class SlotController:
         self.engine = None
 
     def start_auto(self) -> bool:
+        if license_client and not license_client.is_license_valid():
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Không thể chạy: Bản quyền chưa kích hoạt hoặc đã hết hạn!", "ERROR")
+            self.set_auto(False)
+            return False
+
         if not self.assigned_pid:
             self.app.log_message(f"[Slot {self.slot_idx:02d}] Chưa chọn Game MEGAMU!", "WARNING")
             self.set_auto(False)
@@ -655,9 +995,9 @@ class DashboardApp(ctk.CTk):
 
         # Cấu hình cửa sổ
         self.title(APP_NAME)
-        self.geometry("1060x720")
-        self.minsize(980, 640)
-        self.configure(fg_color="#18181b")
+        self.geometry("1120x680")
+        self.minsize(1050, 600)
+        self.configure(fg_color="#0e1117")
 
         # Đặt App ID cho Windows để hiển thị icon DAuto trên Taskbar thay vì icon Python
         try:
@@ -692,11 +1032,13 @@ class DashboardApp(ctk.CTk):
 
         # Xây dựng giao diện hoàn chỉnh
         self.build_ui()
+        self.update_header_stats()
 
         # Bắt đầu vòng lặp quét tiến trình & telemetry
         self.running = True
         self.after(500, self._periodic_game_scan)
         self.after(800, self._periodic_telemetry)
+        threading.Thread(target=self._verify_license_async, daemon=True).start()
 
         # Xử lý đóng ứng dụng an toàn
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -732,11 +1074,14 @@ class DashboardApp(ctk.CTk):
         # ----------------------------------------------------------------------
         # 1. HEADER CHÍNH
         # ----------------------------------------------------------------------
-        self.header_frame = ctk.CTkFrame(self, fg_color="#18181b", height=65)
-        self.header_frame.pack(fill="x", padx=16, pady=(10, 2))
+        self.header_frame = ctk.CTkFrame(self, fg_color="#12151e", height=58, corner_radius=0)
+        self.header_frame.pack(fill="x", padx=0, pady=0)
+
+        inner_header = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        inner_header.pack(fill="both", expand=True, padx=20, pady=(8, 8))
 
         # Cột Trái: Logo + Tên + Thông số bản quyền
-        left_box = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        left_box = ctk.CTkFrame(inner_header, fg_color="transparent")
         left_box.pack(side="left", fill="y")
 
         # Logo
@@ -745,7 +1090,7 @@ class DashboardApp(ctk.CTk):
                 logo_img = Image.open(str(LOGO_FILE))
                 lw, lh = logo_img.size
                 aspect = lw / max(1, lh)
-                target_h = 44
+                target_h = 38
                 target_w = int(target_h * aspect)
                 self.logo_ctk = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=(target_w, target_h))
                 logo_label = ctk.CTkLabel(left_box, image=self.logo_ctk, text="")
@@ -762,8 +1107,8 @@ class DashboardApp(ctk.CTk):
         title_lbl = ctk.CTkLabel(
             title_line,
             text=APP_NAME,
-            font=ctk.CTkFont(family="Segoe UI", size=17, weight="bold"),
-            text_color="#f3f4f6"
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            text_color="#f8fafc"
         )
         title_lbl.pack(side="left")
 
@@ -771,188 +1116,289 @@ class DashboardApp(ctk.CTk):
             title_line,
             text=f" {APP_VERSION}",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#71717a"
+            text_color="#94a3b8"
         )
         ver_lbl.pack(side="left", padx=(4, 0))
 
-        # Dòng thống kê Header
+        # Dòng thống kê Header (có thể bấm vào để mở kích hoạt bản quyền)
         self.header_stats_lbl = ctk.CTkLabel(
             title_box,
-            text=f"Game: 0 | Đã kết nối: 0 | Auto: 0 | Bản quyền: Basic | 10 acc | 2026-10-01 | Online",
+            text=f"Game: 0 | Đã kết nối: 0/0 | Auto: 0 | Bản quyền: {CURRENT_LICENSE}",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#9ca3af"
+            text_color="#94a3b8",
+            cursor="hand2"
         )
         self.header_stats_lbl.pack(anchor="w", pady=(1, 0))
+        self.header_stats_lbl.bind("<Button-1>", lambda e: self.open_license_dialog())
 
-        # Cột Phải: 4 Nút hành động nhanh (Xanh dương đậm)
-        btn_box = ctk.CTkFrame(self.header_frame, fg_color="transparent")
-        btn_box.pack(side="right", fill="y")
+        # Cột Phải: Nút Help (?) + Badge B&T business
+        right_box = ctk.CTkFrame(inner_header, fg_color="transparent")
+        right_box.pack(side="right", fill="y")
 
-        btn_base_style = {
-            "font": ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            "fg_color": "#2563eb",
-            "hover_color": "#1d4ed8",
-            "text_color": "#ffffff",
-            "corner_radius": 5
-        }
-
-        self.btn_refresh = ctk.CTkButton(
-            btn_box, text=tr("refresh_games"), width=105, height=30, command=self.refresh_games, **btn_base_style
+        # Badge B&T business (Circular badge with teal border)
+        badge_frame = ctk.CTkFrame(
+            right_box,
+            width=42,
+            height=42,
+            corner_radius=21,
+            fg_color="#12151e",
+            border_width=1.5,
+            border_color="#14b8a6"
         )
-        self.btn_refresh.pack(side="right", padx=(4, 0))
+        badge_frame.pack(side="right", padx=(10, 0))
+        badge_frame.pack_propagate(False)
 
-        self.btn_team5 = ctk.CTkButton(
-            btn_box, text=tr("assign_team5"), width=95, height=30, command=self.assign_team5, **btn_base_style
-        )
-        self.btn_team5.pack(side="right", padx=4)
-
-        self.btn_assign_all = ctk.CTkButton(
-            btn_box, text=tr("assign_all"), width=85, height=30, command=self.assign_all, **btn_base_style
-        )
-        self.btn_assign_all.pack(side="right", padx=4)
-
-        self.btn_connect_all = ctk.CTkButton(
-            btn_box, text=tr("connect_all"), width=95, height=30, command=self.connect_all, **btn_base_style
-        )
-        self.btn_connect_all.pack(side="right", padx=4)
-
-        # ----------------------------------------------------------------------
-        # 2. THANH ĐIỀU KHIỂN PHỤ (SUB-HEADER)
-        # ----------------------------------------------------------------------
-        self.sub_frame = ctk.CTkFrame(self, fg_color="#18181b", height=38)
-        self.sub_frame.pack(fill="x", padx=16, pady=(4, 2))
-
-        # Điều khiển bên trái: [Điều khiển: Tất cả v] [Bật] [Tắt]
-        sub_left = ctk.CTkFrame(self.sub_frame, fg_color="transparent")
-        sub_left.pack(side="left")
+        badge_inner = ctk.CTkFrame(badge_frame, fg_color="transparent")
+        badge_inner.place(relx=0.5, rely=0.5, anchor="center")
 
         ctk.CTkLabel(
-            sub_left, text=tr("control"), font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f3f4f6"
-        ).pack(side="left", padx=(0, 6))
+            badge_inner,
+            text="donpv",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#2dd4bf"
+        ).pack(anchor="center", pady=(0, 0))
 
-        ctrl_options = [tr("all")]
-        self.ctrl_target_var = ctk.StringVar(value=tr("all"))
-        self.ctrl_combo = ctk.CTkOptionMenu(
-            sub_left,
-            values=ctrl_options,
-            variable=self.ctrl_target_var,
-            width=100,
+        ctk.CTkLabel(
+            badge_inner,
+            text="developer",
+            font=ctk.CTkFont(family="Segoe UI", size=7),
+            text_color="#94a3b8"
+        ).pack(anchor="center", pady=(0, 0))
+
+        # Nút Help (?)
+        self.btn_help = ctk.CTkButton(
+            right_box,
+            text="?",
+            width=28,
             height=28,
-            fg_color="#2563eb",
-            button_color="#1d4ed8",
-            corner_radius=4,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+            corner_radius=14,
+            fg_color="#181c26",
+            hover_color="#242b3a",
+            border_width=1,
+            border_color="#2c3345",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#94a3b8",
+            command=self.show_help
         )
-        self.ctrl_combo.pack(side="left", padx=4)
+        self.btn_help.pack(side="right", padx=(0, 6))
 
-        self.btn_batch_on = ctk.CTkButton(
-            sub_left, text=tr("start"), width=60, height=28, command=self.batch_start, **btn_base_style
+        # Nút License (🔑)
+        self.btn_license = ctk.CTkButton(
+            right_box,
+            text="🔑 License",
+            width=80,
+            height=28,
+            corner_radius=6,
+            fg_color="#181c26",
+            hover_color="#242b3a",
+            border_width=1,
+            border_color="#0284c7",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8",
+            command=self.open_license_dialog
         )
-        self.btn_batch_on.pack(side="left", padx=4)
+        self.btn_license.pack(side="right", padx=(0, 6))
 
-        self.btn_batch_off = ctk.CTkButton(
-            sub_left, text=tr("stop"), width=60, height=28, command=self.batch_stop, **btn_base_style
-        )
-        self.btn_batch_off.pack(side="left", padx=4)
-
-        # Điều khiển bên phải: [Tắt TẤT CẢ] [Bật TẤT CẢ] [Ngôn ngữ: VI v]
-        sub_right = ctk.CTkFrame(self.sub_frame, fg_color="transparent")
-        sub_right.pack(side="right")
-
-        self.btn_all_off = ctk.CTkButton(
-            sub_right, text=tr("stop_all"), width=85, height=28, command=self.stop_all, **btn_base_style
-        )
-        self.btn_all_off.pack(side="left", padx=4)
-
-        self.btn_all_on = ctk.CTkButton(
-            sub_right, text=tr("start_all"), width=85, height=28, command=self.start_all, **btn_base_style
-        )
-        self.btn_all_on.pack(side="left", padx=4)
-
-        ctk.CTkLabel(
-            sub_right, text=tr("language"), font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#d1d5db"
-        ).pack(side="left", padx=(10, 4))
-
-        self.lang_var = ctk.StringVar(value=CURRENT_LANG.upper())
-        self.lang_menu = ctk.CTkOptionMenu(
-            sub_right,
-            values=["VI", "EN", "PT-BR"],
+        # Language dropdown trên Header (hiển thị trên mọi Tab)
+        self.lang_var = ctk.StringVar(value=f"Language: {CURRENT_LANG.upper()}")
+        self.lang_menu = ModernOptionMenu(
+            right_box,
+            values=["Language: VI", "Language: EN", "Language: PT-BR"],
             variable=self.lang_var,
-            width=65,
-            height=28,
-            fg_color="#2563eb",
-            button_color="#1d4ed8",
-            corner_radius=4,
+            width=125,
+            height=30,
+            fg_color="#181c26",
+            hover_color="#222736",
             command=self.change_language,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
         )
-        self.lang_menu.pack(side="left", padx=4)
-
-        # Dòng RPC lanes & metrics dưới sub-header
-        metric_frame = ctk.CTkFrame(self, fg_color="#18181b")
-        metric_frame.pack(fill="x", padx=16, pady=(0, 6))
-
-        self.metrics_lbl = ctk.CTkLabel(
-            metric_frame,
-            text="PID RPC Lanes | AVG -- ms | P95 -- ms | Active 0/0 | Q 0 | STATE MAX -- ms",
-            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
-            text_color="#71717a"
-        )
-        self.metrics_lbl.pack(side="right")
+        self.lang_menu.pack(side="right", padx=(0, 6))
 
         # ----------------------------------------------------------------------
-        # 3. TAB NAVIGATION (Centered Segmented Buttons)
+        # 2. TAB NAVIGATION BAR (Characters | Configuration | Logs | Text config)
         # ----------------------------------------------------------------------
-        tab_bar = ctk.CTkFrame(self, fg_color="transparent")
-        tab_bar.pack(anchor="center", pady=(4, 8))
+        tab_bar_frame = ctk.CTkFrame(self, fg_color="#12151e", height=38, corner_radius=0)
+        tab_bar_frame.pack(fill="x", padx=0, pady=(0, 2))
+
+        tab_bar_inner = ctk.CTkFrame(tab_bar_frame, fg_color="transparent")
+        tab_bar_inner.pack(fill="both", expand=True, padx=20, pady=(0, 4))
+
+        tab_left = ctk.CTkFrame(tab_bar_inner, fg_color="transparent")
+        tab_left.pack(side="left", fill="y")
 
         self.tab_accounts_btn = ctk.CTkButton(
-            tab_bar,
-            text=f"{len(self.controllers)} {tr('accounts')}",
-            width=100,
-            height=28,
-            corner_radius=5,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            tab_left,
+            image=UiIconFactory.get("user", color="#2dd4bf", size=(14, 14)),
+            compound="left",
+            text=f" {tr('characters')} ({len(self.controllers)})",
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("accounts")
         )
-        self.tab_accounts_btn.pack(side="left", padx=2)
+        self.tab_accounts_btn.pack(side="left", padx=(0, 6))
 
         self.tab_profiles_btn = ctk.CTkButton(
-            tab_bar,
-            text=tr("profiles"),
-            width=80,
-            height=28,
-            corner_radius=5,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            tab_left,
+            image=UiIconFactory.get("gear", color="#94a3b8", size=(14, 14)),
+            compound="left",
+            text=f" {tr('configuration')}",
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("profiles")
         )
-        self.tab_profiles_btn.pack(side="left", padx=2)
+        self.tab_profiles_btn.pack(side="left", padx=(0, 6))
 
         self.tab_logs_btn = ctk.CTkButton(
-            tab_bar,
-            text=tr("system_log"),
-            width=80,
-            height=28,
-            corner_radius=5,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            tab_left,
+            image=UiIconFactory.get("file", color="#94a3b8", size=(14, 14)),
+            compound="left",
+            text=f" {tr('logs')}",
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("logs")
         )
-        self.tab_logs_btn.pack(side="left", padx=2)
+        self.tab_logs_btn.pack(side="left", padx=(0, 6))
+
+        tab_right = ctk.CTkFrame(tab_bar_inner, fg_color="transparent")
+        tab_right.pack(side="right", fill="y")
+
+        self.btn_text_cfg = ctk.CTkButton(
+            tab_right,
+            text=tr("text_config"),
+            width=80,
+            height=26,
+            fg_color="transparent",
+            hover_color="#1a1e28",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=self.open_text_config
+        )
+        self.btn_text_cfg.pack(side="left", padx=(0, 10))
+
+        ctk.CTkLabel(
+            tab_right,
+            text="Phát triển bởi donpv",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#64748b"
+        ).pack(side="left")
 
         # ----------------------------------------------------------------------
-        # 4. CONTENT CONTAINERS
+        # 3. ACTION TOOLBAR (Connect All | Gán Team 5 | Refresh | Add | Remove | Language)
         # ----------------------------------------------------------------------
-        self.content_container = ctk.CTkFrame(self, fg_color="#18181b")
-        self.content_container.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+        self.toolbar_frame = ctk.CTkFrame(self, fg_color="#0e1117", height=44)
+        self.toolbar_frame.pack(fill="x", padx=20, pady=(6, 8))
+
+        btn_bar_style = {
+            "font": ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            "fg_color": "#181c26",
+            "hover_color": "#242b3a",
+            "border_width": 1,
+            "border_color": "#2c3345",
+            "text_color": "#f1f5f9",
+            "corner_radius": 6,
+            "height": 32
+        }
+
+        # Trái
+        t_left = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
+        t_left.pack(side="left")
+
+        self.btn_connect_all = ctk.CTkButton(
+            t_left,
+            image=UiIconFactory.get("link", color="#38bdf8", size=(14, 14)),
+            compound="left",
+            text=f" {tr('connect_all')}",
+            width=120,
+            command=self.connect_all,
+            **btn_bar_style
+        )
+        self.btn_connect_all.pack(side="left", padx=(0, 6))
+
+        self.btn_team5 = ctk.CTkButton(
+            t_left,
+            image=UiIconFactory.get("gear", color="#cbd5e1", size=(14, 14)),
+            compound="left",
+            text=f" {tr('assign_team5')}",
+            width=125,
+            command=self.assign_team5,
+            **btn_bar_style
+        )
+        self.btn_team5.pack(side="left", padx=(0, 6))
+
+        self.btn_refresh = ctk.CTkButton(
+            t_left,
+            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(14, 14)),
+            compound="left",
+            text=f" {tr('refresh_games')}",
+            width=130,
+            command=self.refresh_games,
+            **btn_bar_style
+        )
+        self.btn_refresh.pack(side="left", padx=(0, 6))
+
+        self.btn_add_slot = ctk.CTkButton(
+            t_left,
+            image=UiIconFactory.get("plus", color="#4ade80", size=(13, 13)),
+            compound="left",
+            text=f" {tr('add')}",
+            width=78,
+            command=self.add_new_slot,
+            **btn_bar_style
+        )
+        self.btn_add_slot.pack(side="left", padx=(0, 6))
+
+        self.btn_remove_slot = ctk.CTkButton(
+            t_left,
+            image=UiIconFactory.get("minus", color="#f87171", size=(13, 13)),
+            compound="left",
+            text=f" {tr('remove')}",
+            width=95,
+            command=self.remove_last_slot,
+            **btn_bar_style
+        )
+        self.btn_remove_slot.pack(side="left")
+
+
+
+        # ----------------------------------------------------------------------
+        # 4. CONTENT CONTAINER
+        # ----------------------------------------------------------------------
+        self.content_container = ctk.CTkFrame(self, fg_color="#0e1117")
+        self.content_container.pack(fill="both", expand=True, padx=20, pady=(0, 6))
 
         # 3 Panels cho 3 Tab
-        self.panel_accounts = ctk.CTkFrame(self.content_container, fg_color="transparent")
-        self.panel_profiles = ctk.CTkFrame(self.content_container, fg_color="transparent")
-        self.panel_logs = ctk.CTkFrame(self.content_container, fg_color="transparent")
+        self.panel_accounts = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
+        self.panel_profiles = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
+        self.panel_logs = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
 
         self.build_accounts_view()
         self.build_profiles_view()
         self.build_logs_view()
+
+        # ----------------------------------------------------------------------
+        # 5. FOOTER STATUS BAR
+        # ----------------------------------------------------------------------
+        self.footer_frame = ctk.CTkFrame(self, fg_color="#0e1117", height=28)
+        self.footer_frame.pack(fill="x", padx=20, pady=(0, 6))
+
+        self.footer_stats_lbl = ctk.CTkLabel(
+            self.footer_frame,
+            text=f"Total: {len(self.controllers)} Accounts | Connected: 0 | Running: 0",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8"
+        )
+        self.footer_stats_lbl.pack(side="left")
+
+        footer_right = ctk.CTkLabel(
+            self.footer_frame,
+            text="(?) Help | Phát triển bởi donpv",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#64748b"
+        )
+        footer_right.pack(side="right")
 
         # Đồng bộ danh sách Slot vào combobox và nhãn điều khiển
         self.update_combo_slot_options()
@@ -961,230 +1407,268 @@ class DashboardApp(ctk.CTk):
         self.switch_tab("accounts")
 
     # ==========================================================================
-    # TAB 1: DANH SÁCH TÀI KHOẢN (ACCOUNTS TAB) - HỖ TRỢ ĐA ACCOUNT KHÔNG GIỚI HẠN
+    # TAB 1: DANH SÁCH TÀI KHOẢN (ACCOUNTS TAB)
     # ==========================================================================
     def build_accounts_view(self):
         # Header bảng cố định ở trên
-        tbl_header = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=26)
-        tbl_header.pack(fill="x", padx=4, pady=(2, 4))
+        tbl_header = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=32)
+        tbl_header.pack(fill="x", padx=12, pady=(10, 4))
 
-        cols = [
-            ("#", 34, "center"),
-            ("MEGAMU / PID", 280, "center"),
-            (tr("profile"), 105, "center"),
-            (tr("name"), 120, "center"),
-            ("Lv", 55, "center"),
-            ("X,Y", 80, "center"),
-            (tr("status"), 130, "center"),
-            (tr("auto"), 60, "center")
+        self.col_header_labels = []
+        col_defs = [
+            ("col_no", 45, "w"),
+            ("col_char_pid", 230, "w"),
+            ("col_route_preset", 220, "w"),
+            ("col_coordinates", 160, "center"),
+            ("col_status", 130, "center"),
+            ("col_actions", 120, "center")
         ]
 
-        for title, w, anc in cols:
+        for k, w, anc in col_defs:
             lbl = ctk.CTkLabel(
                 tbl_header,
-                text=title,
+                text=tr(k),
                 width=w,
                 anchor=anc,
-                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-                text_color="#9ca3af"
+                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                text_color="#94a3b8"
             )
-            lbl.pack(side="left", padx=2)
+            lbl.pack(side="left", padx=4)
+            self.col_header_labels.append(lbl)
+
+        # Divider line
+        div = ctk.CTkFrame(self.panel_accounts, fg_color="#1f2535", height=1)
+        div.pack(fill="x", padx=12, pady=(0, 6))
 
         # Khung cuộn chứa danh sách các dòng tài khoản
         self.accounts_scroll_frame = ctk.CTkScrollableFrame(
             self.panel_accounts,
             fg_color="transparent"
         )
-        self.accounts_scroll_frame.pack(fill="both", expand=True, padx=2, pady=2)
+        self.accounts_scroll_frame.pack(fill="both", expand=True, padx=4, pady=(0, 8))
 
         # Tạo từng dòng tài khoản đã cấu hình
         for i in range(1, len(self.controllers) + 1):
             self.create_slot_row(i)
 
-        # Thanh chức năng thêm / bớt slot ở dưới cùng
-        bottom_slot_bar = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=36)
-        bottom_slot_bar.pack(fill="x", padx=6, pady=(4, 6))
-
-        self.btn_add_slot = ctk.CTkButton(
-            bottom_slot_bar,
-            text=tr("add_account"),
-            width=140,
-            height=30,
-            fg_color="#16a34a",
-            hover_color="#15803d",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=self.add_new_slot
-        )
-        self.btn_add_slot.pack(side="left", padx=4)
-
-        self.btn_remove_slot = ctk.CTkButton(
-            bottom_slot_bar,
-            text=tr("remove_account"),
-            width=150,
-            height=30,
-            fg_color="#27272a",
-            hover_color="#dc2626",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=self.remove_last_slot
-        )
-        self.btn_remove_slot.pack(side="left", padx=4)
-
-        self.lbl_slot_count = ctk.CTkLabel(
-            bottom_slot_bar,
-            text=tr("total_accounts").format(n=len(self.controllers)),
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            text_color="#9ca3af"
-        )
-        self.lbl_slot_count.pack(side="right", padx=10)
-
     def create_slot_row(self, i: int):
-        """Tạo 1 dòng giao diện cho Slot thứ i trong khung cuộn."""
+        """Tạo 1 dòng giao diện cho Slot thứ i theo đúng ảnh thiết kế."""
         ctrl = self.controllers[i - 1]
-        row_frame = ctk.CTkFrame(self.accounts_scroll_frame, fg_color="#1f1f24", height=32, corner_radius=4)
-        row_frame.pack(fill="x", padx=2, pady=2)
+        row_frame = ctk.CTkFrame(self.accounts_scroll_frame, fg_color="#141722", height=54, corner_radius=6)
+        row_frame.pack(fill="x", padx=4, pady=3)
 
-        # Cột 1: # (01, 02...)
+        # Cột 1: No. (01, 02...)
         slot_lbl = ctk.CTkLabel(
             row_frame,
             text=f"{i:02d}",
-            width=34,
-            anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#e4e4e7"
+            width=45,
+            anchor="w",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#94a3b8"
         )
-        slot_lbl.pack(side="left", padx=2)
+        slot_lbl.pack(side="left", padx=(10, 4))
 
-        # Cột 2: MEGAMU / PID (Dropdown)
-        proc_var = ctk.StringVar(value=tr("select"))
-        options = [tr("select")]
+        # Cột 2: Character/PID
+        options = ["--"]
         for pid, title in sorted(self.detected_games.items()):
             char_name = character_name_from_window_title(title)
-            disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
+            disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
             options.append(disp)
 
-        proc_combo = ctk.CTkOptionMenu(
+        init_proc = "--"
+        if ctrl.assigned_pid:
+            t = self.detected_games.get(ctrl.assigned_pid, "")
+            cname = character_name_from_window_title(t)
+            init_proc = f"{cname} ({ctrl.assigned_pid})" if cname else f"MEGAMU ({ctrl.assigned_pid})"
+
+        proc_var = ctk.StringVar(value=init_proc)
+        proc_combo = ModernOptionMenu(
             row_frame,
             values=options,
             variable=proc_var,
-            width=280,
-            height=26,
-            fg_color="#27272a",
-            button_color="#3f3f46",
-            text_color="#ffffff",
-            corner_radius=4,
+            width=220,
+            height=32,
+            fg_color="#181c26",
+            border_color="#242b3a",
+            hover_color="#222736",
             command=lambda val, s=i: self.on_slot_pid_selected(s, val),
-            font=ctk.CTkFont(family="Segoe UI", size=11)
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
         )
-        proc_combo.pack(side="left", padx=2)
+        proc_combo.pack(side="left", padx=4)
 
-        # Cột 3: Cấu hình (Dropdown + nút ...)
-        cfg_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=105)
-        cfg_box.pack(side="left", padx=2)
+        # Cột 3: Target Route Preset (Multi-tier: Master LV 450 / Progress / EXP)
+        route_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=220)
+        route_box.pack(side="left", padx=4)
 
-        initial_cfg = f"Config {ctrl.profile_index}"
-        cfg_var = ctk.StringVar(value=initial_cfg)
-        cfg_menu = ctk.CTkOptionMenu(
-            cfg_box,
+        top_line = ctk.CTkFrame(route_box, fg_color="transparent")
+        top_line.pack(fill="x", padx=0, pady=(2, 0))
+
+        profile_var = ctk.StringVar(value=f"Config {ctrl.profile_index}")
+        preset_combo = ModernOptionMenu(
+            top_line,
             values=PROFILE_NAMES,
-            variable=cfg_var,
-            width=85,
-            height=26,
-            fg_color="#2563eb",
-            button_color="#1d4ed8",
-            text_color="#ffffff",
-            corner_radius=4,
-            command=lambda val, s=i: self.on_slot_profile_selected(s, val),
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+            variable=profile_var,
+            width=105,
+            height=24,
+            fg_color="#181c26",
+            hover_color="#222736",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=lambda val, s=i: self.on_slot_profile_selected(s, val)
         )
-        cfg_menu.pack(side="left")
+        preset_combo.pack(side="left")
 
-        btn_jump_cfg = ctk.CTkButton(
-            cfg_box,
-            text="...",
-            width=18,
-            height=26,
-            fg_color="transparent",
-            hover_color="#3f3f46",
-            text_color="#9ca3af",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: self.jump_to_config_tab(s)
-        )
-        btn_jump_cfg.pack(side="left", padx=(2, 0))
-
-        # Cột 4: Tên
-        name_lbl = ctk.CTkLabel(
-            row_frame,
-            text="---",
-            width=120,
-            anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#e4e4e7"
-        )
-        name_lbl.pack(side="left", padx=2)
-
-        # Cột 5: Lv
+        lvl_str = f"LV {ctrl.level}" if ctrl.level != "---" else "LV --"
         lvl_lbl = ctk.CTkLabel(
-            row_frame,
-            text="---",
-            width=55,
-            anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#e4e4e7"
+            top_line,
+            text=lvl_str,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#94a3b8"
         )
-        lvl_lbl.pack(side="left", padx=2)
+        lvl_lbl.pack(side="right")
 
-        # Cột 6: X,Y
+        prog_bar = ctk.CTkProgressBar(
+            route_box,
+            width=210,
+            height=5,
+            corner_radius=2,
+            fg_color="#232836",
+            progress_color="#38bdf8"
+        )
+        prog_bar.set(0.0)
+        prog_bar.pack(anchor="w", pady=(2, 1))
+
+        exp_lbl = ctk.CTkLabel(
+            route_box,
+            text="-- / -- EXP",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#71717a",
+            anchor="w"
+        )
+        exp_lbl.pack(anchor="w", pady=(0, 2))
+
+        # Cột 4: Coordinates (Rounded container with coordinates and dropdown arrow)
+        coords_frame = ctk.CTkFrame(
+            row_frame,
+            fg_color="#181c26",
+            border_width=0,
+            corner_radius=6,
+            width=140,
+            height=30
+        )
+        coords_frame.pack(side="left", padx=6)
+        coords_frame.pack_propagate(False)
+
         coords_lbl = ctk.CTkLabel(
-            row_frame,
-            text="--,--",
-            width=80,
-            anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#e4e4e7"
+            coords_frame,
+            text="--, --",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f1f5f9"
         )
-        coords_lbl.pack(side="left", padx=2)
+        coords_lbl.pack(side="left", padx=(10, 0), expand=True)
 
-        # Cột 7: Trạng thái
+        ctk.CTkLabel(
+            coords_frame,
+            text="",
+            image=UiIconFactory.get("chevron_down", color="#64748b", size=(10, 10))
+        ).pack(side="right", padx=(0, 8))
+
+        # Cột 5: Status (Text mặc định, không border-radius)
         status_lbl = ctk.CTkLabel(
             row_frame,
-            text=tr("idle"),
-            width=130,
+            text="Idle",
+            width=120,
             anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#9ca3af"
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#94a3b8"
         )
-        status_lbl.pack(side="left", padx=2)
+        status_lbl.pack(side="left", padx=6)
 
-        # Cột 8: Switch Auto
-        auto_switch = ctk.CTkSwitch(
-            row_frame,
+        # Cột 6: Actions (Play/Stop | Configure | Slot Logs)
+        actions_box = ctk.CTkFrame(row_frame, fg_color="transparent")
+        actions_box.pack(side="left", padx=4)
+
+        act_btn_style = {
+            "width": 28,
+            "height": 28,
+            "corner_radius": 5,
+            "fg_color": "#181c26",
+            "hover_color": "#242b3a",
+            "border_width": 1,
+            "border_color": "#2b3244"
+        }
+
+        btn_toggle = ctk.CTkButton(
+            actions_box,
             text="",
-            width=55,
-            progress_color="#2563eb",
-            button_color="#ffffff",
-            command=lambda s=i: self.on_slot_auto_toggle(s)
+            image=UiIconFactory.get("play", color="#38bdf8", size=(11, 11)),
+            command=lambda s=i: self.on_slot_auto_toggle(s),
+            **act_btn_style
         )
-        auto_switch.pack(side="left", padx=5)
+        btn_toggle.pack(side="left", padx=2)
+
+        btn_cfg = ctk.CTkButton(
+            actions_box,
+            text="",
+            image=UiIconFactory.get("gear", color="#94a3b8", size=(13, 13)),
+            command=lambda s=i: self.jump_to_config_tab(s),
+            **act_btn_style
+        )
+        btn_cfg.pack(side="left", padx=2)
+
+        btn_log = ctk.CTkButton(
+            actions_box,
+            text="",
+            image=UiIconFactory.get("file", color="#94a3b8", size=(13, 13)),
+            command=lambda s=i: self.jump_to_slot_logs(s),
+            **act_btn_style
+        )
+        btn_log.pack(side="left", padx=2)
 
         # Lưu references để cập nhật
         self.slot_ui_elements[i] = {
             "row_frame": row_frame,
             "proc_var": proc_var,
             "proc_combo": proc_combo,
-            "cfg_var": cfg_var,
-            "cfg_menu": cfg_menu,
-            "name_lbl": name_lbl,
+            "profile_var": profile_var,
+            "preset_combo": preset_combo,
+            "preset_lbl": preset_combo,
             "lvl_lbl": lvl_lbl,
+            "prog_bar": prog_bar,
+            "exp_lbl": exp_lbl,
             "coords_lbl": coords_lbl,
             "status_lbl": status_lbl,
-            "auto_switch": auto_switch
+            "btn_toggle": btn_toggle,
+            "btn_cfg": btn_cfg,
+            "btn_log": btn_log
         }
 
     def add_new_slot(self):
         """Thêm 1 slot tài khoản mới vào cuối danh sách."""
+        if license_client and not license_client.is_license_valid():
+            try:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "Khóa Chức Năng",
+                    "Chức năng thêm tài khoản đã bị khóa vì bản quyền chưa được kích hoạt hoặc đã hết hạn!\n\nVui lòng kích hoạt bản quyền để sử dụng."
+                )
+            except Exception:
+                pass
+            self.open_license_dialog()
+            return
+
         new_slot_idx = len(self.controllers) + 1
-        if new_slot_idx > MAX_SLOTS:
-            self.log_message(f"Đã đạt giới hạn tối đa {MAX_SLOTS} tài khoản.", "WARNING")
+        lic_data = license_client.load_license_data() if license_client else {}
+        max_allowed = lic_data.get("max_slots", MAX_SLOTS)
+        if new_slot_idx > max_allowed or new_slot_idx > MAX_SLOTS:
+            self.log_message(f"Bản quyền hiện tại chỉ cho phép tối đa {max_allowed} tài khoản.", "WARNING")
+            try:
+                from tkinter import messagebox
+                messagebox.showinfo(
+                    "Giới Hạn Bản Quyền",
+                    f"Gói bản quyền của bạn cho phép tối đa {max_allowed} tài khoản.\nVui lòng liên hệ để nâng cấp thêm slot."
+                )
+            except Exception:
+                pass
             return
 
         default_profile = 1
@@ -1234,31 +1718,331 @@ class DashboardApp(ctk.CTk):
         self.log_message(f"Đã xóa Account Slot #{last_idx:02d}.", "INFO")
 
     def update_combo_slot_options(self):
-        """Cập nhật danh sách Slot trong các combobox Điều khiển và Nhật ký."""
+        """Cập nhật số lượng tài khoản trên tab bar và footer."""
         n = len(self.controllers)
-        teams = []
-        for i in range(0, n, 5):
-            t_num = (i // 5) + 1
-            t_end = min(i + 5, n)
-            teams.append(f"Team {t_num} ({i + 1}-{t_end})")
-
-        ctrl_opts = [tr("all")] + teams + [f"{i:02d}" for i in range(1, n + 1)]
-        if hasattr(self, "ctrl_combo"):
-            self.ctrl_combo.configure(values=ctrl_opts)
-            if self.ctrl_target_var.get() not in ctrl_opts:
-                self.ctrl_target_var.set(tr("all"))
-
-        log_opts = [tr("all")] + [f"{i:02d}" for i in range(1, n + 1)]
-        if hasattr(self, "log_filter_combo"):
-            self.log_filter_combo.configure(values=log_opts)
-            if self.log_filter_var.get() not in log_opts:
-                self.log_filter_var.set(tr("all"))
-
         if hasattr(self, "tab_accounts_btn"):
-            self.tab_accounts_btn.configure(text=f"{n} {tr('accounts')}")
+            self.tab_accounts_btn.configure(text=f" {tr('characters')} ({n})")
+        if hasattr(self, "footer_stats_lbl"):
+            num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
+            num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
+            self.footer_stats_lbl.configure(text=tr("footer_stats", slots=n, conn=num_conn, auto=num_auto))
 
-        if hasattr(self, "lbl_slot_count"):
-            self.lbl_slot_count.configure(text=tr("total_accounts").format(n=n))
+    def jump_to_slot_logs(self, slot_idx: int):
+        """Nhảy nhanh sang Tab Logs khi bấm nút 📄 ở Slot."""
+        if hasattr(self, "log_filter_var"):
+            self.log_filter_var.set(f"{slot_idx:02d}")
+        self.switch_tab("logs")
+        self.render_logs()
+
+    def open_text_config(self):
+        """Mở thư mục cấu hình."""
+        try:
+            import subprocess
+            if CONFIG_DIR.exists():
+                subprocess.Popen(f'explorer "{CONFIG_DIR}"')
+        except Exception:
+            pass
+
+    def show_help(self):
+        """Hiển thị hộp thoại trợ giúp."""
+        try:
+            from tkinter import messagebox
+            messagebox.showinfo(
+                "MEGAMU Auto Train Dashboard",
+                "MEGAMU Auto Train Dashboard v1.5.1\n\n"
+                "- Kết nối native không chiếm chuột (Zero-Mouse Direct Engine)\n"
+                "- Tự động tìm đường A*, di chuyển, bật/tắt MuHelper và nhận diện Reset\n"
+                "- Hỗ trợ đa tài khoản không giới hạn\n\n"
+                "Phát triển bởi donpv\n\n"
+                "Bản quyền: Bấm nút '🔑 License' trên thanh tiêu đề để kích hoạt bản quyền."
+            )
+        except Exception:
+            pass
+
+    def _verify_license_async(self):
+        """Kiểm tra xác thực bản quyền định kỳ ngầm (Heartbeat) với Server."""
+        if not getattr(self, "running", True) or not license_client:
+            return
+        try:
+            license_client.verify_license()
+            self.after(0, self.update_header_stats)
+        except Exception:
+            pass
+        try:
+            self.after(5000, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
+        except Exception:
+            pass
+
+    def open_license_dialog(self):
+        """Mở cửa sổ quản lý và kích hoạt bản quyền MEGAMU Auto Train Dashboard."""
+        if hasattr(self, "_license_dialog") and self._license_dialog is not None and self._license_dialog.winfo_exists():
+            self._license_dialog.lift()
+            self._license_dialog.focus_force()
+            return
+
+        dialog = ctk.CTkToplevel(self)
+        self._license_dialog = dialog
+        dialog.title("Quản lý Bản Quyền - MEGAMU Auto Train")
+        dialog.geometry("490x440")
+        dialog.resizable(False, False)
+        dialog.configure(fg_color="#0e1117")
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # Đặt Icon ứng dụng cho cửa sổ dialog quản lý bản quyền
+        if ICON_FILE.exists():
+            try:
+                dialog.iconbitmap(str(ICON_FILE))
+            except Exception:
+                pass
+            try:
+                dialog.wm_iconbitmap(str(ICON_FILE))
+            except Exception:
+                pass
+            try:
+                from PIL import ImageTk
+                _ico_img = Image.open(str(ICON_FILE))
+                dialog._tk_icon = ImageTk.PhotoImage(_ico_img)
+                dialog.iconphoto(False, dialog._tk_icon)
+            except Exception:
+                pass
+
+        try:
+            x = self.winfo_x() + (self.winfo_width() // 2) - 245
+            y = self.winfo_y() + (self.winfo_height() // 2) - 220
+            dialog.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+
+        pad = ctk.CTkFrame(dialog, fg_color="transparent")
+        pad.pack(fill="both", expand=True, padx=22, pady=18)
+
+        # Header với Logo ứng dụng chính thức
+        head_box = ctk.CTkFrame(pad, fg_color="transparent")
+        head_box.pack(fill="x", pady=(0, 12))
+
+        if LOGO_FILE.exists():
+            try:
+                logo_img = Image.open(str(LOGO_FILE))
+                lw, lh = logo_img.size
+                aspect = lw / max(1, lh)
+                target_h = 36
+                target_w = int(target_h * aspect)
+                self._lic_dialog_logo = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=(target_w, target_h))
+                ctk.CTkLabel(head_box, image=self._lic_dialog_logo, text="").pack(side="left", padx=(0, 12))
+            except Exception:
+                pass
+        elif ICON_FILE.exists():
+            try:
+                ico_img = Image.open(str(ICON_FILE))
+                self._lic_dialog_logo = ctk.CTkImage(light_image=ico_img, dark_image=ico_img, size=(36, 36))
+                ctk.CTkLabel(head_box, image=self._lic_dialog_logo, text="").pack(side="left", padx=(0, 12))
+            except Exception:
+                pass
+
+        title_text_box = ctk.CTkFrame(head_box, fg_color="transparent")
+        title_text_box.pack(side="left", fill="both", expand=True)
+
+        ctk.CTkLabel(
+            title_text_box,
+            text="QUẢN LÝ BẢN QUYỀN SẢN PHẨM",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color="#f8fafc"
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            title_text_box,
+            text="Hệ thống xác thực bản quyền & HWID định danh máy tính",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#64748b"
+        ).pack(anchor="w", pady=(1, 0))
+
+        # HWID Card
+        hwid_card = ctk.CTkFrame(pad, fg_color="#161b26", corner_radius=8, border_width=1, border_color="#232936")
+        hwid_card.pack(fill="x", pady=(0, 10))
+
+        hwid_inner = ctk.CTkFrame(hwid_card, fg_color="transparent")
+        hwid_inner.pack(fill="x", padx=12, pady=8)
+
+        ctk.CTkLabel(
+            hwid_inner,
+            text="MÃ ĐỊNH DANH MÁY (HWID):",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#94a3b8"
+        ).pack(anchor="w")
+
+        hwid_row = ctk.CTkFrame(hwid_inner, fg_color="transparent")
+        hwid_row.pack(fill="x", pady=(3, 0))
+
+        hwid_val = license_client.get_machine_hwid() if license_client else "N/A"
+        hwid_lbl = ctk.CTkLabel(
+            hwid_row,
+            text=hwid_val,
+            font=ctk.CTkFont(family="Consolas", size=13, weight="bold"),
+            text_color="#38bdf8"
+        )
+        hwid_lbl.pack(side="left")
+
+        def copy_hwid():
+            self.clipboard_clear()
+            self.clipboard_append(hwid_val)
+            copy_btn.configure(text="Đã chép!", fg_color="#16a34a")
+            self.after(1500, lambda: copy_btn.configure(text="Sao chép", fg_color="#242b3a"))
+
+        copy_btn = ctk.CTkButton(
+            hwid_row,
+            text="Sao chép",
+            width=70,
+            height=24,
+            corner_radius=4,
+            fg_color="#242b3a",
+            hover_color="#333c52",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#e2e8f0",
+            command=copy_hwid
+        )
+        copy_btn.pack(side="right")
+
+        # Current Status Card
+        lic_data = license_client.load_license_data() if license_client else {}
+        status_card = ctk.CTkFrame(pad, fg_color="#161b26", corner_radius=8, border_width=1, border_color="#232936")
+        status_card.pack(fill="x", pady=(0, 12))
+
+        status_inner = ctk.CTkFrame(status_card, fg_color="transparent")
+        status_inner.pack(fill="x", padx=12, pady=8)
+
+        plan_type = lic_data.get("plan_type", "Chưa kích hoạt")
+        exp_date = lic_data.get("expires_at", "--")
+        if exp_date and exp_date != "--":
+            exp_date = str(exp_date).split(" ")[0]
+        is_active = bool(lic_data.get("license_key"))
+
+        stat_title = "Trạng thái: " + ("ĐÃ KÍCH HOẠT" if is_active else "CHƯA KÍCH HOẠT")
+        stat_color = "#4ade80" if is_active else "#f87171"
+
+        status_lbl = ctk.CTkLabel(
+            status_inner,
+            text=stat_title,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=stat_color
+        )
+        status_lbl.pack(anchor="w")
+
+        details_lbl = ctk.CTkLabel(
+            status_inner,
+            text=f"Gói dịch vụ: {plan_type}   |   Hạn dùng: {exp_date}   |   Slot tối đa: {lic_data.get('max_slots', 50)}",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8"
+        )
+        details_lbl.pack(anchor="w", pady=(2, 0))
+
+        # Input License Key
+        ctk.CTkLabel(
+            pad,
+            text="NHẬP KEY BẢN QUYỀN MỚI:",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#94a3b8"
+        ).pack(anchor="w", pady=(0, 4))
+
+        key_entry = ctk.CTkEntry(
+            pad,
+            placeholder_text="Ví dụ: MEG-DONPV-2026-VIP1",
+            height=34,
+            corner_radius=6,
+            fg_color="#181c26",
+            border_color="#2c3345",
+            font=ctk.CTkFont(family="Consolas", size=12),
+            text_color="#f8fafc"
+        )
+        key_entry.pack(fill="x", pady=(0, 6))
+        if lic_data.get("license_key"):
+            key_entry.insert(0, lic_data.get("license_key"))
+
+        msg_lbl = ctk.CTkLabel(pad, text="", font=ctk.CTkFont(family="Segoe UI", size=10))
+        msg_lbl.pack(anchor="w", pady=(0, 4))
+
+        # Action Buttons
+        btn_box = ctk.CTkFrame(pad, fg_color="transparent")
+        btn_box.pack(fill="x", pady=(4, 0))
+
+        def do_activate():
+            input_key = key_entry.get().strip()
+            if not input_key:
+                msg_lbl.configure(text="Vui lòng nhập mã key bản quyền!", text_color="#f87171")
+                return
+
+            act_btn.configure(state="disabled", text="Đang kích hoạt...")
+            msg_lbl.configure(text="Đang kết nối tới máy chủ...", text_color="#94a3b8")
+            dialog.update_idletasks()
+
+            def _run():
+                success, msg, info = license_client.activate_license(input_key)
+                def _done():
+                    act_btn.configure(state="normal", text="Kích Hoạt")
+                    if success:
+                        msg_lbl.configure(text=f"✓ {msg}", text_color="#4ade80")
+                        status_lbl.configure(text="Trạng thái: ĐÃ KÍCH HOẠT", text_color="#4ade80")
+                        new_plan = info.get("plan_type", "Pro")
+                        new_exp = str(info.get("expires_at", "--")).split(" ")[0]
+                        details_lbl.configure(
+                            text=f"Gói dịch vụ: {new_plan}   |   Hạn dùng: {new_exp}   |   Slot tối đa: {info.get('max_slots', 50)}"
+                        )
+                        self.update_header_stats()
+                    else:
+                        msg_lbl.configure(text=f"✗ {msg}", text_color="#f87171")
+                dialog.after(0, _done)
+
+            threading.Thread(target=_run, daemon=True).start()
+
+        act_btn = ctk.CTkButton(
+            btn_box,
+            text="Kích Hoạt",
+            width=100,
+            height=30,
+            corner_radius=6,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=do_activate
+        )
+        act_btn.pack(side="left")
+
+        def do_deactivate():
+            if license_client:
+                license_client.deactivate_license()
+            key_entry.delete(0, "end")
+            msg_lbl.configure(text="✓ Đã bỏ kích hoạt bản quyền trên máy này.", text_color="#facc15")
+            status_lbl.configure(text="Trạng thái: CHƯA KÍCH HOẠT", text_color="#f87171")
+            details_lbl.configure(text="Gói dịch vụ: Chưa kích hoạt   |   Hạn dùng: --   |   Slot tối đa: --")
+            self.update_header_stats()
+
+        deact_btn = ctk.CTkButton(
+            btn_box,
+            text="Bỏ Kích Hoạt",
+            width=105,
+            height=30,
+            corner_radius=6,
+            fg_color="#7f1d1d",
+            hover_color="#991b1b",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#fca5a5",
+            command=do_deactivate
+        )
+        deact_btn.pack(side="left", padx=(8, 0))
+
+        close_btn = ctk.CTkButton(
+            btn_box,
+            text="Đóng",
+            width=70,
+            height=30,
+            corner_radius=6,
+            fg_color="#1e2430",
+            hover_color="#283142",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8",
+            command=dialog.destroy
+        )
+        close_btn.pack(side="right")
 
     # ==========================================================================
     # TAB 2: CẤU HÌNH (PROFILES TAB)
@@ -1268,28 +2052,30 @@ class DashboardApp(ctk.CTk):
         top_bar = ctk.CTkFrame(self.panel_profiles, fg_color="transparent")
         top_bar.pack(fill="x", padx=10, pady=(4, 6))
 
-        ctk.CTkLabel(
+        self.lbl_edit_profile = ctk.CTkLabel(
             top_bar, text=tr("edit_profile"), font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f3f4f6"
-        ).pack(side="left", padx=(0, 6))
+        )
+        self.lbl_edit_profile.pack(side="left", padx=(0, 6))
 
         self.editor_profile_var = ctk.StringVar(value="Config 1")
-        self.editor_profile_combo = ctk.CTkOptionMenu(
+        self.editor_profile_combo = ModernOptionMenu(
             top_bar,
             values=PROFILE_NAMES,
             variable=self.editor_profile_var,
             width=115,
             height=28,
-            fg_color="#2563eb",
-            button_color="#1d4ed8",
-            corner_radius=4,
+            fg_color="#181c26",
+            border_color="#2a3042",
+            hover_color="#222736",
             command=self.on_editor_profile_change,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
         )
         self.editor_profile_combo.pack(side="left", padx=4)
 
-        ctk.CTkLabel(
+        self.lbl_pk_delay = ctk.CTkLabel(
             top_bar, text=tr("pk_delay"), font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#d1d5db"
-        ).pack(side="left", padx=(16, 6))
+        )
+        self.lbl_pk_delay.pack(side="left", padx=(16, 6))
 
         self.editor_respawn_var = ctk.StringVar(value="15")
         self.editor_respawn_entry = ctk.CTkEntry(
@@ -1329,34 +2115,37 @@ class DashboardApp(ctk.CTk):
         self.btn_save_cfg.pack(side="right", padx=4)
 
         # Chú thích Team mặc định
-        note_lbl = ctk.CTkLabel(
+        self.lbl_team_note = ctk.CTkLabel(
             self.panel_profiles,
             text=tr("team_note"),
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#9ca3af"
         )
-        note_lbl.pack(anchor="w", padx=12, pady=(0, 8))
+        self.lbl_team_note.pack(anchor="w", padx=12, pady=(0, 8))
 
         # Tiêu đề cột bảng Stage
         stage_header = ctk.CTkFrame(self.panel_profiles, fg_color="transparent")
         stage_header.pack(fill="x", padx=12, pady=(0, 4))
 
         stage_cols = [
-            ("Min", 65, "center"),
-            ("Max", 65, "center"),
-            ("Map", 220, "center"),
-            ("X", 70, "center"),
-            ("Y", 70, "center")
+            ("stage_min", 65, "center"),
+            ("stage_max", 65, "center"),
+            ("stage_map", 220, "center"),
+            ("stage_x", 70, "center"),
+            ("stage_y", 70, "center")
         ]
-        for t, w, anc in stage_cols:
-            ctk.CTkLabel(
+        self.stage_header_labels = []
+        for k, w, anc in stage_cols:
+            lbl = ctk.CTkLabel(
                 stage_header,
-                text=t,
+                text=tr(k),
                 width=w,
                 anchor=anc,
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 text_color="#9ca3af"
-            ).pack(side="left", padx=3)
+            )
+            lbl.pack(side="left", padx=3)
+            self.stage_header_labels.append(lbl)
 
         # 10 Hàng chặng
         self.editor_rows = []
@@ -1377,16 +2166,16 @@ class DashboardApp(ctk.CTk):
             max_ent.pack(side="left", padx=3)
 
             map_var = ctk.StringVar(value="")
-            map_combo = ctk.CTkOptionMenu(
+            map_combo = ModernOptionMenu(
                 row_f,
                 values=[""] + self.map_list,
                 variable=map_var,
                 width=220,
                 height=28,
-                fg_color="#27272a",
-                button_color="#3f3f46",
-                text_color="#ffffff",
-                corner_radius=4
+                fg_color="#181c26",
+                border_color="#2a3042",
+                hover_color="#222736",
+                font=ctk.CTkFont(family="Segoe UI", size=11)
             )
             map_combo.pack(side="left", padx=3)
 
@@ -1510,21 +2299,22 @@ class DashboardApp(ctk.CTk):
         top_bar = ctk.CTkFrame(self.panel_logs, fg_color="transparent")
         top_bar.pack(fill="x", padx=6, pady=(4, 6))
 
-        ctk.CTkLabel(
+        self.lbl_log_show = ctk.CTkLabel(
             top_bar, text=tr("show"), font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f3f4f6"
-        ).pack(side="left", padx=(0, 6))
+        )
+        self.lbl_log_show.pack(side="left", padx=(0, 6))
 
         filter_options = [tr("all")] + [f"{i:02d}" for i in range(1, MAX_SLOTS + 1)]
         self.log_filter_var = ctk.StringVar(value=tr("all"))
-        self.log_filter_combo = ctk.CTkOptionMenu(
+        self.log_filter_combo = ModernOptionMenu(
             top_bar,
             values=filter_options,
             variable=self.log_filter_var,
             width=90,
             height=28,
-            fg_color="#2563eb",
-            button_color="#1d4ed8",
-            corner_radius=4,
+            fg_color="#181c26",
+            border_color="#2a3042",
+            hover_color="#222736",
             command=lambda _: self.render_logs(),
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
         )
@@ -1599,19 +2389,34 @@ class DashboardApp(ctk.CTk):
     def switch_tab(self, tab_name: str):
         self.active_tab = tab_name
 
-        btn_active = "#2563eb"
-        btn_inactive = "#27272a"
+        act_bg = "#18202d"
+        act_border = "#14b8a6"
+        act_text = "#2dd4bf"
+        inact_text = "#94a3b8"
 
-        self.tab_accounts_btn.configure(fg_color=btn_active if tab_name == "accounts" else btn_inactive)
-        self.tab_profiles_btn.configure(fg_color=btn_active if tab_name == "profiles" else btn_inactive)
-        self.tab_logs_btn.configure(fg_color=btn_active if tab_name == "logs" else btn_inactive)
+        if tab_name == "accounts":
+            self.tab_accounts_btn.configure(fg_color=act_bg, text_color=act_text, border_width=1, border_color=act_border, image=UiIconFactory.get("user", color="#2dd4bf", size=(14, 14)))
+            self.tab_profiles_btn.configure(fg_color="transparent", text_color=inact_text, border_width=0, image=UiIconFactory.get("gear", color="#94a3b8", size=(14, 14)))
+            self.tab_logs_btn.configure(fg_color="transparent", text_color=inact_text, border_width=0, image=UiIconFactory.get("file", color="#94a3b8", size=(14, 14)))
+        elif tab_name == "profiles":
+            self.tab_accounts_btn.configure(fg_color="transparent", text_color=inact_text, border_width=0, image=UiIconFactory.get("user", color="#94a3b8", size=(14, 14)))
+            self.tab_profiles_btn.configure(fg_color=act_bg, text_color=act_text, border_width=1, border_color=act_border, image=UiIconFactory.get("gear", color="#2dd4bf", size=(14, 14)))
+            self.tab_logs_btn.configure(fg_color="transparent", text_color=inact_text, border_width=0, image=UiIconFactory.get("file", color="#94a3b8", size=(14, 14)))
+        elif tab_name == "logs":
+            self.tab_accounts_btn.configure(fg_color="transparent", text_color=inact_text, border_width=0, image=UiIconFactory.get("user", color="#94a3b8", size=(14, 14)))
+            self.tab_profiles_btn.configure(fg_color="transparent", text_color=inact_text, border_width=0, image=UiIconFactory.get("gear", color="#94a3b8", size=(14, 14)))
+            self.tab_logs_btn.configure(fg_color=act_bg, text_color=act_text, border_width=1, border_color=act_border, image=UiIconFactory.get("file", color="#2dd4bf", size=(14, 14)))
 
-        # Ẩn hết các panels
+        # Ẩn hết các panels và toolbar hành động
+        if hasattr(self, "toolbar_frame"):
+            self.toolbar_frame.pack_forget()
         self.panel_accounts.pack_forget()
         self.panel_profiles.pack_forget()
         self.panel_logs.pack_forget()
 
         if tab_name == "accounts":
+            if hasattr(self, "toolbar_frame") and hasattr(self, "content_container"):
+                self.toolbar_frame.pack(fill="x", padx=20, pady=(6, 8), before=self.content_container)
             self.panel_accounts.pack(fill="both", expand=True)
         elif tab_name == "profiles":
             self.panel_profiles.pack(fill="both", expand=True)
@@ -1620,7 +2425,7 @@ class DashboardApp(ctk.CTk):
             self.render_logs()
 
     def jump_to_config_tab(self, slot_idx: int):
-        """Nhảy nhanh sang Tab Cấu hình khi bấm nút '...' ở Slot."""
+        """Nhảy nhanh sang Tab Cấu hình khi bấm nút '⚙' ở Slot."""
         ctrl = self.controllers[slot_idx - 1]
         cfg_name = f"Config {ctrl.profile_index}"
         self.editor_profile_var.set(cfg_name)
@@ -1632,12 +2437,17 @@ class DashboardApp(ctk.CTk):
     # ==========================================================================
     def on_slot_pid_selected(self, slot_idx: int, val: str):
         ctrl = self.controllers[slot_idx - 1]
-        if val == tr("select") or not val:
+        if val in ("--", tr("select"), "") or not val:
             ctrl.detach()
             return
 
         try:
-            pid = int(val.split(" - ")[0].strip())
+            import re
+            m = re.search(r"\((\d+)\)", val)
+            if m:
+                pid = int(m.group(1))
+            else:
+                pid = int(val.split(" - ")[0].strip())
             ctrl.attach_pid(pid)
         except Exception as e:
             self.log_message(f"[Slot {slot_idx:02d}] Không thể gán PID: {e}", "ERROR")
@@ -1647,10 +2457,28 @@ class DashboardApp(ctk.CTk):
             p_idx = int(val.replace("Config ", "").strip())
             ctrl = self.controllers[slot_idx - 1]
             ctrl.set_profile(p_idx)
-        except Exception:
-            pass
+            self.slot_assignments[slot_idx] = p_idx
+            el = self.slot_ui_elements.get(slot_idx)
+            if el and el.get("profile_var"):
+                el["profile_var"].set(f"Config {p_idx}")
+            ConfigPersistenceManager.save_all_slot_assignments(self.slot_assignments)
+            self.log_message(f"[Slot {slot_idx:02d}] Đã đổi tuyến đường sang: Config {p_idx}", "INFO")
+        except Exception as e:
+            self.log_message(f"[Slot {slot_idx:02d}] Lỗi đổi cấu hình: {e}", "ERROR")
 
     def on_slot_auto_toggle(self, slot_idx: int):
+        if license_client and not license_client.is_license_valid():
+            try:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "Khóa Chức Năng",
+                    "Chức năng Auto đã bị khóa vì bản quyền chưa được kích hoạt hoặc đã hết hạn!\n\nVui lòng kích hoạt bản quyền để tiếp tục sử dụng."
+                )
+            except Exception:
+                pass
+            self.open_license_dialog()
+            return
+
         ctrl = self.controllers[slot_idx - 1]
         ctrl.toggle_auto()
 
@@ -1658,17 +2486,20 @@ class DashboardApp(ctk.CTk):
         def _apply():
             el = self.slot_ui_elements.get(slot_idx)
             if el and el.get("status_lbl"):
-                color = "#9ca3af"
-                tl = text.lower()
-                if "tự động đánh" in tl or "tại bãi" in tl:
-                    color = "#c084fc"
-                elif "running" in tl or "đang chạy" in tl or "chạy ra bãi" in tl:
-                    color = "#38bdf8"
-                elif "pk" in tl:
-                    color = "#f87171"
-                elif "đã kết nối" in tl or "connected" in tl:
-                    color = "#4ade80"
-                el["status_lbl"].configure(text=text, text_color=color)
+                lbl = el["status_lbl"]
+                tl = str(text).lower()
+                if "tự động đánh" in tl or "running" in tl or "đang chạy" in tl or "at spot" in tl or "tại bãi" in tl or "executando" in tl:
+                    lbl.configure(text=tr("status_running"), text_color="#4ade80")
+                elif "moving" in tl or "chạy ra bãi" in tl or "di chuyển" in tl or "map" in tl or "movendo" in tl:
+                    lbl.configure(text=tr("status_moving"), text_color="#facc15")
+                elif "game đã đóng" in tl or "game_closed" in tl or "closed" in tl or "disconnect" in tl or "pk" in tl or "mất kết nối" in tl or "desconectado" in tl:
+                    lbl.configure(text=tr("status_disconnected"), text_color="#f87171")
+                elif "đã kết nối" in tl or "connected" in tl or "stopped" in tl or "đã dừng" in tl or "parado" in tl:
+                    lbl.configure(text=tr("status_stopped"), text_color="#e2e8f0")
+                elif "idle" in tl or "chờ" in tl or "aguardando" in tl:
+                    lbl.configure(text=tr("status_idle"), text_color="#94a3b8")
+                else:
+                    lbl.configure(text=str(text), text_color="#94a3b8")
         try:
             self.after(0, _apply)
         except Exception:
@@ -1677,11 +2508,24 @@ class DashboardApp(ctk.CTk):
     def update_slot_ui_auto(self, slot_idx: int, is_on: bool):
         def _apply():
             el = self.slot_ui_elements.get(slot_idx)
-            if el and el.get("auto_switch"):
+            if el and el.get("btn_toggle"):
+                btn = el["btn_toggle"]
                 if is_on:
-                    el["auto_switch"].select()
+                    btn.configure(
+                        image=UiIconFactory.get("stop", color="#ffffff", size=(11, 11)),
+                        text="",
+                        fg_color="#2563eb",
+                        hover_color="#1d4ed8",
+                        border_color="#3b82f6"
+                    )
                 else:
-                    el["auto_switch"].deselect()
+                    btn.configure(
+                        image=UiIconFactory.get("play", color="#38bdf8", size=(11, 11)),
+                        text="",
+                        fg_color="#181c26",
+                        hover_color="#242b3a",
+                        border_color="#2b3244"
+                    )
         try:
             self.after(0, _apply)
         except Exception:
@@ -1690,13 +2534,49 @@ class DashboardApp(ctk.CTk):
     def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str):
         def _apply():
             el = self.slot_ui_elements.get(slot_idx)
-            if el:
-                if el.get("name_lbl") and name:
-                    el["name_lbl"].configure(text=name)
-                if el.get("lvl_lbl") and lvl:
-                    el["lvl_lbl"].configure(text=lvl)
-                if el.get("coords_lbl") and coords:
-                    el["coords_lbl"].configure(text=coords)
+            if not el:
+                return
+            ctrl = self.controllers[slot_idx - 1]
+            if el.get("proc_var") and name and name != "---":
+                curr = el["proc_var"].get()
+                if curr in ("--", tr("select"), "") or name not in curr:
+                    pid_str = f"{ctrl.assigned_pid}" if ctrl.assigned_pid else ""
+                    el["proc_var"].set(f"{name} ({pid_str})" if pid_str else name)
+
+            if lvl and lvl != "---":
+                try:
+                    lvl_num = int(lvl)
+                except Exception:
+                    lvl_num = 0
+                if lvl_num > 0:
+                    if el.get("lvl_lbl"):
+                        if lvl_num >= 400:
+                            el["lvl_lbl"].configure(text=f"M.LV {lvl_num}", text_color="#38bdf8")
+                        else:
+                            el["lvl_lbl"].configure(text=f"LV {lvl_num}", text_color="#94a3b8")
+                    if el.get("prog_bar"):
+                        ratio = min(1.0, max(0.05, (lvl_num % 400) / 400.0 if lvl_num >= 400 else lvl_num / 400.0))
+                        el["prog_bar"].set(ratio)
+                    if el.get("exp_lbl"):
+                        exp_cur = lvl_num * 3717 + 800
+                        exp_max = 800 if lvl_num >= 400 else 400
+                        el["exp_lbl"].configure(text=f"{exp_cur:,} / {exp_max} EXP".replace(",", "."))
+
+                    if el.get("profile_var"):
+                        expected_cfg = f"Config {ctrl.profile_index}"
+                        if el["profile_var"].get() != expected_cfg:
+                            el["profile_var"].set(expected_cfg)
+
+            if el.get("coords_lbl"):
+                if coords and coords.strip() and coords not in ("--,--", "--", "--, --"):
+                    parts = [p.strip() for p in coords.replace("/", ",").split(",") if p.strip()]
+                    if len(parts) >= 2:
+                        c_disp = f"{parts[0]}, {parts[1]}"
+                    else:
+                        c_disp = coords.strip()
+                    el["coords_lbl"].configure(text=c_disp)
+                else:
+                    el["coords_lbl"].configure(text="--, --")
         try:
             self.after(0, _apply)
         except Exception:
@@ -1708,10 +2588,10 @@ class DashboardApp(ctk.CTk):
     def refresh_games(self):
         """Quét lại danh sách MEGAMU.exe."""
         self.detected_games = enumerate_megamu_processes()
-        options = [tr("select")]
+        options = ["--"]
         for pid, title in sorted(self.detected_games.items()):
             char_name = character_name_from_window_title(title)
-            disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
+            disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
             options.append(disp)
 
         for i in self.slot_ui_elements.keys():
@@ -1738,7 +2618,7 @@ class DashboardApp(ctk.CTk):
                 if el:
                     title = self.detected_games.get(pid, "")
                     char_name = character_name_from_window_title(title)
-                    disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
+                    disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
                     el["proc_var"].set(disp)
                 assigned_count += 1
 
@@ -1747,6 +2627,18 @@ class DashboardApp(ctk.CTk):
 
     def assign_team5(self):
         """Gán 5 tài khoản vào 1 Team còn trống."""
+        if license_client and not license_client.is_license_valid():
+            try:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "Khóa Chức Năng",
+                    "Chức năng gán Team đã bị khóa vì bản quyền chưa được kích hoạt hoặc đã hết hạn!\n\nVui lòng kích hoạt bản quyền để sử dụng."
+                )
+            except Exception:
+                pass
+            self.open_license_dialog()
+            return
+
         self.refresh_games()
         assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid}
         available_pids = [p for p in self.detected_games if p not in assigned_pids]
@@ -1780,7 +2672,7 @@ class DashboardApp(ctk.CTk):
                 if el:
                     title = self.detected_games.get(pid, "")
                     char_name = character_name_from_window_title(title)
-                    disp = f"{pid} - {char_name}" if char_name else f"{pid} - MEGAMU"
+                    disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
                     el["proc_var"].set(disp)
                 count += 1
 
@@ -1789,6 +2681,18 @@ class DashboardApp(ctk.CTk):
 
     def connect_all(self):
         """Kết nối tới tất cả các slot đã chọn PID."""
+        if license_client and not license_client.is_license_valid():
+            try:
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "Khóa Chức Năng",
+                    "Chức năng Kết nối tất cả đã bị khóa vì bản quyền chưa được kích hoạt hoặc đã hết hạn!\n\nVui lòng kích hoạt bản quyền để sử dụng."
+                )
+            except Exception:
+                pass
+            self.open_license_dialog()
+            return
+
         for ctrl in self.controllers:
             if ctrl.assigned_pid and not (ctrl.engine and ctrl.engine.is_ready):
                 ctrl.attach_pid(ctrl.assigned_pid)
@@ -1852,10 +2756,92 @@ class DashboardApp(ctk.CTk):
         return self.controllers
 
     def change_language(self, lang_choice: str):
-        lang_code = lang_choice.lower()
-        if lang_code in I18N:
-            save_language_preference(lang_code)
-            self.log_message(f"Đã lưu ngôn ngữ: {lang_choice}. Hãy khởi động lại để đổi toàn bộ chữ.", "INFO")
+        lang_code = lang_choice.replace("💬", "").replace("Language:", "").strip().lower()
+        target_code = None
+        for k in I18N.keys():
+            if k.lower() == lang_code:
+                target_code = k
+                break
+        if target_code:
+            save_language_preference(target_code)
+            self.apply_language()
+            self.log_message(tr("lang_changed", lang=target_code.upper()), "INFO")
+
+    def apply_language(self):
+        """Áp dụng đa ngôn ngữ thời gian thực ngay lập tức cho toàn bộ giao diện."""
+        # 1. Tab buttons
+        n = len(self.controllers)
+        if hasattr(self, "tab_accounts_btn"):
+            self.tab_accounts_btn.configure(text=f" {tr('characters')} ({n})")
+        if hasattr(self, "tab_profiles_btn"):
+            self.tab_profiles_btn.configure(text=f" {tr('configuration')}")
+        if hasattr(self, "tab_logs_btn"):
+            self.tab_logs_btn.configure(text=f" {tr('logs')}")
+        if hasattr(self, "btn_text_cfg"):
+            self.btn_text_cfg.configure(text=tr("text_config"))
+
+        # 2. Action Toolbar buttons
+        if hasattr(self, "btn_connect_all"):
+            self.btn_connect_all.configure(text=f" {tr('connect_all')}")
+        if hasattr(self, "btn_team5"):
+            self.btn_team5.configure(text=f" {tr('assign_team5')}")
+        if hasattr(self, "btn_refresh"):
+            self.btn_refresh.configure(text=f" {tr('refresh_games')}")
+        if hasattr(self, "btn_add_slot"):
+            self.btn_add_slot.configure(text=f" {tr('add')}")
+        if hasattr(self, "btn_remove_slot"):
+            self.btn_remove_slot.configure(text=f" {tr('remove')}")
+
+        # 3. Table Header in Accounts Tab
+        if hasattr(self, "col_header_labels"):
+            keys = ["col_no", "col_char_pid", "col_route_preset", "col_coordinates", "col_status", "col_actions"]
+            for lbl, k in zip(self.col_header_labels, keys):
+                try:
+                    lbl.configure(text=tr(k))
+                except Exception:
+                    pass
+
+        # 4. Status text of every slot
+        for ctrl in self.controllers:
+            self.update_slot_ui_status(ctrl.slot_idx, ctrl.status)
+
+        # 5. Configuration Tab
+        if hasattr(self, "lbl_edit_profile"):
+            self.lbl_edit_profile.configure(text=tr("edit_profile"))
+        if hasattr(self, "lbl_pk_delay"):
+            self.lbl_pk_delay.configure(text=tr("pk_delay"))
+        if hasattr(self, "btn_reload_cfg"):
+            self.btn_reload_cfg.configure(text=tr("reload"))
+        if hasattr(self, "btn_save_cfg"):
+            self.btn_save_cfg.configure(text=tr("save_profile"))
+        if hasattr(self, "lbl_team_note"):
+            self.lbl_team_note.configure(text=tr("team_note"))
+        if hasattr(self, "stage_header_labels"):
+            s_keys = ["stage_min", "stage_max", "stage_map", "stage_x", "stage_y"]
+            for lbl, sk in zip(self.stage_header_labels, s_keys):
+                try:
+                    lbl.configure(text=tr(sk))
+                except Exception:
+                    pass
+
+        # 6. Logs Tab
+        if hasattr(self, "lbl_log_show"):
+            self.lbl_log_show.configure(text=tr("show"))
+        if hasattr(self, "btn_clear_log"):
+            self.btn_clear_log.configure(text=tr("clear_view"))
+        if hasattr(self, "log_filter_combo"):
+            current_filter = self.log_filter_var.get()
+            opts = [tr("all")] + [f"{i:02d}" for i in range(1, MAX_SLOTS + 1)]
+            self.log_filter_combo.configure(values=opts)
+            if current_filter not in opts:
+                self.log_filter_var.set(tr("all"))
+
+        # 7. Language Menu Variable
+        if hasattr(self, "lang_var"):
+            self.lang_var.set(f"Language: {CURRENT_LANG.upper()}")
+
+        # 8. Header & Footer Stats
+        self.update_header_stats()
 
     # ==========================================================================
     # CÁC TÁC VỤ ĐỊNH KỲ (SCAN TIẾN TRÌNH & ĐỌC TELEMETRY)
@@ -1882,21 +2868,108 @@ class DashboardApp(ctk.CTk):
         self.after(200, self._periodic_telemetry)
 
     def update_header_stats(self):
-        """Cập nhật các số liệu thống kê trên thanh tiêu đề."""
+        """Cập nhật các số liệu thống kê trên thanh tiêu đề và chân trang."""
         num_games = len(self.detected_games)
         num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
         num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
         num_slots = len(self.controllers)
 
-        stat_text = (
-            f"{tr('games')}: {num_games} | {tr('connected')}: {num_conn} | "
-            f"{tr('auto')}: {num_auto} | {tr('license')}: Basic | {num_slots} acc | 2026-10-01 | Online"
+        lic_str = license_client.get_license_display_text() if license_client else CURRENT_LICENSE
+        stat_text = tr(
+            "header_stats",
+            games=num_games,
+            conn=num_conn,
+            slots=num_slots,
+            auto=num_auto,
+            license=lic_str,
+            expiry="--"
         )
-        self.header_stats_lbl.configure(text=stat_text)
+        if hasattr(self, "header_stats_lbl"):
+            self.header_stats_lbl.configure(text=stat_text)
 
-        # Cập nhật dòng RPC lanes metrics
-        metric_str = f"PID RPC Lanes | AVG 0.4 ms | P95 1.1 ms | Active {num_auto}/{num_conn} | Q 0 | STATE MAX 0.6 ms"
-        self.metrics_lbl.configure(text=metric_str)
+        if hasattr(self, "footer_stats_lbl"):
+            self.footer_stats_lbl.configure(text=tr("footer_stats", slots=num_slots, conn=num_conn, auto=num_auto))
+
+        if hasattr(self, "tab_accounts_btn"):
+            self.tab_accounts_btn.configure(text=f" {tr('characters')} ({num_slots})")
+
+        # Cập nhật trạng thái khóa/mở khóa các chức năng theo bản quyền
+        self.apply_license_lock_state()
+
+    def apply_license_lock_state(self):
+        """Khóa hoặc mở khóa toàn bộ chức năng theo trạng thái bản quyền."""
+        is_valid = license_client.is_license_valid() if license_client else False
+        state_val = "normal" if is_valid else "disabled"
+
+        # 0. Nếu không có bản quyền hợp lệ, lập tức dừng mọi worker đang auto train
+        if not is_valid:
+            for ctrl in self.controllers:
+                if ctrl.worker and ctrl.worker.running:
+                    ctrl.stop_auto()
+
+        # 1. Khóa/mở khóa các nút thanh công cụ chính
+        for btn_name in ("btn_connect_all", "btn_team5", "btn_refresh", "btn_add_slot", "btn_remove_slot"):
+            if hasattr(self, btn_name):
+                try:
+                    getattr(self, btn_name).configure(state=state_val)
+                except Exception:
+                    pass
+
+        # 2. Khóa/mở khóa các nút lưu cấu hình tab Profiles
+        for btn_name in ("btn_save_cfg", "btn_reload_cfg"):
+            if hasattr(self, btn_name):
+                try:
+                    getattr(self, btn_name).configure(state=state_val)
+                except Exception:
+                    pass
+
+        # 3. Khóa/mở khóa các nút thao tác từng slot
+        for elem in self.slot_ui_elements.values():
+            for key in ("btn_toggle", "btn_cfg", "proc_combo", "preset_combo"):
+                if key in elem:
+                    try:
+                        elem[key].configure(state=state_val)
+                    except Exception:
+                        pass
+
+        # 4. Hiển thị / ẩn banner cảnh báo trên Toolbar
+        if not is_valid:
+            if not hasattr(self, "license_lock_banner") or self.license_lock_banner is None:
+                self.license_lock_banner = ctk.CTkFrame(
+                    self.toolbar_frame,
+                    fg_color="#3b1219",
+                    border_width=1,
+                    border_color="#ef4444",
+                    corner_radius=6,
+                    height=32
+                )
+                self.license_lock_banner.pack(side="right", padx=(0, 6))
+
+                ctk.CTkLabel(
+                    self.license_lock_banner,
+                    text="🔒 BẢN QUYỀN CHƯA KÍCH HOẠT (ĐÃ KHÓA CHỨC NĂNG)",
+                    font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                    text_color="#fca5a5"
+                ).pack(side="left", padx=(10, 8), pady=4)
+
+                ctk.CTkButton(
+                    self.license_lock_banner,
+                    text="Kích Hoạt",
+                    width=75,
+                    height=22,
+                    corner_radius=4,
+                    fg_color="#dc2626",
+                    hover_color="#b91c1c",
+                    font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                    command=self.open_license_dialog
+                ).pack(side="right", padx=(0, 6), pady=4)
+        else:
+            if hasattr(self, "license_lock_banner") and self.license_lock_banner is not None:
+                try:
+                    self.license_lock_banner.destroy()
+                except Exception:
+                    pass
+                self.license_lock_banner = None
 
     def _apply_window_icon(self):
         """Áp dụng icon DAuto cho cửa sổ và thanh Taskbar Windows."""
@@ -1932,16 +3005,41 @@ class DashboardApp(ctk.CTk):
 # ==============================================================================
 def main():
     try:
+        with open("gui_lifecycle.log", "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] main() starting...\n")
+    except Exception:
+        pass
+    try:
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("dauto.megamu.dashboard.v1")
     except Exception:
         pass
     try:
+        try:
+            with open("gui_lifecycle.log", "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DashboardApp creating...\n")
+        except Exception:
+            pass
         app = DashboardApp()
+        try:
+            with open("gui_lifecycle.log", "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] app.mainloop() starting...\n")
+        except Exception:
+            pass
         app.mainloop()
+        try:
+            with open("gui_lifecycle.log", "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] app.mainloop() finished naturally.\n")
+        except Exception:
+            pass
     except Exception as e:
         import traceback
         err_msg = traceback.format_exc()
+        try:
+            with open("gui_lifecycle.log", "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Exception in main: {err_msg}\n")
+        except Exception:
+            pass
         print(err_msg, flush=True)
         try:
             with open("gui_crash.log", "w", encoding="utf-8") as f:
