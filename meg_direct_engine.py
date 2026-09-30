@@ -124,7 +124,10 @@ chatHook = Interceptor.attach(baseAddr.add(off('__CHAT_UPDATE__')), {
             try {
                 var str = il2cpp_string_new(Memory.allocUtf8String(cmd));
                 sendChatMessageNative(cfInstance, str, 1);
-            } catch (e) {}
+                send({type: 'chat_dispatched', cmd: cmd, success: true});
+            } catch (e) {
+                send({type: 'chat_dispatched', cmd: cmd, success: false, error: e.toString()});
+            }
         }
 
         if (pendingHelperAction !== null) {
@@ -433,12 +436,25 @@ class MegDirectEngine:
         try:
             if message.get("type") == "send":
                 payload = message.get("payload")
-                if isinstance(payload, dict) and payload.get("type") == "fast_state":
-                    self.last_fast_state = payload.get("info")
-                    self.last_fast_state_time = time.time()
-                    self.last_fast_seq = payload.get("seq", 0)
+                if isinstance(payload, dict):
+                    p_type = payload.get("type")
+                    if p_type == "fast_state":
+                        self.last_fast_state = payload.get("info")
+                        self.last_fast_state_time = time.time()
+                        self.last_fast_seq = payload.get("seq", 0)
+                    elif p_type == "chat_dispatched":
+                        cmd_val = payload.get("cmd")
+                        if payload.get("success"):
+                            _safe_log(f"[MegDirectEngine] Native Chat đã gửi thành công: '{cmd_val}'")
+                        else:
+                            _safe_log(f"[MegDirectEngine] Native Chat gửi lỗi '{cmd_val}': {payload.get('error')}")
         except Exception:
             pass
+
+    def attach(self) -> bool:
+        if self.is_ready:
+            return True
+        return self._attach()
 
     def _attach(self) -> bool:
         if frida is None:
@@ -498,10 +514,84 @@ class MegDirectEngine:
         res = self._call("cancelMove")
         return bool(res)
 
+    def get_hwnd(self) -> Optional[int]:
+        """Lấy HWND cửa sổ của tiến trình game qua PID bằng pure ctypes."""
+        if sys.platform != "win32" or not self.pid:
+            return None
+        user32 = ctypes.windll.user32
+        result_hwnd = None
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        def enum_cb(hwnd, lparam):
+            nonlocal result_hwnd
+            if user32.IsWindowVisible(hwnd):
+                lp_pid = ctypes.c_ulong()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(lp_pid))
+                if lp_pid.value == self.pid:
+                    buf = ctypes.create_unicode_buffer(512)
+                    user32.GetWindowTextW(hwnd, buf, 512)
+                    title = buf.value
+                    if "megamu" in title.lower():
+                        result_hwnd = hwnd
+                        return False
+            return True
+
+        try:
+            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+        except Exception:
+            pass
+        return result_hwnd
+
     def send_chat(self, command: str) -> bool:
-        """Gửi lệnh chat (chuyển map /move hoặc lệnh trong game)."""
-        res = self._call("sendChatNative", str(command))
-        return bool(res)
+        """
+        Gửi lệnh chat (chuyển map /move hoặc lệnh trong game):
+        1. Ưu tiên tuyệt đối gửi qua Frida Native Hook (an toàn, chuẩn xác, không mở khung chat).
+        2. Fallback qua Windows Background PostMessage chỉ khi Frida chưa sẵn sàng hoặc gọi native thất bại.
+        """
+        cmd = str(command).strip()
+        if not cmd:
+            return False
+
+        native_ok = False
+        if self.is_ready:
+            try:
+                res = self._call("sendChatNative", cmd)
+                native_ok = bool(res)
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi gọi sendChatNative: {e}")
+
+        if native_ok:
+            return True
+
+        # Fallback Background PostMessage chỉ khi không dùng được native hook
+        hwnd = self.get_hwnd()
+        if hwnd and sys.platform == "win32":
+            try:
+                user32 = ctypes.windll.user32
+                WM_KEYDOWN = 0x0100
+                WM_KEYUP = 0x0101
+                WM_CHAR = 0x0102
+                VK_RETURN = 0x0D
+
+                # Enter mở thanh chat
+                user32.PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, 0)
+                user32.PostMessageW(hwnd, WM_KEYUP, VK_RETURN, 0)
+                time.sleep(0.05)
+
+                # Gửi từng ký tự vào ô chat
+                for ch in cmd:
+                    user32.PostMessageW(hwnd, WM_CHAR, ord(ch), 0)
+                    time.sleep(0.005)
+
+                time.sleep(0.05)
+                # Enter gửi lệnh
+                user32.PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, 0)
+                user32.PostMessageW(hwnd, WM_KEYUP, VK_RETURN, 0)
+                return True
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi PostMessage chat: {e}")
+
+        return False
 
     def is_helper_active(self) -> bool:
         """Kiểm tra trạng thái MuHelper đang BẬT hay TẮT."""

@@ -35,13 +35,31 @@ class MapResolver:
         self.id_to_name: Dict[int, str] = {}
         self.display_names: List[str] = []
 
-        if not json_path:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            json_path = os.path.join(base_dir, "map_commands.json")
+        candidate_paths = []
+        if json_path:
+            candidate_paths.append(json_path)
 
-        if json_path and os.path.exists(json_path):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        candidate_paths.append(os.path.join(base_dir, "config", "map_commands.json"))
+        candidate_paths.append(os.path.join(base_dir, "map_commands.json"))
+
+        if getattr(sys, "frozen", False):
+            exe_dir = os.path.dirname(sys.executable)
+            candidate_paths.append(os.path.join(exe_dir, "config", "map_commands.json"))
+            candidate_paths.append(os.path.join(exe_dir, "map_commands.json"))
+            if hasattr(sys, "_MEIPASS"):
+                candidate_paths.append(os.path.join(sys._MEIPASS, "config", "map_commands.json"))
+                candidate_paths.append(os.path.join(sys._MEIPASS, "map_commands.json"))
+
+        found_path = None
+        for p in candidate_paths:
+            if p and os.path.exists(p):
+                found_path = p
+                break
+
+        if found_path:
             try:
-                with open(json_path, "r", encoding="utf-8") as f:
+                with open(found_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 for item in data.get("maps", []):
                     display_name = str(item.get("name", "")).strip()
@@ -172,7 +190,7 @@ class AutoTrainWorker:
         self.map_id_before_command: Optional[int] = None
         self.map_unknown_fallback_at = 0.0
         self.map_move_sent = False
-        self.map_soft_verify_at = 0.0
+        self.next_map_retry_at = 0.0
 
     def _log(self, msg: str, level: str = "INFO"):
         if self.log_callback:
@@ -270,14 +288,17 @@ class AutoTrainWorker:
         self.map_id_before_command = current_map_id
         self.map_unknown_fallback_at = now + max(4.0, float(self.config.get("map_verify_unknown_timeout", 6.0)))
         self.map_move_sent = False
-        self.map_soft_verify_at = now + max(2.2, float(self.config.get("map_verify_grace_seconds", 2.8)))
+        self.next_map_retry_at = now + max(3.5, float(self.config.get("map_command_retry_delay", 4.5)))
         self.arrived_at_spot = False
         self.respawn_armed = False
         self.last_move_issue = 0.0
         self.last_dist = None
 
         if self.expected_map_id is not None:
-            self._set_state(f"XÁC THỰC MAP {self.expected_map_id}")
+            if current_map_id is not None and current_map_id >= 0:
+                self._set_state(f"CHỜ MAP {current_map_id}→{self.expected_map_id}")
+            else:
+                self._set_state(f"XÁC THỰC MAP {self.expected_map_id}")
         else:
             self._set_state("CHỜ VÀO MAP MỚI")
         return True
@@ -417,39 +438,59 @@ class AutoTrainWorker:
                 time.sleep(0.3)
                 continue
 
-            # 6. Kiểm tra cổng đổi map (Gate Verification)
+            # 6. Kiểm tra cổng đổi map (Strict Gate Verification)
             now = time.time()
             if self.map_wait_active:
                 expected = self.expected_map_id
-                map_matched = False
-                if expected is not None and current_map_id is not None:
-                    try:
-                        map_matched = (int(current_map_id) == int(expected))
-                    except Exception:
-                        pass
 
-                # A. Map đã khớp chính xác
-                if map_matched:
-                    self._log(f"Đã vào map '{self.route_map_name}' (MapID {current_map_id}) thành công!", "SUCCESS")
-                    self._move_to_target_after_map_verified()
-                    time.sleep(0.3)
+                if expected is not None:
+                    # Có MapID mục tiêu để kiểm chứng
+                    if current_map_id is not None and current_map_id >= 0:
+                        if int(current_map_id) == int(expected):
+                            # ĐÃ VÀO ĐÚNG MAP MỤC TIÊU!
+                            # Chờ nhân vật tải xong cảnh (tránh vị trí (0, 0) lúc mới vào map)
+                            if px == 0 and py == 0:
+                                self._set_state(f"TẢI BẢN ĐỒ {self.route_map_name}")
+                                time.sleep(0.3)
+                                continue
+
+                            self._log(f"Đã vào map '{self.route_map_name}' (MapID {current_map_id}) thành công! Xuất phát ra bãi {self.current_target}...", "SUCCESS")
+                            self._move_to_target_after_map_verified()
+                            time.sleep(0.3)
+                            continue
+                        else:
+                            # ĐANG Ở MAP KHÁC (chưa đổi map xong hoặc lệnh chưa ăn)
+                            # TUYỆT ĐỐI KHÔNG CHẠY RA BÃI TẠI MAP CŨ!
+                            self._set_state(f"CHỜ MAP {current_map_id}→{expected}")
+                            if now >= self.next_map_retry_at:
+                                self._log(f"Chưa vào đúng map '{self.route_map_name}' (hiện tại MapID {current_map_id}, cần {expected}). Gửi lại lệnh...", "WARNING")
+                                self._send_map_command(stage, reason="Gửi lại lệnh chuyển map", current_map_id=current_map_id)
+                            time.sleep(0.35)
+                            continue
+                    else:
+                        # Nhân vật đang ở màn hình tải map (MapID == -1)
+                        self._set_state("ĐANG TẢI MAP...")
+                        time.sleep(0.35)
+                        continue
+                else:
+                    # Map không có MapID trong cơ sở dữ liệu -> chờ timeout an toàn
+                    timeout = float(self.config.get("map_verify_unknown_timeout", 5.0))
+                    if (now - self.map_command_sent_at) >= timeout:
+                        self._log(f"Bản đồ '{self.route_map_name}' không có MapID kiểm chứng. Bắt đầu tìm đường ra bãi {self.current_target}...", "INFO")
+                        self._move_to_target_after_map_verified()
+                        time.sleep(0.3)
+                        continue
+                    time.sleep(0.35)
                     continue
 
-                # B. Hết thời gian chờ xác thực mềm (Grace Period 2.8s)
-                # Tự động xuất phát ra bãi nếu nhân vật đã ở sẵn trong map hoặc MapID không cập nhật kịp
-                if self.map_soft_verify_at > 0 and now >= self.map_soft_verify_at:
-                    self._log(f"Đã hết thời gian chờ chuyển map ({self.route_map_name}). Kích hoạt tự tìm đường ra bãi {self.current_target}...", "SUCCESS")
-                    self._move_to_target_after_map_verified()
+            # 6b. Cơ chế bảo vệ bản đồ (Map Guard):
+            # Nếu không trong trạng thái chờ đổi map, nhưng nhân vật bị lệch map (chết về thành, bị kéo đi,...)
+            if self.expected_map_id is not None and current_map_id is not None and current_map_id >= 0:
+                if int(current_map_id) != int(self.expected_map_id):
+                    self._log(f"Phát hiện lệch bản đồ: đang ở MapID {current_map_id}, cấu hình yêu cầu MapID {self.expected_map_id} ({self.route_map_name}). Kích hoạt chuyển lại map...", "WARNING")
+                    self._go_to_stage(stage, reason="Chuyển lại map do lệch vị trí", current_map_id=current_map_id, force_command=True)
                     time.sleep(0.3)
                     continue
-
-                # C. Thử lại nếu chờ quá 10s
-                if (now - self.map_command_sent_at) > 10.0:
-                    self._log(f"Chờ đổi map '{self.route_map_name}' quá 10s. Gửi lại lệnh...", "WARNING")
-                    self._send_map_command(stage, reason="Thử lại đổi map", current_map_id=current_map_id)
-
-                time.sleep(0.35)
-                continue
 
             # 7. Di chuyển tới bãi train (Movement & Anti-Stuck Tracking)
             if not self.current_target:
