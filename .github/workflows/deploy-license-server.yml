@@ -18,11 +18,40 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: 🔍 Verify Secrets Configuration
+      - name: 🔍 Check & Diagnose FTP Connection
         run: |
-          echo "FTP Server configured: ${{ (secrets.FTP_SERVER != '' || secrets.CPANEL_FTP_SERVER != '') }}"
-          echo "FTP Username configured: ${{ (secrets.FTP_USERNAME != '' || secrets.CPANEL_FTP_USERNAME != '') }}"
-          echo "FTP Password configured: ${{ (secrets.FTP_PASSWORD != '' || secrets.CPANEL_FTP_PASSWORD != '') }}"
+          python3 - << 'EOF'
+          import os, ftplib, ssl
+
+          server = (os.environ.get('FTP_SERVER') or '').strip()
+          # Loại bỏ tiền tố http://, https://, ftp:// nếu có
+          if '://' in server:
+              server = server.split('://')[1].split('/')[0]
+
+          user = (os.environ.get('FTP_USERNAME') or '').strip()
+          pwd = (os.environ.get('FTP_PASSWORD') or '').strip()
+
+          print(f"Connecting to host: [{server}] with username: [{user}]")
+
+          if not server or not user or not pwd:
+              print("❌ ERROR: One or more required secrets (Server, Username, Password) are empty!")
+              exit(1)
+
+          try:
+              ftp = ftplib.FTP(server, timeout=15)
+              print(f"✅ Connected to host. Welcome: {ftp.getwelcome()}")
+              ftp.login(user, pwd)
+              print(f"✅ Login successful! Current dir: {ftp.pwd()}")
+              files = ftp.nlst()
+              print(f"✅ Files found in root: {files[:10]}")
+              ftp.quit()
+          except Exception as e:
+              print(f"❌ FTP Diagnostic Error: {type(e).__name__}: {e}")
+          EOF
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER || secrets.CPANEL_FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME || secrets.CPANEL_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD || secrets.CPANEL_FTP_PASSWORD }}
 
       - name: 📂 Deploy license-server via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
