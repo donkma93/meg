@@ -89,6 +89,54 @@ BASE_DIR = app_dir()
 CONFIG_DIR = BASE_DIR / "config"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
+def extract_bundled_resources():
+    """Tự động trích xuất các tài nguyên nhúng (C++ DLL, config mẫu, icons) nếu chưa có bên ngoài."""
+    if not getattr(sys, "frozen", False):
+        return
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return
+    base_meipass = Path(meipass)
+    
+    # 1. Trích xuất meg_license_bridge.dll ra thư mục chạy nếu chưa có
+    target_dll = BASE_DIR / "meg_license_bridge.dll"
+    source_dll = base_meipass / "meg_license_bridge.dll"
+    if not target_dll.exists() and source_dll.exists():
+        try:
+            import shutil
+            shutil.copy2(str(source_dll), str(target_dll))
+        except Exception:
+            pass
+
+    # 2. Trích xuất icon và logo
+    for asset in ["megamu_dashboard_icon.ico", "megamu_dashboard_logo.png"]:
+        t_asset = BASE_DIR / asset
+        s_asset = base_meipass / asset
+        if not t_asset.exists() and s_asset.exists():
+            try:
+                import shutil
+                shutil.copy2(str(s_asset), str(t_asset))
+            except Exception:
+                pass
+
+    # 3. Trích xuất các config mẫu nếu chưa có
+    for cfg in ["autotrain_profiles.json", "autotrain_megamu_config.json", "slot_assignments.json", "ui_settings.json", "map_commands.json"]:
+        t_cfg = CONFIG_DIR / cfg
+        s_cfg = base_meipass / "config" / cfg
+        if not s_cfg.exists():
+            s_cfg = base_meipass / cfg
+        if not t_cfg.exists() and s_cfg.exists():
+            try:
+                import shutil
+                shutil.copy2(str(s_cfg), str(t_cfg))
+            except Exception:
+                pass
+
+try:
+    extract_bundled_resources()
+except Exception:
+    pass
+
 LOGO_FILE = resource_path("megamu_dashboard_logo.png")
 ICON_FILE = resource_path("megamu_dashboard_icon.ico")
 

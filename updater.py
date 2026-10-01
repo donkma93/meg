@@ -94,15 +94,15 @@ def check_for_updates(current_version: str = "v1.5.1") -> Dict[str, Any]:
                     res_data["release_notes"] = highest_rel.get("body", "Có bản cập nhật mới từ hệ thống.")
                     res_data["release_url"] = highest_rel.get("html_url", GITHUB_RELEASES_PAGE)
 
-                    # Tìm asset file .exe trong release
+                    # Ưu tiên tìm asset file .exe trước để cập nhật trực tiếp
                     assets = highest_rel.get("assets", [])
-                    for ast in assets:
-                        name = ast.get("name", "").lower()
-                        if name.endswith(".exe") or name.endswith(".zip"):
-                            res_data["download_url"] = ast.get("browser_download_url")
-                            res_data["asset_name"] = ast.get("name")
-                            res_data["asset_size"] = ast.get("size", 0)
-                            break
+                    exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".exe")), None)
+                    if not exe_ast:
+                        exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".zip")), None)
+                    if exe_ast:
+                        res_data["download_url"] = exe_ast.get("browser_download_url")
+                        res_data["asset_name"] = exe_ast.get("name")
+                        res_data["asset_size"] = exe_ast.get("size", 0)
                     return res_data
     except Exception as e:
         # Nếu /releases lỗi, thử tiếp API /releases/latest
@@ -117,13 +117,14 @@ def check_for_updates(current_version: str = "v1.5.1") -> Dict[str, Any]:
                     res_data["release_name"] = data.get("name") or tag
                     res_data["release_notes"] = data.get("body", "Có bản cập nhật mới từ hệ thống.")
                     res_data["release_url"] = data.get("html_url", GITHUB_RELEASES_PAGE)
-                    for ast in data.get("assets", []):
-                        name = ast.get("name", "").lower()
-                        if name.endswith(".exe") or name.endswith(".zip"):
-                            res_data["download_url"] = ast.get("browser_download_url")
-                            res_data["asset_name"] = ast.get("name")
-                            res_data["asset_size"] = ast.get("size", 0)
-                            break
+                    assets = data.get("assets", [])
+                    exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".exe")), None)
+                    if not exe_ast:
+                        exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".zip")), None)
+                    if exe_ast:
+                        res_data["download_url"] = exe_ast.get("browser_download_url")
+                        res_data["asset_name"] = exe_ast.get("name")
+                        res_data["asset_size"] = exe_ast.get("size", 0)
                     return res_data
         except Exception:
             pass
@@ -209,6 +210,25 @@ def apply_exe_update_and_restart(new_file_path: Path, current_exe_path: Optional
             cand2 = Path(__file__).resolve().parent / "MEGAMU Auto Train Dashboard.exe"
             current_exe_path = cand1 if cand1.exists() else cand2
 
+    # Neu file tai ve la file .zip, giai nen de tim file .exe ben trong
+    actual_exe_source = new_file_path
+    if str(new_file_path).lower().endswith(".zip"):
+        try:
+            import zipfile
+            extract_dir = new_file_path.parent / "_unpacked_update"
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(str(new_file_path), "r") as zf:
+                zf.extractall(str(extract_dir))
+            # Tim file .exe ben trong
+            found_exe = None
+            for p in extract_dir.rglob("*.exe"):
+                found_exe = p
+                break
+            if found_exe:
+                actual_exe_source = found_exe
+        except Exception as ez:
+            print(f"[Updater] Lỗi giải nén gói cập nhật zip: {ez}", flush=True)
+
     pid = os.getpid()
     bat_file = current_exe_path.parent / "apply_update.bat"
 
@@ -222,7 +242,7 @@ taskkill /f /pid {pid} >nul 2>&1
 timeout /t 1 /nobreak >nul
 
 :: Ghi de file .exe moi
-copy /y "{new_file_path}" "{current_exe_path}" >nul
+copy /y "{actual_exe_source}" "{current_exe_path}" >nul
 
 :: Neu thanh cong thi xoa file download tam
 if exist "{current_exe_path}" (

@@ -131,6 +131,12 @@ python -m PyInstaller ^
     --add-data="map_commands.json;." ^
     --add-data="megamu_dashboard_icon.ico;." ^
     --add-data="megamu_dashboard_logo.png;." ^
+    --add-binary="meg_license_bridge.dll;." ^
+    --add-data="config\autotrain_profiles.json;config" ^
+    --add-data="config\autotrain_megamu_config.json;config" ^
+    --add-data="config\slot_assignments.json;config" ^
+    --add-data="config\ui_settings.json;config" ^
+    --add-data="config\megamu_offsets.json;config" ^
     --hidden-import="PIL" ^
     --hidden-import="PIL.Image" ^
     --hidden-import="PIL.ImageTk" ^
