@@ -8,9 +8,6 @@ on:
       - '.github/workflows/deploy-license-server.yml'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   web-deploy:
     name: 🚀 Sync License Server to cPanel
@@ -19,9 +16,9 @@ jobs:
       - name: 🚚 Get latest code
         uses: actions/checkout@v4
 
-      - name: 🔍 Inspect cPanel Structure & Find Live Laravel Path
+      - name: 🔍 Find Live Laravel & Diagnostics
         run: |
-          python3 - << 'EOF' > cpanel_tree.txt
+          python3 - << 'EOF' > /tmp/diag.md
           import os, ftplib
 
           server = (os.environ.get('FTP_SERVER') or '').strip()
@@ -32,48 +29,54 @@ jobs:
 
           ftp = ftplib.FTP(server, timeout=30)
           ftp.login(user, pwd)
-          print(f"FTP root pwd: {ftp.pwd()}")
+          
+          print(f"### 📡 FTP Connection Diagnostics")
+          print(f"- **Server**: `{server}`")
+          print(f"- **User**: `{user}`")
+          print(f"- **Initial PWD**: `{ftp.pwd()}`")
           
           root_items = ftp.nlst()
-          print(f"Root items: {root_items}")
+          print(f"- **Root Items**: `{root_items}`\n")
 
-          # Quét tìm tất cả các thư mục có login.blade.php
-          def find_files(dir_path, depth=0):
-              if depth > 4:
-                  return
+          # Tìm kiếm các nơi có chứa index.php, .env, hoặc resources/views
+          print("### 📂 Directory Search Results:")
+          
+          paths_to_check = ['/', '/public_html']
+          for item in root_items:
+              if item not in {'public_html', '.', '..', 'etc', 'logs', 'mail', 'ssl', 'tmp'}:
+                  paths_to_check.append(f"/{item}")
+
+          for p in paths_to_check:
               try:
-                  ftp.cwd(dir_path)
-              except Exception:
-                  return
-              try:
+                  ftp.cwd(p)
                   items = ftp.nlst()
-              except Exception:
-                  return
-              
-              if 'login.blade.php' in items or 'resources' in items:
-                  print(f"FOUND candidate at: {dir_path} -> items: {items[:8]}")
-              
-              for item in items:
-                  if item in {'.', '..', '.git', 'node_modules', 'vendor', 'logs', 'mail', 'ssl'}:
-                      continue
-                  # Kiểm tra xem có phải thư mục không
-                  subpath = f"{dir_path}/{item}" if dir_path != "/" else f"/{item}"
-                  try:
-                      ftp.cwd(subpath)
-                      ftp.cwd(dir_path) # nếu cwd thành công thì là thư mục
-                      find_files(subpath, depth + 1)
-                  except Exception:
-                      pass
+                  has_views = 'resources' in items
+                  has_artisan = 'artisan' in items
+                  has_index = 'index.php' in items
+                  has_env = '.env' in items
+                  print(f"- Directory `{ftp.pwd()}`: artisan={has_artisan}, resources={has_views}, index.php={has_index}, .env={has_env}")
+                  print(f"  - First 10 items: `{items[:10]}`")
+                  
+                  # Nếu có resources, kiểm tra nội dung login.blade.php xem có chữ 'donpv' hay 'MEGATEAM'
+                  if has_views:
+                      try:
+                          ftp.cwd('resources/views/auth')
+                          auth_files = ftp.nlst()
+                          print(f"  - resources/views/auth files: `{auth_files}`")
+                          lines = []
+                          ftp.retrlines('RETR login.blade.php', lines.append)
+                          content = "\n".join(lines)
+                          brand = "MEGATEAM" if "MEGATEAM" in content else ("donpv" if "donpv" in content else "unknown")
+                          print(f"  - 👉 **login.blade.php brand detected in {p}**: `{brand}`")
+                      except Exception as e:
+                          print(f"  - check view error: {e}")
+              except Exception as e:
+                  pass
 
-          find_files("/")
           ftp.quit()
           EOF
 
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add cpanel_tree.txt
-          git commit -m "debug: save cpanel directory tree [skip ci]" || true
-          git push origin main || true
+          cat /tmp/diag.md >> $GITHUB_STEP_SUMMARY
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER || secrets.CPANEL_FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME || secrets.CPANEL_FTP_USERNAME }}
