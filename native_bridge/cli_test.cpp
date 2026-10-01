@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
             std::string key = argv[2];
             std::cout << "\n[*] Đang gửi yêu cầu kích hoạt key '" << key << "' tới Laravel API..." << std::endl;
             char outJson[4096] = { 0 };
-            int res = pActivate(serverUrl.c_str(), key.c_str(), "megamu-navigator", "v1.5.1", outJson, sizeof(outJson));
+            int res = pActivate(serverUrl.c_str(), key.c_str(), "megamu-navigator", "v1.5.2", outJson, sizeof(outJson));
             std::cout << "[*] Kết quả phản hồi từ C++ Native Bridge (Code: " << res << "):" << std::endl;
             std::cout << outJson << std::endl;
             FreeLibrary(hDll);
@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
             std::string key = argv[2];
             std::cout << "\n[*] Đang gửi yêu cầu xác thực key '" << key << "' tới Laravel API..." << std::endl;
             char outJson[4096] = { 0 };
-            int res = pVerify(serverUrl.c_str(), key.c_str(), "v1.5.1", outJson, sizeof(outJson));
+            int res = pVerify(serverUrl.c_str(), key.c_str(), "v1.5.2", outJson, sizeof(outJson));
             std::cout << "[*] Kết quả phản hồi từ C++ Native Bridge (Code: " << res << "):" << std::endl;
             std::cout << outJson << std::endl;
             FreeLibrary(hDll);
@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {
     // Mặc định: Tự động chạy xác thực key mẫu MEG-DONPV-2026-VIP1
     std::cout << "\n[*] Đang kiểm tra xác thực Native C++ với Laravel Server (" << serverUrl << ")..." << std::endl;
     char outJson[4096] = { 0 };
-    int res = pVerify(serverUrl.c_str(), "MEG-DONPV-2026-VIP1", "v1.5.1", outJson, sizeof(outJson));
+    int res = pVerify(serverUrl.c_str(), "MEG-DONPV-2026-VIP1", "v1.5.2", outJson, sizeof(outJson));
     std::cout << "[*] Trạng thái gọi hàm: " << (res ? "THÀNH CÔNG (1)" : "THẤT BÀI (0)") << std::endl;
     std::cout << "[*] Dữ liệu JSON nhận từ Laravel:" << std::endl;
     std::cout << outJson << std::endl;

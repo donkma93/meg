@@ -207,7 +207,7 @@ def activate_license(license_key: str, server_url: str = DEFAULT_SERVER_URL) -> 
         srv_bytes = server_url.encode("utf-8")
         key_bytes = cleaned_key.encode("utf-8")
         prod_bytes = b"megamu-navigator"
-        ver_bytes = b"v1.5.1"
+        ver_bytes = b"v1.5.2"
         ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 8192)
         res_str = out_buf.value.decode("utf-8")
         if res_str:
@@ -244,7 +244,7 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
         out_buf = ctypes.create_string_buffer(8192)
         srv_bytes = srv.encode("utf-8")
         key_bytes = str(key).encode("utf-8")
-        ver_bytes = b"v1.5.1"
+        ver_bytes = b"v1.5.2"
         ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
         res_str = out_buf.value.decode("utf-8")
         if res_str:

@@ -25,7 +25,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.1"
+    return "v1.5.2"
 
 def get_github_token() -> str:
     p = subprocess.Popen(

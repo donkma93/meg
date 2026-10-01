@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MEGAMU Auto Train Dashboard - v1.5.1
+MEGAMU Auto Train Dashboard - v1.5.2
 ====================================
 Giao diện hoàn chỉnh và thuật toán chuẩn 100% khớp MEGAMU Auto Train Dashboard gốc:
 - Giao diện 3 tab: 10 Tài khoản | Cấu hình | Nhật ký
@@ -66,7 +66,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.5.1"
+APP_VERSION = "v1.5.2"
 CURRENT_LICENSE = "--"  # Tạm thời chưa có license để --, khi nào xây dựng xong sẽ điền thông tin
 DEFAULT_SLOTS = 10
 MAX_SLOTS = 50
@@ -1837,7 +1837,7 @@ class DashboardApp(ctk.CTk):
             from tkinter import messagebox
             messagebox.showinfo(
                 "MEGAMU Auto Train Dashboard",
-                "MEGAMU Auto Train Dashboard v1.5.1\n\n"
+                "MEGAMU Auto Train Dashboard v1.5.2\n\n"
                 "- Kết nối native không chiếm chuột (Zero-Mouse Direct Engine)\n"
                 "- Tự động tìm đường A*, di chuyển, bật/tắt MuHelper và nhận diện Reset\n"
                 "- Hỗ trợ đa tài khoản không giới hạn\n\n"

@@ -573,7 +573,7 @@ BRIDGE_API int Bridge_ActivateLicense(
     std::string fullUrl = srv + "/api/v1/license/activate";
 
     std::string pCode = (productCode && productCode[0]) ? productCode : "megamu-navigator";
-    std::string cVer = (clientVersion && clientVersion[0]) ? clientVersion : "v1.5.1";
+    std::string cVer = (clientVersion && clientVersion[0]) ? clientVersion : "v1.5.2";
 
     std::ostringstream jsonStream;
     jsonStream << "{"
@@ -639,7 +639,7 @@ BRIDGE_API int Bridge_VerifyLicense(
     while (!srv.empty() && srv.back() == '/') srv.pop_back();
     std::string fullUrl = srv + "/api/v1/license/verify";
 
-    std::string cVer = (clientVersion && clientVersion[0]) ? clientVersion : "v1.5.1";
+    std::string cVer = (clientVersion && clientVersion[0]) ? clientVersion : "v1.5.2";
 
     std::ostringstream jsonStream;
     jsonStream << "{"

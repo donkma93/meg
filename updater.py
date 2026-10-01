@@ -46,7 +46,7 @@ def is_newer_version(remote_ver: str, current_ver: str) -> bool:
     v_curr = parse_version(current_ver)
     return v_remote > v_curr
 
-def check_for_updates(current_version: str = "v1.5.1") -> Dict[str, Any]:
+def check_for_updates(current_version: str = "v1.5.2") -> Dict[str, Any]:
     """
     Kiểm tra phiên bản mới nhất từ GitHub Releases hoặc Tags.
     Trả về dict chi tiết gồm: has_update, latest_version, release_notes, download_url...
