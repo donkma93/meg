@@ -16,11 +16,10 @@ jobs:
       - name: 🚚 Get latest code
         uses: actions/checkout@v4
 
-      - name: 🚀 Deploy license-server to cPanel
+      - name: 🔍 Inspect cPanel Structure & Find Laravel Path
         run: |
           python3 - << 'EOF'
-          import os, sys, ftplib
-          from pathlib import Path
+          import os, ftplib
 
           server = (os.environ.get('FTP_SERVER') or '').strip()
           if '://' in server:
@@ -28,75 +27,47 @@ jobs:
           user = (os.environ.get('FTP_USERNAME') or '').strip()
           pwd = (os.environ.get('FTP_PASSWORD') or '').strip()
 
-          print(f"Connecting to FTP: {server} as {user}...")
           ftp = ftplib.FTP(server, timeout=30)
           ftp.login(user, pwd)
-          print("✅ Logged in successfully!")
+          print(f"FTP root pwd: {ftp.pwd()}")
           
-          current_dir = ftp.pwd()
-          print(f"Current FTP directory: {current_dir}")
           root_items = ftp.nlst()
-          print(f"Items in current directory: {root_items[:15]}")
+          print(f"Root items: {root_items}")
 
-          target_dir = os.environ.get('FTP_SERVER_DIR', '').strip() or 'public_html'
-          if target_dir in root_items:
-              ftp.cwd(target_dir)
-              print(f"Switched to target directory: {ftp.pwd()}")
-          elif 'public_html' in root_items:
-              ftp.cwd('public_html')
-              print(f"Auto-switched to public_html: {ftp.pwd()}")
-          else:
-              print(f"Working in directory: {ftp.pwd()}")
+          # Kiểm tra các thư mục tiềm năng để tìm file login.blade.php đang chạy
+          candidates = ['', 'public_html', 'license-server', 'public']
+          for c in root_items:
+              if c not in candidates:
+                  candidates.append(c)
 
-          # Đệ quy upload toàn bộ license-server
-          local_root = Path('license-server')
-          
-          # Danh sách file / thư mục bỏ qua để bảo vệ server
-          IGNORE_ITEMS = {
-              '.env', '.env.example', '.git', '.gitignore',
-              'node_modules', 'vendor', 'logs', '.phpunit.result.cache'
-          }
-
-          uploaded_count = 0
-          for root, dirs, files in os.walk(local_root):
-              rel_path = Path(root).relative_to(local_root)
-              
-              # Bỏ qua các thư mục không cần thiết
-              dirs[:] = [d for d in dirs if d not in IGNORE_ITEMS and not d.startswith('.git')]
-              if any(part in IGNORE_ITEMS for part in rel_path.parts):
-                  continue
-              if 'storage' in rel_path.parts and any(p in {'sessions', 'cache', 'logs'} for p in rel_path.parts):
-                  continue
-
-              # Đảm bảo thư mục từ xa tồn tại
-              remote_dir_parts = list(rel_path.parts)
-              for part in remote_dir_parts:
+          for cand in candidates:
+              try:
+                  if cand:
+                      ftp.cwd('/' + cand if not cand.startswith('/') else cand)
+                  else:
+                      ftp.cwd('/')
+                  items = ftp.nlst()
+                  print(f"\n--- Checking path: {ftp.pwd()} ---")
+                  print(f"Items: {items[:10]}")
+                  
+                  # Thử kiểm tra resources/views/admin
                   try:
-                      ftp.cwd(part)
-                  except ftplib.error_perm:
-                      ftp.mkd(part)
-                      ftp.cwd(part)
+                      views = ftp.nlst('resources/views/admin/auth')
+                      print(f"  👉 Found resources/views/admin/auth in {ftp.pwd()}: {views}")
+                  except Exception:
+                      pass
+                  
+                  try:
+                      views2 = ftp.nlst('resources/views/admin/licenses')
+                      print(f"  👉 Found resources/views/admin/licenses in {ftp.pwd()}: {views2}")
+                  except Exception:
+                      pass
+              except Exception as e:
+                  pass
 
-              # Upload các file
-              for fname in files:
-                  if fname in IGNORE_ITEMS or fname.endswith('.log'):
-                      continue
-                  file_path = Path(root) / fname
-                  with open(file_path, 'rb') as fp:
-                      ftp.storbinary(f'STOR {fname}', fp)
-                  uploaded_count += 1
-                  if uploaded_count % 10 == 0:
-                      print(f"  Uploaded {uploaded_count} files...")
-
-              # Quay lại thư mục gốc sau khi xong thư mục con
-              for _ in remote_dir_parts:
-                  ftp.cwd('..')
-
-          print(f"🎉 Deploy completed successfully! Uploaded {uploaded_count} files.")
           ftp.quit()
           EOF
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER || secrets.CPANEL_FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME || secrets.CPANEL_FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD || secrets.CPANEL_FTP_PASSWORD }}
-          FTP_SERVER_DIR: ${{ secrets.FTP_SERVER_DIR || secrets.CPANEL_FTP_SERVER_DIR }}
