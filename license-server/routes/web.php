@@ -4,7 +4,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\LicenseController;
 use Illuminate\Support\Facades\Route;
 
-// Trang chủ giới thiệu sản phẩm DAuto MEGAMU Auto Train Dashboard
+// MEGATEAM License Server & Product Landing Routes
 Route::get('/', function () {
     return view('home');
 })->name('home');
