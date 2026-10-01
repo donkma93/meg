@@ -1209,9 +1209,9 @@ class DashboardApp(ctk.CTk):
         # Badge B&T business (Circular badge with teal border)
         badge_frame = ctk.CTkFrame(
             right_box,
-            width=42,
-            height=42,
-            corner_radius=21,
+            width=78,
+            height=34,
+            corner_radius=10,
             fg_color="#12151e",
             border_width=1.5,
             border_color="#14b8a6"
