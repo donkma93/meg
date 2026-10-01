@@ -6,7 +6,7 @@ on:
     paths:
       - 'license-server/**'
       - '.github/workflows/deploy-license-server.yml'
-  workflow_dispatch: # Cho phép bấm Run Workflow thủ công trên GitHub
+  workflow_dispatch:
 
 jobs:
   web-deploy:
@@ -16,18 +16,23 @@ jobs:
       - name: 🚚 Get latest code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2 # So sánh commit trước và sau để chỉ upload file thay đổi
+          fetch-depth: 2
+
+      - name: 🔍 Verify Secrets Configuration
+        run: |
+          echo "FTP Server configured: ${{ (secrets.FTP_SERVER != '' || secrets.CPANEL_FTP_SERVER != '') }}"
+          echo "FTP Username configured: ${{ (secrets.FTP_USERNAME != '' || secrets.CPANEL_FTP_USERNAME != '') }}"
+          echo "FTP Password configured: ${{ (secrets.FTP_PASSWORD != '' || secrets.CPANEL_FTP_PASSWORD != '') }}"
 
       - name: 📂 Deploy license-server via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          port: ${{ secrets.FTP_PORT || 21 }}
+          server: ${{ secrets.FTP_SERVER || secrets.CPANEL_FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME || secrets.CPANEL_FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD || secrets.CPANEL_FTP_PASSWORD }}
           local-dir: license-server/
-          server-dir: ${{ secrets.FTP_SERVER_DIR || 'public_html/' }}
-          dangerous-clean-slate: false # Không xóa các file có sẵn trên hosting như vendor, storage
+          server-dir: ${{ secrets.FTP_SERVER_DIR || secrets.CPANEL_FTP_SERVER_DIR || 'public_html/' }}
+          dangerous-clean-slate: false
           exclude: |
             **/.git*
             **/.git*/**
