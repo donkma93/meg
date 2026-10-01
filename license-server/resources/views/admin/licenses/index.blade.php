@@ -203,15 +203,17 @@
 
                             <!-- Status -->
                             <td class="px-4 py-4 whitespace-nowrap">
-                                @if ($item->status === 'revoked')
-                                    <span class="px-2 py-0.5 text-[11px] font-bold rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">Bị thu hồi</span>
-                                @elseif ($item->status === 'suspended')
-                                    <span class="px-2 py-0.5 text-[11px] font-bold rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">Tạm khóa</span>
-                                @elseif ($item->isExpired())
-                                    <span class="px-2 py-0.5 text-[11px] font-bold rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">Hết hạn</span>
-                                @else
-                                    <span class="px-2 py-0.5 text-[11px] font-bold rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Hoạt động</span>
-                                @endif
+                                <button type="button" onclick="openStatusModal('{{ $item->id }}', '{{ $item->license_key }}', '{{ $item->status }}')" title="Bấm để đổi trạng thái Key" class="cursor-pointer transition-transform hover:scale-105">
+                                    @if ($item->status === 'revoked')
+                                        <span class="px-2 py-0.5 text-[11px] font-bold rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">Bị thu hồi</span>
+                                    @elseif ($item->status === 'suspended')
+                                        <span class="px-2 py-0.5 text-[11px] font-bold rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">Tạm dừng</span>
+                                    @elseif ($item->isExpired())
+                                        <span class="px-2 py-0.5 text-[11px] font-bold rounded-md bg-rose-500/10 text-rose-400 border border-rose-500/20">Hết hạn</span>
+                                    @else
+                                        <span class="px-2 py-0.5 text-[11px] font-bold rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Hoạt động</span>
+                                    @endif
+                                </button>
                             </td>
 
                             <!-- Actions -->
@@ -224,18 +226,26 @@
 
                                     <!-- Status Toggle Button -->
                                     @if ($item->status === 'active')
-                                        <form method="POST" action="{{ route('admin.licenses.status', $item) }}" class="inline" onsubmit="return confirm('Khóa tạm thời Key này?')">
+                                        <form method="POST" action="{{ route('admin.licenses.status', $item) }}" class="inline">
                                             @csrf
                                             <input type="hidden" name="status" value="suspended">
-                                            <button type="submit" class="p-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 text-amber-400 border border-dark-700" title="Tạm khóa Key">
+                                            <button type="submit" class="p-1.5 rounded-lg bg-dark-800 hover:bg-amber-500/20 text-amber-400 border border-dark-700 hover:border-amber-500/40 transition-colors" title="Tạm dừng hoạt động Key này">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                            </button>
+                                        </form>
+                                    @elseif ($item->status === 'suspended')
+                                        <form method="POST" action="{{ route('admin.licenses.status', $item) }}" class="inline">
+                                            @csrf
+                                            <input type="hidden" name="status" value="active">
+                                            <button type="submit" class="p-1.5 rounded-lg bg-dark-800 hover:bg-emerald-500/20 text-emerald-400 border border-dark-700 hover:border-emerald-500/40 transition-colors" title="Kích hoạt lại Key (Bỏ tạm dừng)">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                             </button>
                                         </form>
                                     @else
                                         <form method="POST" action="{{ route('admin.licenses.status', $item) }}" class="inline">
                                             @csrf
                                             <input type="hidden" name="status" value="active">
-                                            <button type="submit" class="p-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 text-emerald-400 border border-dark-700" title="Kích hoạt lại Key">
+                                            <button type="submit" class="p-1.5 rounded-lg bg-dark-800 hover:bg-emerald-500/20 text-emerald-400 border border-dark-700 hover:border-emerald-500/40 transition-colors" title="Khôi phục Key hoạt động">
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                             </button>
                                         </form>
@@ -300,7 +310,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-slate-300 uppercase mb-1">Zalo / SĐT / FB</label>
-                    <input type="text" name="customer_contact" placeholder="0988xxxxxx" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-dark-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500">
+                    <input type="text" name="customer_contact" placeholder="036.203.1354 (Zalo / Hotline)" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-dark-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500">
                 </div>
             </div>
 
@@ -392,6 +402,58 @@
         </form>
     </div>
 </div>
+<!-- Modal: Đổi trạng thái Key -->
+<div id="statusModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-dark-900 border border-dark-700 rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-dark-750 pb-2">
+            <h3 class="text-base font-bold text-white">Đổi Trạng Thái Bản Quyền</h3>
+            <button onclick="document.getElementById('statusModal').classList.add('hidden')" class="text-slate-400 hover:text-white text-lg font-bold">&times;</button>
+        </div>
+
+        <p class="text-xs text-slate-400">Key: <span id="statusKeyName" class="font-mono font-bold text-cyan-400"></span></p>
+
+        <form id="statusForm" method="POST" action="" class="space-y-4">
+            @csrf
+            <div>
+                <label class="block text-xs font-bold text-slate-300 uppercase mb-2">Chọn trạng thái hoạt động</label>
+                <div class="space-y-2">
+                    <label class="flex items-center space-x-3 p-2.5 rounded-xl bg-dark-800 border border-dark-700 hover:border-emerald-500/40 cursor-pointer transition-colors">
+                        <input type="radio" name="status" value="active" id="statusRadioActive" class="text-emerald-500 focus:ring-emerald-500">
+                        <div>
+                            <span class="text-xs font-bold text-emerald-400 block">🟢 Đang hoạt động</span>
+                            <span class="text-[11px] text-slate-400">Cho phép bot kết nối và auto bình thường</span>
+                        </div>
+                    </label>
+
+                    <label class="flex items-center space-x-3 p-2.5 rounded-xl bg-dark-800 border border-dark-700 hover:border-amber-500/40 cursor-pointer transition-colors">
+                        <input type="radio" name="status" value="suspended" id="statusRadioSuspended" class="text-amber-500 focus:ring-amber-500">
+                        <div>
+                            <span class="text-xs font-bold text-amber-400 block">🟡 Tạm dừng hoạt động</span>
+                            <span class="text-[11px] text-slate-400">Tạm khóa key, bot sẽ dừng không chạy được</span>
+                        </div>
+                    </label>
+
+                    <label class="flex items-center space-x-3 p-2.5 rounded-xl bg-dark-800 border border-dark-700 hover:border-rose-500/40 cursor-pointer transition-colors">
+                        <input type="radio" name="status" value="revoked" id="statusRadioRevoked" class="text-rose-500 focus:ring-rose-500">
+                        <div>
+                            <span class="text-xs font-bold text-rose-400 block">🔴 Thu hồi vĩnh viễn</span>
+                            <span class="text-[11px] text-slate-400">Hủy hoàn toàn bản quyền của khách</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 pt-2">
+                <button type="button" onclick="document.getElementById('statusModal').classList.add('hidden')" class="px-3.5 py-1.5 rounded-lg bg-dark-800 text-slate-400 text-xs font-semibold hover:text-white">
+                    Hủy
+                </button>
+                <button type="submit" class="px-4 py-1.5 rounded-lg bg-gradient-to-r from-teal-500 to-cyan-500 text-dark-950 font-bold text-xs shadow hover:from-teal-400 hover:to-cyan-400 transition-all">
+                    Lưu Thay Đổi
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
 @endsection
 
 @section('scripts')
@@ -417,6 +479,20 @@
         document.getElementById('extendKeyName').innerText = key;
         document.getElementById('extendForm').action = '/admin/licenses/' + id + '/extend';
         document.getElementById('extendModal').classList.remove('hidden');
+    }
+
+    function openStatusModal(id, key, status) {
+        document.getElementById('statusKeyName').innerText = key;
+        document.getElementById('statusForm').action = '/admin/licenses/' + id + '/status';
+        
+        if (status === 'suspended') {
+            document.getElementById('statusRadioSuspended').checked = true;
+        } else if (status === 'revoked') {
+            document.getElementById('statusRadioRevoked').checked = true;
+        } else {
+            document.getElementById('statusRadioActive').checked = true;
+        }
+        document.getElementById('statusModal').classList.remove('hidden');
     }
 </script>
 @endsection

@@ -1,5 +1,5 @@
 # ==============================================================================
-# DONPV LICENSE CLIENT - XÁC THỰC BẢN QUYỀN CLIENT CHO MEGAMU AUTO TRAIN
+# MEGATEAM LICENSE CLIENT - XÁC THỰC BẢN QUYỀN CLIENT CHO MEGAMU AUTO TRAIN
 # TÍCH HỢP NATIVE C++ BRIDGE (meg_license_bridge.dll) & PYTHON FALLBACK
 # ==============================================================================
 import os

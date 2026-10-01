@@ -4,10 +4,10 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\LicenseController;
 use Illuminate\Support\Facades\Route;
 
-// Trang chủ chuyển hướng vào Admin
+// Trang chủ giới thiệu sản phẩm DAuto MEGAMU Auto Train Dashboard
 Route::get('/', function () {
-    return redirect()->route('admin.licenses.index');
-});
+    return view('home');
+})->name('home');
 
 // Xác thực đăng nhập / đăng xuất
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');

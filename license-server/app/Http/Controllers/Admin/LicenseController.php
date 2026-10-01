@@ -157,7 +157,8 @@ class LicenseController extends Controller
             'created_at' => now(),
         ]);
 
-        return back()->with('success', "Đã reset HWID cho key {$license->license_key}. Thiết bị tiếp theo đăng nhập sẽ được gán tự động.");
+        return redirect()->route('admin.licenses.index')
+            ->with('success', "Đã reset HWID cho key {$license->license_key}. Thiết bị tiếp theo đăng nhập sẽ được gán tự động.");
     }
 
     /**
@@ -171,16 +172,24 @@ class LicenseController extends Controller
         $license->status = $newStatus;
         $license->save();
 
+        $statusLabels = [
+            'active' => 'Đang hoạt động',
+            'suspended' => 'Tạm dừng hoạt động',
+            'revoked' => 'Thu hồi vĩnh viễn',
+        ];
+        $label = $statusLabels[$newStatus] ?? $newStatus;
+
         LicenseLog::create([
             'license_id' => $license->id,
             'action' => 'change_status',
             'ip_address' => $request->ip(),
             'status' => 'success',
-            'message' => "Admin đổi trạng thái key sang: {$newStatus}",
+            'message' => "Admin đổi trạng thái key sang: {$label} ({$newStatus})",
             'created_at' => now(),
         ]);
 
-        return back()->with('success', "Đã chuyển trạng thái key {$license->license_key} thành: {$newStatus}");
+        return redirect()->route('admin.licenses.index')
+            ->with('success', "Đã chuyển trạng thái Key {$license->license_key} thành: {$label}");
     }
 
     /**
@@ -192,7 +201,8 @@ class LicenseController extends Controller
         $days = (int) $request->days;
 
         if ($license->expires_at === null) {
-            return back()->with('info', "Key này là Vĩnh viễn (Lifetime), không cần gia hạn.");
+            return redirect()->route('admin.licenses.index')
+                ->with('info', "Key này là Vĩnh viễn (Lifetime), không cần gia hạn.");
         }
 
         // Nếu đã hết hạn thì tính từ thời điểm hiện tại, ngược lại cộng dồn
@@ -210,7 +220,8 @@ class LicenseController extends Controller
             'created_at' => now(),
         ]);
 
-        return back()->with('success', "Đã gia hạn thêm {$days} ngày cho key {$license->license_key}. Hạn mới: {$license->expires_at->format('d/m/Y')}");
+        return redirect()->route('admin.licenses.index')
+            ->with('success', "Đã gia hạn thêm {$days} ngày cho key {$license->license_key}. Hạn mới: {$license->expires_at->format('d/m/Y')}");
     }
 
     /**
@@ -221,7 +232,8 @@ class LicenseController extends Controller
         $key = $license->license_key;
         $license->delete();
 
-        return back()->with('success', "Đã xóa vĩnh viễn Key bản quyền: {$key}");
+        return redirect()->route('admin.licenses.index')
+            ->with('success', "Đã xóa vĩnh viễn Key bản quyền: {$key}");
     }
 
     /**

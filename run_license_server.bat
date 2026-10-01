@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title donpv License Server - Laravel Backend
+title MEGATEAM License Server - Laravel Backend
 color 0b
 
 echo ========================================================
-echo        DONPV LICENSE SERVER - LARAVEL SYSTEM
+echo        MEGATEAM LICENSE SERVER - LARAVEL SYSTEM
 echo ========================================================
 echo.
 
@@ -24,9 +24,10 @@ attrib -r "%~dp0license-server\*" /s /d >nul 2>&1
 echo [2/3] Khoi dong Laravel Server tai http://127.0.0.1:8000...
 echo.
 echo ========================================================
-echo   - Web Admin Dashboard: http://127.0.0.1:8000/admin/licenses
-echo   - API Activate:        http://127.0.0.1:8000/api/v1/license/activate
-echo   - API Verify:          http://127.0.0.1:8000/api/v1/license/verify
+echo   - Trang chu gioi thieu: http://127.0.0.1:8000
+echo   - Web Admin Dashboard:  http://127.0.0.1:8000/admin/licenses
+echo   - API Activate:         http://127.0.0.1:8000/api/v1/license/activate
+echo   - API Verify:           http://127.0.0.1:8000/api/v1/license/verify
 echo ========================================================
 echo.
 

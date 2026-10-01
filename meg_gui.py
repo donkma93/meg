@@ -1176,7 +1176,7 @@ class DashboardApp(ctk.CTk):
 
         ctk.CTkLabel(
             badge_inner,
-            text="donpv",
+            text="MEGATEAM",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color="#2dd4bf"
         ).pack(anchor="center", pady=(0, 0))
@@ -1320,7 +1320,7 @@ class DashboardApp(ctk.CTk):
 
         ctk.CTkLabel(
             tab_right,
-            text="Phát triển bởi donpv",
+            text="Phát triển bởi MEGATEAM",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#64748b"
         ).pack(side="left")
@@ -1434,7 +1434,7 @@ class DashboardApp(ctk.CTk):
 
         footer_right = ctk.CTkLabel(
             self.footer_frame,
-            text="(?) Help | Phát triển bởi donpv",
+            text="(?) Help | Phát triển bởi MEGATEAM",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#64748b"
         )
@@ -1793,8 +1793,8 @@ class DashboardApp(ctk.CTk):
                 "- Kết nối native không chiếm chuột (Zero-Mouse Direct Engine)\n"
                 "- Tự động tìm đường A*, di chuyển, bật/tắt MuHelper và nhận diện Reset\n"
                 "- Hỗ trợ đa tài khoản không giới hạn\n\n"
-                "Tác giả & Bản quyền: donpv\n"
-                "Liên hệ: donpv | Hotline: 0362031354 | Zalo: 0989713195\n\n"
+                "Tác giả & Bản quyền: MEGATEAM\n"
+                "Liên hệ: MEGATEAM | Hotline / Zalo: 036.203.1354\n\n"
                 "Bản quyền: Bấm nút '🔑 License' trên thanh tiêu đề để kích hoạt bản quyền."
             )
         except Exception:
@@ -1996,7 +1996,7 @@ class DashboardApp(ctk.CTk):
 
         key_entry = ctk.CTkEntry(
             pad,
-            placeholder_text="Ví dụ: MEG-DONPV-2026-VIP1",
+            placeholder_text="Ví dụ: MEG-MEGATEAM-2026-VIP1",
             height=34,
             corner_radius=6,
             fg_color="#181c26",
@@ -2113,7 +2113,7 @@ class DashboardApp(ctk.CTk):
 
         ctk.CTkLabel(
             info_grid,
-            text="• Tác giả: donpv   |   • Hotline: 0362031354   |   • Zalo: 0989713195",
+            text="• Tác giả: MEGATEAM   |   • Hotline / Zalo: 036.203.1354",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#f8fafc"
         ).pack(anchor="w")
@@ -2137,7 +2137,7 @@ class DashboardApp(ctk.CTk):
 
         def copy_zalo():
             self.clipboard_clear()
-            self.clipboard_append("0989713195")
+            self.clipboard_append("0362031354")
             cp_zalo_btn.configure(text="Đã chép Zalo!", fg_color="#16a34a")
             self.after(1500, lambda: cp_zalo_btn.configure(text="Sao chép Zalo", fg_color="#1e2430"))
 

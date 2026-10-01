@@ -1,5 +1,5 @@
 // ==============================================================================
-// DONPV MEGAMU NATIVE C++ BRIDGE CLI TOOL
+// MEGATEAM MEGAMU NATIVE C++ BRIDGE CLI TOOL
 // ==============================================================================
 // Chuong trinh C++ doc lap de kiem tra cau noi Native giua App va Web Laravel
 // ==============================================================================
@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
     SetConsoleCP(CP_UTF8);
 
     std::cout << "==========================================================" << std::endl;
-    std::cout << " DONPV MEGAMU C++ NATIVE BRIDGE TESTER v1.0.0            " << std::endl;
+    std::cout << " MEGATEAM MEGAMU C++ NATIVE BRIDGE TESTER v1.0.0         " << std::endl;
     std::cout << " Cầu Nối Native C++ Giữa Client & Web Server Laravel     " << std::endl;
     std::cout << "==========================================================" << std::endl;
 

@@ -1,5 +1,5 @@
 // ==============================================================================
-// DONPV MEGAMU NATIVE C++ SECURITY BRIDGE DLL (v2.0 - ADVANCED ANTI-CRACK)
+// MEGATEAM MEGAMU NATIVE C++ SECURITY BRIDGE DLL (v2.0 - ADVANCED ANTI-CRACK)
 // ==============================================================================
 // 3 LỚP BẢO VỆ CAO CẤP:
 // LỚP 1: Mã hóa XOR URL Server & Secret Token (Không lưu chuỗi dạng Plaintext trong DLL)

@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'Quản lý Bản quyền') | donpv License Manager</title>
-    <!-- Google Fonts: Inter / Segoe UI -->
+    <title>@yield('title', 'Quản lý Bản quyền') | MEGATEAM License Manager</title>
+    <!-- Google Fonts: Be Vietnam Pro & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,700&display=swap" rel="stylesheet">
     <!-- Tailwind CSS CDN for swift, responsive dark styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -17,7 +17,7 @@
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['"Plus Jakarta Sans"', 'Segoe UI', 'sans-serif'],
+                        sans: ['"Be Vietnam Pro"', 'Segoe UI', 'sans-serif'],
                     },
                     colors: {
                         brand: {
@@ -82,7 +82,7 @@
                     </div>
                     <div>
                         <div class="flex items-center space-x-2">
-                            <span class="text-base font-extrabold tracking-tight text-white group-hover:text-cyan-400 transition-colors">donpv License Server</span>
+                            <span class="text-base font-extrabold tracking-tight text-white group-hover:text-cyan-400 transition-colors">MEGATEAM License Server</span>
                             <span class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20">v1.0</span>
                         </div>
                         <p class="text-xs text-slate-400">Hệ thống cấp phép & xác thực bản quyền trực tuyến</p>
@@ -171,7 +171,7 @@
     <footer class="border-t border-dark-750 bg-dark-900 py-4 mt-auto">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
             <div>
-                © {{ date('Y') }} <span class="text-slate-300 font-semibold">donpv</span> • MEGAMU Auto Train Dashboard License System.
+                © {{ date('Y') }} <span class="text-slate-300 font-semibold">MEGATEAM</span> • MEGAMU Auto Train Dashboard License System.
             </div>
             <div class="flex items-center space-x-4">
                 <span>API Endpoint: <code class="text-cyan-400 bg-dark-800 px-1.5 py-0.5 rounded">/api/v1/license/activate</code></span>

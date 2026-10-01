@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Đăng Nhập Quản Trị | donpv License Server</title>
-    <!-- Fonts -->
+    <title>Đăng Nhập Quản Trị | MEGATEAM License Server</title>
+    <!-- Fonts: Be Vietnam Pro -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -15,7 +15,7 @@
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['"Plus Jakarta Sans"', 'Segoe UI', 'sans-serif'],
+                        sans: ['"Be Vietnam Pro"', 'Segoe UI', 'sans-serif'],
                     },
                     colors: {
                         dark: {
@@ -53,7 +53,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
                 </svg>
             </div>
-            <h1 class="text-2xl font-extrabold text-white tracking-tight">donpv License Server</h1>
+            <h1 class="text-2xl font-extrabold text-white tracking-tight">MEGATEAM License Server</h1>
             <p class="text-sm text-slate-400 mt-1">Đăng nhập tài khoản quản trị viên</p>
         </div>
 
@@ -117,7 +117,7 @@
 
         <!-- Footer -->
         <p class="text-center text-xs text-slate-600 mt-6">
-            &copy; {{ date('Y') }} donpv License Manager &bull; Hệ thống bảo mật 3 lớp Native Bridge
+            &copy; {{ date('Y') }} MEGATEAM License Manager &bull; Hệ thống bảo mật 3 lớp Native Bridge
         </p>
 
     </div>

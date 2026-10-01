@@ -26,17 +26,28 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
+set "HAS_GXX=1"
 where g++ >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
-    color 0c
-    echo [LOI] Khong tim thay trinh bien dich 'g++' trong PATH!
-    echo Vui long cai dat MinGW-w64 hoac LLVM-MinGW de bien dich file C++ DLL.
-    pause
-    exit /b 1
+    set "HAS_GXX=0"
+    if exist "meg_license_bridge.dll" (
+        echo   [CHU Y] Khong tim thay 'g++' trong PATH.
+        echo   + Phat hien da co san 'meg_license_bridge.dll', se dung DLL co san nay.
+    ) else (
+        color 0c
+        echo [LOI] Khong tim thay trinh bien dich 'g++' trong PATH va chua co 'meg_license_bridge.dll'!
+        echo Vui long cai dat MinGW-w64 hoac LLVM-MinGW de bien dich file C++ DLL.
+        pause
+        exit /b 1
+    )
 )
 
 echo   + Python: OK
-echo   + G++ (C++ Compiler): OK
+if "!HAS_GXX!"=="1" (
+    echo   + G++ [C++ Compiler]: OK
+) else (
+    echo   + G++: Khong co - Su dung file DLL co san
+)
 
 :: Kiem tra va tu dong cai dat PyInstaller neu thieu
 python -m PyInstaller --version >nul 2>nul
@@ -65,22 +76,33 @@ echo.
 :: ------------------------------------------------------------------------------
 :: 3. BIEN DICH FILE C++ NATIVE LICENSE BRIDGE (.DLL)
 :: ------------------------------------------------------------------------------
-echo [3/5] Dang bien dich C++ Native Bridge (license_bridge.cpp -^> meg_license_bridge.dll)...
-if not exist "native_bridge\license_bridge.cpp" (
-    color 0c
-    echo [LOI] Khong tim thay file nguon: native_bridge\license_bridge.cpp
-    pause
-    exit /b 1
-)
+if "!HAS_GXX!"=="1" (
+    echo [3/5] Dang bien dich C++ Native Bridge [license_bridge.cpp -^> meg_license_bridge.dll]...
+    if not exist "native_bridge\license_bridge.cpp" (
+        color 0c
+        echo [LOI] Khong tim thay file nguon: native_bridge\license_bridge.cpp
+        pause
+        exit /b 1
+    )
 
-g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lcrypt32 -ladvapi32 -s -static-libgcc -static-libstdc++
-if %ERRORLEVEL% NEQ 0 (
-    color 0c
-    echo [LOI] Bien dich meg_license_bridge.dll that bai!
-    pause
-    exit /b 1
+    g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lcrypt32 -ladvapi32 -s -static-libgcc -static-libstdc++
+    if %ERRORLEVEL% NEQ 0 (
+        color 0c
+        echo [LOI] Bien dich meg_license_bridge.dll that bai!
+        pause
+        exit /b 1
+    )
+    echo   + Bien dich meg_license_bridge.dll thanh cong! [Strip binary, toi uu hoa O3]
+) else (
+    echo [3/5] Bo qua bien dich C++ vi da co san meg_license_bridge.dll...
+    if not exist "meg_license_bridge.dll" (
+        color 0c
+        echo [LOI] Khong tim thay meg_license_bridge.dll!
+        pause
+        exit /b 1
+    )
+    echo   + meg_license_bridge.dll da san sang de dong goi vao Release!
 )
-echo   + Bien dich meg_license_bridge.dll thanh cong! (Strip binary, toi uu hoa O3)
 echo.
 
 :: ------------------------------------------------------------------------------
