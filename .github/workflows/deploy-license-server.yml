@@ -16,9 +16,9 @@ jobs:
       - name: 🚚 Get latest code
         uses: actions/checkout@v4
 
-      - name: 🔍 Find Live Laravel & Diagnostics
+      - name: 🔍 Inspect cPanel Structure & Report to Summary
         run: |
-          python3 - << 'EOF' > /tmp/diag.md
+          python3 - << 'EOF'
           import os, ftplib
 
           server = (os.environ.get('FTP_SERVER') or '').strip()
@@ -27,56 +27,39 @@ jobs:
           user = (os.environ.get('FTP_USERNAME') or '').strip()
           pwd = (os.environ.get('FTP_PASSWORD') or '').strip()
 
-          ftp = ftplib.FTP(server, timeout=30)
-          ftp.login(user, pwd)
-          
-          print(f"### 📡 FTP Connection Diagnostics")
-          print(f"- **Server**: `{server}`")
-          print(f"- **User**: `{user}`")
-          print(f"- **Initial PWD**: `{ftp.pwd()}`")
-          
-          root_items = ftp.nlst()
-          print(f"- **Root Items**: `{root_items}`\n")
+          lines = []
+          try:
+              ftp = ftplib.FTP(server, timeout=30)
+              ftp.login(user, pwd)
+              init_pwd = ftp.pwd()
+              lines.append(f"## 📡 FTP Server Information")
+              lines.append(f"- **Server**: `{server}`")
+              lines.append(f"- **Username**: `{user}`")
+              lines.append(f"- **Initial Directory (PWD)**: `{init_pwd}`")
+              
+              root_items = ftp.nlst()
+              lines.append(f"\n### 📁 Files/Folders in initial directory ({init_pwd}):")
+              for item in root_items:
+                  lines.append(f"- `{item}`")
 
-          # Tìm kiếm các nơi có chứa index.php, .env, hoặc resources/views
-          print("### 📂 Directory Search Results:")
-          
-          paths_to_check = ['/', '/public_html']
-          for item in root_items:
-              if item not in {'public_html', '.', '..', 'etc', 'logs', 'mail', 'ssl', 'tmp'}:
-                  paths_to_check.append(f"/{item}")
+              # Kiểm tra nếu có public_html
+              if 'public_html' in root_items:
+                  ftp.cwd('public_html')
+                  p_items = ftp.nlst()
+                  lines.append(f"\n### 📁 Files/Folders in `public_html/`:")
+                  for item in p_items[:30]:
+                      lines.append(f"- `{item}`")
+                  ftp.cwd(init_pwd)
+              
+              ftp.quit()
+          except Exception as e:
+              lines.append(f"❌ Error during FTP inspect: {e}")
 
-          for p in paths_to_check:
-              try:
-                  ftp.cwd(p)
-                  items = ftp.nlst()
-                  has_views = 'resources' in items
-                  has_artisan = 'artisan' in items
-                  has_index = 'index.php' in items
-                  has_env = '.env' in items
-                  print(f"- Directory `{ftp.pwd()}`: artisan={has_artisan}, resources={has_views}, index.php={has_index}, .env={has_env}")
-                  print(f"  - First 10 items: `{items[:10]}`")
-                  
-                  # Nếu có resources, kiểm tra nội dung login.blade.php xem có chữ 'donpv' hay 'MEGATEAM'
-                  if has_views:
-                      try:
-                          ftp.cwd('resources/views/auth')
-                          auth_files = ftp.nlst()
-                          print(f"  - resources/views/auth files: `{auth_files}`")
-                          lines = []
-                          ftp.retrlines('RETR login.blade.php', lines.append)
-                          content = "\n".join(lines)
-                          brand = "MEGATEAM" if "MEGATEAM" in content else ("donpv" if "donpv" in content else "unknown")
-                          print(f"  - 👉 **login.blade.php brand detected in {p}**: `{brand}`")
-                      except Exception as e:
-                          print(f"  - check view error: {e}")
-              except Exception as e:
-                  pass
-
-          ftp.quit()
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary_path:
+              with open(summary_path, 'a', encoding='utf-8') as f:
+                  f.write("\n".join(lines) + "\n")
           EOF
-
-          cat /tmp/diag.md >> $GITHUB_STEP_SUMMARY
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER || secrets.CPANEL_FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME || secrets.CPANEL_FTP_USERNAME }}
