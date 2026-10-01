@@ -432,9 +432,13 @@ class MegDirectEngine:
             self.telemetry_callbacks.remove(cb)
 
     def _load_offsets_file(self):
-        # 1. LỚP 3 BẢO MẬT: Ưu tiên giải mã Offsets trực tiếp từ C++ Native Bridge (Chống crack)
+        # BẮT BUỘC: Giải mã Offsets trực tiếp từ C++ Native Bridge (meg_license_bridge.dll)
         try:
-            from license_client import get_secure_game_offsets
+            from license_client import get_secure_game_offsets, is_native_bridge_active
+            if not is_native_bridge_active():
+                _safe_log("[MegDirectEngine] CẢNH BÁO BẢO MẬT: Thiếu thư viện meg_license_bridge.dll! Đã chặn nạp Game Offsets.")
+                return
+
             sec_offsets = get_secure_game_offsets()
             if sec_offsets and isinstance(sec_offsets, dict) and sec_offsets.get("move_to"):
                 self.offsets.update(sec_offsets)
@@ -443,7 +447,14 @@ class MegDirectEngine:
         except Exception as e:
             _safe_log(f"[MegDirectEngine] Lỗi trích xuất Native Offsets: {e}")
 
-        # 2. Fallback đọc file config cục bộ nếu C++ bridge chưa nạp
+        # Fallback đọc file config cục bộ CHỈ KHI có C++ bridge
+        try:
+            from license_client import is_native_bridge_active
+            if not is_native_bridge_active():
+                return
+        except Exception:
+            return
+
         if getattr(sys, "frozen", False):
             base_dir = os.path.dirname(sys.executable)
         else:

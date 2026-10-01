@@ -24,16 +24,29 @@ else:
 
 CONFIG_DIR = BASE_DIR / "config"
 LICENSE_FILE = CONFIG_DIR / "license.json"
-BRIDGE_DLL_FILE = BASE_DIR / "meg_license_bridge.dll"
-# Fallback check for DLL if in _MEIPASS or _internal
-if not BRIDGE_DLL_FILE.exists():
-    _meipass = getattr(sys, "_MEIPASS", None)
-    if _meipass and (Path(_meipass) / "meg_license_bridge.dll").exists():
-        BRIDGE_DLL_FILE = Path(_meipass) / "meg_license_bridge.dll"
-    elif (BASE_DIR / "_internal" / "meg_license_bridge.dll").exists():
-        BRIDGE_DLL_FILE = BASE_DIR / "_internal" / "meg_license_bridge.dll"
 
 DEFAULT_SERVER_URL = "https://megamuoffical.com"
+
+def find_bridge_dll_path() -> Optional[Path]:
+    """Tìm đường dẫn tệp meg_license_bridge.dll một cách linh hoạt theo thời gian thực."""
+    candidates = [
+        BASE_DIR / "meg_license_bridge.dll",
+        BASE_DIR / "_internal" / "meg_license_bridge.dll",
+        Path.cwd() / "meg_license_bridge.dll",
+    ]
+    _meipass = getattr(sys, "_MEIPASS", None)
+    if _meipass:
+        candidates.insert(0, Path(_meipass) / "meg_license_bridge.dll")
+
+    for p in candidates:
+        try:
+            if p.is_file():
+                return p
+        except Exception:
+            pass
+    return None
+
+BRIDGE_DLL_FILE = find_bridge_dll_path() or (BASE_DIR / "meg_license_bridge.dll")
 
 def _get_ssl_context():
     try:
@@ -47,15 +60,21 @@ def _get_ssl_context():
 
 _native_bridge = None
 
-def _get_native_bridge():
-    """Tải thư viện Native C++ Bridge DLL (meg_license_bridge.dll) nếu có."""
-    global _native_bridge
-    if _native_bridge is not None:
-        return _native_bridge if _native_bridge is not False else None
+def _get_native_bridge(force_reload: bool = False):
+    """
+    Tải thư viện Native C++ Bridge DLL (meg_license_bridge.dll).
+    Nếu ban đầu khởi động chưa có file, nhưng sau đó người dùng copy file vào,
+    hàm sẽ tự động phát hiện và nạp DLL ngay lập tức mà không cần khởi động lại app.
+    """
+    global _native_bridge, BRIDGE_DLL_FILE
+    if not force_reload and _native_bridge is not None:
+        return _native_bridge
 
-    if BRIDGE_DLL_FILE.exists():
+    dll_path = find_bridge_dll_path()
+    if dll_path:
+        BRIDGE_DLL_FILE = dll_path
         try:
-            dll = ctypes.CDLL(str(BRIDGE_DLL_FILE))
+            dll = ctypes.CDLL(str(dll_path))
             dll.Bridge_GetVersion.restype = ctypes.c_int
             dll.Bridge_GetHwid.argtypes = [ctypes.c_char_p, ctypes.c_int]
             dll.Bridge_GetHwid.restype = ctypes.c_int
@@ -80,15 +99,27 @@ def _get_native_bridge():
 
             _native_bridge = dll
             return _native_bridge
-        except Exception:
-            _native_bridge = False
-            return None
-    _native_bridge = False
+        except Exception as e:
+            print(f"[LicenseClient] Lỗi nạp DLL {dll_path}: {e}", flush=True)
+
+    # KHÔNG lưu _native_bridge = False vĩnh viễn để các lần gọi sau có thể nhận diện khi người dùng copy file vào
+    _native_bridge = None
     return None
 
-def is_native_bridge_active() -> bool:
-    """Kiểm tra cầu nối C++ Native Bridge có đang hoạt động không."""
-    return _get_native_bridge() is not None
+def is_native_bridge_active(force_reload: bool = False) -> bool:
+    """
+    Kiểm tra cầu nối C++ Native Bridge có đang hoạt động và file có đang tồn tại trên đĩa hay không.
+    Nếu file .dll bị xóa khỏi thư mục, trạng thái lập tức chuyển sang False ngay trong thời gian thực.
+    """
+    global _native_bridge
+    # 1. Luôn kiểm tra xem file .dll có thực sự tồn tại trên đĩa hay không
+    dll_path = find_bridge_dll_path()
+    if not dll_path or not dll_path.is_file():
+        _native_bridge = None
+        return False
+
+    # 2. Nếu file tồn tại trên đĩa, nạp DLL nếu chưa nạp (hoặc nếu yêu cầu force_reload)
+    return _get_native_bridge(force_reload=force_reload) is not None
 
 def is_native_authenticated() -> bool:
     """Kiểm tra xem C++ Bridge đã xác thực chữ ký HMAC mật mã nội bộ hay chưa."""
@@ -125,7 +156,7 @@ def get_bridge_version() -> int:
 def get_machine_hwid() -> str:
     """
     Tạo HWID định danh duy nhất cho máy tính Windows.
-    Ưu tiên gọi C++ Native Bridge qua Win32 Crypto API & MachineGuid.
+    BẮT BUỘC gọi C++ Native Bridge qua Win32 Crypto API & MachineGuid.
     """
     bridge = _get_native_bridge()
     if bridge:
@@ -138,21 +169,7 @@ def get_machine_hwid() -> str:
         except Exception:
             pass
 
-    # Fallback Pure Python (nếu DLL bị xóa hoặc môi trường không hỗ trợ)
-    raw_id = ""
-    try:
-        import winreg
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography")
-        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
-        winreg.CloseKey(key)
-        raw_id = str(guid).strip()
-    except Exception:
-        pass
-
-    if not raw_id:
-        raw_id = f"{socket.gethostname()}-{os.getenv('USERNAME', 'USER')}-{platform.machine()}"
-
-    return hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:16].upper()
+    return "THIẾU_MEG_LICENSE_BRIDGE_DLL"
 
 def load_license_data() -> Dict[str, Any]:
     """Đọc dữ liệu bản quyền đã lưu từ file config/license.json."""
@@ -175,73 +192,35 @@ def save_license_data(data: Dict[str, Any]):
 def activate_license(license_key: str, server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dict[str, Any]]:
     """
     Gửi yêu cầu kích hoạt bản quyền tới Laravel License Server.
-    Ưu tiên thực hiện bằng WinHTTP trong C++ Native Bridge.
+    BẮT BUỘC thực hiện qua C++ Native Bridge (meg_license_bridge.dll).
     """
     cleaned_key = license_key.strip()
     if not cleaned_key:
         return False, "Vui lòng nhập mã key.", {}
 
     bridge = _get_native_bridge()
-    if bridge:
-        try:
-            out_buf = ctypes.create_string_buffer(8192)
-            srv_bytes = server_url.encode("utf-8")
-            key_bytes = cleaned_key.encode("utf-8")
-            prod_bytes = b"megamu-navigator"
-            ver_bytes = b"v1.5.1"
-            ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 8192)
-            res_str = out_buf.value.decode("utf-8")
-            if res_str:
-                data = json.loads(res_str)
-                if data.get("success"):
-                    lic_info = data.get("data", {})
-                    lic_info["server_url"] = server_url
-                    save_license_data(lic_info)
-                    return True, data.get("message", "Kích hoạt thành công!"), lic_info
-                return False, data.get("message", "Kích hoạt thất bại."), {}
-        except Exception:
-            pass
-
-    # Fallback Pure Python urllib
-    hwid = get_machine_hwid()
-    machine_name = socket.gethostname()
-    payload = {
-        "license_key": cleaned_key,
-        "hwid": hwid,
-        "machine_name": machine_name,
-        "client_version": "v1.5.1",
-        "product_code": "megamu-navigator"
-    }
-
-    url = f"{server_url.rstrip('/')}/api/v1/license/activate"
-    req_data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=req_data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST"
-    )
+    if not bridge:
+        return False, "Không tìm thấy thư viện meg_license_bridge.dll! Bắt buộc phải có file .dll này.", {}
 
     try:
-        ssl_ctx = _get_ssl_context()
-        with urllib.request.urlopen(req, context=ssl_ctx, timeout=8) as response:
-            res_body = response.read().decode("utf-8")
-            data = json.loads(res_body)
+        out_buf = ctypes.create_string_buffer(8192)
+        srv_bytes = server_url.encode("utf-8")
+        key_bytes = cleaned_key.encode("utf-8")
+        prod_bytes = b"megamu-navigator"
+        ver_bytes = b"v1.5.1"
+        ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 8192)
+        res_str = out_buf.value.decode("utf-8")
+        if res_str:
+            data = json.loads(res_str)
             if data.get("success"):
                 lic_info = data.get("data", {})
                 lic_info["server_url"] = server_url
                 save_license_data(lic_info)
                 return True, data.get("message", "Kích hoạt thành công!"), lic_info
             return False, data.get("message", "Kích hoạt thất bại."), {}
-    except urllib.error.HTTPError as e:
-        try:
-            err_body = e.read().decode("utf-8")
-            err_data = json.loads(err_body)
-            return False, err_data.get("message", f"Lỗi HTTP {e.code}"), {}
-        except Exception:
-            return False, f"Lỗi máy chủ HTTP {e.code}", {}
+        return False, "Thư viện C++ không trả về phản hồi hợp lệ.", {}
     except Exception as e:
-        return False, f"Không thể kết nối máy chủ License ({e})", {}
+        return False, f"Lỗi gọi C++ Bridge ({e})", {}
 
 def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dict[str, Any]]:
     """
@@ -258,50 +237,18 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
         srv = DEFAULT_SERVER_URL
 
     bridge = _get_native_bridge()
-    if bridge:
-        try:
-            out_buf = ctypes.create_string_buffer(8192)
-            srv_bytes = srv.encode("utf-8")
-            key_bytes = str(key).encode("utf-8")
-            ver_bytes = b"v1.5.1"
-            ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
-            res_str = out_buf.value.decode("utf-8")
-            if res_str:
-                data = json.loads(res_str)
-                if data.get("valid"):
-                    lic_data.update(data)
-                    lic_data["server_url"] = srv
-                    save_license_data(lic_data)
-                    return True, "Bản quyền hợp lệ.", lic_data
-                else:
-                    lic_data["valid"] = False
-                    lic_data["status"] = data.get("status", "invalid")
-                    save_license_data(lic_data)
-                return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
-        except Exception:
-            pass
-
-    # Fallback Pure Python
-    hwid = get_machine_hwid()
-    url = f"{srv.rstrip('/')}/api/v1/license/verify"
-    payload = {
-        "license_key": key,
-        "hwid": hwid,
-        "client_version": "v1.5.1"
-    }
-
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST"
-    )
+    if not bridge:
+        return False, "Không tìm thấy thư viện meg_license_bridge.dll!", {}
 
     try:
-        ssl_ctx = _get_ssl_context()
-        with urllib.request.urlopen(req, context=ssl_ctx, timeout=6) as response:
-            res_body = response.read().decode("utf-8")
-            data = json.loads(res_body)
+        out_buf = ctypes.create_string_buffer(8192)
+        srv_bytes = srv.encode("utf-8")
+        key_bytes = str(key).encode("utf-8")
+        ver_bytes = b"v1.5.1"
+        ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
+        res_str = out_buf.value.decode("utf-8")
+        if res_str:
+            data = json.loads(res_str)
             if data.get("valid"):
                 lic_data.update(data)
                 lic_data["server_url"] = srv
@@ -311,12 +258,13 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
                 lic_data["valid"] = False
                 lic_data["status"] = data.get("status", "invalid")
                 save_license_data(lic_data)
-            return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
+                return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
+        return False, "C++ Bridge không phản hồi.", lic_data
     except Exception as e:
         exp = lic_data.get("expires_at")
         if exp:
             return True, f"Offline mode ({exp})", lic_data
-        return False, f"Lỗi kết nối ({e})", lic_data
+        return False, f"Lỗi xác thực C++ Bridge ({e})", lic_data
 
 def deactivate_license() -> bool:
     """Xóa bỏ thông tin bản quyền trên máy và chuyển sang trạng thái chưa kích hoạt."""
@@ -331,12 +279,11 @@ def deactivate_license() -> bool:
 def is_license_valid() -> bool:
     """
     Kiểm tra nhanh xem bản quyền hiện tại có hợp lệ hay không.
-    Điều kiện hợp lệ:
-    1. Có license_key trong file config/license.json
-    2. valid không phải False
-    3. status là 'active'
-    4. Chưa quá hạn sử dụng (expires_at > hiện tại) hoặc is_lifetime == True
+    BẮT BUỘC: File meg_license_bridge.dll phải đang tồn tại và hoạt động.
     """
+    if not is_native_bridge_active():
+        return False
+
     data = load_license_data()
     if not data or not data.get("license_key"):
         return False
@@ -365,6 +312,9 @@ def get_license_display_text() -> str:
     """
     Trả về chuỗi hiển thị gọn đẹp cho Header (e.g. 'VIP Pro (Hạn: 2027-09-30)' hoặc '--').
     """
+    if not is_native_bridge_active():
+        return "🔒 Thiếu file .DLL"
+
     data = load_license_data()
     if not data or not data.get("license_key"):
         return "--"

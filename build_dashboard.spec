@@ -16,7 +16,9 @@ hiddenimports = [
     'psutil',
     'frida',
     'meg_direct_engine',
-    'meg_auto_worker'
+    'meg_auto_worker',
+    'license_client',
+    'updater'
 ]
 
 tmp_ret = collect_all('customtkinter')

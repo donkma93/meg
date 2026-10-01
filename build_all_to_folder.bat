@@ -107,6 +107,7 @@ python -m PyInstaller ^
     --uac-admin ^
     --collect-all="customtkinter" ^
     --add-data="map_commands.json;." ^
+    --add-data="megamu_dashboard_icon.ico;." ^
     --add-data="megamu_dashboard_logo.png;." ^
     --hidden-import="PIL" ^
     --hidden-import="PIL.Image" ^
@@ -117,6 +118,7 @@ python -m PyInstaller ^
     --hidden-import="meg_direct_engine" ^
     --hidden-import="meg_auto_worker" ^
     --hidden-import="license_client" ^
+    --hidden-import="updater" ^
     --distpath="%BUILD_DIST%" ^
     --workpath="%BUILD_TEMP%" ^
     "meg_gui.py"
@@ -142,19 +144,32 @@ if exist "%TARGET_FOLDER%" (
 mkdir "%TARGET_FOLDER%"
 
 :: 5.1 Sao chep file .EXE don nhat
+if exist "%TARGET_FOLDER%\MEGAMU Auto Train Dashboard.exe" (
+    del /f /q "%TARGET_FOLDER%\MEGAMU Auto Train Dashboard.exe" >nul 2>&1
+    if exist "%TARGET_FOLDER%\MEGAMU Auto Train Dashboard.exe" ren "%TARGET_FOLDER%\MEGAMU Auto Train Dashboard.exe" "MEGAMU Auto Train Dashboard.old.exe" >nul 2>&1
+)
 copy /y "%BUILD_DIST%\MEGAMU Auto Train Dashboard.exe" "%TARGET_FOLDER%\" >nul
 echo   + Da copy MEGAMU Auto Train Dashboard.exe
 
 :: 5.2 Sao chep file C++ DLL
+if exist "%TARGET_FOLDER%\meg_license_bridge.dll" (
+    del /f /q "%TARGET_FOLDER%\meg_license_bridge.dll" >nul 2>&1
+    if exist "%TARGET_FOLDER%\meg_license_bridge.dll" ren "%TARGET_FOLDER%\meg_license_bridge.dll" "meg_license_bridge.old.dll" >nul 2>&1
+)
 copy /y "meg_license_bridge.dll" "%TARGET_FOLDER%\" >nul
 echo   + Da copy meg_license_bridge.dll
 
-:: 5.3 Tao thu muc config
+:: 5.3 Sao chep icon va logo de dong bo taskbar va giao dien
+if exist "megamu_dashboard_icon.ico" copy /y "megamu_dashboard_icon.ico" "%TARGET_FOLDER%\" >nul
+if exist "megamu_dashboard_logo.png" copy /y "megamu_dashboard_logo.png" "%TARGET_FOLDER%\" >nul
+echo   + Da dong bo icon va logo vao thu muc Release
+
+:: 5.4 Tao thu muc config
 mkdir "%TARGET_FOLDER%\config" >nul 2>&1
 if exist "config\ui_settings.json" copy /y "config\ui_settings.json" "%TARGET_FOLDER%\config\" >nul
 echo   + Da tao thu muc config/ (Cai dat giao dien)
 
-:: 5.4 Don dep thu muc tam thoi
+:: 5.5 Don dep thu muc tam thoi
 if exist "%BUILD_TEMP%" rmdir /s /q "%BUILD_TEMP%" >nul 2>&1
 if exist "%BUILD_DIST%" rmdir /s /q "%BUILD_DIST%" >nul 2>&1
 
