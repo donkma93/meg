@@ -74,7 +74,7 @@ class LicenseController extends Controller
             'customer_contact' => 'nullable|string|max:100',
             'plan_type' => 'required|string',
             'max_slots' => 'required|integer|min:1|max:500',
-            'duration_type' => 'required|string', // 7d, 30d, 90d, 1y, lifetime, custom
+            'duration_type' => 'required|string', // 1d, 2d, 3d, 7d, 30d, 90d, 1y, lifetime, custom
             'custom_days' => 'nullable|integer|min:1',
             'notes' => 'nullable|string',
         ]);
@@ -90,6 +90,15 @@ class LicenseController extends Controller
         // Tính ngày hết hạn
         $expiresAt = null;
         switch ($request->duration_type) {
+            case '1d':
+                $expiresAt = now()->addDays(1);
+                break;
+            case '2d':
+                $expiresAt = now()->addDays(2);
+                break;
+            case '3d':
+                $expiresAt = now()->addDays(3);
+                break;
             case '7d':
                 $expiresAt = now()->addDays(7);
                 break;
@@ -103,7 +112,7 @@ class LicenseController extends Controller
                 $expiresAt = now()->addDays(365);
                 break;
             case 'custom':
-                $days = (int) ($request->custom_days ?: 30);
+                $days = max(1, (int) ($request->custom_days ?: 1));
                 $expiresAt = now()->addDays($days);
                 break;
             case 'lifetime':
@@ -197,8 +206,14 @@ class LicenseController extends Controller
      */
     public function extend(License $license, Request $request): RedirectResponse
     {
-        $request->validate(['days' => 'required|integer|min:1']);
-        $days = (int) $request->days;
+        $request->validate([
+            'days' => 'required',
+            'custom_days' => 'nullable|integer|min:1',
+        ]);
+
+        $days = ($request->days === 'custom' || empty($request->days))
+            ? max(1, (int) ($request->custom_days ?: 1))
+            : max(1, (int) $request->days);
 
         if ($license->expires_at === null) {
             return redirect()->route('admin.licenses.index')

@@ -334,8 +334,20 @@
             <!-- Thời hạn sử dụng -->
             <div>
                 <label class="block text-xs font-bold text-slate-300 uppercase mb-1">Thời hạn bản quyền</label>
-                <select name="duration_type" id="durationTypeSelect" onchange="toggleCustomDays(this.value)" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-dark-700 text-white focus:outline-none focus:border-cyan-500">
-                    <option value="7d">7 Ngày (Dùng thử)</option>
+                <!-- Nút chọn nhanh số ngày -->
+                <div class="flex flex-wrap gap-1.5 mb-2">
+                    <button type="button" onclick="selectDuration('1d')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 hover:border-cyan-500/50 transition-colors">⚡ 1 Ngày (Test)</button>
+                    <button type="button" onclick="selectDuration('2d')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 hover:border-cyan-500/50 transition-colors">2 Ngày</button>
+                    <button type="button" onclick="selectDuration('3d')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 hover:border-cyan-500/50 transition-colors">3 Ngày</button>
+                    <button type="button" onclick="selectDuration('7d')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 hover:border-cyan-500/50 transition-colors">7 Ngày</button>
+                    <button type="button" onclick="selectDuration('30d')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 hover:border-cyan-500/50 transition-colors">30 Ngày</button>
+                    <button type="button" onclick="selectDuration('custom')" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-cyan-400 hover:text-cyan-300 border border-cyan-500/40 transition-colors">⚙️ Tùy chọn ngày</button>
+                </div>
+                <select name="duration_type" id="durationTypeSelect" onchange="toggleCustomDays(this.value)" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-dark-700 text-white focus:outline-none focus:border-cyan-500 text-sm">
+                    <option value="1d">1 Ngày (Dùng thử test bot)</option>
+                    <option value="2d">2 Ngày</option>
+                    <option value="3d">3 Ngày (Dùng thử)</option>
+                    <option value="7d">7 Ngày (1 Tuần)</option>
                     <option value="30d" selected>30 Ngày (1 Tháng)</option>
                     <option value="90d">90 Ngày (3 Tháng)</option>
                     <option value="1y">365 Ngày (1 Năm)</option>
@@ -346,7 +358,10 @@
 
             <div id="customDaysBox" class="hidden">
                 <label class="block text-xs font-bold text-slate-300 uppercase mb-1">Nhập số ngày cụ thể</label>
-                <input type="number" name="custom_days" placeholder="60" min="1" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-dark-700 text-white focus:outline-none focus:border-cyan-500">
+                <div class="relative">
+                    <input type="number" id="customDaysInput" name="custom_days" placeholder="Ví dụ: 1, 2, 3, 5, 14, 45, 180..." min="1" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-cyan-500/50 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 text-sm">
+                    <span class="absolute right-3 top-2 text-xs text-cyan-400 font-semibold">ngày</span>
+                </div>
             </div>
 
             <!-- Ghi chú -->
@@ -382,13 +397,34 @@
             @csrf
             <div>
                 <label class="block text-xs font-bold text-slate-300 uppercase mb-1">Chọn số ngày cộng thêm</label>
-                <select name="days" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-dark-700 text-white text-sm focus:outline-none focus:border-cyan-500">
-                    <option value="30">+30 Ngày (1 Tháng)</option>
+                <div class="flex flex-wrap gap-1 mb-2">
+                    <button type="button" onclick="selectExtendDays(1)" class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 transition-colors">+1d</button>
+                    <button type="button" onclick="selectExtendDays(2)" class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 transition-colors">+2d</button>
+                    <button type="button" onclick="selectExtendDays(3)" class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 transition-colors">+3d</button>
+                    <button type="button" onclick="selectExtendDays(7)" class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 transition-colors">+7d</button>
+                    <button type="button" onclick="selectExtendDays(30)" class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-white border border-dark-700 transition-colors">+30d</button>
+                    <button type="button" onclick="selectExtendDays('custom')" class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-dark-800 hover:bg-dark-750 text-cyan-400 border border-cyan-500/40 transition-colors">Tùy chọn</button>
+                </div>
+                <select name="days" id="extendDaysSelect" onchange="toggleExtendCustom(this.value)" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-dark-700 text-white text-sm focus:outline-none focus:border-cyan-500">
+                    <option value="1">+1 Ngày (Dùng thử)</option>
+                    <option value="2">+2 Ngày</option>
+                    <option value="3">+3 Ngày</option>
+                    <option value="7">+7 Ngày (1 Tuần)</option>
+                    <option value="30" selected>+30 Ngày (1 Tháng)</option>
                     <option value="60">+60 Ngày (2 Tháng)</option>
                     <option value="90">+90 Ngày (3 Tháng)</option>
                     <option value="180">+180 Ngày (6 Tháng)</option>
                     <option value="365">+365 Ngày (1 Năm)</option>
+                    <option value="custom">Tùy chỉnh số ngày...</option>
                 </select>
+            </div>
+
+            <div id="extendCustomDaysBox" class="hidden">
+                <label class="block text-xs font-bold text-slate-300 uppercase mb-1">Nhập số ngày muốn cộng thêm</label>
+                <div class="relative">
+                    <input type="number" id="extendCustomDaysInput" name="custom_days" placeholder="Ví dụ: 1, 2, 5, 10, 45..." min="1" class="w-full px-3 py-2 rounded-xl bg-dark-800 border border-cyan-500/50 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 text-sm">
+                    <span class="absolute right-3 top-2 text-xs text-cyan-400 font-semibold">ngày</span>
+                </div>
             </div>
 
             <div class="flex items-center justify-end space-x-2 pt-2">
@@ -466,10 +502,39 @@
         });
     }
 
+    function selectDuration(val) {
+        const select = document.getElementById('durationTypeSelect');
+        if (select) {
+            select.value = val;
+            toggleCustomDays(val);
+        }
+    }
+
     function toggleCustomDays(val) {
         const box = document.getElementById('customDaysBox');
+        const input = document.getElementById('customDaysInput');
         if (val === 'custom') {
             box.classList.remove('hidden');
+            if (input) input.focus();
+        } else {
+            box.classList.add('hidden');
+        }
+    }
+
+    function selectExtendDays(val) {
+        const select = document.getElementById('extendDaysSelect');
+        if (select) {
+            select.value = val;
+            toggleExtendCustom(val);
+        }
+    }
+
+    function toggleExtendCustom(val) {
+        const box = document.getElementById('extendCustomDaysBox');
+        const input = document.getElementById('extendCustomDaysInput');
+        if (val === 'custom') {
+            box.classList.remove('hidden');
+            if (input) input.focus();
         } else {
             box.classList.add('hidden');
         }
@@ -478,6 +543,11 @@
     function openExtendModal(id, key) {
         document.getElementById('extendKeyName').innerText = key;
         document.getElementById('extendForm').action = '/admin/licenses/' + id + '/extend';
+        // Reset selections
+        const select = document.getElementById('extendDaysSelect');
+        if (select) select.value = '30';
+        const box = document.getElementById('extendCustomDaysBox');
+        if (box) box.classList.add('hidden');
         document.getElementById('extendModal').classList.remove('hidden');
     }
 
