@@ -8,6 +8,9 @@ on:
       - '.github/workflows/deploy-license-server.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   web-deploy:
     name: 🚀 Sync License Server to cPanel
@@ -16,9 +19,9 @@ jobs:
       - name: 🚚 Get latest code
         uses: actions/checkout@v4
 
-      - name: 🔍 Inspect cPanel Structure & Find Laravel Path
+      - name: 🔍 Inspect cPanel Structure & Find Live Laravel Path
         run: |
-          python3 - << 'EOF'
+          python3 - << 'EOF' > cpanel_tree.txt
           import os, ftplib
 
           server = (os.environ.get('FTP_SERVER') or '').strip()
@@ -34,39 +37,43 @@ jobs:
           root_items = ftp.nlst()
           print(f"Root items: {root_items}")
 
-          # Kiểm tra các thư mục tiềm năng để tìm file login.blade.php đang chạy
-          candidates = ['', 'public_html', 'license-server', 'public']
-          for c in root_items:
-              if c not in candidates:
-                  candidates.append(c)
-
-          for cand in candidates:
+          # Quét tìm tất cả các thư mục có login.blade.php
+          def find_files(dir_path, depth=0):
+              if depth > 4:
+                  return
               try:
-                  if cand:
-                      ftp.cwd('/' + cand if not cand.startswith('/') else cand)
-                  else:
-                      ftp.cwd('/')
+                  ftp.cwd(dir_path)
+              except Exception:
+                  return
+              try:
                   items = ftp.nlst()
-                  print(f"\n--- Checking path: {ftp.pwd()} ---")
-                  print(f"Items: {items[:10]}")
-                  
-                  # Thử kiểm tra resources/views/admin
+              except Exception:
+                  return
+              
+              if 'login.blade.php' in items or 'resources' in items:
+                  print(f"FOUND candidate at: {dir_path} -> items: {items[:8]}")
+              
+              for item in items:
+                  if item in {'.', '..', '.git', 'node_modules', 'vendor', 'logs', 'mail', 'ssl'}:
+                      continue
+                  # Kiểm tra xem có phải thư mục không
+                  subpath = f"{dir_path}/{item}" if dir_path != "/" else f"/{item}"
                   try:
-                      views = ftp.nlst('resources/views/admin/auth')
-                      print(f"  👉 Found resources/views/admin/auth in {ftp.pwd()}: {views}")
+                      ftp.cwd(subpath)
+                      ftp.cwd(dir_path) # nếu cwd thành công thì là thư mục
+                      find_files(subpath, depth + 1)
                   except Exception:
                       pass
-                  
-                  try:
-                      views2 = ftp.nlst('resources/views/admin/licenses')
-                      print(f"  👉 Found resources/views/admin/licenses in {ftp.pwd()}: {views2}")
-                  except Exception:
-                      pass
-              except Exception as e:
-                  pass
 
+          find_files("/")
           ftp.quit()
           EOF
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add cpanel_tree.txt
+          git commit -m "debug: save cpanel directory tree [skip ci]" || true
+          git push origin main || true
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER || secrets.CPANEL_FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME || secrets.CPANEL_FTP_USERNAME }}
