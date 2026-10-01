@@ -149,7 +149,7 @@
                     <span>036.203.1354</span>
                 </a>
                 <a href="#pricing" class="px-5 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-wider bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-dark-950 shadow-lg shadow-cyan-500/25 transition-all transform hover:scale-[1.02] active:scale-[0.98]">
-                    Mua Bản Quyền
+                    Liên Hệ Dùng Thử
                 </a>
             </div>
         </div>
@@ -179,13 +179,11 @@
             <!-- Call to Actions -->
             <div class="mt-10 flex flex-wrap items-center justify-center gap-4">
                 <a href="#pricing" class="px-8 py-4 rounded-2xl text-sm font-extrabold uppercase tracking-wider bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 hover:from-cyan-300 hover:to-blue-400 text-dark-950 shadow-xl shadow-cyan-500/25 transition-all transform hover:-translate-y-1">
-                    Xem Báo Giá & Mua Key
+                    Báo Giá Tham Khảo & Dùng Thử
                 </a>
-                <a href="https://github.com/donkma93/meg/releases/latest" target="_blank" class="px-7 py-4 rounded-2xl text-sm font-extrabold tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 shadow-lg shadow-emerald-500/10 transition-all transform hover:-translate-y-1 flex items-center space-x-2">
-                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                    </svg>
-                    <span>Tải Bản Cài Đặt (v1.5.1 .EXE)</span>
+                <a href="https://zalo.me/0362031354" target="_blank" class="px-7 py-4 rounded-2xl text-sm font-extrabold tracking-wider bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/25 transition-all transform hover:-translate-y-1 flex items-center space-x-2">
+                    <svg class="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12c0 2.21.72 4.25 1.94 5.91L3.06 21.2a1 1 0 001.24 1.24l3.29-.88C9.25 21.78 10.59 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2z"></path></svg>
+                    <span>Nhắn Zalo Xin File Cài Đặt</span>
                 </a>
                 <a href="#showcase" class="px-7 py-4 rounded-2xl text-sm font-extrabold tracking-wider bg-dark-850 hover:bg-dark-800 text-white border border-white/10 hover:border-cyan-400/40 shadow-lg transition-all transform hover:-translate-y-1 flex items-center space-x-2">
                     <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -437,12 +435,12 @@
                         <span class="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 font-extrabold font-heading text-lg flex items-center justify-center border border-cyan-500/30">01</span>
                         <span class="text-xs font-semibold text-slate-400">Chuẩn bị</span>
                     </div>
-                    <h3 class="text-lg font-bold font-heading text-white mb-2">Tải File Cài Đặt (.EXE)</h3>
+                    <h3 class="text-lg font-bold font-heading text-white mb-2">Xin File Cài & Key Dùng Thử</h3>
                     <p class="text-xs text-slate-400 leading-relaxed mb-3">
-                        Tải trực tiếp file <a href="https://github.com/donkma93/meg/releases/latest" target="_blank" class="text-cyan-400 hover:underline font-bold font-mono">MEGAMU Auto Train Dashboard.exe</a> từ GitHub Release. File đã được đóng gói All-in-One chạy ngay không cần cài đặt phức tạp.
+                        Nhắn tin Zalo hoặc gọi Hotline <a href="https://zalo.me/0362031354" target="_blank" class="text-cyan-400 hover:underline font-bold font-mono">036.203.1354</a> để nhận file cài đặt và kích hoạt mã dùng thử miễn phí. Hỗ trợ gửi file và cài Ultraview trong 2 phút.
                     </p>
-                    <a href="https://github.com/donkma93/meg/releases/latest" target="_blank" class="inline-flex items-center space-x-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-bold">
-                        <span>Tải bản v1.5.1</span>
+                    <a href="https://zalo.me/0362031354" target="_blank" class="inline-flex items-center space-x-1.5 text-xs text-blue-400 hover:text-blue-300 font-bold">
+                        <span>Nhắn Zalo xin file</span>
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
                     </a>
                 </div>
@@ -503,9 +501,9 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             
             <div class="text-center max-w-3xl mx-auto mb-16">
-                <span class="text-xs font-extrabold uppercase tracking-widest text-cyan-400">BẢNG GIÁ MINH BẠCH</span>
-                <h2 class="text-3xl sm:text-5xl font-black font-heading text-white mt-2">Báo Giá Bản Quyền DAuto MEGAMU</h2>
-                <p class="mt-4 text-slate-400 text-base">Linh hoạt theo nhu cầu: Trải nghiệm theo ngày, cày cuốc theo tháng hoặc sở hữu vĩnh viễn trọn đời.</p>
+                <span class="text-xs font-extrabold uppercase tracking-widest text-cyan-400">BẢNG GIÁ THAM KHẢO & DÙNG THỬ</span>
+                <h2 class="text-3xl sm:text-5xl font-black font-heading text-white mt-2">Báo Giá Tham Khảo & Đăng Ký Dùng Thử</h2>
+                <p class="mt-4 text-slate-400 text-base">Bảng giá tham khảo các gói dịch vụ. Quý khách vui lòng liên hệ trực tiếp qua Zalo hoặc Hotline để nhận file cài đặt và kích hoạt dùng thử miễn phí.</p>
             </div>
 
             <!-- 4 Pricing Cards -->
@@ -523,7 +521,7 @@
                                 <span class="text-4xl font-black font-heading text-white">15.000</span>
                                 <span class="text-sm font-semibold text-slate-400">VNĐ / Ngày</span>
                             </div>
-                            <span class="text-[11px] text-cyan-400 font-medium">Kích hoạt tự động sau 1 phút</span>
+                            <span class="text-[11px] text-cyan-400 font-medium">Kích hoạt nhanh chóng qua Zalo</span>
                         </div>
 
                         <ul class="space-y-3 text-xs text-slate-300 mb-8">
@@ -550,8 +548,8 @@
                         </ul>
                     </div>
 
-                    <button onclick="openOrderModal('Gói Ngày (24 Giờ)', '15.000 VNĐ')" class="w-full py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-dark-800 hover:bg-dark-750 text-white border border-white/10 hover:border-cyan-400/30 transition">
-                        Đăng Ký Gói Ngày
+                    <button onclick="openOrderModal('Gói Ngày (24 Giờ)', '15.000 VNĐ (Tham Khảo)')" class="w-full py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-dark-800 hover:bg-dark-750 text-white border border-white/10 hover:border-cyan-400/30 transition">
+                        Liên Hệ Dùng Thử Gói Ngày
                     </button>
                 </div>
 
@@ -600,8 +598,8 @@
                         </ul>
                     </div>
 
-                    <button onclick="openOrderModal('Gói Tháng (30 Ngày)', '120.000 VNĐ')" class="w-full py-3.5 px-4 rounded-xl font-extrabold text-xs uppercase tracking-wider bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-dark-950 shadow-lg shadow-cyan-500/25 transition-all transform hover:scale-[1.02]">
-                        Mua Gói Tháng Ngay
+                    <button onclick="openOrderModal('Gói Tháng (30 Ngày)', '120.000 VNĐ (Tham Khảo)')" class="w-full py-3.5 px-4 rounded-xl font-extrabold text-xs uppercase tracking-wider bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-dark-950 shadow-lg shadow-cyan-500/25 transition-all transform hover:scale-[1.02]">
+                        Liên Hệ Dùng Thử Gói Tháng
                     </button>
                 </div>
 
@@ -644,8 +642,8 @@
                         </ul>
                     </div>
 
-                    <button onclick="openOrderModal('Gói Quý (90 Ngày)', '300.000 VNĐ')" class="w-full py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-dark-800 hover:bg-dark-750 text-white border border-white/10 hover:border-purple-400/30 transition">
-                        Đăng Ký Gói Quý
+                    <button onclick="openOrderModal('Gói Quý (90 Ngày)', '300.000 VNĐ (Tham Khảo)')" class="w-full py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-dark-800 hover:bg-dark-750 text-white border border-white/10 hover:border-purple-400/30 transition">
+                        Liên Hệ Dùng Thử Gói Quý
                     </button>
                 </div>
 
@@ -694,8 +692,8 @@
                         </ul>
                     </div>
 
-                    <button onclick="openOrderModal('Gói Vĩnh Viễn (Lifetime)', '799.000 VNĐ')" class="w-full py-3.5 px-4 rounded-xl font-extrabold text-xs uppercase tracking-wider bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-dark-950 shadow-lg shadow-amber-500/25 transition-all transform hover:scale-[1.02]">
-                        Sở Hữu Vĩnh Viễn
+                    <button onclick="openOrderModal('Gói Vĩnh Viễn (Lifetime)', '799.000 VNĐ (Tham Khảo)')" class="w-full py-3.5 px-4 rounded-xl font-extrabold text-xs uppercase tracking-wider bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-dark-950 shadow-lg shadow-amber-500/25 transition-all transform hover:scale-[1.02]">
+                        Liên Hệ Tư Vấn & Dùng Thử
                     </button>
                 </div>
 
@@ -753,11 +751,11 @@
                 <!-- FAQ 4 -->
                 <div class="glass-panel rounded-2xl border border-white/10 overflow-hidden">
                     <button onclick="toggleFaq(4)" class="w-full px-6 py-5 text-left flex items-center justify-between font-bold font-heading text-white hover:text-cyan-400 transition">
-                        <span>4. Sau khi thanh toán thì bao lâu tôi nhận được mã kích hoạt?</span>
+                        <span>4. Làm sao để tôi nhận được file cài đặt và mã kích hoạt dùng thử?</span>
                         <svg id="faq-icon-4" class="w-5 h-5 text-cyan-400 transform transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                     </button>
                     <div id="faq-content-4" class="hidden px-6 pb-5 text-sm text-slate-400 leading-relaxed border-t border-white/5 pt-3">
-                        Hệ thống hoạt động 24/7. Ngay sau khi chuyển khoản thành công với nội dung chuyển khoản là số điện thoại hoặc mã đơn hàng, bạn sẽ nhận được License Key chỉ trong 1 - 3 phút qua Zalo hoặc Telegram.
+                        Rất đơn giản! Bạn chỉ cần liên hệ trực tiếp qua Zalo hoặc Hotline 036.203.1354. Đội ngũ MEGATEAM sẽ gửi ngay file cài đặt mới nhất kèm mã bản quyền trải nghiệm dùng thử miễn phí và hỗ trợ cấu hình Ultraview nếu cần.
                     </div>
                 </div>
 
@@ -839,50 +837,41 @@
             <!-- Modal Header -->
             <div class="text-center mb-6">
                 <div class="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mx-auto mb-3 border border-cyan-500/20">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"></path></svg>
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                 </div>
-                <h3 class="text-2xl font-black font-heading text-white">Xác Nhận Đặt Mua License</h3>
-                <p class="text-xs text-slate-400 mt-1">Đăng ký mua gói bản quyền DAuto MEGAMU</p>
+                <h3 class="text-2xl font-black font-heading text-white">Đăng Ký Trải Nghiệm & Dùng Thử</h3>
+                <p class="text-xs text-slate-400 mt-1">Liên hệ nhận file cài đặt & kích hoạt key dùng thử DAuto MEGAMU</p>
             </div>
 
             <!-- Selected Package Box -->
             <div class="p-4 rounded-2xl bg-dark-850 border border-white/10 mb-6 flex items-center justify-between">
                 <div>
-                    <span class="text-xs text-slate-400 block">Gói đã chọn:</span>
+                    <span class="text-xs text-slate-400 block">Gói quan tâm:</span>
                     <strong id="modalPlanName" class="text-sm font-bold text-white">Gói Tháng</strong>
                 </div>
                 <div class="text-right">
-                    <span class="text-xs text-slate-400 block">Giá tiền:</span>
+                    <span class="text-xs text-slate-400 block">Giá tham khảo:</span>
                     <strong id="modalPlanPrice" class="text-lg font-black font-heading text-cyan-400">120.000 VNĐ</strong>
                 </div>
             </div>
 
-            <!-- Payment Instruction -->
+            <!-- Contact Instruction (No Bank Details) -->
             <div class="space-y-4 mb-6 text-xs text-slate-300">
-                <div class="p-4 rounded-xl bg-dark-900 border border-white/5 space-y-2">
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Ngân hàng:</span>
-                        <span class="font-bold text-white">MB BANK (Quân Đội)</span>
+                <div class="p-5 rounded-2xl bg-dark-900 border border-white/5 space-y-3">
+                    <div class="flex items-center space-x-2 text-emerald-400 font-bold">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                        <span>Cấp Key Dùng Thử & Hỗ Trợ Cài Đặt Trực Tiếp</span>
                     </div>
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Số tài khoản / SĐT:</span>
-                        <span class="font-mono font-bold text-cyan-400 text-sm">0362031354</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Chủ tài khoản:</span>
-                        <span class="font-bold text-white uppercase">DOAN VAN PHONG</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Zalo & Hotline:</span>
-                        <span class="font-mono font-bold text-emerald-400">036.203.1354</span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-slate-400">Nội dung CK:</span>
-                        <span class="font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">DAUTO [SĐT của bạn]</span>
+                    <p class="text-slate-400 leading-relaxed text-xs">
+                        Để nhận file cài đặt và kích hoạt mã dùng thử trải nghiệm gói này, quý khách vui lòng liên hệ trực tiếp qua Zalo hoặc Hotline. Đội ngũ MEGATEAM sẽ gửi file và hỗ trợ bạn cài đặt qua Ultraview nhanh chóng trong 2 phút.
+                    </p>
+                    <div class="pt-3 border-t border-white/5 flex items-center justify-between">
+                        <span class="text-slate-400">Hotline / Zalo hỗ trợ:</span>
+                        <a href="https://zalo.me/0362031354" target="_blank" class="font-mono font-bold text-cyan-400 text-sm hover:underline">036.203.1354</a>
                     </div>
                 </div>
                 <p class="text-slate-400 text-[11px] text-center">
-                    Sau khi chuyển khoản, vui lòng bấm nút bên dưới để nhắn Zalo hoặc gọi Hotline cho Admin kích hoạt Key ngay:
+                    Bấm vào nút bên dưới để nhắn tin Zalo hoặc gọi Hotline nhận file cài đặt ngay:
                 </p>
             </div>
 
@@ -890,7 +879,7 @@
             <div class="flex flex-col sm:flex-row gap-3">
                 <a href="https://zalo.me/0362031354" target="_blank" class="flex-1 py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-gradient-to-r from-cyan-400 to-blue-500 text-dark-950 text-center shadow-lg shadow-cyan-500/25 hover:from-cyan-300 transition flex items-center justify-center space-x-2">
                     <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12c0 2.21.72 4.25 1.94 5.91L3.06 21.2a1 1 0 001.24 1.24l3.29-.88C9.25 21.78 10.59 22 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2z"></path></svg>
-                    <span>Nhắn Zalo (036.203.1354)</span>
+                    <span>Nhắn Zalo Nhận Bản Dùng Thử</span>
                 </a>
                 <a href="tel:0362031354" class="py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-dark-800 hover:bg-dark-750 text-emerald-400 border border-emerald-500/30 text-center transition flex items-center justify-center space-x-1.5 font-mono">
                     <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path></svg>
