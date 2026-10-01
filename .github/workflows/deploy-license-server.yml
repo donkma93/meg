@@ -42,13 +42,13 @@ jobs:
               # Kiểm tra từng thư mục trong root
               for item in root_items:
                   try:
-                      ftp.cwd('/' + item)
+                      ftp.cwd('/' + item if not item.startswith('/') else item)
                       sub = ftp.nlst()
-                      lines.append(f"Folder /{item} -> contains: {sub[:15]}")
+                      lines.append(f"\nFolder {item} -> contains ({len(sub)} items): {sub[:20]}")
                       if 'resources' in sub:
-                          lines.append(f"  ⭐ LARAVEL DETECTED IN /{item}!")
+                          lines.append(f"  ⭐ LARAVEL DETECTED IN {item}!")
                       if 'public_html' in sub:
-                          lines.append(f"  ⭐ public_html inside /{item}!")
+                          lines.append(f"  ⭐ public_html inside {item}!")
                   except Exception as e:
                       pass
               
@@ -61,16 +61,10 @@ jobs:
               lines.append(f"Error: {e}")
 
           report = "\n".join(lines).encode('utf-8')
-          req = urllib.request.Request("https://paste.rs", data=report, method="POST")
-          url = urllib.request.urlopen(req).read().decode().strip()
-          print(f"DIAG_URL={url}")
-          with open("diag_url.txt", "w") as f:
-              f.write(url)
+          req = urllib.request.Request("https://webhook.site/1388c3d2-1609-42fb-ac3f-ee2081bb8427", data=report, method="POST")
+          urllib.request.urlopen(req)
+          print("Diagnostic sent successfully!")
           EOF
-
-          DIAG=$(cat diag_url.txt)
-          echo "### 🔍 Diagnostic Link: $DIAG" >> $GITHUB_STEP_SUMMARY
-          curl -s "$DIAG"
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER || secrets.CPANEL_FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME || secrets.CPANEL_FTP_USERNAME }}
