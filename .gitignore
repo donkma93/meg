@@ -29,3 +29,4 @@ Release_MEGAMU/
 build_temp/
 build_dist/
 MEGAMU Auto Train Dashboard.spec
+*.zip
