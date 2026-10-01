@@ -698,8 +698,7 @@ class MegDirectEngine:
         WA_ACTIVE = 1
         lparam = ((int(client_y) & 0xFFFF) << 16) | (int(client_x) & 0xFFFF)
         try:
-            user32.SendMessageW(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
-            user32.SendMessageW(hwnd, WM_SETFOCUS, 0, 0)
+            # Gửi PostMessage ngầm thuần túy, tuyệt đối không gửi WM_ACTIVATE hay cướp focus
             user32.PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam)
             user32.PostMessageW(hwnd, WM_LBUTTONDOWN, 1, lparam)
             time.sleep(max(duration_ms, 30) / 1000.0)
@@ -710,7 +709,7 @@ class MegDirectEngine:
 
     @staticmethod
     def send_background_key(hwnd: int, vk_code: int, duration_s: float = 0.05) -> bool:
-        """Gửi phím nền chuẩn Unity lParam scan-code vào cửa sổ game."""
+        """Gửi phím nền chuẩn Unity lParam scan-code vào cửa sổ game (Zero-Focus, không chiếm phím OS)."""
         if not hwnd or sys.platform != "win32":
             return False
         user32 = ctypes.windll.user32
@@ -730,45 +729,11 @@ class MegDirectEngine:
 
     @staticmethod
     def send_hardware_key(hwnd: int, vk_code: int, duration_s: float = 0.04) -> bool:
-        """Gửi phím phần cứng chuẩn qua keybd_event kết hợp AttachThreadInput (chuẩn Unity Engine)."""
-        if not hwnd or sys.platform != "win32":
-            return False
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-        cur_tid = kernel32.GetCurrentThreadId()
-        fg_hwnd = user32.GetForegroundWindow()
-        fg_tid = user32.GetWindowThreadProcessId(fg_hwnd, None)
-        target_tid = user32.GetWindowThreadProcessId(hwnd, None)
-
-        attached_fg = False
-        attached_target = False
-        try:
-            if fg_tid and fg_tid != cur_tid:
-                attached_fg = bool(user32.AttachThreadInput(cur_tid, fg_tid, True))
-            if target_tid and target_tid != cur_tid:
-                attached_target = bool(user32.AttachThreadInput(cur_tid, target_tid, True))
-
-            user32.SetForegroundWindow(hwnd)
-            time.sleep(0.04)
-
-            user32.keybd_event(vk_code, 0, 0, 0)
-            if duration_s > 0:
-                time.sleep(duration_s)
-            user32.keybd_event(vk_code, 0, 2, 0)
-            time.sleep(0.04)
-
-            if fg_hwnd and fg_hwnd != hwnd:
-                user32.SetForegroundWindow(fg_hwnd)
-            return True
-        except Exception:
-            return False
-        finally:
-            if attached_fg:
-                try: user32.AttachThreadInput(cur_tid, fg_tid, False)
-                except Exception: pass
-            if attached_target:
-                try: user32.AttachThreadInput(cur_tid, target_tid, False)
-                except Exception: pass
+        """
+        Gửi phím ngầm an toàn qua send_background_key.
+        TUYỆT ĐỐI KHÔNG dùng SetForegroundWindow hay keybd_event để chống cướp tiêu điểm và không ảnh hưởng process khác.
+        """
+        return MegDirectEngine.send_background_key(hwnd, vk_code, duration_s)
 
     def send_chat(self, command: str) -> bool:
         """
@@ -843,88 +808,87 @@ class MegDirectEngine:
         return False
 
     def start_helper(self) -> bool:
-        """Kích hoạt bật MuHelper (từng kênh một cách an toàn, dừng ngay khi đã BẬT)."""
+        """Kích hoạt bật MuHelper (Ưu tiên Native Memory Hook, tuyệt đối chạy ngầm và không ảnh hưởng process khác)."""
         self.last_fast_state = None
         if self.is_helper_active(force_refresh=True):
             return True
 
-        hwnd = self.get_hwnd()
-        if not hwnd or sys.platform != "win32":
+        # Kênh 1: Frida Native Hook (trực tiếp bộ nhớ của đúng game PID này, Zero-Focus)
+        if self.is_ready:
             self._call("startHelper")
-            time.sleep(0.2)
+            for _ in range(6):
+                time.sleep(0.06)
+                if self.is_helper_active(force_refresh=True):
+                    return True
+
+        hwnd = self.get_hwnd()
+        if hwnd and sys.platform == "win32":
+            # Kênh 2: Gửi phím Home ngầm Win32 PostMessage trực tiếp vào HWND game (Zero-Focus)
+            self.send_background_key(hwnd, 0x24, 0.05)
+            for _ in range(5):
+                time.sleep(0.06)
+                if self.is_helper_active(force_refresh=True):
+                    return True
+
+            # Kênh 3: Gửi phím Z ngầm Win32 PostMessage trực tiếp vào HWND game (Zero-Focus)
+            self.send_background_key(hwnd, 0x5A, 0.05)
+            for _ in range(4):
+                time.sleep(0.06)
+                if self.is_helper_active(force_refresh=True):
+                    return True
+
+            # Kênh 4: Click nút Play trên HUD bằng PostMessage ngầm (Zero-Focus)
+            self.send_background_click(hwnd, 341, 88, duration_ms=40)
+            for _ in range(4):
+                time.sleep(0.06)
+                if self.is_helper_active(force_refresh=True):
+                    return True
+
+        # Kênh 5: Thử lại Frida Native Hook
+        if self.is_ready:
+            self._call("startHelper")
+            time.sleep(0.12)
             return self.is_helper_active(force_refresh=True)
 
-        # Kênh 1: Phím Home phần cứng (VK_HOME = 0x24) - Chuẩn xác 100% cho Unity MEGAMU
-        self.send_hardware_key(hwnd, 0x24, 0.04)
-        for _ in range(5):
-            time.sleep(0.08)
-            if self.is_helper_active(force_refresh=True):
-                return True
-
-        # Kênh 2: Gửi phím Home ngầm Win32 PostMessage
-        self.send_background_key(hwnd, 0x24, 0.05)
-        for _ in range(4):
-            time.sleep(0.08)
-            if self.is_helper_active(force_refresh=True):
-                return True
-
-        # Kênh 3: Click nút Play trên HUD (341, 88)
-        self.send_background_click(hwnd, 341, 88, duration_ms=50)
-        for _ in range(4):
-            time.sleep(0.08)
-            if self.is_helper_active(force_refresh=True):
-                return True
-
-        # Kênh 4: Phím Z phần cứng
-        self.send_hardware_key(hwnd, 0x5A, 0.04)
-        for _ in range(4):
-            time.sleep(0.08)
-            if self.is_helper_active(force_refresh=True):
-                return True
-
-        # Kênh 5: Frida RPC
-        self._call("startHelper")
-        time.sleep(0.15)
-        return self.is_helper_active(force_refresh=True)
+        return False
 
     def stop_helper(self) -> bool:
-        """Kích hoạt tắt MuHelper (chỉ tắt khi đang BẬT, tuyệt đối không toggle nếu đã TẮT)."""
+        """Kích hoạt tắt MuHelper (Ưu tiên Native Memory Hook, tuyệt đối chạy ngầm và không ảnh hưởng process khác)."""
         self.last_fast_state = None
         # NẾU ĐÃ TẮT RỒI -> TUYỆT ĐỐI KHÔNG GỬI GÌ CẢ (chống vô tình bật lên)
         if not self.is_helper_active(force_refresh=True):
             return True
 
-        hwnd = self.get_hwnd()
-        if not hwnd or sys.platform != "win32":
+        # Kênh 1: Frida Native Hook (trực tiếp bộ nhớ của đúng game PID này, Zero-Focus)
+        if self.is_ready:
             self._call("stopHelper")
-            time.sleep(0.2)
+            for _ in range(6):
+                time.sleep(0.06)
+                if not self.is_helper_active(force_refresh=True):
+                    return True
+
+        hwnd = self.get_hwnd()
+        if hwnd and sys.platform == "win32":
+            # Kênh 2: Phím Home ngầm Win32 PostMessage trực tiếp vào HWND game (Zero-Focus)
+            self.send_background_key(hwnd, 0x24, 0.05)
+            for _ in range(5):
+                time.sleep(0.06)
+                if not self.is_helper_active(force_refresh=True):
+                    return True
+
+            # Kênh 3: Click nút Play/Stop trên thanh HUD (341, 88) bằng PostMessage ngầm
+            self.send_background_click(hwnd, 341, 88, duration_ms=40)
+            for _ in range(4):
+                time.sleep(0.06)
+                if not self.is_helper_active(force_refresh=True):
+                    return True
+
+        if self.is_ready:
+            self._call("stopHelper")
+            time.sleep(0.12)
             return not self.is_helper_active(force_refresh=True)
 
-        # Đang BẬT -> gửi tắt:
-        # Kênh 1: Phím Home phần cứng (VK_HOME = 0x24)
-        self.send_hardware_key(hwnd, 0x24, 0.04)
-        for _ in range(5):
-            time.sleep(0.08)
-            if not self.is_helper_active(force_refresh=True):
-                return True
-
-        # Kênh 2: Phím Home ngầm Win32 PostMessage
-        self.send_background_key(hwnd, 0x24, 0.05)
-        for _ in range(4):
-            time.sleep(0.08)
-            if not self.is_helper_active(force_refresh=True):
-                return True
-
-        # Kênh 3: Click nút Play/Stop trên thanh HUD (341, 88)
-        self.send_background_click(hwnd, 341, 88, duration_ms=50)
-        for _ in range(4):
-            time.sleep(0.08)
-            if not self.is_helper_active(force_refresh=True):
-                return True
-
-        self._call("stopHelper")
-        time.sleep(0.15)
-        return not self.is_helper_active(force_refresh=True)
+        return False
 
     def detach(self):
         """
