@@ -181,12 +181,18 @@
                 <a href="#pricing" class="px-8 py-4 rounded-2xl text-sm font-extrabold uppercase tracking-wider bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 hover:from-cyan-300 hover:to-blue-400 text-dark-950 shadow-xl shadow-cyan-500/25 transition-all transform hover:-translate-y-1">
                     Xem Báo Giá & Mua Key
                 </a>
-                <a href="#showcase" class="px-8 py-4 rounded-2xl text-sm font-extrabold tracking-wider bg-dark-850 hover:bg-dark-800 text-white border border-white/10 hover:border-cyan-400/40 shadow-lg transition-all transform hover:-translate-y-1 flex items-center space-x-2">
+                <a href="https://github.com/donkma93/meg/releases/latest" target="_blank" class="px-7 py-4 rounded-2xl text-sm font-extrabold tracking-wider bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/40 shadow-lg shadow-emerald-500/10 transition-all transform hover:-translate-y-1 flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    <span>Tải Bản Cài Đặt (v1.5.1 .EXE)</span>
+                </a>
+                <a href="#showcase" class="px-7 py-4 rounded-2xl text-sm font-extrabold tracking-wider bg-dark-850 hover:bg-dark-800 text-white border border-white/10 hover:border-cyan-400/40 shadow-lg transition-all transform hover:-translate-y-1 flex items-center space-x-2">
                     <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
                     </svg>
-                    <span>Xem Giao Diện Thực Tế</span>
+                    <span>Xem Ảnh Thực Tế</span>
                 </a>
             </div>
             
@@ -431,10 +437,14 @@
                         <span class="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 font-extrabold font-heading text-lg flex items-center justify-center border border-cyan-500/30">01</span>
                         <span class="text-xs font-semibold text-slate-400">Chuẩn bị</span>
                     </div>
-                    <h3 class="text-lg font-bold font-heading text-white mb-2">Tải Thư Mục Release</h3>
-                    <p class="text-xs text-slate-400 leading-relaxed">
-                        Mở thư mục <code class="text-cyan-300 font-mono">Release_MEGAMU</code> chứa file khởi động chính <span class="text-white font-semibold">MEGAMU Auto Train Dashboard.exe</span> và file <span class="text-white font-semibold">meg_license_bridge.dll</span>.
+                    <h3 class="text-lg font-bold font-heading text-white mb-2">Tải File Cài Đặt (.EXE)</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed mb-3">
+                        Tải trực tiếp file <a href="https://github.com/donkma93/meg/releases/latest" target="_blank" class="text-cyan-400 hover:underline font-bold font-mono">MEGAMU Auto Train Dashboard.exe</a> từ GitHub Release. File đã được đóng gói All-in-One chạy ngay không cần cài đặt phức tạp.
                     </p>
+                    <a href="https://github.com/donkma93/meg/releases/latest" target="_blank" class="inline-flex items-center space-x-1.5 text-xs text-cyan-400 hover:text-cyan-300 font-bold">
+                        <span>Tải bản v1.5.1</span>
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                    </a>
                 </div>
 
                 <!-- Step 2 -->
