@@ -104,16 +104,25 @@ class MapResolver:
     def _norm(text: str) -> str:
         return "".join(ch.lower() for ch in str(text).strip() if ch.isalnum())
 
-    def resolve(self, value: str) -> str:
+    def resolve(self, value: str, alternate: bool = False) -> str:
         s = str(value).strip()
         if not s:
             return ""
         if s.startswith("/"):
-            return s
-        norm = self._norm(s)
-        if norm in self.aliases:
-            return self.aliases[norm]
-        return f"/move {s}"
+            cmd = s
+        else:
+            norm = self._norm(s)
+            if norm in self.aliases:
+                cmd = self.aliases[norm]
+            else:
+                cmd = f"/move {s}"
+
+        if alternate:
+            if cmd.startswith("/move "):
+                return "/m " + cmd[6:]
+            elif cmd.startswith("/m "):
+                return "/move " + cmd[3:]
+        return cmd
 
     def expected_map_id(self, value: str) -> Optional[int]:
         norm = self._norm(value)
@@ -291,9 +300,9 @@ class AutoTrainWorker:
         self.map_sensor_trusted = False
         self.map_sensor_suspect = False
 
-    def _send_map_command(self, stage: Dict[str, Any], reason: str, current_map_id: Optional[int]) -> bool:
+    def _send_map_command(self, stage: Dict[str, Any], reason: str, current_map_id: Optional[int], use_alternate: bool = False) -> bool:
         map_name = stage.get("map_name") or stage.get("map", "")
-        command = self.map_resolver.resolve(map_name)
+        command = self.map_resolver.resolve(map_name, alternate=use_alternate)
         if not command:
             self._log(f"Stage has no map command for '{map_name}'.", "ERROR")
             return False
@@ -353,9 +362,8 @@ class AutoTrainWorker:
         """
         Cổng kiểm soát chuyển bản đồ chuẩn v1.3.6 từ MEGAMU Dashboard gốc:
         - Khớp MapID lập tức chuyển trusted và cho phép chạy ra bãi.
-        - Lệch MapID kích hoạt lệnh /move.
-        - Sau grace period (2.8s) nếu MapID RAM chưa cập nhật, đánh dấu sensor suspect
-          và an toàn cho phép chạy XY ra bãi đích, chống kẹt vô tận.
+        - Lệch MapID kích hoạt lệnh /move hoặc đi bộ qua cổng nếu chưa đủ level.
+        - Chống kẹt: Tuyệt đối không ép nhân vật chạy tọa độ của map đích khi vẫn đang ở map cũ.
         """
         now = time.time()
         expected = self.map_resolver.expected_map_id(stage.get("map_name") or stage.get("map", ""))
@@ -404,7 +412,7 @@ class AutoTrainWorker:
             self._send_map_command(stage, reason=f"Map check {cur}; expected {exp}", current_map_id=cur)
             return True
 
-        # 5. Đang trong thời gian chờ map sau khi đã gửi lệnh
+        # 5. Đang trong thời gian chờ map sau khi đã gửi lệnh hoặc đang đi bộ qua cổng
         if self.map_wait_active:
             if cur == exp:
                 self.map_sensor_trusted = True
@@ -412,13 +420,31 @@ class AutoTrainWorker:
                 self._move_to_target_after_map_verified()
                 return True
 
-            # Quá thời gian chờ kiểm chứng mềm (map_soft_verify_at ~2.8s)
-            if self.map_soft_verify_at > 0 and now >= self.map_soft_verify_at:
+            # Xử lý thông minh: ELF / nhân vật Level < 10 ở Noria (3) đi bộ qua cổng sang Lorencia (0)
+            if cur == 3 and exp == 0 and self.last_level is not None and self.last_level < 10:
+                self._set_state("ĐI BỘ QUA CỔNG NORIA (150, 7)")
+                if now >= self.next_map_retry_at:
+                    self.core.move_to(150, 7)
+                    self.next_map_retry_at = now + 4.0
+                return True
+
+            # Thử lại lệnh chuyển map định kỳ nếu MapID vẫn chưa đổi
+            if now >= self.next_map_retry_at:
+                self.next_map_retry_at = now + max(4.0, float(self.config.get("map_command_retry_delay", 5.0)))
+                self._log(
+                    f"MapID vẫn là {cur} (chưa chuyển sang {exp}). Đang thử lại lệnh chuyển map... "
+                    "(Lưu ý: Nếu server game từ chối lệnh, hãy kiểm tra điều kiện Level tối thiểu và Zen của nhân vật)",
+                    "WARNING"
+                )
+                self._send_map_command(stage, reason=f"Thử lại chuyển map {cur}→{exp}", current_map_id=cur, use_alternate=True)
+                return True
+
+            # Quá thời gian kiểm chứng mềm CHỈ ÁP DỤNG KHI cur < 0 (sensor thực sự mất tín hiệu)
+            if cur < 0 and self.map_soft_verify_at > 0 and now >= self.map_soft_verify_at:
                 self.map_sensor_suspect = True
                 self.map_wait_active = False
                 self._log(
-                    f"MapID still reports {cur} instead of {exp} after /move; "
-                    "sensor marked suspect. Continuing with legacy XY movement without further /move spam.",
+                    "MapID telemetry không xác định sau /move; áp dụng fallback XY an toàn cho chặng này.",
                     "WARNING"
                 )
                 self._move_to_target_after_map_verified()
@@ -448,6 +474,29 @@ class AutoTrainWorker:
             self._log(f"{reason}: Bỏ qua chuyển map (auto_warp tắt); chạy thẳng tới bãi {self.current_target}.", "SUCCESS")
             self._move_to_target_after_map_verified()
             return True
+
+        # Xử lý thông minh: Nhân vật Level < 10 ở Noria (Map 3) muốn sang Lorencia (Map 0)
+        # Server MU Online chặn lệnh /move /warp khi Level < 10 (chỉ cho phép đi bộ qua cổng).
+        # Tự động đi bộ qua Cổng Noria (150, 7) để bước sang Lorencia (121, 232)!
+        if self.last_level is not None and self.last_level < 10:
+            try:
+                if int(current_map_id) == 3 and int(expected) == 0:
+                    self._log(
+                        f"{reason}: Nhân vật Level {self.last_level} < 10 (chưa đủ Level 10 để dùng /move). "
+                        "Tự động đi bộ qua Cổng Noria (150, 7) để sang Lorencia...",
+                        "INFO"
+                    )
+                    self.core.stop_helper()
+                    self.core.cancel_move()
+                    time.sleep(0.08)
+                    self.core.move_to(150, 7)
+                    self._set_state("ĐI BỘ QUA CỔNG NORIA (150, 7)")
+                    self.map_wait_active = True
+                    self.map_command_sent_at = time.time()
+                    self.next_map_retry_at = time.time() + 4.5
+                    return True
+            except Exception:
+                pass
 
         return self._send_map_command(stage, reason, current_map_id)
 

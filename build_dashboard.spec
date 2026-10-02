@@ -18,7 +18,8 @@ hiddenimports = [
     'meg_direct_engine',
     'meg_auto_worker',
     'license_client',
-    'updater'
+    'updater',
+    'meg_ram_optimizer'
 ]
 
 tmp_ret = collect_all('customtkinter')

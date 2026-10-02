@@ -14,5 +14,8 @@
   "player_helper": "0x1E8",
   "player_last_coord": "0x4E0",
   "move_flag": "0x3C",
-  "helper_state": "0x20"
+  "helper_state": "0x20",
+  "game_type_info": "0x5609F28",
+  "game_world": "0x200",
+  "world_scene_index": "0x20"
 }

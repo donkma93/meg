@@ -147,6 +147,7 @@ python -m PyInstaller ^
     --hidden-import="meg_auto_worker" ^
     --hidden-import="license_client" ^
     --hidden-import="updater" ^
+    --hidden-import="meg_ram_optimizer" ^
     --distpath="%BUILD_DIST%" ^
     --workpath="%BUILD_TEMP%" ^
     "meg_gui.py"

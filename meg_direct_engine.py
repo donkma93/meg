@@ -52,6 +52,9 @@ DEFAULT_OFFSETS = {
     "player_last_coord": "",
     "move_flag": "",
     "helper_state": "",
+    "game_type_info": "",
+    "game_world": "",
+    "world_scene_index": "",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -178,24 +181,39 @@ function readPlayerInfoSnapshot(readName) {
         try {
             var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
             if (!curCoord.isNull()) {
-                mapId = curCoord.add(0x0C).readS32();
                 tileX = curCoord.add(0x10).readS32();
                 tileY = curCoord.add(0x14).readS32();
             }
             if ((tileX === 0 && tileY === 0) || curCoord.isNull()) {
                 var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
                 if (!lastCoord.isNull()) {
-                    var lm = lastCoord.add(0x0C).readS32();
                     var lx = lastCoord.add(0x10).readS32();
                     var ly = lastCoord.add(0x14).readS32();
-                    if (mapId < 0 && lm >= 0) mapId = lm;
                     if (tileX === 0 && tileY === 0 && (lx > 0 || ly > 0)) {
                         tileX = lx;
                         tileY = ly;
                     }
                 }
             }
-        } catch (e) {}
+        } catch (eCoord) {}
+
+        // Đọc Map ID (SceneIndex) chuẩn xác 100% từ Mega.Game_TypeInfo -> Instance -> World
+        try {
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            if (!typeInfo.isNull()) {
+                var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+                if (!staticFields.isNull()) {
+                    var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+                    if (!gameInstance.isNull()) {
+                        var world = gameInstance.add(off('__GAME_WORLD__')).readPointer();
+                        if (!world.isNull()) {
+                            var sc = world.add(off('__WORLD_SCENE_INDEX__')).readS32();
+                            if (sc >= 0 && sc <= 255) mapId = sc;
+                        }
+                    }
+                }
+            }
+        } catch (eWorld) {}
 
         var isMoving = false;
         try {
@@ -517,6 +535,9 @@ class MegDirectEngine:
             "__PLAYER_LAST_COORD__": self.offsets.get("player_last_coord", "0x4E0"),
             "__MOVE_FLAG__": self.offsets.get("move_flag", "0x3C"),
             "__HELPER_STATE__": self.offsets.get("helper_state", "0x20"),
+            "__GAME_TYPE_INFO__": self.offsets.get("game_type_info", "0x5609F28"),
+            "__GAME_WORLD__": self.offsets.get("game_world", "0x200"),
+            "__WORLD_SCENE_INDEX__": self.offsets.get("world_scene_index", "0x20"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
