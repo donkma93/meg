@@ -19,6 +19,10 @@ import time
 import math
 import threading
 from typing import Optional, Dict, Any, List, Tuple, Callable
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 from meg_direct_engine import MegDirectEngine
 
@@ -226,7 +230,7 @@ class AutoTrainWorker:
         self.thread = threading.Thread(target=self._run, daemon=True, name=f"AutoTrainWorker-{self.pid}")
         self.thread.start()
 
-    def stop(self):
+    def stop(self, reason: str = "Dừng Auto"):
         self.running = False
         self.stop_event.set()
         if self.core and self.core.is_ready:
@@ -244,11 +248,13 @@ class AutoTrainWorker:
                     cy = int(info["tileY"])
                     self.core.move_to(cx, cy)
                     self.core.cancel_move()
-                    self._log(f"Đã dừng Auto: Nhân vật đứng yên tại ({cx}, {cy}), MuHelper đã TẮT.", "SUCCESS")
+                    self._log(f"Đã dừng Auto [{reason}]: Nhân vật đứng yên tại ({cx}, {cy}), MuHelper đã TẮT.", "INFO")
                 else:
-                    self._log("Đã dừng Auto: Đã hãm phanh di chuyển và tắt MuHelper.", "SUCCESS")
+                    self._log(f"Đã dừng Auto [{reason}]: Đã hãm phanh di chuyển và tắt MuHelper.", "INFO")
             except Exception as e:
-                self._log(f"Lỗi khi dừng auto: {e}", "WARNING")
+                self._log(f"Lỗi khi dừng auto [{reason}]: {e}", "WARNING")
+        else:
+            self._log(f"Worker đã dừng [{reason}].", "INFO")
 
     def _get_stage_target(self, stage: Dict[str, Any]) -> Tuple[int, int]:
         wps = stage.get("waypoints", [])
@@ -522,6 +528,11 @@ class AutoTrainWorker:
         while self.running and not self.stop_event.is_set():
             now = time.time()
             try:
+                # 0. Kiểm tra xem tiến trình game có còn tồn tại không
+                if psutil and not psutil.pid_exists(self.pid):
+                    self._log(f"Tiến trình MEGAMU.exe (PID {self.pid}) đã biến mất hoặc bị văng/crash. Luồng worker dừng lại.", "ERROR")
+                    break
+
                 # 1. Lấy thông tin nhân vật từ Fast Telemetry
                 cache_age = 0.55 if not self.arrived_at_spot else 0.9
                 info = self.core.get_player_info(max_age=cache_age)

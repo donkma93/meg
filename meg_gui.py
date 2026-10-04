@@ -98,6 +98,35 @@ def resource_path(name: str) -> Path:
 BASE_DIR = app_dir()
 CONFIG_DIR = BASE_DIR / "config"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+AUTO_STOP_LOG_FILE = BASE_DIR / "auto_stop_events.log"
+
+def record_auto_stop_log(
+    slot_idx: int,
+    pid: Optional[int],
+    char_name: str,
+    trigger_type: str,
+    reason: str,
+    coords: str = "--,--",
+    level: str = "---"
+):
+    """
+    Ghi nhật ký chi tiết mỗi khi một tài khoản Auto dừng lại (Persistent Audit Trace Log).
+    Phân loại rõ ràng:
+    - MANUAL: Do con người (người dùng) chủ động bấm dừng / thao tác giao diện.
+    - SYSTEM: Do hệ thống / game tự ngắt (crash, mất PID, mất bản quyền, lỗi chặng...).
+    """
+    try:
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        tag = trigger_type.upper()
+        line = (
+            f"[{now_str}] [{tag:<6}] [Slot {slot_idx:02d}] "
+            f"[PID: {pid if pid else 'N/A'}] [Nhân vật: {char_name or 'N/A'}] [Cấp: {level}] [Tọa độ: {coords}] "
+            f"-> Lý do: {reason}\n"
+        )
+        with open(AUTO_STOP_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
 
 def extract_bundled_resources():
     """Tự động trích xuất các tài nguyên nhúng (C++ DLL, config mẫu, icons) nếu chưa có bên ngoài."""
@@ -952,7 +981,7 @@ class SlotController:
 
     def detach(self):
         """Ngắt kết nối."""
-        self.stop_auto()
+        self.stop_auto(reason="Người dùng ngắt kết nối slot hoặc đổi gán game", trigger_by="MANUAL")
         self.assigned_pid = None
         self.char_name = "---"
         self.level = "---"
@@ -1015,12 +1044,12 @@ class SlotController:
         self.set_status(tr("running", n=self.profile_index))
         return True
 
-    def stop_auto(self):
+    def stop_auto(self, reason: str = "Người dùng chủ động tắt Auto", trigger_by: str = "MANUAL"):
         worker = self.worker
         self.worker = None
         if worker:
             try:
-                worker.stop()
+                worker.stop(reason=reason)
             except Exception:
                 pass
         elif self.engine and self.engine.is_ready:
@@ -1030,12 +1059,29 @@ class SlotController:
             except Exception:
                 pass
 
+        was_auto = self.auto_requested
         self.auto_requested = False
         self.set_auto(False)
-        self.app.log_message(
-            f"[Slot {self.slot_idx:02d}] TẮT AUTO: Đã dừng auto, nhân vật đứng yên tại vị trí hiện tại, MuHelper đã TẮT.",
-            "INFO"
-        )
+
+        # Ghi log chi tiết nếu slot thực sự đang chạy auto
+        if was_auto or worker:
+            record_auto_stop_log(
+                slot_idx=self.slot_idx,
+                pid=self.assigned_pid,
+                char_name=self.char_name,
+                trigger_type=trigger_by,
+                reason=reason,
+                coords=self.coords,
+                level=str(self.level)
+            )
+
+            prefix = "🛑 [NGƯỜI DÙNG DỪNG]" if trigger_by.upper() == "MANUAL" else "⚠️ [HỆ THỐNG TỰ DỪNG]"
+            log_level = "WARNING" if trigger_by.upper() == "MANUAL" else "ERROR"
+            self.app.log_message(
+                f"[Slot {self.slot_idx:02d}] {prefix} {reason} (NV: '{self.char_name}', PID: {self.assigned_pid or 'N/A'}).",
+                log_level
+            )
+
         if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
             self.set_status(tr("connected_status"))
         else:
@@ -1043,7 +1089,7 @@ class SlotController:
 
     def toggle_auto(self):
         if self.auto_requested:
-            self.stop_auto()
+            self.stop_auto(reason="Người dùng bấm nút Tắt Auto trên dòng tài khoản", trigger_by="MANUAL")
         else:
             self.start_auto()
 
@@ -1059,11 +1105,17 @@ class SlotController:
         """Đọc RAM thông tin nhân vật hiển thị lên bảng."""
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
             if self.assigned_pid:
+                p_closed = self.assigned_pid
+                c_closed = self.char_name
                 self.set_status(tr("game_closed"))
                 self.char_name = "---"
                 self.level = "---"
                 self.coords = "--,--"
-                self.stop_auto()
+                if self.auto_requested or self.worker:
+                    self.stop_auto(
+                        reason=f"Tiến trình game MEGAMU.exe (PID {p_closed} - {c_closed}) đã bị đóng hoặc bị văng/crash!",
+                        trigger_by="SYSTEM"
+                    )
             return
 
         if self.engine and self.engine.is_ready:
@@ -1857,7 +1909,7 @@ class DashboardApp(ctk.CTk):
 
         # Dừng auto và ngắt kết nối an toàn nếu đang chạy
         if ctrl.worker and ctrl.worker.running:
-            ctrl.stop_auto()
+            ctrl.stop_auto(reason=f"Người dùng bấm nút Xóa Slot #{last_idx:02d}", trigger_by="MANUAL")
         if ctrl.engine:
             try:
                 ctrl.engine.detach()
@@ -1924,16 +1976,31 @@ class DashboardApp(ctk.CTk):
             pass
 
     def _verify_license_async(self):
-        """Kiểm tra xác thực bản quyền định kỳ ngầm (Heartbeat) với Server."""
+        """Kiểm tra xác thực bản quyền định kỳ ngầm với Server (1 lần mỗi ngày / 24h)."""
         if not getattr(self, "running", True) or not license_client:
             return
         try:
-            license_client.verify_license()
+            lic_data = license_client.load_license_data() if license_client else {}
+            last_v = lic_data.get("last_verified_at", "")
+            should_verify = True
+            if last_v:
+                try:
+                    from datetime import datetime
+                    dt_last = datetime.strptime(last_v.split(".")[0], "%Y-%m-%d %H:%M:%S")
+                    diff_hours = (datetime.now() - dt_last).total_seconds() / 3600.0
+                    if diff_hours < 24.0:
+                        should_verify = False
+                except Exception:
+                    should_verify = True
+
+            if should_verify:
+                license_client.verify_license()
             self.after(0, self.update_header_stats)
         except Exception:
             pass
         try:
-            self.after(5000, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
+            # Kiểm tra lại sau mỗi 1 giờ (3.600.000 ms) để xem đã đủ 24 giờ hay chưa
+            self.after(3600000, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
         except Exception:
             pass
 
@@ -2901,6 +2968,36 @@ class DashboardApp(ctk.CTk):
         )
         self.btn_clear_log.pack(side="right")
 
+        self.btn_open_stop_log = ctk.CTkButton(
+            top_bar,
+            text="📑 Mở Log Dừng Auto",
+            width=140,
+            height=28,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#38bdf8",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.open_stop_events_log_file
+        )
+        self.btn_open_stop_log.pack(side="right", padx=(0, 6))
+
+    def open_stop_events_log_file(self):
+        """Mở file auto_stop_events.log bằng Notepad hoặc trình đọc mặc định."""
+        try:
+            if not AUTO_STOP_LOG_FILE.exists():
+                header = (
+                    "========================================================================================\n"
+                    "MEGAMU AUTO TRAIN - NHẬT KÝ CHI TIẾT CÁC LẦN DỪNG AUTO (AUDIT TRACE LOG)\n"
+                    "Quy ước: [MANUAL] = Người dùng bấm dừng | [SYSTEM] = Hệ thống / Game tự ngắt\n"
+                    "========================================================================================\n\n"
+                )
+                AUTO_STOP_LOG_FILE.write_text(header, encoding="utf-8")
+            os.startfile(str(AUTO_STOP_LOG_FILE))
+        except Exception as e:
+            self.log_message(f"Không thể mở file log: {e}", "ERROR")
+
         # Hộp văn bản hiển thị Log tối màu
         self.log_textbox = ctk.CTkTextbox(
             self.panel_logs,
@@ -3702,7 +3799,8 @@ class DashboardApp(ctk.CTk):
     def stop_all(self):
         """Tắt Auto cho tất cả các slot."""
         for ctrl in self.controllers:
-            ctrl.stop_auto()
+            if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                ctrl.stop_auto(reason="Người dùng bấm nút 'Tắt Tất Cả' trên thanh điều khiển", trigger_by="MANUAL")
         self.update_header_stats()
         self.log_message("Tắt TẤT CẢ: Đã dừng Auto cho toàn bộ tài khoản.", "INFO")
 
@@ -3719,9 +3817,11 @@ class DashboardApp(ctk.CTk):
 
     def batch_stop(self):
         """Tắt Auto cho nhóm được chọn ở combobox Điều khiển."""
+        choice = self.ctrl_target_var.get()
         targets = self._get_filtered_controllers()
         for ctrl in targets:
-            ctrl.stop_auto()
+            if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                ctrl.stop_auto(reason=f"Người dùng bấm nút 'Dừng' theo nhóm [{choice}]", trigger_by="MANUAL")
         self.update_header_stats()
 
     def _get_filtered_controllers(self) -> List[SlotController]:
@@ -3925,8 +4025,8 @@ class DashboardApp(ctk.CTk):
         # TRƯỜNG HỢP 1: BẢN CẬP NHẬT MỚI BẮT BUỘC - Khóa tuyệt đối, không được dùng bản cũ!
         if getattr(self, "is_update_mandatory", False):
             for ctrl in self.controllers:
-                if ctrl.worker and ctrl.worker.running:
-                    ctrl.stop_auto()
+                if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                    ctrl.stop_auto(reason="Phát hiện bản cập nhật mới bắt buộc từ máy chủ", trigger_by="SYSTEM")
 
             for btn_name in ("btn_connect_all", "btn_team5", "btn_refresh", "btn_add_slot", "btn_remove_slot", "btn_save_cfg", "btn_reload_cfg"):
                 if hasattr(self, btn_name):
@@ -3989,13 +4089,24 @@ class DashboardApp(ctk.CTk):
             license_client.is_native_bridge_active(force_reload=True)
 
         is_valid = license_client.is_license_valid() if license_client else False
-        state_val = "normal" if is_valid else "disabled"
+        if is_valid:
+            self._license_fail_count = 0
+            state_val = "normal"
+        else:
+            self._license_fail_count = getattr(self, "_license_fail_count", 0) + 1
+            # Chống giật / ngắt nhầm (Anti-Glitch Debounce): Chỉ khóa khi thất bại liên tiếp 3 lần
+            if self._license_fail_count < 3:
+                return
+            state_val = "disabled"
 
         # 0. Nếu không có bản quyền hợp lệ, lập tức dừng mọi worker đang auto train
         if not is_valid:
+            lic_msg = "Bản quyền chưa kích hoạt hoặc đã hết hạn"
+            if license_client and not license_client.is_native_bridge_active():
+                lic_msg = "Thiếu file meg_license_bridge.dll"
             for ctrl in self.controllers:
-                if ctrl.worker and ctrl.worker.running:
-                    ctrl.stop_auto()
+                if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                    ctrl.stop_auto(reason=f"Hệ thống khóa: {lic_msg}", trigger_by="SYSTEM")
 
         # 1. Khóa/mở khóa các nút thanh công cụ chính
         for btn_name in ("btn_connect_all", "btn_team5", "btn_refresh", "btn_add_slot", "btn_remove_slot"):
@@ -4156,7 +4267,9 @@ class DashboardApp(ctk.CTk):
                 self.ram_manager.stop_worker()
             except Exception:
                 pass
-        self.stop_all()
+        for ctrl in self.controllers:
+            if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                ctrl.stop_auto(reason="Người dùng đóng cửa sổ chương trình Dashboard", trigger_by="MANUAL")
         for ctrl in self.controllers:
             if ctrl.engine:
                 try:

@@ -9,6 +9,8 @@ import hashlib
 import platform
 import socket
 import ctypes
+import threading
+import time
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
 
@@ -90,6 +92,9 @@ def _get_native_bridge(force_reload: bool = False):
             # Lớp 2 & 3: Xác thực bộ nhớ C++ và giải mã game offsets
             if hasattr(dll, "Bridge_IsAuthenticated"):
                 dll.Bridge_IsAuthenticated.restype = ctypes.c_int
+            if hasattr(dll, "Bridge_VerifyOfflineSignature"):
+                dll.Bridge_VerifyOfflineSignature.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+                dll.Bridge_VerifyOfflineSignature.restype = ctypes.c_int
             if hasattr(dll, "Bridge_GetGameOffsets"):
                 dll.Bridge_GetGameOffsets.argtypes = [ctypes.c_char_p, ctypes.c_int]
                 dll.Bridge_GetGameOffsets.restype = ctypes.c_int
@@ -171,23 +176,43 @@ def get_machine_hwid() -> str:
 
     return "THIẾU_MEG_LICENSE_BRIDGE_DLL"
 
+_license_lock = threading.Lock()
+_cached_license_data: Dict[str, Any] = {}
+
 def load_license_data() -> Dict[str, Any]:
-    """Đọc dữ liệu bản quyền đã lưu từ file config/license.json."""
-    if not LICENSE_FILE.exists():
-        return {}
-    try:
-        data = json.loads(LICENSE_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    """Đọc dữ liệu bản quyền đã lưu từ file config/license.json (Thread-safe có fallback cache)."""
+    global _cached_license_data
+    with _license_lock:
+        if not LICENSE_FILE.exists():
+            return _cached_license_data
+        for _ in range(3):
+            try:
+                content = LICENSE_FILE.read_text(encoding="utf-8")
+                if content.strip():
+                    data = json.loads(content)
+                    if isinstance(data, dict) and data.get("license_key"):
+                        _cached_license_data = data
+                        return data
+            except Exception:
+                time.sleep(0.02)
+        return _cached_license_data
 
 def save_license_data(data: Dict[str, Any]):
-    """Lưu dữ liệu bản quyền vào config/license.json."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        LICENSE_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    """Lưu dữ liệu bản quyền vào config/license.json một cách an toàn (Atomic write)."""
+    global _cached_license_data
+    with _license_lock:
+        _cached_license_data = data
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            temp_file = CONFIG_DIR / "license.json.tmp"
+            temp_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            if temp_file.exists():
+                os.replace(str(temp_file), str(LICENSE_FILE))
+        except Exception:
+            try:
+                LICENSE_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception:
+                pass
 
 def activate_license(license_key: str, server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dict[str, Any]]:
     """
@@ -222,10 +247,23 @@ def activate_license(license_key: str, server_url: str = DEFAULT_SERVER_URL) -> 
     except Exception as e:
         return False, f"Lỗi gọi C++ Bridge ({e})", {}
 
+def verify_offline_signature(license_key: str, signature: str) -> bool:
+    """Xác thực chữ ký số offline HMAC-SHA256 theo HWID thông qua C++ Bridge."""
+    bridge = _get_native_bridge()
+    if bridge and hasattr(bridge, "Bridge_VerifyOfflineSignature"):
+        try:
+            k_bytes = str(license_key).strip().encode("utf-8")
+            s_bytes = str(signature).strip().encode("utf-8")
+            return bool(bridge.Bridge_VerifyOfflineSignature(k_bytes, s_bytes) == 1)
+        except Exception:
+            pass
+    return False
+
 def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dict[str, Any]]:
     """
     Xác thực định kỳ (verify / heartbeat) với Server.
     Ưu tiên thực hiện bằng WinHTTP trong C++ Native Bridge.
+    Có cơ chế bảo vệ: Không bao giờ hủy bản quyền khi gặp lỗi mạng/timeout tạm thời!
     """
     lic_data = load_license_data()
     key = lic_data.get("license_key")
@@ -251,19 +289,30 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
             data = json.loads(res_str)
             if data.get("valid"):
                 lic_data.update(data)
+                lic_data["valid"] = True
                 lic_data["server_url"] = srv
+                lic_data["last_verified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
                 save_license_data(lic_data)
                 return True, "Bản quyền hợp lệ.", lic_data
             else:
-                lic_data["valid"] = False
-                lic_data["status"] = data.get("status", "invalid")
-                save_license_data(lic_data)
-                return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
-        return False, "C++ Bridge không phản hồi.", lic_data
+                # CHỈ ĐÁNH DẤU INVALID NẾU MÁY CHỦ BÁO RÕ LÀ ĐÃ BỊ THU HỒI / BAN
+                st = data.get("status", "")
+                if st in ("revoked", "banned", "expired", "hwid_mismatch"):
+                    lic_data["valid"] = False
+                    lic_data["status"] = st
+                    save_license_data(lic_data)
+                    return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
+                else:
+                    # Lỗi tạm thời (HTTP 429, Cloudflare, server bảo trì) -> Giữ nguyên phiên bản quyền hiện tại
+                    return True, "Duy trì phiên bản quyền hiện tại (máy chủ bận).", lic_data
+
+        # C++ Bridge không phản hồi (mất mạng / timeout) -> Duy trì offline grace period
+        exp = lic_data.get("expires_at")
+        return True, f"Chế độ ngoại tuyến (hạn dùng: {exp}).", lic_data
     except Exception as e:
         exp = lic_data.get("expires_at")
         if exp:
-            return True, f"Offline mode ({exp})", lic_data
+            return True, f"Chế độ ngoại tuyến ({exp})", lic_data
         return False, f"Lỗi xác thực C++ Bridge ({e})", lic_data
 
 def deactivate_license() -> bool:
@@ -278,8 +327,11 @@ def deactivate_license() -> bool:
 
 def is_license_valid() -> bool:
     """
-    Kiểm tra nhanh xem bản quyền hiện tại có hợp lệ hay không.
-    BẮT BUỘC: File meg_license_bridge.dll phải đang tồn tại và hoạt động.
+    Kiểm tra xem bản quyền hiện tại có hợp lệ hay không.
+    Hỗ trợ Chế độ Ngoại tuyến (Offline Grace Period):
+    - File DLL meg_license_bridge.dll bắt buộc phải tồn tại.
+    - Miễn là ngày hết hạn (expires_at) vẫn còn hạn và chữ ký số HMAC-SHA256 khớp với máy,
+      hệ thống đảm bảo chạy liên tục 24/7 mà không bị ngắt khi mất kết nối mạng.
     """
     if not is_native_bridge_active():
         return False
@@ -287,26 +339,39 @@ def is_license_valid() -> bool:
     data = load_license_data()
     if not data or not data.get("license_key"):
         return False
-    if data.get("valid") is False:
-        return False
+
+    # 1. Kiểm tra ngày hết hạn
+    if not data.get("is_lifetime"):
+        exp = data.get("expires_at")
+        if not exp:
+            return False
+        try:
+            from datetime import datetime
+            exp_clean = str(exp).strip()
+            if " " in exp_clean:
+                dt = datetime.strptime(exp_clean.split(".")[0], "%Y-%m-%d %H:%M:%S")
+            else:
+                dt = datetime.strptime(exp_clean, "%Y-%m-%d")
+            if dt <= datetime.now():
+                # Thực sự đã quá hạn
+                return False
+        except Exception:
+            pass
+
+    # 2. Nếu trạng thái bị server thu hồi dứt điểm (banned / revoked)
     status = data.get("status", "active")
-    if status != "active":
+    if status in ("revoked", "banned", "suspended"):
         return False
-    if data.get("is_lifetime"):
-        return True
-    exp = data.get("expires_at")
-    if not exp:
-        return False
-    try:
-        from datetime import datetime
-        exp_clean = str(exp).strip()
-        if " " in exp_clean:
-            dt = datetime.strptime(exp_clean.split(".")[0], "%Y-%m-%d %H:%M:%S")
-        else:
-            dt = datetime.strptime(exp_clean, "%Y-%m-%d")
-        return dt > datetime.now()
-    except Exception:
-        return True
+
+    # 3. Xác thực chữ ký số Offline (HMAC-SHA256 theo HWID máy)
+    sig = data.get("signature", "")
+    key = data.get("license_key", "")
+    if sig and key:
+        if verify_offline_signature(key, sig):
+            return True
+
+    # 4. Kiểm tra cờ valid
+    return data.get("valid", True) is not False
 
 def get_license_display_text() -> str:
     """
