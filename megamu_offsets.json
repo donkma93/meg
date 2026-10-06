@@ -25,5 +25,7 @@
     "helper_state": "0x20",
     "game_type_info": "0x54E7140",
     "game_world": "0x200",
-    "world_scene_index": "0x20"
+    "world_scene_index": "0x20",
+    "moss_roll": "0x238B380",
+    "moss_open": "0x238B0A0"
 }

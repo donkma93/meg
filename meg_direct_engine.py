@@ -66,8 +66,9 @@ DEFAULT_OFFSETS = {
     "move_flag": "0x3C",
     "helper_state": "0x20",
     "game_type_info": "0x54E7140",
-    "game_world": "0x200",
     "world_scene_index": "0x20",
+    "moss_roll": "0x238B380",
+    "moss_open": "0x238B0A0",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -131,6 +132,22 @@ var nativeStopAutoMove = new NativeFunction(baseAddr.add(off('__STOP_AUTO_MOVE__
 var nativeChatCmd = new NativeFunction(baseAddr.add(off('__CHAT_SEND_CMD__')), 'void', ['pointer', 'pointer']);
 var nativeChatGeneral = new NativeFunction(baseAddr.add(off('__CHAT_SEND__')), 'void', ['pointer', 'pointer']);
 var nativeChatFrameSend = new NativeFunction(baseAddr.add(off('__CHAT_FRAME_SEND__')), 'void', ['pointer', 'pointer', 'bool', 'pointer']);
+
+var nativeMossRoll = null;
+try {
+    var mrOff = off('__MOSS_ROLL__');
+    if (!mrOff.isNull()) {
+        nativeMossRoll = new NativeFunction(baseAddr.add(mrOff), 'void', ['int', 'pointer']);
+    }
+} catch (eMossRoll) {}
+
+var nativeMossOpen = null;
+try {
+    var moOff = off('__MOSS_OPEN__');
+    if (!moOff.isNull()) {
+        nativeMossOpen = new NativeFunction(baseAddr.add(moOff), 'void', ['int', 'pointer']);
+    }
+} catch (eMossOpen) {}
 
 var cfInstance = null;
 var pendingCommand = null;
@@ -530,6 +547,28 @@ rpc.exports = {
         return false;
     },
 
+    rollMoss: function(categoryId) {
+        try {
+            ensureThreadAttached();
+            if (nativeMossRoll !== null) {
+                nativeMossRoll(parseInt(categoryId), ptr(0));
+                return true;
+            }
+        } catch (eMR) {}
+        return false;
+    },
+
+    openMoss: function(categoryId) {
+        try {
+            ensureThreadAttached();
+            if (nativeMossOpen !== null) {
+                nativeMossOpen(parseInt(categoryId || 0), ptr(0));
+                return true;
+            }
+        } catch (eMO) {}
+        return false;
+    },
+
     cleanup: function() {
         shuttingDown = true;
         try {
@@ -715,6 +754,8 @@ class MegDirectEngine:
             "__AUTO_MOVE_HELPER__": self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x4A0"),
             "__AUTO_MOVE_DEST__": self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x4A8"),
             "__WORLD_SCENE_INDEX__": self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20"),
+            "__MOSS_ROLL__": self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x238B380"),
+            "__MOSS_OPEN__": self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x238B0A0"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -1338,6 +1379,28 @@ class MegDirectEngine:
             time.sleep(0.12)
             return not self.is_helper_active(force_refresh=True)
 
+        return False
+
+    def roll_moss(self, category_id: int) -> bool:
+        """Gửi gói tin quay đồ Moss Merchant cho Category ID (Zero-Focus, Native Memory)."""
+        if self.is_ready:
+            try:
+                res = self._call("rollMoss", int(category_id))
+                if res:
+                    return True
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi roll_moss: {e}")
+        return False
+
+    def open_moss(self, category_id: int = 0) -> bool:
+        """Gửi gói tin yêu cầu mở giao diện Moss Merchant với Category ID (mặc định 0)."""
+        if self.is_ready:
+            try:
+                res = self._call("openMoss", int(category_id))
+                if res:
+                    return True
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi open_moss: {e}")
         return False
 
     def detach(self):
