@@ -72,6 +72,10 @@ DEFAULT_OFFSETS = {
     "mirror_enter": "0xFDCA30",
     "mirror_npc_click": "0xFCE6E0",
     "mirror_is_event_map": "0xFCF820",
+    "inv_sell_item": "0x1422330",
+    "inv_trash_item": "0x14221D0",
+    "player_inventory": "0x1B8",
+    "inventory_items": "0x28",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -175,6 +179,22 @@ try {
         nativeMirrorIsEventMap = new NativeFunction(baseAddr.add(mimOff), 'bool', []);
     }
 } catch (eMirrorMap) {}
+
+var nativeInvSellItem = null;
+try {
+    var isiOff = off('__INV_SELL_ITEM__');
+    if (!isiOff.isNull()) {
+        nativeInvSellItem = new NativeFunction(baseAddr.add(isiOff), 'void', ['int', 'int']);
+    }
+} catch (eInvSell) {}
+
+var nativeInvTrashItem = null;
+try {
+    var itiOff = off('__INV_TRASH_ITEM__');
+    if (!itiOff.isNull()) {
+        nativeInvTrashItem = new NativeFunction(baseAddr.add(itiOff), 'void', ['int']);
+    }
+} catch (eInvTrash) {}
 
 var cfInstance = null;
 var pendingCommand = null;
@@ -629,6 +649,134 @@ rpc.exports = {
         return false;
     },
 
+    getInventorySummary: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) return JSON.stringify({ error: "no_player" });
+
+            var invOff = off('__PLAYER_INVENTORY__');
+            var inv = p.add(invOff).readPointer();
+            if (inv.isNull()) return JSON.stringify({ error: "no_inventory" });
+
+            var itemsOff = off('__INVENTORY_ITEMS__');
+            var itemsArr = inv.add(itemsOff).readPointer();
+            if (itemsArr.isNull()) return JSON.stringify({ error: "no_items_arr" });
+
+            var totalMain = 64;
+            var freeSlots = 0;
+            var junkSlots = [];
+            var keptSlots = [];
+
+            for (var s = 12; s < 76; s++) {
+                var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                if (itemPtr.isNull()) {
+                    freeSlots++;
+                    continue;
+                }
+                var itemIndex = itemPtr.add(0x10).readS32();
+                var itemLevel = itemPtr.add(0x14).readS32();
+                var excOpt = itemPtr.add(0x20).readS32();
+                var ancOpt = itemPtr.add(0x24).readS32();
+                var sockOpt = itemPtr.add(0x28).readS32();
+                var sec = Math.floor(itemIndex / 512);
+
+                // Bảo tồn nghiêm ngặt:
+                // 1. Đồ Hoàn Hảo (excOpt > 0)
+                // 2. Đồ Thần (ancOpt > 0)
+                // 3. Đồ Socket (sockOpt > 0)
+                // 4. Đồ đã nâng cấp/đập ngọc (itemLevel > 0)
+                // 5. Ngọc và nguyên liệu/vé/talisman (sec >= 12 && sec <= 15)
+                var isKept = (excOpt > 0) || (ancOpt > 0) || (sockOpt > 0) || (itemLevel > 0) || (sec >= 12 && sec <= 15);
+                if (isKept) {
+                    keptSlots.push({ slot: s, index: itemIndex, level: itemLevel, exc: excOpt, anc: ancOpt, sock: sockOpt });
+                } else {
+                    junkSlots.push({ slot: s, index: itemIndex, level: itemLevel });
+                }
+            }
+
+            return JSON.stringify({
+                total: totalMain,
+                free: freeSlots,
+                used: totalMain - freeSlots,
+                junkCount: junkSlots.length,
+                keptCount: keptSlots.length,
+                junkSlots: junkSlots
+            });
+        } catch (eInv) {
+            return JSON.stringify({ error: eInv.toString() });
+        }
+    },
+
+    cleanInventoryJunk: function(method) {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) return JSON.stringify({ cleaned: 0, error: "no_player" });
+
+            var invOff = off('__PLAYER_INVENTORY__');
+            var inv = p.add(invOff).readPointer();
+            if (inv.isNull()) return JSON.stringify({ cleaned: 0, error: "no_inventory" });
+
+            var itemsOff = off('__INVENTORY_ITEMS__');
+            var itemsArr = inv.add(itemsOff).readPointer();
+            if (itemsArr.isNull()) return JSON.stringify({ cleaned: 0, error: "no_items_arr" });
+
+            var cleaned = 0;
+            var useMethod = method || "both";
+
+            for (var s = 12; s < 76; s++) {
+                var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                if (itemPtr.isNull()) continue;
+
+                var itemIndex = itemPtr.add(0x10).readS32();
+                var itemLevel = itemPtr.add(0x14).readS32();
+                var excOpt = itemPtr.add(0x20).readS32();
+                var ancOpt = itemPtr.add(0x24).readS32();
+                var sockOpt = itemPtr.add(0x28).readS32();
+                var sec = Math.floor(itemIndex / 512);
+
+                // Giữ lại tuyệt đối mọi đồ giá trị
+                if (excOpt > 0 || ancOpt > 0 || sockOpt > 0 || itemLevel > 0 || (sec >= 12 && sec <= 15)) {
+                    continue;
+                }
+
+                try {
+                    if (useMethod === "sell" || useMethod === "both") {
+                        if (nativeInvSellItem !== null) {
+                            nativeInvSellItem(-2, s);
+                        }
+                    }
+                    if (useMethod === "trash" || (useMethod === "both" && nativeInvSellItem === null)) {
+                        if (nativeInvTrashItem !== null) {
+                            nativeInvTrashItem(s);
+                        }
+                    }
+                    cleaned++;
+                } catch (eAct) {}
+            }
+            return JSON.stringify({ cleaned: cleaned });
+        } catch (e) {
+            return JSON.stringify({ cleaned: 0, error: e.toString() });
+        }
+    },
+
+    sellInventorySlot: function(slot) {
+        try {
+            ensureThreadAttached();
+            var s = parseInt(slot);
+            if (nativeInvSellItem !== null) {
+                nativeInvSellItem(-2, s);
+                return true;
+            }
+            if (nativeInvTrashItem !== null) {
+                nativeInvTrashItem(s);
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    },
+
     cleanup: function() {
         shuttingDown = true;
         try {
@@ -819,6 +967,10 @@ class MegDirectEngine:
             "__MIRROR_ENTER__": self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xFDCA30"),
             "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xFCE6E0"),
             "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xFCF820"),
+            "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x1422330"),
+            "__INV_TRASH_ITEM__": self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x14221D0"),
+            "__PLAYER_INVENTORY__": self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B8"),
+            "__INVENTORY_ITEMS__": self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -1495,6 +1647,37 @@ class MegDirectEngine:
                 return bool(self._call("isMirrorEventMap"))
             except Exception:
                 pass
+        return False
+
+    def get_inventory_summary(self) -> Dict[str, Any]:
+        """Lấy thông tin tổng quan hòm đồ chính (số ô trống, số đồ rác, đồ giữ lại)."""
+        if self.is_ready:
+            try:
+                res_str = self._call("getInventorySummary")
+                if res_str:
+                    return json.loads(res_str)
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi get_inventory_summary: {e}")
+        return {"error": "not_ready", "free": 64, "junkCount": 0}
+
+    def clean_inventory_junk(self, method: str = "both") -> Dict[str, Any]:
+        """Tự động bán / dọn toàn bộ vật phẩm rác trong Main Inventory (bảo toàn đồ Exc/Socket/Set/Ngọc/Đồ cộng)."""
+        if self.is_ready:
+            try:
+                res_str = self._call("cleanInventoryJunk", str(method))
+                if res_str:
+                    return json.loads(res_str)
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi clean_inventory_junk: {e}")
+        return {"cleaned": 0, "error": "not_ready"}
+
+    def sell_inventory_slot(self, slot: int) -> bool:
+        """Gửi lệnh bán 1 slot cụ thể trong Main Inventory vào Merchant."""
+        if self.is_ready:
+            try:
+                return bool(self._call("sellInventorySlot", int(slot)))
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi sell_inventory_slot: {e}")
         return False
 
     def detach(self):

@@ -1036,7 +1036,8 @@ class ConfigPersistenceManager:
                             res[s_int] = {
                                 "category": int(conf.get("category", 0)),
                                 "delay_ms": int(conf.get("delay_ms", 1000)),
-                                "max_rolls": int(conf.get("max_rolls", 0))
+                                "max_rolls": int(conf.get("max_rolls", 0)),
+                                "auto_clean": bool(conf.get("auto_clean", True))
                             }
                         except Exception:
                             pass
@@ -1045,14 +1046,15 @@ class ConfigPersistenceManager:
             return res
 
     @classmethod
-    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0):
+    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0, auto_clean: bool = True):
         """Lưu cấu hình Auto Moss của riêng Slot slot_idx."""
         with cls._lock:
             cur = cls.load_moss_configs()
             cur[slot_idx] = {
                 "category": int(cat),
                 "delay_ms": int(delay_ms),
-                "max_rolls": int(max_rolls)
+                "max_rolls": int(max_rolls),
+                "auto_clean": bool(auto_clean)
             }
             try:
                 store = {"slots": {str(k): v for k, v in sorted(cur.items(), key=lambda x: int(x[0]))}}
@@ -1101,6 +1103,7 @@ class SlotController:
         self.moss_category: int = 0
         self.moss_delay_ms: int = 1000
         self.moss_max_rolls: int = 0
+        self.moss_auto_clean: bool = True
         self.moss_rolls_count: int = 0
         self.moss_running: bool = False
         self.moss_worker_thread: Optional[threading.Thread] = None
@@ -1413,12 +1416,40 @@ class SlotController:
         )
 
         def _worker():
+            consecutive_fails = 0
             while self.moss_running:
                 if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
                     self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
                     break
+
+                # 1. Proactive auto-clean: Kiểm tra hòm đồ trước khi quay
+                if self.moss_auto_clean and eng and eng.is_ready:
+                    try:
+                        inv = eng.get_inventory_summary()
+                        if inv and not inv.get("error"):
+                            free_slots = int(inv.get("free", 64))
+                            junk_count = int(inv.get("junkCount", 0))
+                            if free_slots < 4 and junk_count > 0:
+                                self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác..."
+                                ))
+                                c_res = eng.clean_inventory_junk("both")
+                                cleaned = c_res.get("cleaned", 0)
+                                self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Đã dọn {c} món đồ rác (Giữ lại đồ Hoàn Hảo/Socket/Set/Ngọc/Đồ cộng). Tiếp tục quay..."
+                                ))
+                                time.sleep(0.4)
+                            elif free_slots < 2 and junk_count == 0:
+                                self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Exc / Socket / Set / Ngọc). Tự động dừng quay an toàn!"
+                                ))
+                                break
+                    except Exception:
+                        pass
+
                 ok = eng.roll_moss(self.moss_category) if eng else False
                 if ok:
+                    consecutive_fails = 0
                     self.moss_rolls_count += 1
                     r_num = self.moss_rolls_count
                     def _update_ui(s=self.slot_idx, r=r_num, c=self.moss_category):
@@ -1427,7 +1458,28 @@ class SlotController:
                         self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}")
                     self.app.after(0, _update_ui)
                 else:
-                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công (Hòm đầy hoặc không đủ Zen)."))
+                    consecutive_fails += 1
+                    # Nếu quay không thành công (có thể bị đầy hòm), thử dọn rác ngay
+                    cleaned_items = 0
+                    if self.moss_auto_clean and eng and eng.is_ready:
+                        try:
+                            c_res = eng.clean_inventory_junk("both")
+                            cleaned_items = c_res.get("cleaned", 0)
+                            if cleaned_items > 0:
+                                self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Đã dọn {c} món rác khi bị đầy hòm. Thử quay tiếp..."
+                                ))
+                                time.sleep(0.4)
+                                consecutive_fails = 0
+                                continue
+                        except Exception:
+                            pass
+
+                    if consecutive_fails >= 3:
+                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công 3 lần liên tiếp (Hòm đầy không còn rác hoặc không đủ Zen)."))
+                        time.sleep(1.0)
+                    else:
+                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công (Hòm đầy hoặc không đủ Zen)."))
 
                 if self.moss_max_rolls > 0 and self.moss_rolls_count >= self.moss_max_rolls:
                     self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] 🏁 Đã hoàn thành đủ {self.moss_max_rolls} lượt."))
@@ -1491,6 +1543,28 @@ class SlotController:
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚪 Đã gửi lệnh mở giao diện NPC Moss.")
             return True
         return False
+
+    def clean_moss_inventory(self) -> int:
+        """Dọn dẹp các món đồ rác trong hòm đồ chính của riêng slot này."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return 0
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!")
+            return 0
+        if not eng.is_ready:
+            eng.attach()
+        try:
+            res = eng.clean_inventory_junk("both")
+            cleaned = res.get("cleaned", 0)
+            self.app.append_moss_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🧹 Đã dọn {cleaned} món đồ rác (Đã giữ lại đồ Hoàn Hảo / Socket / Set / Ngọc / Đồ đã nâng cấp)."
+            )
+            return cleaned
+        except Exception as e:
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi dọn đồ: {e}")
+            return 0
 
     def enter_mirror(self) -> bool:
         """Gọi native function vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
@@ -1722,6 +1796,7 @@ class DashboardApp(ctk.CTk):
             ctrl.moss_category = int(c_data.get("category", 0))
             ctrl.moss_delay_ms = int(c_data.get("delay_ms", 1000))
             ctrl.moss_max_rolls = int(c_data.get("max_rolls", 0))
+            ctrl.moss_auto_clean = bool(c_data.get("auto_clean", True))
             self.controllers.append(ctrl)
 
         # Bộ nhớ tiến trình
@@ -4286,9 +4361,36 @@ class DashboardApp(ctk.CTk):
         )
         btn_apply_delay.pack(side="left")
 
+        self.batch_moss_clean_cb = ctk.CTkCheckBox(
+            left_tb,
+            text="🧹 Tự dọn rác",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f87171",
+            fg_color="#ef4444",
+            hover_color="#dc2626",
+            command=self.on_toggle_global_moss_clean
+        )
+        self.batch_moss_clean_cb.select()
+        self.batch_moss_clean_cb.pack(side="left", padx=(10, 0))
+
         # Cụm Phải: Thao tác đồng loạt
         right_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
         right_tb.pack(side="right", fill="y")
+
+        btn_clean_all = ctk.CTkButton(
+            right_tb,
+            text="🧹 Dọn Rác Tất Cả",
+            height=30,
+            corner_radius=6,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#ef4444",
+            text_color="#f87171",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.clean_all_moss_inventories
+        )
+        btn_clean_all.pack(side="left", padx=(0, 6))
 
         btn_open_all = ctk.CTkButton(
             right_tb,
@@ -4346,7 +4448,7 @@ class DashboardApp(ctk.CTk):
             ("Delay (ms)", 90, "center"),
             ("Đã Quay", 85, "center"),
             ("Trạng Thái", 115, "center"),
-            ("Thao Tác", 150, "center"),
+            ("Thao Tác", 205, "center"),
         ]
         for title, w, anc in headers:
             ctk.CTkLabel(
@@ -4486,14 +4588,14 @@ class DashboardApp(ctk.CTk):
         )
         status_lbl.pack(side="left", padx=4)
 
-        # Cột 7: Thao tác (Auto Bật/Tắt & 1 Lần)
-        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=150)
+        # Cột 7: Thao tác (Auto Bật/Tắt & 1 Lần & Dọn rác)
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=205)
         action_box.pack(side="left", padx=4)
 
         btn_toggle = ctk.CTkButton(
             action_box,
             text="▶️ Auto",
-            width=68,
+            width=65,
             height=26,
             corner_radius=4,
             fg_color="#059669",
@@ -4507,7 +4609,7 @@ class DashboardApp(ctk.CTk):
         btn_once = ctk.CTkButton(
             action_box,
             text="🎲 1 Lần",
-            width=62,
+            width=58,
             height=26,
             corner_radius=4,
             fg_color="#1e293b",
@@ -4518,7 +4620,23 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda s=i: ctrl.roll_moss_once()
         )
-        btn_once.pack(side="left")
+        btn_once.pack(side="left", padx=(0, 4))
+
+        btn_clean = ctk.CTkButton(
+            action_box,
+            text="🧹 Dọn",
+            width=50,
+            height=26,
+            corner_radius=4,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#ef4444",
+            text_color="#f87171",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: ctrl.clean_moss_inventory()
+        )
+        btn_clean.pack(side="left")
 
         # Lưu UI cache
         self.moss_ui_elements[i] = {
@@ -4531,13 +4649,14 @@ class DashboardApp(ctk.CTk):
             "status_lbl": status_lbl,
             "btn_toggle": btn_toggle,
             "btn_once": btn_once,
+            "btn_clean": btn_clean,
         }
 
     def on_moss_slot_category_changed(self, slot_idx: int, cat_name: str):
         ctrl = self.controllers[slot_idx - 1]
         cid = self.get_moss_cat_id(cat_name)
         ctrl.moss_category = cid
-        ConfigPersistenceManager.save_moss_config(slot_idx, cid, ctrl.moss_delay_ms, ctrl.moss_max_rolls)
+        ConfigPersistenceManager.save_moss_config(slot_idx, cid, ctrl.moss_delay_ms, ctrl.moss_max_rolls, ctrl.moss_auto_clean)
         self.append_moss_log(f"[Slot {slot_idx:02d}] Cập nhật cấu hình quay: {cat_name}.")
 
     def on_moss_slot_delay_changed(self, slot_idx: int):
@@ -4548,10 +4667,38 @@ class DashboardApp(ctk.CTk):
         try:
             val = max(400, int(el["delay_entry"].get().strip()))
             ctrl.moss_delay_ms = val
-            ConfigPersistenceManager.save_moss_config(slot_idx, ctrl.moss_category, val, ctrl.moss_max_rolls)
+            ConfigPersistenceManager.save_moss_config(slot_idx, ctrl.moss_category, val, ctrl.moss_max_rolls, ctrl.moss_auto_clean)
         except Exception:
             el["delay_entry"].delete(0, "end")
             el["delay_entry"].insert(0, str(ctrl.moss_delay_ms))
+
+    def on_toggle_global_moss_clean(self):
+        """Bật / Tắt tính năng tự động dọn rác hòm đồ cho toàn bộ các Slot."""
+        is_clean = bool(self.batch_moss_clean_cb.get()) if hasattr(self, "batch_moss_clean_cb") else True
+        for i, ctrl in enumerate(self.controllers, 1):
+            ctrl.moss_auto_clean = is_clean
+            ConfigPersistenceManager.save_moss_config(i, ctrl.moss_category, ctrl.moss_delay_ms, ctrl.moss_max_rolls, is_clean)
+        status_txt = "BẬT" if is_clean else "TẮT"
+        self.append_moss_log(f"🧹 Đã {status_txt} tính năng Tự Động Dọn Rác (Bảo tồn Exc/Socket/Set/Ngọc) cho tất cả các Slot!")
+
+    def clean_all_moss_inventories(self):
+        """Tự động dọn toàn bộ vật phẩm rác trong hòm đồ cho tất cả tài khoản đang kết nối."""
+        def _cleaner():
+            total_cleaned = 0
+            count_acc = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    cleaned = ctrl.clean_moss_inventory()
+                    total_cleaned += cleaned
+                    count_acc += 1
+                    time.sleep(0.08)
+            if count_acc > 0:
+                self.after(0, lambda: self.append_moss_log(
+                    f"🧹 Đã hoàn tất dọn rác {count_acc} tài khoản: Đã dọn {total_cleaned} món đồ rác (Bảo tồn đồ Exc/Socket/Set/Ngọc/Đồ cộng)!"
+                ))
+            else:
+                self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản nào đang kết nối để dọn rác!"))
+        threading.Thread(target=_cleaner, daemon=True).start()
 
     def update_moss_slot_ui_state(self, slot_idx: int, is_running: bool):
         el = self.moss_ui_elements.get(slot_idx)
@@ -4606,7 +4753,7 @@ class DashboardApp(ctk.CTk):
             el = self.moss_ui_elements.get(i)
             if el and el.get("cat_var"):
                 el["cat_var"].set(chosen)
-            ConfigPersistenceManager.save_moss_config(i, cid, ctrl.moss_delay_ms, ctrl.moss_max_rolls)
+            ConfigPersistenceManager.save_moss_config(i, cid, ctrl.moss_delay_ms, ctrl.moss_max_rolls, ctrl.moss_auto_clean)
         self.append_moss_log(f"📋 Đã gán cấu hình quay '{chosen}' cho tất cả {len(self.controllers)} Slot!")
 
     def apply_batch_moss_delay(self):
@@ -4621,7 +4768,7 @@ class DashboardApp(ctk.CTk):
             if el and el.get("delay_entry"):
                 el["delay_entry"].delete(0, "end")
                 el["delay_entry"].insert(0, str(val))
-            ConfigPersistenceManager.save_moss_config(i, ctrl.moss_category, val, ctrl.moss_max_rolls)
+            ConfigPersistenceManager.save_moss_config(i, ctrl.moss_category, val, ctrl.moss_max_rolls, ctrl.moss_auto_clean)
         self.append_moss_log(f"⏱ Đã đặt delay {val}ms cho tất cả {len(self.controllers)} Slot!")
 
     def start_all_moss_auto(self):
