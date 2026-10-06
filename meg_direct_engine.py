@@ -28,6 +28,11 @@ try:
 except ImportError:
     frida = None
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 def _safe_log(msg: str):
     try:
         enc = sys.stdout.encoding or "utf-8"
@@ -37,24 +42,32 @@ def _safe_log(msg: str):
 
 DEFAULT_OFFSETS = {
     "game_module": "GameAssembly.dll",
-    "get_player": "",
-    "move_to": "",
-    "chat_send": "",
-    "chat_update": "",
-    "helper_start": "",
-    "helper_stop": "",
-    "player_name": "",
-    "player_level": "",
-    "player_class": "",
-    "player_coord": "",
-    "player_move": "",
-    "player_helper": "",
-    "player_last_coord": "",
-    "move_flag": "",
-    "helper_state": "",
-    "game_type_info": "",
-    "game_world": "",
-    "world_scene_index": "",
+    "get_player": "0x12310D0",
+    "move_to": "0xB75230",
+    "start_auto_move": "0xB89240",
+    "stop_auto_move": "0xB86A20",
+    "chat_send": "0xF69D10",
+    "chat_send_cmd": "0xF5F870",
+    "chat_frame_send": "0x1322DA0",
+    "chat_update": "0x1317710",
+    "helper_start": "0x26FE8E0",
+    "helper_stop": "0x26FEA90",
+    "player_name": "0x28",
+    "player_level": "0x30",
+    "player_class": "0x34",
+    "player_coord": "0x68",
+    "player_move": "0xF0",
+    "player_helper": "0x1E8",
+    "player_last_coord": "0x4E0",
+    "auto_move_working": "0x498",
+    "auto_move_type": "0x49C",
+    "auto_move_helper": "0x4A0",
+    "auto_move_dest": "0x4A8",
+    "move_flag": "0x3C",
+    "helper_state": "0x20",
+    "game_type_info": "0x54E7140",
+    "game_world": "0x200",
+    "world_scene_index": "0x20",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -63,7 +76,44 @@ var baseAddr = ga.base;
 
 function off(v) { return ptr(v); }
 
-var getPlayer = new NativeFunction(baseAddr.add(off('__GET_PLAYER__')), 'pointer', ['pointer']);
+var getPlayerNative = null;
+try {
+    var gpOffset = off('__GET_PLAYER__');
+    if (!gpOffset.isNull()) {
+        getPlayerNative = new NativeFunction(baseAddr.add(gpOffset), 'pointer', ['pointer']);
+    }
+} catch (eNative) {}
+
+function getPlayerPtr() {
+    // 1. Thử hàm native get_player
+    try {
+        if (getPlayerNative !== null) {
+            var p = getPlayerNative(ptr(0));
+            if (!p.isNull()) return p;
+        }
+    } catch (e1) {}
+
+    // 2. Fallback qua Mega.Game_TypeInfo -> static_fields (+0xB8) -> Instance (+0x8) -> _Player (+0x208)
+    try {
+        var tiOffset = off('__GAME_TYPE_INFO__');
+        if (!tiOffset.isNull()) {
+            var typeInfo = baseAddr.add(tiOffset).readPointer();
+            if (!typeInfo.isNull()) {
+                var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+                if (!staticFields.isNull()) {
+                    var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+                    if (!gameInstance.isNull()) {
+                        var p2 = gameInstance.add(ptr('0x208')).readPointer();
+                        if (!p2.isNull()) return p2;
+                    }
+                }
+            }
+        }
+    } catch (e2) {}
+
+    return ptr(0);
+}
+
 var moveToNative = new NativeFunction(
     baseAddr.add(off('__MOVE_TO__')),
     'bool',
@@ -74,87 +124,73 @@ var il2cpp_string_new = new NativeFunction(
     'pointer',
     ['pointer']
 );
-var sendChatMessageNative = new NativeFunction(
-    baseAddr.add(off('__CHAT_SEND__')),
-    'void',
-    ['pointer', 'pointer', 'bool']
-);
 var nativeStartHelper = new NativeFunction(baseAddr.add(off('__HELPER_START__')), 'void', ['pointer', 'pointer']);
 var nativeStopHelper = new NativeFunction(baseAddr.add(off('__HELPER_STOP__')), 'void', ['pointer', 'pointer']);
+var nativeStartAutoMove = new NativeFunction(baseAddr.add(off('__START_AUTO_MOVE__')), 'void', ['pointer', 'pointer', 'int', 'bool', 'pointer']);
+var nativeStopAutoMove = new NativeFunction(baseAddr.add(off('__STOP_AUTO_MOVE__')), 'void', ['pointer', 'bool', 'pointer']);
+var nativeChatCmd = new NativeFunction(baseAddr.add(off('__CHAT_SEND_CMD__')), 'void', ['pointer', 'pointer']);
+var nativeChatGeneral = new NativeFunction(baseAddr.add(off('__CHAT_SEND__')), 'void', ['pointer', 'pointer']);
+var nativeChatFrameSend = new NativeFunction(baseAddr.add(off('__CHAT_FRAME_SEND__')), 'void', ['pointer', 'pointer', 'bool', 'pointer']);
 
-var coordBuf = Memory.alloc(64);
 var cfInstance = null;
 var pendingCommand = null;
-var pendingMoveTarget = null;
-var pendingHelperAction = null;
-var shuttingDown = false;
 var chatHook = null;
 
-chatHook = Interceptor.attach(baseAddr.add(off('__CHAT_UPDATE__')), {
-    onEnter: function(args) {
-        if (shuttingDown) return;
-        cfInstance = args[0];
-
-        if (pendingMoveTarget !== null) {
-            try {
-                var p = getPlayer(ptr(0));
-                if (!p.isNull()) {
-                    var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
-                    var klass = ptr(0);
-                    try {
-                        if (!curCoord.isNull()) klass = curCoord.readPointer();
-                    } catch (e1) {}
-                    if (klass.isNull()) {
-                        try {
-                            var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
-                            if (!lastCoord.isNull()) klass = lastCoord.readPointer();
-                        } catch (e2) {}
+try {
+    var cuOff = off('__CHAT_UPDATE__');
+    if (!cuOff.isNull()) {
+        chatHook = Interceptor.attach(baseAddr.add(cuOff), {
+            onEnter: function(args) {
+                if (shuttingDown) return;
+                try {
+                    cfInstance = args[0];
+                    if (pendingCommand !== null) {
+                        var cmd = pendingCommand;
+                        pendingCommand = null;
+                        var str = il2cpp_string_new(Memory.allocUtf8String(cmd));
+                        if (!str.isNull()) {
+                            if (cmd.indexOf('/') === 0) {
+                                nativeChatCmd(str, ptr(0));
+                            } else {
+                                nativeChatGeneral(str, ptr(0));
+                            }
+                            if (cfInstance && !cfInstance.isNull()) {
+                                try {
+                                    nativeChatFrameSend(cfInstance, str, 1, ptr(0));
+                                } catch (eF) {}
+                            }
+                        }
                     }
-                    if (!klass.isNull()) {
-                        var target = pendingMoveTarget;
-                        pendingMoveTarget = null;
-                        coordBuf.writePointer(klass);
-                        coordBuf.add(0x08).writePointer(ptr(0));
-                        coordBuf.add(0x10).writeS32(parseInt(target.x));
-                        coordBuf.add(0x14).writeS32(parseInt(target.y));
-                        moveToNative(p, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
-                    }
-                }
-            } catch (e) {}
-        }
+                } catch (eEnter) {}
+            }
+        });
+    }
+} catch (eHook) {}
 
-        if (pendingCommand !== null && cfInstance !== null) {
-            var cmd = pendingCommand;
-            pendingCommand = null;
-            try {
-                var str = il2cpp_string_new(Memory.allocUtf8String(cmd));
-                sendChatMessageNative(cfInstance, str, 1);
-                send({type: 'chat_dispatched', cmd: cmd, success: true});
-            } catch (e) {
-                send({type: 'chat_dispatched', cmd: cmd, success: false, error: e.toString()});
+var pDomainGet = ga.findExportByName('il2cpp_domain_get');
+var pThreadAttach = ga.findExportByName('il2cpp_thread_attach');
+var il2cpp_domain_get = pDomainGet ? new NativeFunction(pDomainGet, 'pointer', []) : null;
+var il2cpp_thread_attach = pThreadAttach ? new NativeFunction(pThreadAttach, 'pointer', ['pointer']) : null;
+
+function ensureThreadAttached() {
+    try {
+        if (il2cpp_domain_get && il2cpp_thread_attach) {
+            var domain = il2cpp_domain_get();
+            if (!domain.isNull()) {
+                il2cpp_thread_attach(domain);
             }
         }
+    } catch (e) {}
+}
 
-        if (pendingHelperAction !== null) {
-            var act = pendingHelperAction;
-            pendingHelperAction = null;
-            try {
-                var p = getPlayer(ptr(0));
-                if (!p.isNull()) {
-                    var h = p.add(off('__PLAYER_HELPER__')).readPointer();
-                    if (!h.isNull()) {
-                        if (act === 'start') nativeStartHelper(h, ptr(0));
-                        else if (act === 'stop') nativeStopHelper(h, ptr(0));
-                    }
-                }
-            } catch (e) {}
-        }
-    }
-});
+var coordBuf = Memory.alloc(64);
+var autoMoveCoordBuf = Memory.alloc(64);
+var cachedCoordKlass = ptr(0);
+var shuttingDown = false;
 
 function readPlayerInfoSnapshot(readName) {
     try {
-        var p = getPlayer(ptr(0));
+        var p = getPlayerPtr();
         if (p.isNull()) return null;
 
         var charName = lastFastCharName;
@@ -276,42 +312,64 @@ rpc.exports = {
     },
 
     moveTo: function(targetX, targetY) {
-        pendingMoveTarget = {x: parseInt(targetX), y: parseInt(targetY)};
-        return true;
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) return false;
+            var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
+            var klass = ptr(0);
+            try { if (!curCoord.isNull()) klass = curCoord.readPointer(); } catch (e1) {}
+            if (klass.isNull()) {
+                try {
+                    var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                    if (!lastCoord.isNull()) klass = lastCoord.readPointer();
+                } catch (e2) {}
+            }
+            if (klass.isNull()) {
+                try {
+                    var destCoord = p.add(off('__AUTO_MOVE_DEST__')).readPointer();
+                    if (!destCoord.isNull()) klass = destCoord.readPointer();
+                } catch (e3) {}
+            }
+            if (klass.isNull()) {
+                try {
+                    var tCoord = p.add(ptr('0x18')).readPointer();
+                    if (!tCoord.isNull()) klass = tCoord.readPointer();
+                } catch (e4) {}
+            }
+            if (!klass.isNull()) {
+                cachedCoordKlass = klass;
+            } else if (!cachedCoordKlass.isNull()) {
+                klass = cachedCoordKlass;
+            }
+
+            if (!klass.isNull()) {
+                coordBuf.writePointer(klass);
+                coordBuf.add(0x08).writePointer(ptr(0));
+                coordBuf.add(0x10).writeS32(parseInt(targetX));
+                coordBuf.add(0x14).writeS32(parseInt(targetY));
+                var ok = moveToNative(p, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
+                return Boolean(ok);
+            }
+        } catch (eM) {}
+        return false;
     },
 
     cancelMove: function() {
-        pendingMoveTarget = null;
         try {
-            var p = getPlayer(ptr(0));
+            ensureThreadAttached();
+            var p = getPlayerPtr();
             if (!p.isNull()) {
-                var move = p.add(off('__PLAYER_MOVE__')).readPointer();
-                if (!move.isNull()) {
-                    try { move.add(off('__MOVE_FLAG__')).writeU8(0); } catch (e1) {}
-                }
-                var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
-                if (!curCoord.isNull()) {
-                    var curX = curCoord.add(0x10).readS32();
-                    var curY = curCoord.add(0x14).readS32();
-                    var klass = curCoord.readPointer();
-                    if (!klass.isNull()) {
-                        coordBuf.writePointer(klass);
-                        coordBuf.add(0x08).writePointer(ptr(0));
-                        coordBuf.add(0x10).writeS32(curX);
-                        coordBuf.add(0x14).writeS32(curY);
-                        moveToNative(p, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
-                    }
-                }
+                nativeStopAutoMove(p, 1, ptr(0));
+                return true;
             }
-            return true;
-        } catch (e) {
-            return false;
-        }
+        } catch (eC) {}
+        return false;
     },
 
     getHelperState: function() {
         try {
-            var p = getPlayer(ptr(0));
+            var p = getPlayerPtr();
             if (p.isNull()) return 0;
             var h = p.add(off('__PLAYER_HELPER__')).readPointer();
             if (h.isNull()) return 0;
@@ -323,7 +381,7 @@ rpc.exports = {
 
     setHelperStateDirect: function(val) {
         try {
-            var p = getPlayer(ptr(0));
+            var p = getPlayerPtr();
             if (p.isNull()) return false;
             var h = p.add(off('__PLAYER_HELPER__')).readPointer();
             if (h.isNull()) return false;
@@ -335,43 +393,157 @@ rpc.exports = {
     },
 
     sendChatNative: function(cmd) {
-        pendingCommand = cmd;
-        return true;
+        try {
+            ensureThreadAttached();
+            cmd = String(cmd || '').trim();
+            if (!cmd) return false;
+
+            // 1. Ưu tiên queue pendingCommand chạy ngay trên Unity Main Thread (thông qua chatHook Update)
+            if (chatHook !== null) {
+                pendingCommand = cmd;
+                return true;
+            }
+
+            // 2. Direct call nếu hook chưa active
+            var str = il2cpp_string_new(Memory.allocUtf8String(cmd));
+            if (!str.isNull()) {
+                if (cmd.indexOf('/') === 0) {
+                    nativeChatCmd(str, ptr(0));
+                } else {
+                    nativeChatGeneral(str, ptr(0));
+                }
+                return true;
+            }
+        } catch (e) {}
+        return false;
     },
 
     send_chat_native: function(cmd) {
-        pendingCommand = cmd;
-        return true;
+        return this.sendChatNative(cmd);
     },
 
     startHelper: function() {
-        pendingHelperAction = 'start';
-        return true;
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (!p.isNull()) {
+                var h = p.add(off('__PLAYER_HELPER__')).readPointer();
+                if (!h.isNull()) {
+                    nativeStartHelper(h, ptr(0));
+                    return true;
+                }
+            }
+        } catch (eH) {}
+        return false;
     },
 
     stopHelper: function() {
-        pendingHelperAction = 'stop';
-        return true;
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (!p.isNull()) {
+                var h = p.add(off('__PLAYER_HELPER__')).readPointer();
+                if (!h.isNull()) {
+                    nativeStopHelper(h, ptr(0));
+                    return true;
+                }
+            }
+        } catch (eH) {}
+        return false;
+    },
+
+    startAutoMove: function(x, y, helper) {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) return false;
+            var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
+            var klass = ptr(0);
+            try { if (!curCoord.isNull()) klass = curCoord.readPointer(); } catch (e1) {}
+            if (klass.isNull()) {
+                try {
+                    var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                    if (!lastCoord.isNull()) klass = lastCoord.readPointer();
+                } catch (e2) {}
+            }
+            if (klass.isNull()) {
+                try {
+                    var destCoord = p.add(off('__AUTO_MOVE_DEST__')).readPointer();
+                    if (!destCoord.isNull()) klass = destCoord.readPointer();
+                } catch (e3) {}
+            }
+            if (klass.isNull()) {
+                try {
+                    var tCoord = p.add(ptr('0x18')).readPointer();
+                    if (!tCoord.isNull()) klass = tCoord.readPointer();
+                } catch (e4) {}
+            }
+            if (!klass.isNull()) {
+                cachedCoordKlass = klass;
+            } else if (!cachedCoordKlass.isNull()) {
+                klass = cachedCoordKlass;
+            }
+
+            if (!klass.isNull()) {
+                autoMoveCoordBuf.writePointer(klass);
+                autoMoveCoordBuf.add(0x08).writePointer(ptr(0));
+                autoMoveCoordBuf.add(0x10).writeS32(parseInt(x));
+                autoMoveCoordBuf.add(0x14).writeS32(parseInt(y));
+
+                // 1. Cấu hình cờ Auto Move chuẩn Type 0 để vòng lặp Update của game khởi tạo BodyActivity (0xabb8d0)
+                p.add(off('__AUTO_MOVE_DEST__')).writePointer(autoMoveCoordBuf);
+                p.add(off('__AUTO_MOVE_TYPE__')).writeS32(0);
+                p.add(off('__AUTO_MOVE_HELPER__')).writeU8(helper ? 1 : 0);
+                p.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
+
+                // 2. Kích hoạt trực tiếp bước di chuyển khởi hành qua moveToNative (BJKOMKOAAOG)
+                // Giúp nhân vật lập tức bước đi về hướng đích mà KHÔNG CẦN người chơi phải click chuột mồi!
+                try {
+                    moveToNative(p, autoMoveCoordBuf, 0.0, ptr(0), 0, 1, ptr(0));
+                } catch (eMove) {}
+
+                return true;
+            }
+        } catch (eAM) {}
+        return false;
+    },
+
+    isAutoMoveActive: function() {
+        try {
+            var p = getPlayerPtr();
+            if (p.isNull()) return false;
+            return Boolean(p.add(off('__AUTO_MOVE_WORKING__')).readU8());
+        } catch (e) {
+            return false;
+        }
+    },
+
+    stopAutoMove: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (!p.isNull()) {
+                nativeStopAutoMove(p, 1, ptr(0));
+                return true;
+            }
+        } catch (eSM) {}
+        return false;
     },
 
     cleanup: function() {
         shuttingDown = true;
-        pendingCommand = null;
-        pendingMoveTarget = null;
-        pendingHelperAction = null;
+        try {
+            if (chatHook !== null) {
+                chatHook.detach();
+                chatHook = null;
+            }
+        } catch (eH) {}
         try {
             if (fastTelemetryTimer !== null) {
                 clearInterval(fastTelemetryTimer);
                 fastTelemetryTimer = null;
             }
         } catch (e0) {}
-        try {
-            if (chatHook !== null) {
-                chatHook.detach();
-                chatHook = null;
-            }
-        } catch (e) {}
-        try { Interceptor.flush(); } catch (e) {}
         return true;
     }
 };
@@ -450,29 +622,23 @@ class MegDirectEngine:
             self.telemetry_callbacks.remove(cb)
 
     def _load_offsets_file(self):
-        # BẮT BUỘC: Giải mã Offsets trực tiếp từ C++ Native Bridge (meg_license_bridge.dll)
+        # 1. Khởi tạo toàn bộ offset mặc định
+        self.offsets = dict(DEFAULT_OFFSETS)
+
+        # 2. Nạp Game Offsets từ Native C++ Security Bridge nếu có (lớp nền tảng)
         try:
             from license_client import get_secure_game_offsets, is_native_bridge_active
-            if not is_native_bridge_active():
-                _safe_log("[MegDirectEngine] CẢNH BÁO BẢO MẬT: Thiếu thư viện meg_license_bridge.dll! Đã chặn nạp Game Offsets.")
-                return
-
-            sec_offsets = get_secure_game_offsets()
-            if sec_offsets and isinstance(sec_offsets, dict) and sec_offsets.get("move_to"):
-                self.offsets.update(sec_offsets)
-                _safe_log("[MegDirectEngine] Đã nạp thành công Game Offsets từ Native C++ Security Bridge.")
-                return
+            if is_native_bridge_active():
+                sec_offsets = get_secure_game_offsets()
+                if sec_offsets and isinstance(sec_offsets, dict):
+                    for k, v in sec_offsets.items():
+                        if v:
+                            self.offsets[k] = v
+                    _safe_log("[MegDirectEngine] Đã nạp thành công Game Offsets từ Native C++ Security Bridge.")
         except Exception as e:
             _safe_log(f"[MegDirectEngine] Lỗi trích xuất Native Offsets: {e}")
 
-        # Fallback đọc file config cục bộ CHỈ KHI có C++ bridge
-        try:
-            from license_client import is_native_bridge_active
-            if not is_native_bridge_active():
-                return
-        except Exception:
-            return
-
+        # 3. Đọc cấu hình đĩa JSON để nạp bản cập nhật mới nhất (ƯU TIÊN TUYỆT ĐỐI ghi đè)
         if getattr(sys, "frozen", False):
             base_dir = os.path.dirname(sys.executable)
         else:
@@ -492,8 +658,11 @@ class MegDirectEngine:
                     with open(p, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     if isinstance(data, dict):
-                        self.offsets.update(data)
-                        return
+                        for k, v in data.items():
+                            if v:
+                                self.offsets[k] = v
+                        _safe_log(f"[MegDirectEngine] Đã nạp và ưu tiên cấu hình offsets từ tệp đĩa: {p}")
+                        break
                 except Exception as e:
                     _safe_log(f"[MegDirectEngine] Lỗi đọc megamu_offsets.json: {e}")
 
@@ -520,24 +689,32 @@ class MegDirectEngine:
     def _generate_js(self) -> str:
         js = FRIDA_AGENT_JS
         mapping = {
-            "__GET_PLAYER__": self.offsets.get("get_player", "0x12310D0"),
-            "__MOVE_TO__": self.offsets.get("move_to", "0xD72750"),
-            "__CHAT_SEND__": self.offsets.get("chat_send", "0x14B9250"),
-            "__CHAT_UPDATE__": self.offsets.get("chat_update", "0x14B6AF0"),
-            "__HELPER_START__": self.offsets.get("helper_start", "0x2A3B580"),
-            "__HELPER_STOP__": self.offsets.get("helper_stop", "0x2A3C660"),
-            "__PLAYER_NAME__": self.offsets.get("player_name", "0x28"),
-            "__PLAYER_LEVEL__": self.offsets.get("player_level", "0x30"),
-            "__PLAYER_CLASS__": self.offsets.get("player_class", "0x34"),
-            "__PLAYER_COORD__": self.offsets.get("player_coord", "0x68"),
-            "__PLAYER_MOVE__": self.offsets.get("player_move", "0xF0"),
-            "__PLAYER_HELPER__": self.offsets.get("player_helper", "0x1E8"),
-            "__PLAYER_LAST_COORD__": self.offsets.get("player_last_coord", "0x4E0"),
-            "__MOVE_FLAG__": self.offsets.get("move_flag", "0x3C"),
-            "__HELPER_STATE__": self.offsets.get("helper_state", "0x20"),
-            "__GAME_TYPE_INFO__": self.offsets.get("game_type_info", "0x5609F28"),
-            "__GAME_WORLD__": self.offsets.get("game_world", "0x200"),
-            "__WORLD_SCENE_INDEX__": self.offsets.get("world_scene_index", "0x20"),
+            "__GET_PLAYER__": self.offsets.get("get_player") or DEFAULT_OFFSETS.get("get_player", "0x12310D0"),
+            "__MOVE_TO__": self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xB75230"),
+            "__CHAT_SEND__": self.offsets.get("chat_send") or DEFAULT_OFFSETS.get("chat_send", "0xF69D10"),
+            "__CHAT_SEND_CMD__": self.offsets.get("chat_send_cmd") or DEFAULT_OFFSETS.get("chat_send_cmd", "0xF5F870"),
+            "__CHAT_FRAME_SEND__": self.offsets.get("chat_frame_send") or DEFAULT_OFFSETS.get("chat_frame_send", "0x1322DA0"),
+            "__CHAT_UPDATE__": self.offsets.get("chat_update") or DEFAULT_OFFSETS.get("chat_update", "0x1317710"),
+            "__HELPER_START__": self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x26FE8E0"),
+            "__HELPER_STOP__": self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x26FEA90"),
+            "__PLAYER_NAME__": self.offsets.get("player_name") or DEFAULT_OFFSETS.get("player_name", "0x28"),
+            "__PLAYER_LEVEL__": self.offsets.get("player_level") or DEFAULT_OFFSETS.get("player_level", "0x30"),
+            "__PLAYER_CLASS__": self.offsets.get("player_class") or DEFAULT_OFFSETS.get("player_class", "0x34"),
+            "__PLAYER_COORD__": self.offsets.get("player_coord") or DEFAULT_OFFSETS.get("player_coord", "0x68"),
+            "__PLAYER_MOVE__": self.offsets.get("player_move") or DEFAULT_OFFSETS.get("player_move", "0xF0"),
+            "__PLAYER_HELPER__": self.offsets.get("player_helper") or DEFAULT_OFFSETS.get("player_helper", "0x1E8"),
+            "__PLAYER_LAST_COORD__": self.offsets.get("player_last_coord") or DEFAULT_OFFSETS.get("player_last_coord", "0x4E0"),
+            "__MOVE_FLAG__": self.offsets.get("move_flag") or DEFAULT_OFFSETS.get("move_flag", "0x3C"),
+            "__HELPER_STATE__": self.offsets.get("helper_state") or DEFAULT_OFFSETS.get("helper_state", "0x20"),
+            "__GAME_TYPE_INFO__": self.offsets.get("game_type_info") or DEFAULT_OFFSETS.get("game_type_info", "0x54E7140"),
+            "__GAME_WORLD__": self.offsets.get("game_world") or DEFAULT_OFFSETS.get("game_world", "0x200"),
+            "__START_AUTO_MOVE__": self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xB89240"),
+            "__STOP_AUTO_MOVE__": self.offsets.get("stop_auto_move") or DEFAULT_OFFSETS.get("stop_auto_move", "0xB86A20"),
+            "__AUTO_MOVE_WORKING__": self.offsets.get("auto_move_working") or DEFAULT_OFFSETS.get("auto_move_working", "0x498"),
+            "__AUTO_MOVE_TYPE__": self.offsets.get("auto_move_type") or DEFAULT_OFFSETS.get("auto_move_type", "0x49C"),
+            "__AUTO_MOVE_HELPER__": self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x4A0"),
+            "__AUTO_MOVE_DEST__": self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x4A8"),
+            "__WORLD_SCENE_INDEX__": self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -624,37 +801,260 @@ class MegDirectEngine:
                 return None
         return None
 
+    def read_player_info_via_ram(self) -> Optional[Dict[str, Any]]:
+        """Đọc trực tiếp thông tin nhân vật qua Win32 ReadProcessMemory từ GameAssembly.dll (Zero-Injection Fallback)."""
+        if not self.pid or (psutil and not psutil.pid_exists(self.pid)):
+            return None
+        try:
+            from meg_navigator import ProcessMemoryReader
+            live = ProcessMemoryReader.read_live_state(self.pid)
+            lvl = ProcessMemoryReader.read_character_level(self.pid)
+            helper = ProcessMemoryReader.read_helper_state(self.pid)
+            char_name = ProcessMemoryReader.read_character_name(self.pid) if hasattr(ProcessMemoryReader, "read_character_name") else ""
+
+            tileX, tileY = 0, 0
+            mapId = -1
+            if live:
+                mapId = live[0] if live[0] is not None else -1
+                tileX = live[2] if live[2] is not None else 0
+                tileY = live[3] if live[3] is not None else 0
+
+            is_helper = 1 if (helper and helper[0]) else 0
+
+            is_moving = ProcessMemoryReader.read_movement_state(self.pid) if hasattr(ProcessMemoryReader, "read_movement_state") else False
+            auto_move = ProcessMemoryReader.read_auto_move_state(self.pid) if hasattr(ProcessMemoryReader, "read_auto_move_state") else (False, -1, False, None)
+
+            if (lvl is None or lvl == 0) and tileX == 0 and tileY == 0 and not char_name:
+                return None
+
+            return {
+                "name": char_name or "",
+                "level": lvl or 0,
+                "tileX": tileX,
+                "tileY": tileY,
+                "x": tileX,
+                "y": tileY,
+                "mapId": mapId,
+                "isMoving": is_moving,
+                "helperState": is_helper,
+                "autoMoveWorking": auto_move[0],
+                "autoMoveType": auto_move[1],
+                "autoMoveHelper": auto_move[2],
+                "autoMoveDest": auto_move[3],
+            }
+        except Exception:
+            return None
+
     def get_player_info(self, max_age: float = 0.55) -> Optional[Dict[str, Any]]:
-        """Lấy thông tin nhân vật từ Fast Telemetry nếu còn mới, fallback gọi RPC nếu cần."""
+        """Lấy thông tin nhân vật từ Fast Telemetry nếu còn mới, fallback gọi RPC hoặc đọc RAM trực tiếp."""
         now = time.time()
         if self.last_fast_state and (now - self.last_fast_state_time) <= max_age:
             return self.last_fast_state
 
-        res = self._call("getPlayerInfo")
-        if res and isinstance(res, dict):
-            if "tileX" in res and "x" not in res:
-                res["x"] = res["tileX"]
-            if "tileY" in res and "y" not in res:
-                res["y"] = res["tileY"]
-            if "x" in res and "tileX" not in res:
-                res["tileX"] = res["x"]
-            if "y" in res and "tileY" not in res:
-                res["tileY"] = res["y"]
-            self.last_fast_state = res
+        if self.is_ready:
+            res = self._call("getPlayerInfo")
+            if res and isinstance(res, dict):
+                if "tileX" in res and "x" not in res:
+                    res["x"] = res["tileX"]
+                if "tileY" in res and "y" not in res:
+                    res["y"] = res["tileY"]
+                if "x" in res and "tileX" not in res:
+                    res["tileX"] = res["x"]
+                if "y" in res and "tileY" not in res:
+                    res["tileY"] = res["y"]
+
+                # Nếu Frida trả về nhưng tọa độ = 0, bù tọa độ qua RAM reader
+                if res.get("tileX", 0) == 0 and res.get("tileY", 0) == 0:
+                    ram_fallback = self.read_player_info_via_ram()
+                    if ram_fallback and (ram_fallback.get("tileX", 0) > 0 or ram_fallback.get("tileY", 0) > 0):
+                        res["tileX"] = ram_fallback["tileX"]
+                        res["tileY"] = ram_fallback["tileY"]
+                        res["x"] = ram_fallback["tileX"]
+                        res["y"] = ram_fallback["tileY"]
+
+                self.last_fast_state = res
+                self.last_fast_state_time = now
+                return res
+
+        # Fallback đọc trực tiếp RAM nếu Frida chưa sẵn sàng hoặc RPC không trả về
+        ram_res = self.read_player_info_via_ram()
+        if ram_res:
+            self.last_fast_state = ram_res
             self.last_fast_state_time = now
-            return res
+            return ram_res
 
         return self.last_fast_state
 
-    def move_to(self, target_x: int, target_y: int) -> bool:
-        """Kích hoạt MoveTo native (game tự động tìm đường qua Unity Navmesh/Grid)."""
-        res = self._call("moveTo", int(target_x), int(target_y))
-        return bool(res)
+    def start_auto_move(self, target_x: int, target_y: int, helper: bool = False) -> bool:
+        """Kích hoạt Auto Move của game tới tọa độ (target_x, target_y).
+        1. Ưu tiên Frida Native Hook (startAutoMove).
+        2. Thử kích hoạt trực tiếp vào RAM game (write_auto_move_state).
+        3. Fallback sang Background Input Simulator nếu RAM/Native chưa hỗ trợ.
+        """
+        if self.is_ready:
+            try:
+                res = self._call("startAutoMove", int(target_x), int(target_y), bool(helper))
+                if res:
+                    return True
+            except Exception:
+                pass
+
+        try:
+            from meg_navigator import ProcessMemoryReader
+            if hasattr(ProcessMemoryReader, "write_auto_move_state"):
+                ok_ram = ProcessMemoryReader.write_auto_move_state(self.pid, int(target_x), int(target_y), helper=helper)
+                if ok_ram:
+                    return True
+        except Exception:
+            pass
+
+        return self.move_to(target_x, target_y)
+
+    def stop_auto_move(self) -> bool:
+        """Dừng Auto Move của game."""
+        if self.is_ready:
+            try:
+                self._call("stopAutoMove")
+            except Exception:
+                pass
+
+        try:
+            from meg_navigator import ProcessMemoryReader
+            if hasattr(ProcessMemoryReader, "cancel_auto_move_state"):
+                ProcessMemoryReader.cancel_auto_move_state(self.pid)
+        except Exception:
+            pass
+
+        return self.cancel_move()
+
+    def is_auto_move_active(self) -> bool:
+        """Kiểm tra Auto Move có đang hoạt động hay không."""
+        if self.is_ready:
+            try:
+                res = self._call("isAutoMoveActive")
+                if res is not None:
+                    return bool(res)
+            except Exception:
+                pass
+
+        try:
+            from meg_navigator import ProcessMemoryReader
+            if hasattr(ProcessMemoryReader, "read_auto_move_state"):
+                st = ProcessMemoryReader.read_auto_move_state(self.pid)
+                return bool(st[0])
+        except Exception:
+            pass
+        return False
+
+    def move_to(self, target_x: int, target_y: int, bypass_angle: float = 0.0) -> bool:
+        """Kích hoạt di chuyển tới tọa độ (target_x, target_y).
+        1. Ưu tiên Frida Native Hook nếu có (Unity Navmesh).
+        2. Thử kích hoạt Auto Move trực tiếp qua RAM game (Zero-Injection).
+        3. Fallback sang Zero-Focus Background Input Simulator (Isometric Projection + Micro-Sync).
+        """
+        if self.is_ready:
+            try:
+                res = self._call("startAutoMove", int(target_x), int(target_y), False)
+                if res:
+                    return True
+            except Exception:
+                pass
+            try:
+                res = self._call("moveTo", int(target_x), int(target_y))
+                if res:
+                    return True
+            except Exception:
+                pass
+
+        # Thử kích hoạt Auto Move RAM
+        try:
+            from meg_navigator import ProcessMemoryReader
+            if hasattr(ProcessMemoryReader, "write_auto_move_state"):
+                ok_ram = ProcessMemoryReader.write_auto_move_state(self.pid, int(target_x), int(target_y), helper=False)
+                if ok_ram:
+                    return True
+        except Exception:
+            pass
+
+        # Fallback: Zero-Focus Background Input Simulator (PostMessage / Micro-Sync)
+        hwnd = self.get_hwnd()
+        if not hwnd or sys.platform != "win32":
+            return False
+
+        try:
+            from meg_navigator import game_coord_to_screen_pixel, BackgroundInputSimulator, ProcessMemoryReader
+            user32 = ctypes.windll.user32
+
+            cur_x, cur_y = 0, 0
+            if self.last_fast_state:
+                cur_x = int(self.last_fast_state.get("tileX", 0))
+                cur_y = int(self.last_fast_state.get("tileY", 0))
+            if cur_x == 0 and cur_y == 0:
+                live = ProcessMemoryReader.read_live_state(self.pid)
+                if live and live[2] is not None and live[3] is not None:
+                    cur_x, cur_y = int(live[2]), int(live[3])
+
+            if cur_x == 0 and cur_y == 0:
+                return False
+
+            rect = wintypes.RECT()
+            user32.GetClientRect(hwnd, ctypes.byref(rect))
+            cw = max(rect.right - rect.left, 1024)
+            ch = max(rect.bottom - rect.top, 768)
+
+            dist = max(abs(int(target_x) - cur_x), abs(int(target_y) - cur_y))
+            is_touchdown = (dist <= 2)
+
+            px, py = game_coord_to_screen_pixel(
+                cur_x, cur_y,
+                int(target_x), int(target_y),
+                cw, ch,
+                camera_angle_deg=float(bypass_angle),
+                is_final_touchdown=is_touchdown
+            )
+
+            # Micro-sync click đảm bảo Unity Engine bắt đúng tọa độ click kể cả khi đang un-focus
+            ok = BackgroundInputSimulator.micro_sync_click(hwnd, px, py, duration_ms=25)
+            return bool(ok)
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi move_to fallback: {e}")
+            return False
 
     def cancel_move(self) -> bool:
         """Hủy lệnh di chuyển và xóa cờ di chuyển của nhân vật."""
-        res = self._call("cancelMove")
-        return bool(res)
+        if self.is_ready:
+            try:
+                res = self._call("cancelMove")
+                if res:
+                    return True
+            except Exception:
+                pass
+
+        # Hủy Auto Move RAM nếu có
+        try:
+            from meg_navigator import ProcessMemoryReader
+            if hasattr(ProcessMemoryReader, "cancel_auto_move_state"):
+                ProcessMemoryReader.cancel_auto_move_state(self.pid)
+        except Exception:
+            pass
+
+        # Fallback: click ngay dưới chân nhân vật để dừng bước
+        hwnd = self.get_hwnd()
+        if hwnd and sys.platform != "win32":
+            try:
+                from meg_navigator import BackgroundInputSimulator
+                user32 = ctypes.windll.user32
+                rect = wintypes.RECT()
+                user32.GetClientRect(hwnd, ctypes.byref(rect))
+                cw = max(rect.right - rect.left, 1024)
+                ch = max(rect.bottom - rect.top, 768)
+                cx = cw // 2
+                cy = (ch // 2) + 15
+                BackgroundInputSimulator.micro_sync_click(hwnd, cx, cy, duration_ms=20)
+                return True
+            except Exception:
+                pass
+        return False
 
     def get_hwnd(self) -> Optional[int]:
         """Lấy HWND cửa sổ Unity của tiến trình game qua PID."""
@@ -662,36 +1062,60 @@ class MegDirectEngine:
             return None
         user32 = ctypes.windll.user32
         cached = getattr(self, "_cached_hwnd", None)
-        if cached and user32.IsWindow(cached):
-            lp_pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(cached, ctypes.byref(lp_pid))
-            if lp_pid.value == self.pid:
-                return cached
+        if cached:
+            try:
+                if user32.IsWindow(cached):
+                    lp_pid = wintypes.DWORD()
+                    user32.GetWindowThreadProcessId(cached, ctypes.byref(lp_pid))
+                    if lp_pid.value == self.pid:
+                        return cached
+            except Exception:
+                pass
 
+        # 1. Thử qua WindowHelper đã chuẩn hóa cho MEGAMU
+        try:
+            from meg_navigator import WindowHelper
+            win = WindowHelper.find_window_for_pid(self.pid)
+            if win and win[0]:
+                self._cached_hwnd = win[0]
+                return win[0]
+        except Exception:
+            pass
+
+        # 2. Fallback duyệt trực tiếp Desktop Windows (bọc try-except tuyệt đối chống văng callback)
         candidates = []
 
         def enum_cb(hwnd, lparam):
-            class_name = ctypes.create_unicode_buffer(256)
-            user32.GetClassNameW(hwnd, class_name, 256)
-            lp_pid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(lp_pid))
-            if lp_pid.value == self.pid:
-                is_unity = (class_name.value.lower() == "unitywndclass")
-                rect = wintypes.RECT()
-                user32.GetClientRect(hwnd, ctypes.byref(rect))
-                w = rect.right - rect.left
-                h = rect.bottom - rect.top
-                score = (10000000 if is_unity else 0) + (w * h)
-                candidates.append((score, hwnd))
+            try:
+                if not hwnd:
+                    return True
+                lp_pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(lp_pid))
+                if lp_pid.value == self.pid:
+                    class_name = ctypes.create_unicode_buffer(256)
+                    user32.GetClassNameW(hwnd, class_name, 256)
+                    is_unity = (class_name.value.lower() == "unitywndclass")
+                    rect = wintypes.RECT()
+                    w, h = 0, 0
+                    if user32.GetClientRect(hwnd, ctypes.byref(rect)):
+                        w = rect.right - rect.left
+                        h = rect.bottom - rect.top
+                    score = (10000000 if is_unity else 0) + (w * h)
+                    candidates.append((score, hwnd))
+            except Exception:
+                pass
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
         cb = WNDENUMPROC(enum_cb)
 
-        h_desk = user32.OpenInputDesktop(0, False, 0x01FF)
-        if h_desk:
-            user32.EnumDesktopWindows(h_desk, cb, 0)
-            user32.CloseDesktop(h_desk)
+        try:
+            h_desk = user32.OpenInputDesktop(0, False, 0x01FF)
+            if h_desk:
+                user32.EnumDesktopWindows(h_desk, cb, 0)
+                user32.CloseDesktop(h_desk)
+        except Exception:
+            pass
 
         if not candidates:
             try:
@@ -776,29 +1200,34 @@ class MegDirectEngine:
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi gọi send_chat_native: {e}")
 
-        # 2. Gửi Background PostMessage khi native hook chưa kết nối hoặc thất bại
+        # 2. Gửi lệnh chat an toàn qua BackgroundInputSimulator hoặc PostMessage
         hwnd = self.get_hwnd()
         if not hwnd:
             _safe_log(f"[MegDirectEngine] PID {self.pid}: Không tìm thấy HWND cửa sổ game để gửi lệnh chat fallback.")
             return False
 
+        try:
+            from meg_navigator import BackgroundInputSimulator
+            ok = BackgroundInputSimulator.send_chat_command(hwnd, cmd)
+            if ok:
+                _safe_log(f"[MegDirectEngine] Đã gửi lệnh chat qua BackgroundInputSimulator: '{cmd}' vào HWND 0x{hwnd:X}.")
+                return True
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi BackgroundInputSimulator.send_chat_command: {e}")
+
+        # Fallback PostMessage thuần
         user32 = ctypes.windll.user32
-        WM_KEYDOWN = 0x0100
-        WM_KEYUP = 0x0101
         WM_CHAR = 0x0102
         VK_RETURN = 0x0D
-
         try:
             self.send_background_key(hwnd, VK_RETURN, 0.04)
-            time.sleep(0.04)
-
+            time.sleep(0.08)
             for ch in cmd:
                 scan_code = user32.MapVirtualKeyW(ord(ch), 0)
                 lparam = 1 | (scan_code << 16)
                 user32.PostMessageW(hwnd, WM_CHAR, ord(ch), lparam)
-                time.sleep(0.005)
-
-            time.sleep(0.04)
+                time.sleep(0.01)
+            time.sleep(0.08)
             self.send_background_key(hwnd, VK_RETURN, 0.04)
             _safe_log(f"[MegDirectEngine] Đã gửi lệnh chat PostMessage fallback: '{cmd}' vào HWND 0x{hwnd:X}.")
             return True

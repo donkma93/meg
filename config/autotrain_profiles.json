@@ -16,31 +16,31 @@
                 "stages": [
                     {
                         "min_level": 1,
-                        "max_level": 39,
+                        "max_level": 29,
                         "map_name": "Lorencia",
-                        "x": 70,
-                        "y": 147
+                        "x": 69,
+                        "y": 144
                     },
                     {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
-                    },
-                    {
-                        "min_level": 60,
-                        "max_level": 159,
-                        "map_name": "Lost Tower 5",
-                        "x": 110,
-                        "y": 56
-                    },
-                    {
-                        "min_level": 160,
+                        "min_level": 400,
                         "max_level": 1000,
-                        "map_name": "Arena",
-                        "x": 68,
-                        "y": 8
+                        "map_name": "Devias 4",
+                        "x": 80,
+                        "y": 151
+                    },
+                    {
+                        "min_level": 400,
+                        "max_level": 400,
+                        "map_name": "Dungeon 3",
+                        "x": 31,
+                        "y": 60
+                    },
+                    {
+                        "min_level": 30,
+                        "max_level": 400,
+                        "map_name": "Dungeon",
+                        "x": 90,
+                        "y": 240
                     }
                 ],
                 "poll_interval": 0.55,
@@ -134,9 +134,9 @@
                     {
                         "min_level": 160,
                         "max_level": 399,
-                        "map_name": "Aida 1",
-                        "x": 135,
-                        "y": 150
+                        "map_name": "Aida 2",
+                        "x": 86,
+                        "y": 20
                     }
                 ],
                 "poll_interval": 0.55,

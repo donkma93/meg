@@ -731,12 +731,28 @@ def character_name_from_window_title(title: str) -> str:
     title = str(title).strip()
     if "MEGAMU" not in title.upper():
         return ""
-    head = title.split(" - MEGAMU")[0].strip()
-    if " (" in head:
-        head = head.split(" (")[0].strip()
-    if not head or head.upper().startswith("MEGAMU"):
-        return ""
-    return head
+    import re
+    # Mẫu 1: Diradira (660/51rr) - MEGAMU Sv41 hoặc Diradira (660) - MEGAMU...
+    m1 = re.match(r"^(?P<name>[^(\-\[\]]+?)\s*(?:\([^)]+\))?\s*[-–—]\s*MEGAMU", title, re.IGNORECASE)
+    if m1:
+        name = m1.group("name").strip()
+        if name and not name.upper().startswith("MEGAMU"):
+            return name
+    # Mẫu 2: MEGAMU - Diradira (660/51rr)...
+    m2 = re.match(r"^MEGAMU\s*[-–—]\s*(?P<name>[^(\-\[\]]+)", title, re.IGNORECASE)
+    if m2:
+        name = m2.group("name").strip()
+        if name and not name.upper().startswith("MEGAMU"):
+            return name
+    # Mẫu 3: Cắt theo - MEGAMU
+    parts = re.split(r"\s*[-–—]\s*MEGAMU", title, flags=re.IGNORECASE)
+    if parts and parts[0]:
+        head = parts[0].strip()
+        if " (" in head:
+            head = head.split(" (")[0].strip()
+        if head and not head.upper().startswith("MEGAMU"):
+            return head
+    return ""
 
 def enumerate_megamu_processes() -> Dict[int, str]:
     """Tìm tất cả tiến trình MEGAMU.exe và lấy tiêu đề cửa sổ / tên nhân vật."""
@@ -964,6 +980,32 @@ class SlotController:
     def attach_pid(self, pid: int):
         """Kết nối tới Game PID."""
         self.assigned_pid = pid
+
+        # Nạp tức thì tên nhân vật và level từ tiêu đề cửa sổ / RAM để hiển thị ngay lập tức
+        title = self.app.detected_games.get(pid, "")
+        t_name = character_name_from_window_title(title)
+        if not t_name:
+            try:
+                from meg_navigator import ProcessMemoryReader
+                t_name = ProcessMemoryReader.read_character_name(pid) or ""
+            except Exception:
+                pass
+        if t_name:
+            self.char_name = t_name
+
+        try:
+            from meg_navigator import ProcessMemoryReader
+            t_lvl = ProcessMemoryReader._fallback_level_from_title(pid) or ProcessMemoryReader.read_character_level(pid)
+            if t_lvl:
+                self.level = str(t_lvl)
+            live = ProcessMemoryReader.read_live_state(pid)
+            if live and live[2] is not None and live[3] is not None and (live[2] > 0 or live[3] > 0):
+                self.coords = f"{live[2]},{live[3]}"
+        except Exception:
+            pass
+
+        self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
+
         if MegDirectEngine:
             self.engine = MegDirectEngine.get_engine(pid)
             if not self.engine.is_ready:
@@ -972,8 +1014,8 @@ class SlotController:
                     self.set_status(tr("connected_status"))
                     self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối thành công MEGAMU (PID {pid}).", "SUCCESS")
                 else:
-                    self.set_status(tr("idle"))
-                    self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối thất bại MEGAMU (PID {pid}).", "ERROR")
+                    self.set_status(tr("connected_status"))
+                    self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối MEGAMU (PID {pid}) qua chế độ RAM telemetry.", "INFO")
             else:
                 self.set_status(tr("connected_status"))
         else:
@@ -1118,23 +1160,79 @@ class SlotController:
                     )
             return
 
-        if self.engine and self.engine.is_ready:
+        p_info = None
+        if self.engine:
             try:
                 p_info = self.engine.get_player_info()
-                if p_info:
-                    p_name = p_info.get("name", "")
-                    p_lvl = p_info.get("level", 0)
-                    px = p_info.get("tileX", p_info.get("x", 0))
-                    py = p_info.get("tileY", p_info.get("y", 0))
-
-                    if p_name:
-                        self.char_name = p_name
-                    if p_lvl > 0:
-                        self.level = str(p_lvl)
-                    self.coords = f"{px},{py}"
-                    self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
             except Exception:
                 pass
+
+        # Fallback đọc trực tiếp RAM nếu engine chưa có thông tin
+        if not p_info:
+            try:
+                from meg_navigator import ProcessMemoryReader
+                live = ProcessMemoryReader.read_live_state(self.assigned_pid)
+                lvl = ProcessMemoryReader.read_character_level(self.assigned_pid)
+                p_info = {
+                    "level": lvl or 0,
+                    "tileX": live[2] if live and live[2] is not None else 0,
+                    "tileY": live[3] if live and live[3] is not None else 0,
+                }
+            except Exception:
+                pass
+
+        # Lấy tên nhân vật từ window title hoặc ProcessMemoryReader nếu chưa có
+        title = self.app.detected_games.get(self.assigned_pid, "")
+        t_name = character_name_from_window_title(title)
+        if not t_name:
+            try:
+                from meg_navigator import ProcessMemoryReader
+                t_name = ProcessMemoryReader.read_character_name(self.assigned_pid) or ""
+            except Exception:
+                pass
+
+        if t_name and (self.char_name == "---" or not self.char_name):
+            self.char_name = t_name
+
+        if p_info:
+            p_name = p_info.get("name", "")
+            p_lvl = p_info.get("level", 0)
+            px = p_info.get("tileX", p_info.get("x", 0))
+            py = p_info.get("tileY", p_info.get("y", 0))
+
+            if px == 0 and py == 0:
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    live = ProcessMemoryReader.read_live_state(self.assigned_pid)
+                    if live and live[2] is not None and live[3] is not None and (live[2] > 0 or live[3] > 0):
+                        px, py = live[2], live[3]
+                        p_info["tileX"] = px
+                        p_info["tileY"] = py
+                except Exception:
+                    pass
+
+            if p_name:
+                self.char_name = p_name
+            elif t_name:
+                self.char_name = t_name
+
+            if p_lvl > 0:
+                self.level = str(p_lvl)
+            elif self.level == "---":
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    t_lvl = ProcessMemoryReader._fallback_level_from_title(self.assigned_pid)
+                    if t_lvl:
+                        self.level = str(t_lvl)
+                except Exception:
+                    pass
+
+            if px > 0 or py > 0:
+                self.coords = f"{px},{py}"
+
+            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
+        elif self.char_name != "---" or self.level != "---":
+            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
 
 
 # ==============================================================================
@@ -1687,6 +1785,12 @@ class DashboardApp(ctk.CTk):
         options = ["--"]
         for pid, title in sorted(self.detected_games.items()):
             char_name = character_name_from_window_title(title)
+            if not char_name:
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    char_name = ProcessMemoryReader.read_character_name(pid) or ""
+                except Exception:
+                    pass
             disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
             options.append(disp)
 
@@ -1694,6 +1798,14 @@ class DashboardApp(ctk.CTk):
         if ctrl.assigned_pid:
             t = self.detected_games.get(ctrl.assigned_pid, "")
             cname = character_name_from_window_title(t)
+            if not cname:
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    cname = ProcessMemoryReader.read_character_name(ctrl.assigned_pid) or ""
+                except Exception:
+                    pass
+            if not cname and ctrl.char_name and ctrl.char_name != "---":
+                cname = ctrl.char_name
             init_proc = f"{cname} ({ctrl.assigned_pid})" if cname else f"MEGAMU ({ctrl.assigned_pid})"
 
         proc_var = ctk.StringVar(value=init_proc)
@@ -2983,6 +3095,18 @@ class DashboardApp(ctk.CTk):
         )
         self.btn_open_stop_log.pack(side="right", padx=(0, 6))
 
+        # Hộp văn bản hiển thị Log tối màu
+        self.log_textbox = ctk.CTkTextbox(
+            self.panel_logs,
+            fg_color="#121214",
+            text_color="#f3f4f6",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            corner_radius=6,
+            wrap="word"
+        )
+        self.log_textbox.pack(fill="both", expand=True, padx=4, pady=4)
+        self.log_textbox.configure(state="disabled")
+
     def open_stop_events_log_file(self):
         """Mở file auto_stop_events.log bằng Notepad hoặc trình đọc mặc định."""
         try:
@@ -2997,18 +3121,6 @@ class DashboardApp(ctk.CTk):
             os.startfile(str(AUTO_STOP_LOG_FILE))
         except Exception as e:
             self.log_message(f"Không thể mở file log: {e}", "ERROR")
-
-        # Hộp văn bản hiển thị Log tối màu
-        self.log_textbox = ctk.CTkTextbox(
-            self.panel_logs,
-            fg_color="#121214",
-            text_color="#f3f4f6",
-            font=ctk.CTkFont(family="Consolas", size=11),
-            corner_radius=6,
-            wrap="word"
-        )
-        self.log_textbox.pack(fill="both", expand=True, padx=4, pady=4)
-        self.log_textbox.configure(state="disabled")
 
     def log_message(self, msg: str, level: str = "INFO"):
         """Ghi nhận log hệ thống và hiển thị lên giao diện."""
@@ -3670,6 +3782,12 @@ class DashboardApp(ctk.CTk):
         options = ["--"]
         for pid, title in sorted(self.detected_games.items()):
             char_name = character_name_from_window_title(title)
+            if not char_name:
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    char_name = ProcessMemoryReader.read_character_name(pid) or ""
+                except Exception:
+                    pass
             disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
             options.append(disp)
 
@@ -3697,6 +3815,14 @@ class DashboardApp(ctk.CTk):
                 if el:
                     title = self.detected_games.get(pid, "")
                     char_name = character_name_from_window_title(title)
+                    if not char_name:
+                        try:
+                            from meg_navigator import ProcessMemoryReader
+                            char_name = ProcessMemoryReader.read_character_name(pid) or ""
+                        except Exception:
+                            pass
+                    if not char_name and ctrl.char_name and ctrl.char_name != "---":
+                        char_name = ctrl.char_name
                     disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
                     el["proc_var"].set(disp)
                 assigned_count += 1
@@ -3751,6 +3877,14 @@ class DashboardApp(ctk.CTk):
                 if el:
                     title = self.detected_games.get(pid, "")
                     char_name = character_name_from_window_title(title)
+                    if not char_name:
+                        try:
+                            from meg_navigator import ProcessMemoryReader
+                            char_name = ProcessMemoryReader.read_character_name(pid) or ""
+                        except Exception:
+                            pass
+                    if not char_name and ctrl.char_name and ctrl.char_name != "---":
+                        char_name = ctrl.char_name
                     disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
                     el["proc_var"].set(disp)
                 count += 1
@@ -4309,6 +4443,8 @@ def main():
                 f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] app.mainloop() finished naturally.\n")
         except Exception:
             pass
+    except (KeyboardInterrupt, SystemExit):
+        pass
     except Exception as e:
         import traceback
         err_msg = traceback.format_exc()

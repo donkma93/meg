@@ -31,10 +31,16 @@ import json
 import time
 import math
 import struct
+import re
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict
+
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 # Đảm bảo UTF-8 console output trên Windows
 if sys.platform == "win32":
@@ -53,6 +59,8 @@ user32 = ctypes.windll.user32
 
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
+PROCESS_VM_WRITE = 0x0020
+PROCESS_VM_OPERATION = 0x0008
 TH32CS_SNAPMODULE = 0x00000008
 TH32CS_SNAPMODULE32 = 0x00000010
 
@@ -88,20 +96,26 @@ class MODULEENTRY32W(ctypes.Structure):
         ("szExePath", ctypes.c_wchar * 260)
     ]
 
-class POINT(ctypes.Structure):
-    _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+POINT = wintypes.POINT
+RECT = wintypes.RECT
 
-class RECT(ctypes.Structure):
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
     _fields_ = [
-        ("left", wintypes.LONG),
-        ("top", wintypes.LONG),
-        ("right", wintypes.LONG),
-        ("bottom", wintypes.LONG)
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", wintypes.DWORD),
+        ("PartitionId", wintypes.WORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", wintypes.DWORD),
+        ("Protect", wintypes.DWORD),
+        ("Type", wintypes.DWORD),
     ]
 
 # Thiết lập nghiêm ngặt kiểu dữ liệu x64 Win32
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.VirtualQueryEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.POINTER(MEMORY_BASIC_INFORMATION), ctypes.c_size_t]
+kernel32.VirtualQueryEx.restype = ctypes.c_size_t
 kernel32.VirtualAllocEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD, wintypes.DWORD]
 kernel32.VirtualAllocEx.restype = ctypes.c_void_p
 kernel32.VirtualFreeEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_size_t, wintypes.DWORD]
@@ -161,7 +175,7 @@ ensure_desktop_attached()
 # IL2CPP RVA & Offsets (GameAssembly.dll)
 # ==============================================================================
 
-GAME_TYPE_INFO_RVA = 0x5609F28
+GAME_TYPE_INFO_RVA = 0x54E7140
 KLASS_STATIC_FIELDS_OFFSET = 0xB8
 GAME_STATIC_INSTANCE_OFFSET = 0x8
 GAME_PLAYER_OFFSET = 0x208
@@ -175,6 +189,14 @@ LAST_SERVER_COORD_OFFSET = 0x4E0
 WORLD_SCENE_INDEX_OFFSET = 0x20
 COORD_X_OFFSET = 0x10
 COORD_Y_OFFSET = 0x14
+BODY_MOVEMENT_OFFSET = 0xF0
+MOVEMENT_MOVING_OFFSET = 0x3C
+AUTO_MOVE_WORKING_OFFSET = 0x498
+AUTO_MOVE_TYPE_OFFSET = 0x49C
+AUTO_MOVE_HELPER_OFFSET = 0x4A0
+AUTO_MOVE_DEST_OFFSET = 0x4A8
+START_AUTO_MOVE_RVA = 0xB89240
+STOP_AUTO_MOVE_RVA = 0xB86A20
 
 # MuHelper (Auto Attack) Offsets
 PLAYER_HELPER_OFFSET = 0x1E8       # UserHelper inside _Player
@@ -543,11 +565,26 @@ class ClientLiveState:
 
 class ProcessMemoryReader:
     _module_cache: Dict[int, int] = {}
+    _cached_coord_regions: Dict[int, List[Tuple[int, int]]] = {}
+    _coord_needle = "Coord(".encode("utf-16le")
+    _coord_regex = re.compile(r"Coord\((\d{1,3}),\s*(\d{1,3})\)")
+    _allocated_dest_coords: Dict[int, int] = {}
 
     @staticmethod
     def get_module_base(pid: int, module_name: str = "GameAssembly.dll") -> Optional[int]:
         if pid in ProcessMemoryReader._module_cache:
             return ProcessMemoryReader._module_cache[pid]
+
+        if psutil:
+            try:
+                proc = psutil.Process(pid)
+                for m in proc.memory_maps(grouped=False):
+                    if m.path and module_name.lower() in m.path.lower():
+                        base = int(m.addr.split('-')[0], 16)
+                        ProcessMemoryReader._module_cache[pid] = base
+                        return base
+            except Exception:
+                pass
 
         snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)
         if snap == -1 or snap == 0:
@@ -607,6 +644,24 @@ class ProcessMemoryReader:
         if kernel32.ReadProcessMemory(handle, ctypes.c_void_p(addr), ctypes.byref(buf), ctypes.sizeof(buf), ctypes.byref(read)):
             return buf.value
         return 0
+
+    @staticmethod
+    def write_ptr(handle: int, addr: int, val: int) -> bool:
+        buf = ctypes.c_uint64(val)
+        written = ctypes.c_size_t()
+        return bool(kernel32.WriteProcessMemory(handle, ctypes.c_void_p(addr), ctypes.byref(buf), ctypes.sizeof(buf), ctypes.byref(written)))
+
+    @staticmethod
+    def write_i32(handle: int, addr: int, val: int) -> bool:
+        buf = ctypes.c_int32(val)
+        written = ctypes.c_size_t()
+        return bool(kernel32.WriteProcessMemory(handle, ctypes.c_void_p(addr), ctypes.byref(buf), ctypes.sizeof(buf), ctypes.byref(written)))
+
+    @staticmethod
+    def write_u8(handle: int, addr: int, val: int) -> bool:
+        buf = ctypes.c_uint8(val)
+        written = ctypes.c_size_t()
+        return bool(kernel32.WriteProcessMemory(handle, ctypes.c_void_p(addr), ctypes.byref(buf), ctypes.sizeof(buf), ctypes.byref(written)))
 
     @classmethod
     def read_helper_state(cls, pid: int) -> Optional[Tuple[bool, bool, int, int]]:
@@ -715,6 +770,237 @@ class ProcessMemoryReader:
         return None
 
     @classmethod
+    def read_character_name(cls, pid: int) -> Optional[str]:
+        """
+        Đọc tên nhân vật:
+        1. Phân tích Window Title của Unity window (nhanh và chuẩn xác nhất).
+        2. Fallback đọc IL2CPP String tại player_ptr + 0x028 từ RAM.
+        """
+        # 1. Thử lấy từ Window Title
+        import re
+        windows = WindowHelper.get_unity_windows()
+        for p, hwnd, title, w, h in windows:
+            if p == pid and title:
+                m = re.match(r"^(?P<name>[^(\-\[\]]+?)\s*(?:\([^)]+\))?\s*[-–—]\s*MEGAMU", title, re.IGNORECASE)
+                if m:
+                    name = m.group("name").strip()
+                    if name and not name.upper().startswith("MEGAMU"):
+                        return name
+                parts = re.split(r"\s*[-–—]\s*MEGAMU", title, flags=re.IGNORECASE)
+                if parts and parts[0]:
+                    head = parts[0].strip()
+                    if " (" in head:
+                        head = head.split(" (")[0].strip()
+                    if head and not head.upper().startswith("MEGAMU"):
+                        return head
+
+        # 2. Đọc từ RAM IL2CPP
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not handle:
+            return None
+
+        try:
+            base = cls.get_module_base(pid)
+            if not base:
+                return None
+
+            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            if not type_info:
+                return None
+
+            static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return None
+
+            game_instance = cls.read_ptr(handle, static_fields + GAME_STATIC_INSTANCE_OFFSET)
+            if not game_instance:
+                return None
+
+            player_ptr = cls.read_ptr(handle, game_instance + GAME_PLAYER_OFFSET)
+            if not player_ptr:
+                return None
+
+            # player_ptr + 0x028 là con trỏ tới Il2CppString tên nhân vật
+            name_ptr = cls.read_ptr(handle, player_ptr + 0x028)
+            if not name_ptr:
+                return None
+
+            length = cls.read_i32(handle, name_ptr + 0x10)
+            if 1 <= length <= 64:
+                buf = ctypes.create_string_buffer(length * 2)
+                read_bytes = ctypes.c_size_t()
+                if kernel32.ReadProcessMemory(handle, ctypes.c_void_p(name_ptr + 0x14), buf, length * 2, ctypes.byref(read_bytes)):
+                    raw_str = buf.raw[:read_bytes.value].decode("utf-16le", errors="ignore").strip()
+                    if raw_str:
+                        return raw_str
+
+            return None
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
+    def read_movement_state(cls, pid: int) -> bool:
+        """Đọc RAM: True nếu nhân vật đang di chuyển (BodyMovement.Moving)."""
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not handle:
+            return False
+        try:
+            base = cls.get_module_base(pid)
+            if not base:
+                return False
+            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            if not type_info:
+                return False
+            static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return False
+            game_instance = cls.read_ptr(handle, static_fields + GAME_STATIC_INSTANCE_OFFSET)
+            if not game_instance:
+                return False
+            player_ptr = cls.read_ptr(handle, game_instance + GAME_PLAYER_OFFSET)
+            if not player_ptr:
+                return False
+            movement_ptr = cls.read_ptr(handle, player_ptr + BODY_MOVEMENT_OFFSET)
+            if movement_ptr:
+                return bool(cls.read_u8(handle, movement_ptr + MOVEMENT_MOVING_OFFSET) != 0)
+            return False
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
+    def read_auto_move_state(cls, pid: int) -> Tuple[bool, int, bool, Optional[Tuple[int, int]]]:
+        """
+        Đọc RAM trạng thái Auto Move:
+        Returns: (is_working: bool, move_type: int, is_helper: bool, (dest_x, dest_y) or None)
+        """
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not handle:
+            return (False, -1, False, None)
+        try:
+            base = cls.get_module_base(pid)
+            if not base:
+                return (False, -1, False, None)
+            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            if not type_info:
+                return (False, -1, False, None)
+            static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return (False, -1, False, None)
+            game_instance = cls.read_ptr(handle, static_fields + GAME_STATIC_INSTANCE_OFFSET)
+            if not game_instance:
+                return (False, -1, False, None)
+            player_ptr = cls.read_ptr(handle, game_instance + GAME_PLAYER_OFFSET)
+            if not player_ptr:
+                return (False, -1, False, None)
+
+            is_working = bool(cls.read_u8(handle, player_ptr + AUTO_MOVE_WORKING_OFFSET))
+            move_type = cls.read_i32(handle, player_ptr + AUTO_MOVE_TYPE_OFFSET)
+            is_helper = bool(cls.read_u8(handle, player_ptr + AUTO_MOVE_HELPER_OFFSET))
+            dest_coords = None
+            dest_ptr = cls.read_ptr(handle, player_ptr + AUTO_MOVE_DEST_OFFSET)
+            if dest_ptr:
+                dx = cls.read_i32(handle, dest_ptr + COORD_X_OFFSET)
+                dy = cls.read_i32(handle, dest_ptr + COORD_Y_OFFSET)
+                if 0 <= dx <= 255 and 0 <= dy <= 255:
+                    dest_coords = (dx, dy)
+
+            return (is_working, move_type, is_helper, dest_coords)
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
+    def write_auto_move_state(cls, pid: int, target_x: int, target_y: int, helper: bool = True) -> bool:
+        """
+        Kích hoạt Auto Move trực tiếp vào RAM game:
+        1. Ghi tọa độ đích vào dest_ptr (hoặc mượn target_coord pointer).
+        2. Ghi AutoMoveDestination (+0x4A8).
+        3. Ghi AutoMoveType (+0x49C) = 0.
+        4. Ghi AutoMoveHelper (+0x4A0) = helper.
+        5. Ghi AutoMoveWorking (+0x498) = 1.
+        """
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION, False, pid)
+        if not handle:
+            return False
+        try:
+            base = cls.get_module_base(pid)
+            if not base:
+                return False
+            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            if not type_info:
+                return False
+            static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return False
+            game_instance = cls.read_ptr(handle, static_fields + GAME_STATIC_INSTANCE_OFFSET)
+            if not game_instance:
+                return False
+            player_ptr = cls.read_ptr(handle, game_instance + GAME_PLAYER_OFFSET)
+            if not player_ptr:
+                return False
+
+            dest_ptr = cls.read_ptr(handle, player_ptr + AUTO_MOVE_DEST_OFFSET)
+            if not dest_ptr:
+                dest_ptr = cls.read_ptr(handle, player_ptr + BODY_TARGET_COORD_OFFSET)
+                if dest_ptr:
+                    cls.write_ptr(handle, player_ptr + AUTO_MOVE_DEST_OFFSET, dest_ptr)
+                else:
+                    allocated = cls._allocated_dest_coords.get(pid)
+                    if not allocated:
+                        alloc_res = kernel32.VirtualAllocEx(handle, None, 64, 0x1000 | 0x2000, 0x04)
+                        if alloc_res:
+                            allocated = alloc_res if isinstance(alloc_res, int) else getattr(alloc_res, "value", int(alloc_res))
+                            if allocated:
+                                cls._allocated_dest_coords[pid] = allocated
+                    if allocated:
+                        dest_ptr = allocated
+                        cur_coord = cls.read_ptr(handle, player_ptr + BODY_CURRENT_COORD_OFFSET)
+                        if cur_coord:
+                            klass = cls.read_ptr(handle, cur_coord)
+                            if klass:
+                                cls.write_ptr(handle, dest_ptr, klass)
+                        cls.write_ptr(handle, player_ptr + AUTO_MOVE_DEST_OFFSET, dest_ptr)
+
+            if dest_ptr:
+                cls.write_i32(handle, dest_ptr + COORD_X_OFFSET, int(target_x))
+                cls.write_i32(handle, dest_ptr + COORD_Y_OFFSET, int(target_y))
+                cls.write_i32(handle, player_ptr + AUTO_MOVE_TYPE_OFFSET, 0)
+                cls.write_u8(handle, player_ptr + AUTO_MOVE_HELPER_OFFSET, 1 if helper else 0)
+                cls.write_u8(handle, player_ptr + AUTO_MOVE_WORKING_OFFSET, 0)
+                return True
+            return False
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
+    def cancel_auto_move_state(cls, pid: int) -> bool:
+        """Hủy Auto Move trực tiếp qua RAM game."""
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION, False, pid)
+        if not handle:
+            return False
+        try:
+            base = cls.get_module_base(pid)
+            if not base:
+                return False
+            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            if not type_info:
+                return False
+            static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return False
+            game_instance = cls.read_ptr(handle, static_fields + GAME_STATIC_INSTANCE_OFFSET)
+            if not game_instance:
+                return False
+            player_ptr = cls.read_ptr(handle, game_instance + GAME_PLAYER_OFFSET)
+            if not player_ptr:
+                return False
+
+            cls.write_u8(handle, player_ptr + AUTO_MOVE_WORKING_OFFSET, 0)
+            cls.write_i32(handle, player_ptr + AUTO_MOVE_TYPE_OFFSET, -1)
+            return True
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
     def read_live_state(cls, pid: int) -> Optional[Tuple[Optional[int], str, Optional[int], Optional[int], Optional[int], Optional[int]]]:
         """Đọc RAM: (map_id, map_name, cur_x, cur_y, target_x, target_y)"""
         handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
@@ -773,9 +1059,119 @@ class ProcessMemoryReader:
                         cur_x, cur_y = cx, cy
                         break
 
+            # Fallback quét RAM nếu chưa đọc được tọa độ từ IL2CPP pointer
+            if cur_x is None or cur_y is None:
+                scanned_coords = cls.scan_player_coords(pid, handle)
+                if scanned_coords:
+                    cur_x, cur_y = scanned_coords
+
             return (map_id, map_name, cur_x, cur_y, target_x, target_y)
         finally:
             kernel32.CloseHandle(handle)
+
+    @classmethod
+    def scan_player_coords(cls, pid: int, handle: Optional[int] = None) -> Optional[Tuple[int, int]]:
+        """
+        Quét bộ nhớ RAM tìm chuỗi HUD UTF-16LE 'Coord(x, y)' (tương tự TryApplyCoordMajority trong C#).
+        Hỗ trợ cache vùng nhớ để quét siêu nhanh (~1ms).
+        """
+        own_handle = False
+        if not handle:
+            handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+            if not handle:
+                return None
+            own_handle = True
+
+        try:
+            # 1. Thử quét các vùng đã cache trước (Fast Path < 1ms)
+            cached = cls._cached_coord_regions.get(pid, [])
+            for base_addr, reg_size in cached:
+                coords = cls._scan_region_for_coords(handle, base_addr, reg_size)
+                if coords:
+                    return coords
+
+            # 2. Quét toàn bộ vùng nhớ private committed nếu cache rỗng hoặc chưa tìm thấy
+            mbi = MEMORY_BASIC_INFORMATION()
+            mbi_size = ctypes.sizeof(mbi)
+            address = 0
+            max_address = 0x7FFFFFFFFFFF
+            new_cached = []
+            scores: Dict[Tuple[int, int], int] = {}
+
+            while address < max_address:
+                res = kernel32.VirtualQueryEx(handle, ctypes.c_void_p(address), ctypes.byref(mbi), mbi_size)
+                if not res:
+                    break
+                region_size = mbi.RegionSize
+                if region_size <= 0:
+                    break
+                base_addr = mbi.BaseAddress or 0
+
+                # Chỉ quét bộ nhớ Heap riêng của process (MEM_COMMIT & MEM_PRIVATE)
+                if (mbi.State == 0x1000 and  # MEM_COMMIT
+                    (getattr(mbi, "Type", 0) == 0x20000) and  # MEM_PRIVATE
+                    (mbi.Protect & 0x01) == 0 and  # PAGE_NOACCESS
+                    (mbi.Protect & 0x100) == 0 and  # PAGE_GUARD
+                    region_size <= 32 * 1024 * 1024):
+                    
+                    found_coords = cls._scan_region_for_coords(handle, base_addr, region_size, scores)
+                    if found_coords:
+                        new_cached.append((base_addr, region_size))
+
+                next_addr = base_addr + region_size
+                if next_addr <= address:
+                    break
+                address = next_addr
+
+            if new_cached:
+                cls._cached_coord_regions[pid] = new_cached
+
+            if scores:
+                best = max(scores.items(), key=lambda item: item[1])[0]
+                return best
+            return None
+        finally:
+            if own_handle:
+                kernel32.CloseHandle(handle)
+
+    @classmethod
+    def _scan_region_for_coords(cls, handle: int, base_addr: int, region_size: int, scores: Optional[Dict[Tuple[int, int], int]] = None) -> Optional[Tuple[int, int]]:
+        chunk_size = min(region_size, 2 * 1024 * 1024)
+        offset = 0
+        local_scores = scores if scores is not None else {}
+        found_any = False
+
+        while offset < region_size:
+            current_chunk = min(chunk_size, region_size - offset)
+            buf = ctypes.create_string_buffer(current_chunk)
+            read_bytes = ctypes.c_size_t()
+            if kernel32.ReadProcessMemory(handle, ctypes.c_void_p(base_addr + offset), buf, current_chunk, ctypes.byref(read_bytes)):
+                raw = buf.raw[:read_bytes.value]
+                idx = 0
+                while True:
+                    idx = raw.find(cls._coord_needle, idx)
+                    if idx == -1:
+                        break
+                    take = min(48, len(raw) - idx)
+                    if take % 2 == 1:
+                        take -= 1
+                    try:
+                        text = raw[idx:idx+take].decode("utf-16le", errors="ignore")
+                        m = cls._coord_regex.search(text)
+                        if m:
+                            x, y = int(m.group(1)), int(m.group(2))
+                            if 0 <= x <= 255 and 0 <= y <= 255:
+                                key = (x, y)
+                                local_scores[key] = local_scores.get(key, 0) + 1
+                                found_any = True
+                    except Exception:
+                        pass
+                    idx += len(cls._coord_needle)
+            offset += current_chunk
+
+        if found_any and scores is None and local_scores:
+            return max(local_scores.items(), key=lambda item: item[1])[0]
+        return None
 
 # ==============================================================================
 # Window Helper Class

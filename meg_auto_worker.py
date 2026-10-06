@@ -186,6 +186,10 @@ class AutoTrainWorker:
         self.last_dist: Optional[float] = None
         self.last_progress_log_time = 0.0
         self.last_move_issue = 0.0
+        self.last_stride_time = 0.0
+        self.last_moved_time = 0.0
+        self.bypass_angle_offset = 0.0
+        self.bypass_idx = 0
 
         # Xử lý Hồi sinh / Reset Level
         self.respawn_until = 0.0
@@ -233,12 +237,16 @@ class AutoTrainWorker:
     def stop(self, reason: str = "Dừng Auto"):
         self.running = False
         self.stop_event.set()
-        if self.core and self.core.is_ready:
+        if self.core:
             try:
-                # 1. Tắt MuHelper an toàn (chỉ gửi lệnh tắt khi đang BẬT)
+                # 1. Tắt Auto Move nếu đang chạy
+                if hasattr(self.core, "stop_auto_move"):
+                    self.core.stop_auto_move()
+
+                # 2. Tắt MuHelper an toàn
                 self.core.stop_helper()
 
-                # 2. Hãm phanh cố định nhân vật đứng yên tại vị trí hiện tại
+                # 3. Hãm phanh cố định nhân vật đứng yên tại vị trí hiện tại
                 self.core.cancel_move()
 
                 # Đọc tọa độ hiện tại và ghim tại chỗ
@@ -357,12 +365,19 @@ class AutoTrainWorker:
         if not self.current_target or self.map_move_sent:
             return
         x, y = self.current_target
-        self.core.move_to(x, y)
-        self.last_move_issue = time.time()
+        now = time.time()
+        self.bypass_angle_offset = 0.0
+        self.last_move_issue = now
+        self.last_stride_time = now
+        self.last_moved_time = now
+        if hasattr(self.core, "start_auto_move"):
+            self.core.start_auto_move(x, y, helper=False)
+        else:
+            self.core.move_to(x, y, bypass_angle=0.0)
         self.map_move_sent = True
         self.map_wait_active = False
         self._set_state(f"CHẠY RA BÃI ({x}, {y})")
-        self._log(f"Đã xác thực bản đồ; game đang tự tìm đường tới bãi ({x}, {y}).", "SUCCESS")
+        self._log(f"Đã xác thực bản đồ; kích hoạt Auto Move tới bãi ({x}, {y}).", "SUCCESS")
 
     def _route_map_gate(self, stage: Dict[str, Any], current_map_id: Optional[int]) -> bool:
         """
@@ -638,13 +653,16 @@ class AutoTrainWorker:
                 is_moving = bool(info.get("isMoving", False))
                 time_since_move = (now - self.last_move_issue) if self.last_move_issue > 0 else 0.0
                 is_arrived = (dist <= arrive_thresh) or (
-                    dist <= 7.5 and not is_moving and time_since_move >= 1.2
+                    dist <= 7.5 and not is_moving and time_since_move >= 2.5
                 )
 
                 if is_arrived:
                     if not self.arrived_at_spot:
                         self.arrived_at_spot = True
-                        self.core.cancel_move()
+                        if hasattr(self.core, "stop_auto_move"):
+                            self.core.stop_auto_move()
+                        else:
+                            self.core.cancel_move()
                         self._log(f"🎉 ĐÃ TỚI BÃI TRAIN ({px}, {py})! Khoảng cách tới đích: {dist:.1f} ô. Kích hoạt Auto Đánh...", "SUCCESS")
                         self._set_state(f"TỰ ĐỘNG ĐÁNH ({tx}, {ty})")
                         if stage.get("auto_attack", True):
@@ -663,7 +681,7 @@ class AutoTrainWorker:
                     time.sleep(self.stable_poll_interval)
                     continue
 
-                # B. Đang trên đường chạy ra bãi
+                # B. Đang trên đường chạy ra bãi (Continuous Sprint Navigation)
                 self.arrived_at_spot = False
                 self.next_helper_check = 0.0
 
@@ -672,27 +690,55 @@ class AutoTrainWorker:
                     self._set_state(f"ĐANG CHẠY ({dist:.0f} ô)")
                     self.last_progress_log_time = now
 
-                # Phát hiện kẹt (Stuck Check): đứng yên tại 1 ô hoặc cự ly không giảm sau 3.5s
-                stuck_retry = float(self.config.get("stuck_retry_delay", 3.5))
-                time_since_move = now - self.last_move_issue
-                is_stuck = False
-                if self.last_dist is not None and dist >= (self.last_dist - 0.25) and time_since_move >= stuck_retry:
-                    is_stuck = True
-                elif px == self.last_px and py == self.last_py and time_since_move >= stuck_retry:
-                    is_stuck = True
+                # 1. Giám sát dịch chuyển tọa độ & phát hiện vật cản
+                if (px, py) != (self.last_px, self.last_py):
+                    self.last_moved_time = now
+                    if self.last_dist is not None and dist < self.last_dist:
+                        # Đang tiến gần hơn tới đích -> trả lại góc chạy thẳng
+                        self.bypass_angle_offset = 0.0
+                else:
+                    # Đứng yên tại 1 ô: Nếu quá 1.1s không đổi tọa độ -> có vật cản/hàng rào
+                    if self.last_moved_time > 0 and (now - self.last_moved_time) >= 1.1:
+                        bypass_angles = [55.0, -55.0, 85.0, -85.0, 120.0, -120.0]
+                        self.bypass_angle_offset = bypass_angles[self.bypass_idx % len(bypass_angles)]
+                        self.bypass_idx += 1
+                        self._log(f"Gặp vật cản tại ({px}, {py}). Lách tiếp tuyến {self.bypass_angle_offset:+.0f}° để vượt chướng ngại vật...")
+                        self.last_moved_time = now
 
-                if is_stuck or self.last_move_issue == 0.0:
-                    self.core.move_to(tx, ty)
-                    self.last_move_issue = now
-                    if is_stuck:
-                        self._log(f"Khựng bước tại ({px}, {py}). Tự động kích hoạt lại MoveTo tới bãi ({tx}, {ty}) [Còn {dist:.1f} ô]...")
-                    else:
+                # 2. Sải bước liên tục mỗi 0.85s để nhân vật duy trì chạy một mạch không khựng
+                time_since_stride = now - self.last_stride_time
+                need_stride = (
+                    (self.last_stride_time == 0.0) or
+                    (time_since_stride >= 0.85) or
+                    (self.bypass_angle_offset != 0.0 and time_since_stride >= 0.40)
+                )
+
+                if need_stride:
+                    if self.last_stride_time == 0.0:
                         self._log(f"Bắt đầu chạy ra bãi: ({px}, {py}) ➔ ({tx}, {ty}) [Còn {dist:.1f} ô]...")
+
+                    if self.bypass_angle_offset == 0.0:
+                        is_am_active = hasattr(self.core, "is_auto_move_active") and self.core.is_auto_move_active()
+                        if not is_am_active or not is_moving:
+                            if hasattr(self.core, "start_auto_move"):
+                                self.core.start_auto_move(tx, ty, helper=False)
+                            else:
+                                self.core.move_to(tx, ty, bypass_angle=0.0)
+                    else:
+                        if hasattr(self.core, "is_auto_move_active") and self.core.is_auto_move_active():
+                            if hasattr(self.core, "stop_auto_move"):
+                                self.core.stop_auto_move()
+                        self.core.move_to(tx, ty, bypass_angle=self.bypass_angle_offset)
+
+                    self.last_stride_time = now
+                    self.last_move_issue = now
+                    if self.last_moved_time == 0.0:
+                        self.last_moved_time = now
 
                 self.last_dist = dist
                 self.last_px = px
                 self.last_py = py
-                time.sleep(0.2)
+                time.sleep(0.12)
             except Exception as e:
                 import traceback
                 print(f"[Worker Error] {traceback.format_exc()}", flush=True)
