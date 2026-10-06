@@ -185,6 +185,7 @@ SLOT_ASSIGNMENTS_FILE = CONFIG_DIR / "slot_assignments.json"
 UI_SETTINGS_FILE = CONFIG_DIR / "ui_settings.json"
 MAP_COMMANDS_FILE = CONFIG_DIR / "map_commands.json"
 OFFSETS_FILE = CONFIG_DIR / "megamu_offsets.json"
+MOSS_CONFIG_FILE = CONFIG_DIR / "moss_slots_config.json"
 
 PROFILE_NAMES = [f"Config {i}" for i in range(1, 11)]
  
@@ -986,6 +987,59 @@ class ConfigPersistenceManager:
         tmp_slot.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp_slot.replace(SLOT_ASSIGNMENTS_FILE)
 
+    @classmethod
+    def load_moss_configs(cls) -> Dict[int, Dict[str, Any]]:
+        """Đọc cấu hình Auto Moss của từng Slot từ moss_slots_config.json."""
+        with cls._lock:
+            res = {}
+            if MOSS_CONFIG_FILE.exists():
+                try:
+                    data = json.loads(MOSS_CONFIG_FILE.read_text(encoding="utf-8"))
+                    slots_data = data.get("slots", {})
+                    for s_str, conf in slots_data.items():
+                        try:
+                            s_int = int(s_str)
+                            res[s_int] = {
+                                "category": int(conf.get("category", 0)),
+                                "delay_ms": int(conf.get("delay_ms", 1000)),
+                                "max_rolls": int(conf.get("max_rolls", 0))
+                            }
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            return res
+
+    @classmethod
+    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0):
+        """Lưu cấu hình Auto Moss của riêng Slot slot_idx."""
+        with cls._lock:
+            cur = cls.load_moss_configs()
+            cur[slot_idx] = {
+                "category": int(cat),
+                "delay_ms": int(delay_ms),
+                "max_rolls": int(max_rolls)
+            }
+            try:
+                store = {"slots": {str(k): v for k, v in sorted(cur.items(), key=lambda x: int(x[0]))}}
+                tmp = MOSS_CONFIG_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(MOSS_CONFIG_FILE)
+            except Exception:
+                pass
+
+    @classmethod
+    def save_all_moss_configs(cls, configs: Dict[int, Dict[str, Any]]):
+        """Lưu toàn bộ cấu hình Auto Moss của tất cả các Slot."""
+        with cls._lock:
+            try:
+                store = {"slots": {str(k): v for k, v in sorted(configs.items(), key=lambda x: int(x[0]))}}
+                tmp = MOSS_CONFIG_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(MOSS_CONFIG_FILE)
+            except Exception:
+                pass
+
 
 # ==============================================================================
 # CONTROLLER QUẢN LÝ TỪNG DÒNG TÀI KHOẢN (SLOT CONTROLLER)
@@ -1008,6 +1062,14 @@ class SlotController:
         self.engine: Optional[MegDirectEngine] = None
         self.worker: Optional[AutoTrainWorker] = None
         self.last_sync_time = 0.0
+
+        # Cấu hình Moss Merchant riêng cho Slot này
+        self.moss_category: int = 0
+        self.moss_delay_ms: int = 1000
+        self.moss_max_rolls: int = 0
+        self.moss_rolls_count: int = 0
+        self.moss_running: bool = False
+        self.moss_worker_thread: Optional[threading.Thread] = None
 
     def set_profile(self, profile_idx: int):
         """Thay đổi Profile và lưu ngay vào file JSON."""
@@ -1072,6 +1134,7 @@ class SlotController:
 
     def detach(self):
         """Ngắt kết nối."""
+        self.stop_moss()
         self.stop_auto(reason="Người dùng ngắt kết nối slot hoặc đổi gán game", trigger_by="MANUAL")
         self.assigned_pid = None
         self.char_name = "---"
@@ -1283,6 +1346,108 @@ class SlotController:
         elif self.char_name != "---" or self.level != "---":
             self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
 
+    def start_moss(self) -> bool:
+        """Kích hoạt Auto Quay Moss cho riêng slot này theo cấu hình đã cài đặt."""
+        if self.moss_running:
+            return True
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game hoặc Game đã thoát!")
+            return False
+
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!")
+            return False
+        if not eng.is_ready:
+            eng.attach()
+
+        self.moss_running = True
+        self.app.update_moss_slot_ui_state(self.slot_idx, is_running=True)
+        cat_name = self.app.get_moss_cat_name(self.moss_category)
+        self.app.append_moss_log(
+            f"[Slot {self.slot_idx:02d} - {self.char_name}] ▶️ BẮT ĐẦU AUTO QUAY: {cat_name} | Delay {self.moss_delay_ms}ms"
+        )
+
+        def _worker():
+            while self.moss_running:
+                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
+                    break
+                ok = eng.roll_moss(self.moss_category) if eng else False
+                if ok:
+                    self.moss_rolls_count += 1
+                    r_num = self.moss_rolls_count
+                    def _update_ui(s=self.slot_idx, r=r_num, c=self.moss_category):
+                        self.app.update_moss_slot_rolls(s, r)
+                        c_str = self.app.get_moss_cat_name(c)
+                        self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}")
+                    self.app.after(0, _update_ui)
+                else:
+                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công (Hòm đầy hoặc không đủ Zen)."))
+
+                if self.moss_max_rolls > 0 and self.moss_rolls_count >= self.moss_max_rolls:
+                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] 🏁 Đã hoàn thành đủ {self.moss_max_rolls} lượt."))
+                    break
+
+                # Sleep an toàn chia nhỏ
+                slept = 0
+                step = 0.05
+                target = max(0.4, self.moss_delay_ms / 1000.0)
+                while self.moss_running and slept < target:
+                    time.sleep(step)
+                    slept += step
+
+            self.moss_running = False
+            self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
+
+        self.moss_worker_thread = threading.Thread(target=_worker, daemon=True)
+        self.moss_worker_thread.start()
+        return True
+
+    def stop_moss(self):
+        """Dừng Auto Quay Moss cho riêng slot này."""
+        if self.moss_running:
+            self.moss_running = False
+            self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False)
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Quay Moss.")
+
+    def roll_moss_once(self) -> bool:
+        """Quay thử 1 lần cho riêng slot này."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+        ok = eng.roll_moss(self.moss_category)
+        if ok:
+            self.moss_rolls_count += 1
+            self.app.update_moss_slot_rolls(self.slot_idx, self.moss_rolls_count)
+            c_str = self.app.get_moss_cat_name(self.moss_category)
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎲 Quay 1 lần thành công: {c_str} (Lượt #{self.moss_rolls_count})")
+            return True
+        else:
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Quay 1 lần thất bại.")
+            return False
+
+    def open_moss_npc(self) -> bool:
+        """Mở NPC Moss từ xa cho riêng slot này."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+        ok = eng.open_moss(self.moss_category)
+        if ok:
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚪 Đã gửi lệnh mở giao diện NPC Moss.")
+            return True
+        return False
+
 
 # ==============================================================================
 # GIAO DIỆN CHÍNH (MEGAMU AUTO TRAIN DASHBOARD)
@@ -1319,14 +1484,20 @@ class DashboardApp(ctk.CTk):
 
         # Quản lý Slot và đọc trực tiếp cấu hình gán từ file JSON
         self.slot_assignments = ConfigPersistenceManager.load_slot_assignments(DEFAULT_SLOTS)
+        moss_cfgs = ConfigPersistenceManager.load_moss_configs()
         self.controllers: List[SlotController] = []
         for i in sorted(self.slot_assignments.keys()):
             assigned_c = self.slot_assignments.get(i, 1 if i <= 5 else 2)
-            self.controllers.append(SlotController(i, self, default_profile=assigned_c))
+            ctrl = SlotController(i, self, default_profile=assigned_c)
+            c_data = moss_cfgs.get(i, {})
+            ctrl.moss_category = int(c_data.get("category", 0))
+            ctrl.moss_delay_ms = int(c_data.get("delay_ms", 1000))
+            ctrl.moss_max_rolls = int(c_data.get("max_rolls", 0))
+            self.controllers.append(ctrl)
 
         # Bộ nhớ tiến trình
         self.detected_games: Dict[int, str] = {}
-        self.active_tab = "accounts"  # 'accounts', 'profiles', 'logs', 'ram'
+        self.active_tab = "accounts"  # 'accounts', 'profiles', 'logs', 'ram', 'moss'
         self.logs_data: List[Tuple[str, str, str]] = [] # [(time, slot, text)]
 
         # Quản lý RAM Optimizer
@@ -1340,12 +1511,8 @@ class DashboardApp(ctk.CTk):
 
         # Thành phần UI lưu trữ
         self.slot_ui_elements: Dict[int, Dict[str, Any]] = {}
+        self.moss_ui_elements: Dict[int, Dict[str, Any]] = {}
         self.editor_rows: List[Dict[str, Any]] = []
-
-        # Quản lý Auto Moss Merchant
-        self.moss_worker_thread: Optional[threading.Thread] = None
-        self.moss_running = False
-        self.moss_rolls_count = 0
 
         # Xây dựng giao diện hoàn chỉnh
         self.build_ui()
@@ -2074,6 +2241,11 @@ class DashboardApp(ctk.CTk):
         self.controllers.append(ctrl)
 
         self.create_slot_row(new_slot_idx)
+        if hasattr(self, "create_moss_slot_row") and hasattr(self, "moss_scroll_frame"):
+            try:
+                self.create_moss_slot_row(new_slot_idx)
+            except Exception:
+                pass
         self.update_combo_slot_options()
         self.update_header_stats()
         self.log_message(f"Đã thêm Account Slot #{new_slot_idx:02d} thành công.", "SUCCESS")
@@ -2090,19 +2262,30 @@ class DashboardApp(ctk.CTk):
         # Dừng auto và ngắt kết nối an toàn nếu đang chạy
         if ctrl.worker and ctrl.worker.running:
             ctrl.stop_auto(reason=f"Người dùng bấm nút Xóa Slot #{last_idx:02d}", trigger_by="MANUAL")
+        if hasattr(ctrl, "stop_moss"):
+            ctrl.stop_moss()
         if ctrl.engine:
             try:
                 ctrl.engine.detach()
             except Exception:
                 pass
 
-        # Xóa UI row
+        # Xóa UI row trong tab Accounts
         el = self.slot_ui_elements.pop(last_idx, None)
         if el and el.get("row_frame"):
             try:
                 el["row_frame"].destroy()
             except Exception:
                 pass
+
+        # Xóa UI row trong tab Moss
+        if hasattr(self, "moss_ui_elements"):
+            el_m = self.moss_ui_elements.pop(last_idx, None)
+            if el_m and el_m.get("row_frame"):
+                try:
+                    el_m["row_frame"].destroy()
+                except Exception:
+                    pass
 
         self.controllers.pop()
         self.slot_assignments.pop(last_idx, None)
@@ -2121,11 +2304,12 @@ class DashboardApp(ctk.CTk):
             num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
             num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
             self.footer_stats_lbl.configure(text=tr("footer_stats", slots=n, conn=num_conn, auto=num_auto))
-        if hasattr(self, "refresh_moss_slots_dropdown"):
-            try:
-                self.refresh_moss_slots_dropdown()
-            except Exception:
-                pass
+        if hasattr(self, "update_moss_slot_telemetry"):
+            for c in self.controllers:
+                try:
+                    self.update_moss_slot_telemetry(c.slot_idx, c.char_name, c.assigned_pid)
+                except Exception:
+                    pass
 
     def jump_to_slot_logs(self, slot_idx: int):
         """Nhảy nhanh sang Tab Logs khi bấm nút 📄 ở Slot."""
@@ -3298,7 +3482,9 @@ class DashboardApp(ctk.CTk):
         elif tab_name == "moss":
             if hasattr(self, "panel_moss"):
                 self.panel_moss.pack(fill="both", expand=True)
-                self.refresh_moss_slots_dropdown()
+                for ctrl in self.controllers:
+                    if hasattr(self, "update_moss_slot_telemetry"):
+                        self.update_moss_slot_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.assigned_pid)
 
     # ==========================================================================
     # TAB 4: TỐI ƯU HÓA BỘ NHỚ RAM (RAM OPTIMIZER TAB)
@@ -3696,22 +3882,43 @@ class DashboardApp(ctk.CTk):
         self.append_ram_log(f"⏱ Đã đặt khoảng thời gian dọn RAM: {choice}.")
 
     # ==========================================================================
-    # TAB 5: TỰ ĐỘNG QUAY MOSS THE GAMBLER (MOSS MERCHANT TAB)
+    # TAB 5: TỰ ĐỘNG QUAY MOSS THE GAMBLER ĐA TÀI KHOẢN (MOSS MERCHANT GRID)
     # ==========================================================================
+    MOSS_CAT_OPTIONS = [
+        ("0: Swords (Kiếm)", 0),
+        ("1: Scepters & Maces (Trượng & Chùy)", 1),
+        ("2: Bows & Crossbows (Cung & Nỏ)", 2),
+        ("3: Staffs (Gậy Phép)", 3),
+        ("4: Shields (Khiên)", 4),
+        ("5: Accessories & Others (Trang Sức / Khác)", 5),
+    ]
+
+    def get_moss_cat_name(self, cat_id: int) -> str:
+        for name, cid in self.MOSS_CAT_OPTIONS:
+            if cid == cat_id:
+                return name
+        return f"{cat_id}: Unknown"
+
+    def get_moss_cat_id(self, cat_name: str) -> int:
+        for name, cid in self.MOSS_CAT_OPTIONS:
+            if name == cat_name:
+                return cid
+        return 0
+
     def build_moss_view(self):
-        """Xây dựng giao diện Tab Auto Moss Merchant tích hợp."""
+        """Xây dựng giao diện Tab Auto Moss Merchant đa tài khoản đồng bộ 100%."""
         header_card = ctk.CTkFrame(self.panel_moss, fg_color="#181c26", corner_radius=8, border_width=1, border_color="#2b3244")
-        header_card.pack(fill="x", padx=14, pady=(12, 6))
+        header_card.pack(fill="x", padx=14, pady=(10, 6))
 
         inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
-        inner_h.pack(fill="both", expand=True, padx=14, pady=10)
+        inner_h.pack(fill="both", expand=True, padx=14, pady=8)
 
         left_h = ctk.CTkFrame(inner_h, fg_color="transparent")
         left_h.pack(side="left", fill="y")
 
         title_lbl = ctk.CTkLabel(
             left_h,
-            text=tr("moss_title"),
+            text="🎰 MEGAMU MOSS THE GAMBLER • AUTO ROLL ĐA TÀI KHOẢN",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
             text_color="#f59e0b"
         )
@@ -3719,240 +3926,458 @@ class DashboardApp(ctk.CTk):
 
         sub_lbl = ctk.CTkLabel(
             left_h,
-            text=tr("moss_subtitle"),
+            text="Tự động quay theo cấu hình đã cài đặt cho từng tài khoản • Hỗ trợ gán nhanh và chạy đồng loạt song song",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#94a3b8"
         )
         sub_lbl.pack(anchor="w", pady=(2, 0))
 
-        # KPI Frames
-        stats_frame = ctk.CTkFrame(self.panel_moss, fg_color="transparent")
-        stats_frame.pack(fill="x", padx=14, pady=4)
+        # ACTION TOOLBAR
+        toolbar_card = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        toolbar_card.pack(fill="x", padx=14, pady=(2, 6))
 
-        self.moss_card_rolls = self._create_moss_kpi_card(stats_frame, tr("moss_kpi_total"), "0 Lượt", "#10b981")
-        self.moss_card_rolls.pack(side="left", fill="both", expand=True, padx=(0, 4))
+        inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
+        inner_tb.pack(fill="both", expand=True, padx=10, pady=8)
 
-        self.moss_card_status = self._create_moss_kpi_card(stats_frame, tr("moss_kpi_status"), "Sẵn sàng", "#38bdf8")
-        self.moss_card_status.pack(side="left", fill="both", expand=True, padx=4)
-
-        self.moss_card_cat = self._create_moss_kpi_card(stats_frame, tr("moss_kpi_cat"), "0: Swords (Kiếm)", "#f59e0b")
-        self.moss_card_cat.pack(side="left", fill="both", expand=True, padx=4)
-
-        self.moss_card_slot = self._create_moss_kpi_card(stats_frame, tr("moss_kpi_target"), "Chưa chọn Slot", "#a855f7")
-        self.moss_card_slot.pack(side="left", fill="both", expand=True, padx=(4, 0))
-
-        # Body Split: Cột trái (Control Card) & Cột phải (Log Card)
-        body_split = ctk.CTkFrame(self.panel_moss, fg_color="transparent")
-        body_split.pack(fill="both", expand=True, padx=14, pady=(6, 12))
-
-        # CỘT TRÁI: ĐIỀU KHIỂN
-        left_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=6, border_width=1, border_color="#202430", width=420)
-        left_body.pack(side="left", fill="both", expand=False, padx=(0, 6))
-        left_body.pack_propagate(False)
-
-        ctrl_inner = ctk.CTkFrame(left_body, fg_color="transparent")
-        ctrl_inner.pack(fill="both", expand=True, padx=14, pady=12)
+        # Cụm Trái: Gán nhanh danh mục và delay
+        left_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
+        left_tb.pack(side="left", fill="y")
 
         ctk.CTkLabel(
-            ctrl_inner,
-            text="⚙️ THIẾT LẬP AUTO QUAY MOSS",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color="#f1f5f9"
-        ).pack(anchor="w", pady=(0, 10))
-
-        # 1. Chọn Slot
-        ctk.CTkLabel(
-            ctrl_inner,
-            text=tr("moss_slot"),
+            left_tb,
+            text="Gán nhanh:",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#94a3b8"
-        ).pack(anchor="w", pady=(4, 2))
+        ).pack(side="left", padx=(0, 6))
 
-        self.moss_slot_var = ctk.StringVar(value="Slot 01")
-        self.moss_slot_combo = ModernOptionMenu(
-            ctrl_inner,
-            values=["Slot 01"],
-            variable=self.moss_slot_var,
-            command=self.on_moss_slot_changed,
-            height=32
-        )
-        self.moss_slot_combo.pack(fill="x", pady=(0, 10))
-
-        # 2. Chọn Danh mục vật phẩm
-        ctk.CTkLabel(
-            ctrl_inner,
-            text=tr("moss_category"),
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94a3b8"
-        ).pack(anchor="w", pady=(4, 2))
-
-        self.moss_cat_map = {
-            "0: Swords (Kiếm)": 0,
-            "1: Scepters & Maces (Trượng & Chùy)": 1,
-            "2: Bows & Crossbows (Cung & Nỏ)": 2,
-            "3: Staffs (Gậy Phép)": 3,
-            "4: Shields (Khiên)": 4,
-            "5: Accessories & Others (Trang Sức / Khác)": 5,
-        }
-        self.moss_cat_var = ctk.StringVar(value="0: Swords (Kiếm)")
-        self.moss_cat_combo = ModernOptionMenu(
-            ctrl_inner,
-            values=list(self.moss_cat_map.keys()),
-            variable=self.moss_cat_var,
-            command=self.on_moss_category_changed,
-            height=32
-        )
-        self.moss_cat_combo.pack(fill="x", pady=(0, 10))
-
-        # 3. Tùy chọn Delay & Số lượt
-        opts_row = ctk.CTkFrame(ctrl_inner, fg_color="transparent")
-        opts_row.pack(fill="x", pady=(0, 12))
-
-        delay_col = ctk.CTkFrame(opts_row, fg_color="transparent")
-        delay_col.pack(side="left", fill="both", expand=True, padx=(0, 6))
-        ctk.CTkLabel(
-            delay_col,
-            text=tr("moss_delay"),
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94a3b8"
-        ).pack(anchor="w", pady=(0, 2))
-        self.moss_delay_entry = ctk.CTkEntry(
-            delay_col,
+        self.batch_moss_cat_combo = ModernOptionMenu(
+            left_tb,
+            values=[name for name, _ in self.MOSS_CAT_OPTIONS],
+            width=210,
             height=30,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            font=ctk.CTkFont(family="Segoe UI", size=11)
+        )
+        self.batch_moss_cat_combo.set(self.MOSS_CAT_OPTIONS[0][0])
+        self.batch_moss_cat_combo.pack(side="left", padx=(0, 6))
+
+        btn_apply_cat = ctk.CTkButton(
+            left_tb,
+            text="📋 Áp dụng tất cả Slot",
+            height=30,
+            corner_radius=6,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#475569",
+            text_color="#f1f5f9",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.apply_batch_moss_category
+        )
+        btn_apply_cat.pack(side="left", padx=(0, 14))
+
+        ctk.CTkLabel(
+            left_tb,
+            text="Delay:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#94a3b8"
+        ).pack(side="left", padx=(0, 4))
+
+        self.batch_moss_delay_entry = ctk.CTkEntry(
+            left_tb,
+            width=65,
+            height=30,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color="#181c26",
             border_color="#2b3244",
             text_color="#f8fafc"
         )
-        self.moss_delay_entry.insert(0, "1000")
-        self.moss_delay_entry.pack(fill="x")
+        self.batch_moss_delay_entry.insert(0, "1000")
+        self.batch_moss_delay_entry.pack(side="left", padx=(0, 6))
 
-        limit_col = ctk.CTkFrame(opts_row, fg_color="transparent")
-        limit_col.pack(side="left", fill="both", expand=True, padx=(6, 0))
-        ctk.CTkLabel(
-            limit_col,
-            text=tr("moss_max_rolls"),
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94a3b8"
-        ).pack(anchor="w", pady=(0, 2))
-        self.moss_limit_entry = ctk.CTkEntry(
-            limit_col,
+        btn_apply_delay = ctk.CTkButton(
+            left_tb,
+            text="⏱ Đặt delay",
             height=30,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="#181c26",
-            border_color="#2b3244",
-            text_color="#f8fafc"
-        )
-        self.moss_limit_entry.insert(0, "0")
-        self.moss_limit_entry.pack(fill="x")
-
-        # Nút tương tác đơn lẻ
-        single_row = ctk.CTkFrame(ctrl_inner, fg_color="transparent")
-        single_row.pack(fill="x", pady=(0, 12))
-
-        self.btn_moss_open = ctk.CTkButton(
-            single_row,
-            text=f" 🚪 {tr('moss_btn_open')}",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            height=34,
             corner_radius=6,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
             border_color="#475569",
             text_color="#cbd5e1",
-            command=self.on_moss_open_npc
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=self.apply_batch_moss_delay
         )
-        self.btn_moss_open.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        btn_apply_delay.pack(side="left")
 
-        self.btn_moss_once = ctk.CTkButton(
-            single_row,
-            text=f" 🎲 {tr('moss_btn_roll_once')}",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            height=34,
+        # Cụm Phải: Thao tác đồng loạt
+        right_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
+        right_tb.pack(side="right", fill="y")
+
+        btn_open_all = ctk.CTkButton(
+            right_tb,
+            text="🚪 Mở NPC Tất Cả",
+            height=30,
             corner_radius=6,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
             border_color="#475569",
             text_color="#38bdf8",
-            command=self.on_moss_roll_once
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.open_all_moss_npc
         )
-        self.btn_moss_once.pack(side="left", fill="x", expand=True, padx=(4, 0))
+        btn_open_all.pack(side="left", padx=(0, 6))
 
-        # Nút Auto chính (Start / Stop)
-        self.btn_moss_start = ctk.CTkButton(
-            ctrl_inner,
-            text=f" ▶️ {tr('moss_btn_start')}",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            height=40,
+        self.btn_moss_start_all = ctk.CTkButton(
+            right_tb,
+            text="▶️ QUAY TẤT CẢ THEO CONFIG",
+            height=30,
             corner_radius=6,
             fg_color="#059669",
             hover_color="#047857",
             text_color="#ffffff",
-            command=self.on_moss_start_auto
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.start_all_moss_auto
         )
-        self.btn_moss_start.pack(fill="x", pady=(4, 6))
+        self.btn_moss_start_all.pack(side="left", padx=(0, 6))
 
-        self.btn_moss_stop = ctk.CTkButton(
-            ctrl_inner,
-            text=f" ⏹️ {tr('moss_btn_stop')}",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            height=38,
+        self.btn_moss_stop_all = ctk.CTkButton(
+            right_tb,
+            text="⏹️ DỪNG TẤT CẢ",
+            height=30,
             corner_radius=6,
             fg_color="#dc2626",
             hover_color="#b91c1c",
             text_color="#ffffff",
-            state="disabled",
-            command=self.on_moss_stop_auto
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.stop_all_moss_auto
         )
-        self.btn_moss_stop.pack(fill="x", pady=(0, 6))
+        self.btn_moss_stop_all.pack(side="left")
 
-        # CỘT PHẢI: NHẬT KÝ QUAY MOSS
-        right_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=6, border_width=1, border_color="#202430")
-        right_body.pack(side="right", fill="both", expand=True)
+        # BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
+        table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        table_container.pack(fill="both", expand=True, padx=14, pady=(2, 6))
 
-        log_h = ctk.CTkFrame(right_body, fg_color="transparent")
-        log_h.pack(fill="x", padx=14, pady=(10, 6))
+        # Header bảng
+        tbl_h = ctk.CTkFrame(table_container, fg_color="transparent", height=30)
+        tbl_h.pack(fill="x", padx=10, pady=(6, 2))
+
+        headers = [
+            ("Nº", 45, "w"),
+            ("Tài khoản / PID", 210, "w"),
+            ("Vật Phẩm Quay (Config)", 220, "w"),
+            ("Delay (ms)", 90, "center"),
+            ("Đã Quay", 85, "center"),
+            ("Trạng Thái", 115, "center"),
+            ("Thao Tác", 150, "center"),
+        ]
+        for title, w, anc in headers:
+            ctk.CTkLabel(
+                tbl_h,
+                text=title,
+                width=w,
+                anchor=anc,
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color="#94a3b8"
+            ).pack(side="left", padx=4)
+
+        div = ctk.CTkFrame(table_container, fg_color="#1f2535", height=1)
+        div.pack(fill="x", padx=10, pady=(0, 4))
+
+        # Khung cuộn chứa từng dòng
+        self.moss_scroll_frame = ctk.CTkScrollableFrame(table_container, fg_color="transparent")
+        self.moss_scroll_frame.pack(fill="both", expand=True, padx=4, pady=(0, 6))
+
+        for ctrl in self.controllers:
+            self.create_moss_slot_row(ctrl.slot_idx)
+
+        # KHUNG NHẬT KÝ QUAY MOSS TRỰC TIẾP (LIVE CONSOLE LOG)
+        log_frame = ctk.CTkFrame(self.panel_moss, fg_color="#141722", height=140, corner_radius=8, border_width=1, border_color="#202430")
+        log_frame.pack(fill="x", padx=14, pady=(0, 10))
+        log_frame.pack_propagate(False)
+
+        lh = ctk.CTkFrame(log_frame, fg_color="transparent", height=24)
+        lh.pack(fill="x", padx=10, pady=(6, 2))
 
         ctk.CTkLabel(
-            log_h,
-            text="📜 NHẬT KÝ LƯỢT QUAY MOSS THE GAMBLER",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            lh,
+            text="📜 NHẬT KÝ LƯỢT QUAY TRỰC TIẾP",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#f1f5f9"
         ).pack(side="left")
 
-        btn_clear_log = ctk.CTkButton(
-            log_h,
+        btn_clear = ctk.CTkButton(
+            lh,
             text="Xóa nhật ký",
-            width=90,
-            height=26,
+            width=75,
+            height=22,
             corner_radius=4,
             fg_color="#1e293b",
             hover_color="#334155",
             text_color="#94a3b8",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             command=self.clear_moss_log
         )
-        btn_clear_log.pack(side="right")
+        btn_clear.pack(side="right")
 
         self.moss_log_txt = ctk.CTkTextbox(
-            right_body,
+            log_frame,
             font=ctk.CTkFont(family="Consolas", size=11),
             fg_color="#0b0d13",
             text_color="#cbd5e1"
         )
-        self.moss_log_txt.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.append_moss_log("🟢 Tính năng Auto Moss The Gambler đã sẵn sàng.")
+        self.moss_log_txt.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.append_moss_log("🟢 Auto Moss The Gambler đa tài khoản đã sẵn sàng theo cấu hình.")
 
-    def _create_moss_kpi_card(self, parent, title, initial_val, color):
-        card = ctk.CTkFrame(parent, corner_radius=6, fg_color="#181c26", border_width=1, border_color="#2b3244")
-        lbl_t = ctk.CTkLabel(card, text=title, font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#94a3b8")
-        lbl_t.pack(anchor="w", padx=12, pady=(6, 0))
-        lbl_v = ctk.CTkLabel(card, text=initial_val, font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color=color)
-        lbl_v.pack(anchor="w", padx=12, pady=(1, 6))
-        card.value_label = lbl_v
-        return card
+    def create_moss_slot_row(self, i: int):
+        """Tạo 1 dòng cấu hình và điều khiển Moss cho Slot i."""
+        ctrl = self.controllers[i - 1]
+        row_frame = ctk.CTkFrame(self.moss_scroll_frame, fg_color="#141722", height=44, corner_radius=6)
+        row_frame.pack(fill="x", padx=2, pady=2)
+
+        # Cột 1: No.
+        ctk.CTkLabel(
+            row_frame,
+            text=f"{i:02d}",
+            width=45,
+            anchor="w",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#94a3b8"
+        ).pack(side="left", padx=(8, 4))
+
+        # Cột 2: Nhân vật / PID
+        char_disp = f"{ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "Chưa gán"
+        char_color = "#f8fafc" if ctrl.assigned_pid else "#64748b"
+        char_lbl = ctk.CTkLabel(
+            row_frame,
+            text=char_disp,
+            width=210,
+            anchor="w",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if ctrl.assigned_pid else "normal"),
+            text_color=char_color
+        )
+        char_lbl.pack(side="left", padx=4)
+
+        # Cột 3: Vật phẩm quay (Config)
+        cat_var = ctk.StringVar(value=self.get_moss_cat_name(ctrl.moss_category))
+        cat_combo = ModernOptionMenu(
+            row_frame,
+            values=[name for name, _ in self.MOSS_CAT_OPTIONS],
+            variable=cat_var,
+            width=220,
+            height=28,
+            command=lambda val, s=i: self.on_moss_slot_category_changed(s, val),
+            font=ctk.CTkFont(family="Segoe UI", size=11)
+        )
+        cat_combo.pack(side="left", padx=4)
+
+        # Cột 4: Delay (ms)
+        delay_entry = ctk.CTkEntry(
+            row_frame,
+            width=80,
+            height=28,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color="#181c26",
+            border_color="#2b3244",
+            text_color="#f8fafc"
+        )
+        delay_entry.insert(0, str(ctrl.moss_delay_ms))
+        delay_entry.pack(side="left", padx=8)
+        delay_entry.bind("<FocusOut>", lambda e, s=i: self.on_moss_slot_delay_changed(s))
+        delay_entry.bind("<Return>", lambda e, s=i: self.on_moss_slot_delay_changed(s))
+
+        # Cột 5: Đã quay
+        rolls_lbl = ctk.CTkLabel(
+            row_frame,
+            text=f"{ctrl.moss_rolls_count} Lượt",
+            width=85,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#10b981"
+        )
+        rolls_lbl.pack(side="left", padx=4)
+
+        # Cột 6: Trạng thái
+        st_text = "Chờ" if ctrl.assigned_pid else "Chưa gán"
+        status_lbl = ctk.CTkLabel(
+            row_frame,
+            text=st_text,
+            width=115,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8"
+        )
+        status_lbl.pack(side="left", padx=4)
+
+        # Cột 7: Thao tác (Auto Bật/Tắt & 1 Lần)
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=150)
+        action_box.pack(side="left", padx=4)
+
+        btn_toggle = ctk.CTkButton(
+            action_box,
+            text="▶️ Auto",
+            width=68,
+            height=26,
+            corner_radius=4,
+            fg_color="#059669",
+            hover_color="#047857",
+            text_color="#ffffff",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: self.toggle_moss_slot_auto(s)
+        )
+        btn_toggle.pack(side="left", padx=(0, 4))
+
+        btn_once = ctk.CTkButton(
+            action_box,
+            text="🎲 1 Lần",
+            width=62,
+            height=26,
+            corner_radius=4,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#475569",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: ctrl.roll_moss_once()
+        )
+        btn_once.pack(side="left")
+
+        # Lưu UI cache
+        self.moss_ui_elements[i] = {
+            "row_frame": row_frame,
+            "char_lbl": char_lbl,
+            "cat_var": cat_var,
+            "cat_combo": cat_combo,
+            "delay_entry": delay_entry,
+            "rolls_lbl": rolls_lbl,
+            "status_lbl": status_lbl,
+            "btn_toggle": btn_toggle,
+            "btn_once": btn_once,
+        }
+
+    def on_moss_slot_category_changed(self, slot_idx: int, cat_name: str):
+        ctrl = self.controllers[slot_idx - 1]
+        cid = self.get_moss_cat_id(cat_name)
+        ctrl.moss_category = cid
+        ConfigPersistenceManager.save_moss_config(slot_idx, cid, ctrl.moss_delay_ms, ctrl.moss_max_rolls)
+        self.append_moss_log(f"[Slot {slot_idx:02d}] Cập nhật cấu hình quay: {cat_name}.")
+
+    def on_moss_slot_delay_changed(self, slot_idx: int):
+        el = self.moss_ui_elements.get(slot_idx)
+        if not el or not el.get("delay_entry"):
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        try:
+            val = max(400, int(el["delay_entry"].get().strip()))
+            ctrl.moss_delay_ms = val
+            ConfigPersistenceManager.save_moss_config(slot_idx, ctrl.moss_category, val, ctrl.moss_max_rolls)
+        except Exception:
+            el["delay_entry"].delete(0, "end")
+            el["delay_entry"].insert(0, str(ctrl.moss_delay_ms))
+
+    def update_moss_slot_ui_state(self, slot_idx: int, is_running: bool):
+        el = self.moss_ui_elements.get(slot_idx)
+        if not el:
+            return
+        if el.get("btn_toggle"):
+            if is_running:
+                el["btn_toggle"].configure(text="⏹️ Dừng", fg_color="#dc2626", hover_color="#b91c1c")
+            else:
+                el["btn_toggle"].configure(text="▶️ Auto", fg_color="#059669", hover_color="#047857")
+        if el.get("status_lbl"):
+            if is_running:
+                el["status_lbl"].configure(text="Đang quay...", text_color="#10b981")
+            else:
+                ctrl = self.controllers[slot_idx - 1]
+                el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa gán", text_color="#94a3b8")
+
+    def update_moss_slot_rolls(self, slot_idx: int, count: int):
+        el = self.moss_ui_elements.get(slot_idx)
+        if el and el.get("rolls_lbl"):
+            el["rolls_lbl"].configure(text=f"{count} Lượt")
+
+    def update_moss_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int]):
+        el = self.moss_ui_elements.get(slot_idx)
+        if not el or not el.get("char_lbl"):
+            return
+        if pid:
+            disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
+            el["char_lbl"].configure(text=disp, text_color="#f8fafc", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
+            if el.get("status_lbl"):
+                ctrl = self.controllers[slot_idx - 1]
+                if not ctrl.moss_running:
+                    el["status_lbl"].configure(text="Chờ", text_color="#94a3b8")
+        else:
+            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            if el.get("status_lbl"):
+                el["status_lbl"].configure(text="Chưa gán", text_color="#64748b")
+
+    def toggle_moss_slot_auto(self, slot_idx: int):
+        ctrl = self.controllers[slot_idx - 1]
+        if ctrl.moss_running:
+            ctrl.stop_moss()
+        else:
+            ctrl.start_moss()
+
+    def apply_batch_moss_category(self):
+        """Gán nhanh 1 danh mục vật phẩm cho TOÀN BỘ các Slot và lưu file."""
+        chosen = self.batch_moss_cat_combo.get()
+        cid = self.get_moss_cat_id(chosen)
+        for i, ctrl in enumerate(self.controllers, 1):
+            ctrl.moss_category = cid
+            el = self.moss_ui_elements.get(i)
+            if el and el.get("cat_var"):
+                el["cat_var"].set(chosen)
+            ConfigPersistenceManager.save_moss_config(i, cid, ctrl.moss_delay_ms, ctrl.moss_max_rolls)
+        self.append_moss_log(f"📋 Đã gán cấu hình quay '{chosen}' cho tất cả {len(self.controllers)} Slot!")
+
+    def apply_batch_moss_delay(self):
+        """Gán nhanh delay cho TOÀN BỘ các Slot và lưu file."""
+        try:
+            val = max(400, int(self.batch_moss_delay_entry.get().strip()))
+        except Exception:
+            val = 1000
+        for i, ctrl in enumerate(self.controllers, 1):
+            ctrl.moss_delay_ms = val
+            el = self.moss_ui_elements.get(i)
+            if el and el.get("delay_entry"):
+                el["delay_entry"].delete(0, "end")
+                el["delay_entry"].insert(0, str(val))
+            ConfigPersistenceManager.save_moss_config(i, ctrl.moss_category, val, ctrl.moss_max_rolls)
+        self.append_moss_log(f"⏱ Đã đặt delay {val}ms cho tất cả {len(self.controllers)} Slot!")
+
+    def start_all_moss_auto(self):
+        """Kích hoạt Auto Quay Moss cho TẤT CẢ các tài khoản đang kết nối theo config của từng slot."""
+        def _batch_runner():
+            started = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ok = ctrl.start_moss()
+                    if ok:
+                        started += 1
+                        time.sleep(0.08) # Jitter 80ms chống nghẽn server
+            if started > 0:
+                self.after(0, lambda: self.append_moss_log(f"🚀 Đã kích hoạt Auto Moss cho {started} tài khoản đang kết nối!"))
+            else:
+                self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản nào đang kết nối để chạy Auto Moss!"))
+        threading.Thread(target=_batch_runner, daemon=True).start()
+
+    def stop_all_moss_auto(self):
+        """Dừng Auto Quay Moss trên toàn bộ các tài khoản."""
+        for ctrl in self.controllers:
+            ctrl.stop_moss()
+        self.append_moss_log("⏹️ Đã dừng Auto Moss trên toàn bộ tài khoản.")
+
+    def open_all_moss_npc(self):
+        """Gửi lệnh mở giao diện NPC Moss cho toàn bộ các tài khoản đang kết nối."""
+        def _opener():
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.open_moss_npc()
+                    time.sleep(0.05)
+            self.after(0, lambda: self.append_moss_log("🚪 Đã gửi lệnh mở NPC Moss cho toàn bộ tài khoản đang kết nối!"))
+        threading.Thread(target=_opener, daemon=True).start()
 
     def append_moss_log(self, text: str):
         if hasattr(self, "moss_log_txt"):
@@ -3963,149 +4388,6 @@ class DashboardApp(ctk.CTk):
     def clear_moss_log(self):
         if hasattr(self, "moss_log_txt"):
             self.moss_log_txt.delete("1.0", "end")
-
-    def refresh_moss_slots_dropdown(self):
-        """Làm mới danh sách chọn Slot trong tab Moss Merchant."""
-        if not hasattr(self, "moss_slot_combo"):
-            return
-        vals = []
-        for ctrl in self.controllers:
-            p_name = ctrl.char_name if ctrl.char_name and ctrl.char_name != "---" else "Chưa gán"
-            pid_str = f"PID:{ctrl.assigned_pid}" if ctrl.assigned_pid else "No PID"
-            vals.append(f"Slot {ctrl.slot_idx:02d} ({p_name} | {pid_str})")
-        if vals:
-            self.moss_slot_combo.configure(values=vals)
-            cur = self.moss_slot_var.get()
-            if not any(cur.startswith(f"Slot {c.slot_idx:02d}") for c in self.controllers):
-                self.moss_slot_var.set(vals[0])
-            self.on_moss_slot_changed(self.moss_slot_var.get())
-
-    def on_moss_slot_changed(self, choice: str):
-        if hasattr(self, "moss_card_slot"):
-            self.moss_card_slot.value_label.configure(text=choice.split(" (")[0])
-
-    def on_moss_category_changed(self, choice: str):
-        if hasattr(self, "moss_card_cat"):
-            self.moss_card_cat.value_label.configure(text=choice)
-
-    def _get_active_moss_controller(self) -> Optional[SlotController]:
-        cur = self.moss_slot_var.get()
-        for ctrl in self.controllers:
-            if cur.startswith(f"Slot {ctrl.slot_idx:02d}"):
-                return ctrl
-        return self.controllers[0] if self.controllers else None
-
-    def on_moss_open_npc(self):
-        ctrl = self._get_active_moss_controller()
-        if not ctrl or not ctrl.assigned_pid:
-            self.append_moss_log("⚠️ Chưa chọn Slot hoặc Slot chưa được gán Game MEGAMU!")
-            return
-        cat_id = self.moss_cat_map.get(self.moss_cat_var.get(), 0)
-        eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            self.append_moss_log("❌ Không tìm thấy Direct Engine!")
-            return
-        if not eng.is_ready:
-            eng.attach()
-        ok = eng.open_moss(cat_id)
-        if ok:
-            self.append_moss_log(f"✅ Đã gửi lệnh mở giao diện NPC Moss (Category #{cat_id}) tới PID {ctrl.assigned_pid}.")
-        else:
-            self.append_moss_log(f"❌ Không thể gửi lệnh mở NPC tới PID {ctrl.assigned_pid}.")
-
-    def on_moss_roll_once(self):
-        ctrl = self._get_active_moss_controller()
-        if not ctrl or not ctrl.assigned_pid:
-            self.append_moss_log("⚠️ Chưa chọn Slot hoặc Slot chưa được gán Game MEGAMU!")
-            return
-        cat_id = self.moss_cat_map.get(self.moss_cat_var.get(), 0)
-        eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            self.append_moss_log("❌ Không tìm thấy Direct Engine!")
-            return
-        if not eng.is_ready:
-            eng.attach()
-        ok = eng.roll_moss(cat_id)
-        if ok:
-            self.moss_rolls_count += 1
-            if hasattr(self, "moss_card_rolls"):
-                self.moss_card_rolls.value_label.configure(text=f"{self.moss_rolls_count} Lượt")
-            self.append_moss_log(f"🎲 [Lượt #{self.moss_rolls_count}] Quay thành công Category #{cat_id} ({self.moss_cat_var.get()})!")
-        else:
-            self.append_moss_log(f"❌ Quay thất bại Category #{cat_id} (Game chưa sẵn sàng hoặc không thể gửi packet).")
-
-    def on_moss_start_auto(self):
-        if self.moss_running:
-            return
-        ctrl = self._get_active_moss_controller()
-        if not ctrl or not ctrl.assigned_pid:
-            self.append_moss_log("⚠️ Chưa chọn Slot hoặc Slot chưa được gán Game MEGAMU!")
-            return
-        try:
-            delay_ms = max(400, int(self.moss_delay_entry.get().strip()))
-        except Exception:
-            delay_ms = 1000
-        try:
-            max_rolls = max(0, int(self.moss_limit_entry.get().strip()))
-        except Exception:
-            max_rolls = 0
-
-        self.moss_running = True
-        self.btn_moss_start.configure(state="disabled")
-        self.btn_moss_stop.configure(state="normal")
-        if hasattr(self, "moss_card_status"):
-            self.moss_card_status.value_label.configure(text="Đang quay...", text_color="#10b981")
-
-        self.append_moss_log(f"▶️ BẮT ĐẦU AUTO QUAY: Delay {delay_ms}ms | Giới hạn: {'Vô hạn' if max_rolls == 0 else f'{max_rolls} lượt'} | PID {ctrl.assigned_pid}")
-
-        def _worker():
-            cat_id = self.moss_cat_map.get(self.moss_cat_var.get(), 0)
-            eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
-            if eng and not eng.is_ready:
-                eng.attach()
-            while self.moss_running:
-                if not psutil.pid_exists(ctrl.assigned_pid):
-                    self.after(0, lambda: self.append_moss_log("⚠️ Tiến trình game MEGAMU đã thoát! Dừng auto."))
-                    break
-                ok = eng.roll_moss(cat_id) if eng else False
-                if ok:
-                    self.moss_rolls_count += 1
-                    r_num = self.moss_rolls_count
-                    def _update_ui(c=r_num):
-                        if hasattr(self, "moss_card_rolls"):
-                            self.moss_card_rolls.value_label.configure(text=f"{c} Lượt")
-                        if hasattr(self, "moss_card_status"):
-                            self.moss_card_status.value_label.configure(text=f"Lượt #{c}")
-                        self.append_moss_log(f"🎰 [Lượt #{c}] Đã quay Category #{cat_id} ({self.moss_cat_var.get()})")
-                    self.after(0, _update_ui)
-                else:
-                    self.after(0, lambda: self.append_moss_log(f"⚠️ Gửi packet quay Category #{cat_id} không thành công."))
-
-                if max_rolls > 0 and self.moss_rolls_count >= max_rolls:
-                    self.after(0, lambda: self.append_moss_log(f"🏁 Đã hoàn thành đủ {max_rolls} lượt quay."))
-                    break
-
-                slept = 0
-                step = 0.05
-                target = delay_ms / 1000.0
-                while self.moss_running and slept < target:
-                    time.sleep(step)
-                    slept += step
-
-            self.after(0, self.on_moss_stop_auto)
-
-        self.moss_worker_thread = threading.Thread(target=_worker, daemon=True)
-        self.moss_worker_thread.start()
-
-    def on_moss_stop_auto(self):
-        self.moss_running = False
-        if hasattr(self, "btn_moss_start"):
-            self.btn_moss_start.configure(state="normal")
-        if hasattr(self, "btn_moss_stop"):
-            self.btn_moss_stop.configure(state="disabled")
-        if hasattr(self, "moss_card_status"):
-            self.moss_card_status.value_label.configure(text="Đã dừng", text_color="#f87171")
-        self.append_moss_log("⏹️ Đã dừng Auto Quay Moss.")
 
     def jump_to_config_tab(self, slot_idx: int):
         """Nhảy nhanh sang Tab Cấu hình khi bấm nút '⚙' ở Slot."""
@@ -4122,6 +4404,8 @@ class DashboardApp(ctk.CTk):
         ctrl = self.controllers[slot_idx - 1]
         if val in ("--", tr("select"), "") or not val:
             ctrl.detach()
+            if hasattr(self, "update_moss_slot_telemetry"):
+                self.update_moss_slot_telemetry(slot_idx, "---", None)
             return
 
         try:
@@ -4132,6 +4416,8 @@ class DashboardApp(ctk.CTk):
             else:
                 pid = int(val.split(" - ")[0].strip())
             ctrl.attach_pid(pid)
+            if hasattr(self, "update_moss_slot_telemetry"):
+                self.update_moss_slot_telemetry(slot_idx, ctrl.char_name, pid)
         except Exception as e:
             self.log_message(f"[Slot {slot_idx:02d}] Không thể gán PID: {e}", "ERROR")
 
@@ -4260,6 +4546,11 @@ class DashboardApp(ctk.CTk):
                     el["coords_lbl"].configure(text=c_disp)
                 else:
                     el["coords_lbl"].configure(text="--, --")
+            if hasattr(self, "update_moss_slot_telemetry"):
+                try:
+                    self.update_moss_slot_telemetry(slot_idx, name, ctrl.assigned_pid)
+                except Exception:
+                    pass
         try:
             self.after(0, _apply)
         except Exception:
@@ -4895,6 +5186,8 @@ class DashboardApp(ctk.CTk):
             except Exception:
                 pass
         for ctrl in self.controllers:
+            if hasattr(ctrl, "stop_moss"):
+                ctrl.stop_moss()
             if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
                 ctrl.stop_auto(reason="Người dùng đóng cửa sổ chương trình Dashboard", trigger_by="MANUAL")
         for ctrl in self.controllers:
