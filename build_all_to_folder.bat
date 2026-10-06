@@ -194,10 +194,11 @@ if exist "megamu_dashboard_icon.ico" copy /y "megamu_dashboard_icon.ico" "%TARGE
 if exist "megamu_dashboard_logo.png" copy /y "megamu_dashboard_logo.png" "%TARGET_FOLDER%\" >nul
 echo   + Da dong bo icon va logo vao thu muc Release
 
-:: 5.4 Tao thu muc config
+:: 5.4 Tao thu muc config va dong bo cac file cau hinh
 mkdir "%TARGET_FOLDER%\config" >nul 2>&1
-if exist "config\ui_settings.json" copy /y "config\ui_settings.json" "%TARGET_FOLDER%\config\" >nul
-echo   + Da tao thu muc config/ (Cai dat giao dien)
+copy /y "config\*.json" "%TARGET_FOLDER%\config\" >nul 2>&1
+if exist "megamu_offsets.json" copy /y "megamu_offsets.json" "%TARGET_FOLDER%\" >nul
+echo   + Da tao thu muc config/ va dong bo toan bo file JSON cau hinh
 
 :: 5.5 Don dep thu muc tam thoi
 if exist "%BUILD_TEMP%" rmdir /s /q "%BUILD_TEMP%" >nul 2>&1

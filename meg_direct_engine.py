@@ -72,8 +72,8 @@ DEFAULT_OFFSETS = {
     "mirror_enter": "0xFDCA30",
     "mirror_npc_click": "0xFCE6E0",
     "mirror_is_event_map": "0xFCF820",
-    "inv_sell_item": "0x1422330",
-    "inv_trash_item": "0x14221D0",
+    "inv_sell_item": "0x1425690",
+    "inv_trash_item": "0x14281C0",
     "player_inventory": "0x1B8",
     "inventory_items": "0x28",
 }
@@ -184,7 +184,7 @@ var nativeInvSellItem = null;
 try {
     var isiOff = off('__INV_SELL_ITEM__');
     if (!isiOff.isNull()) {
-        nativeInvSellItem = new NativeFunction(baseAddr.add(isiOff), 'void', ['int', 'int']);
+        nativeInvSellItem = new NativeFunction(baseAddr.add(isiOff), 'void', ['int', 'pointer']);
     }
 } catch (eInvSell) {}
 
@@ -192,7 +192,7 @@ var nativeInvTrashItem = null;
 try {
     var itiOff = off('__INV_TRASH_ITEM__');
     if (!itiOff.isNull()) {
-        nativeInvTrashItem = new NativeFunction(baseAddr.add(itiOff), 'void', ['int']);
+        nativeInvTrashItem = new NativeFunction(baseAddr.add(itiOff), 'void', ['int', 'pointer', 'pointer']);
     }
 } catch (eInvTrash) {}
 
@@ -741,18 +741,24 @@ rpc.exports = {
                     continue;
                 }
 
+                var itemHandled = false;
                 try {
                     if (useMethod === "sell" || useMethod === "both") {
                         if (nativeInvSellItem !== null) {
-                            nativeInvSellItem(-2, s);
+                            nativeInvSellItem(s, ptr(0));
+                            itemHandled = true;
                         }
                     }
-                    if (useMethod === "trash" || (useMethod === "both" && nativeInvSellItem === null)) {
+                    if (!itemHandled && (useMethod === "trash" || useMethod === "both")) {
                         if (nativeInvTrashItem !== null) {
-                            nativeInvTrashItem(s);
+                            nativeInvTrashItem(s, ptr(0), ptr(0));
+                            itemHandled = true;
                         }
                     }
-                    cleaned++;
+                    if (itemHandled) {
+                        cleaned++;
+                        try { Thread.sleep(0.015); } catch (eSleep) {}
+                    }
                 } catch (eAct) {}
             }
             return JSON.stringify({ cleaned: cleaned });
@@ -766,11 +772,11 @@ rpc.exports = {
             ensureThreadAttached();
             var s = parseInt(slot);
             if (nativeInvSellItem !== null) {
-                nativeInvSellItem(-2, s);
+                nativeInvSellItem(s, ptr(0));
                 return true;
             }
             if (nativeInvTrashItem !== null) {
-                nativeInvTrashItem(s);
+                nativeInvTrashItem(s, ptr(0), ptr(0));
                 return true;
             }
         } catch (e) {}
@@ -967,8 +973,8 @@ class MegDirectEngine:
             "__MIRROR_ENTER__": self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xFDCA30"),
             "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xFCE6E0"),
             "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xFCF820"),
-            "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x1422330"),
-            "__INV_TRASH_ITEM__": self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x14221D0"),
+            "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x1425690"),
+            "__INV_TRASH_ITEM__": self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x14281C0"),
             "__PLAYER_INVENTORY__": self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B8"),
             "__INVENTORY_ITEMS__": self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28"),
         }

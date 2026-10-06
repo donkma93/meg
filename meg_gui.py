@@ -1433,6 +1433,11 @@ class SlotController:
                                 self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
                                     f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác..."
                                 ))
+                                try:
+                                    eng.open_moss(self.moss_category)
+                                    time.sleep(0.08)
+                                except Exception:
+                                    pass
                                 c_res = eng.clean_inventory_junk("both")
                                 cleaned = c_res.get("cleaned", 0)
                                 self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
@@ -1463,6 +1468,11 @@ class SlotController:
                     cleaned_items = 0
                     if self.moss_auto_clean and eng and eng.is_ready:
                         try:
+                            try:
+                                eng.open_moss(self.moss_category)
+                                time.sleep(0.08)
+                            except Exception:
+                                pass
                             c_res = eng.clean_inventory_junk("both")
                             cleaned_items = c_res.get("cleaned", 0)
                             if cleaned_items > 0:
@@ -1556,6 +1566,11 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
         try:
+            try:
+                eng.open_moss(self.moss_category)
+                time.sleep(0.08)
+            except Exception:
+                pass
             res = eng.clean_inventory_junk("both")
             cleaned = res.get("cleaned", 0)
             self.app.append_moss_log(

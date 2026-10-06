@@ -31,8 +31,8 @@
     "mirror_enter": "0xFDCA30",
     "mirror_npc_click": "0xFCE6E0",
     "mirror_is_event_map": "0xFCF820",
-    "inv_sell_item": "0x1422330",
-    "inv_trash_item": "0x14221D0",
+    "inv_sell_item": "0x1425690",
+    "inv_trash_item": "0x14281C0",
     "player_inventory": "0x1B8",
     "inventory_items": "0x28"
 }
