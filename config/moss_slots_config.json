@@ -1,0 +1,54 @@
+{
+  "slots": {
+    "1": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "2": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "3": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "4": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "5": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "6": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "7": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "8": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "9": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    },
+    "10": {
+      "category": 0,
+      "delay_ms": 2000,
+      "max_rolls": 0
+    }
+  }
+}

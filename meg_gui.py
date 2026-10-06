@@ -286,6 +286,16 @@ class UiIconFactory:
             d.rounded_rectangle([int(cw * 0.20), int(ch * 0.20), int(cw * 0.80), int(ch * 0.80)], radius=int(2 * scale), outline=color, width=lw)
             d.line([(int(cw * 0.50), int(ch * 0.20)), (int(cw * 0.50), int(ch * 0.80))], fill=color, width=lw)
             d.line([(int(cw * 0.20), int(ch * 0.50)), (int(cw * 0.80), int(ch * 0.50))], fill=color, width=lw)
+        elif name in ("mirror", "sparkle", "shield"):
+            poly = [
+                (int(cw * 0.50), int(ch * 0.15)),
+                (int(cw * 0.80), int(ch * 0.25)),
+                (int(cw * 0.80), int(ch * 0.55)),
+                (int(cw * 0.50), int(ch * 0.85)),
+                (int(cw * 0.20), int(ch * 0.55)),
+                (int(cw * 0.20), int(ch * 0.25))
+            ]
+            d.polygon(poly, outline=color, width=lw)
 
         res_img = im.resize(size, Image.Resampling.LANCZOS)
         ctk_img = ctk.CTkImage(light_image=res_img, dark_image=res_img, size=size)
@@ -595,7 +605,15 @@ I18N = {
         "moss_kpi_total": "TỔNG ĐÃ QUAY",
         "moss_kpi_status": "TRẠNG THÁI",
         "moss_kpi_cat": "DANH MỤC",
-        "moss_kpi_target": "NHÂN VẬT ĐANG CHỌN"
+        "moss_kpi_target": "NHÂN VẬT ĐANG CHỌN",
+        "mirror_event": "Double Goer (Mirror)",
+        "mirror_title": "🪞 MEGAMU DOUBLE GOER • MIRROR OF DIMENSIONS",
+        "mirror_subtitle": "Tự động tham gia sự kiện Gương Không Gian (Doppelganger) • Vào cửa Native & Auto Move tới NPC Lugard",
+        "mirror_btn_enter": "Vào Cửa Mirror (Native)",
+        "mirror_btn_npc": "Mở Đối Thoại NPC Lugard",
+        "mirror_btn_move": "Chạy Tới Lugard (Elbeland)",
+        "mirror_btn_start": "BẮT ĐẦU AUTO MIRROR",
+        "mirror_btn_stop": "DỪNG AUTO MIRROR"
     },
     "en": {
         "characters": "Characters",
@@ -659,7 +677,15 @@ I18N = {
         "moss_kpi_total": "TOTAL ROLLS",
         "moss_kpi_status": "STATUS",
         "moss_kpi_cat": "CATEGORY",
-        "moss_kpi_target": "TARGET CHARACTER"
+        "moss_kpi_target": "TARGET CHARACTER",
+        "mirror_event": "Double Goer (Mirror)",
+        "mirror_title": "🪞 MEGAMU DOUBLE GOER • MIRROR OF DIMENSIONS",
+        "mirror_subtitle": "Auto Double Goer / Doppelganger Event • Zero-Focus Native Packet & Auto Move to NPC Lugard",
+        "mirror_btn_enter": "Enter Event (Native)",
+        "mirror_btn_npc": "Talk to NPC Lugard",
+        "mirror_btn_move": "Move to Lugard (Elbeland)",
+        "mirror_btn_start": "START AUTO MIRROR",
+        "mirror_btn_stop": "STOP AUTO MIRROR"
     },
     "pt-BR": {
         "characters": "Personagens",
@@ -723,7 +749,15 @@ I18N = {
         "moss_kpi_total": "TOTAL DE GIROS",
         "moss_kpi_status": "STATUS",
         "moss_kpi_cat": "CATEGORIA",
-        "moss_kpi_target": "PERSONAGEM ALVO"
+        "moss_kpi_target": "PERSONAGEM ALVO",
+        "mirror_event": "Double Goer (Mirror)",
+        "mirror_title": "🪞 MEGAMU DOUBLE GOER • MIRROR OF DIMENSIONS",
+        "mirror_subtitle": "Evento Automático Double Goer (Doppelganger) • Entrada Nativa e Auto Mover para NPC Lugard",
+        "mirror_btn_enter": "Entrar no Evento (Nativo)",
+        "mirror_btn_npc": "Falar com NPC Lugard",
+        "mirror_btn_move": "Mover para Lugard (Elbeland)",
+        "mirror_btn_start": "INICIAR AUTO MIRROR",
+        "mirror_btn_stop": "PARAR AUTO MIRROR"
     }
 }
 
@@ -1071,6 +1105,12 @@ class SlotController:
         self.moss_running: bool = False
         self.moss_worker_thread: Optional[threading.Thread] = None
 
+        # Cấu hình Double Goer (Mirror) riêng cho Slot này
+        self.mirror_running: bool = False
+        self.mirror_worker_thread: Optional[threading.Thread] = None
+        self.mirror_sniping: bool = False
+        self.mirror_snipe_thread: Optional[threading.Thread] = None
+
     def set_profile(self, profile_idx: int):
         """Thay đổi Profile và lưu ngay vào file JSON."""
         old_idx = self.profile_index
@@ -1135,6 +1175,10 @@ class SlotController:
     def detach(self):
         """Ngắt kết nối."""
         self.stop_moss()
+        if hasattr(self, "stop_mirror_auto"):
+            self.stop_mirror_auto()
+        if hasattr(self, "stop_mirror_turbo_sniping"):
+            self.stop_mirror_turbo_sniping()
         self.stop_auto(reason="Người dùng ngắt kết nối slot hoặc đổi gán game", trigger_by="MANUAL")
         self.assigned_pid = None
         self.char_name = "---"
@@ -1448,6 +1492,191 @@ class SlotController:
             return True
         return False
 
+    def enter_mirror(self) -> bool:
+        """Gọi native function vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+        ok = eng.enter_mirror()
+        if ok:
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa Double Goer thành công (Native 0xFDCA30).")
+            return True
+        else:
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không thể gửi lệnh vào cửa Double Goer.")
+            return False
+
+    def click_mirror_npc(self) -> bool:
+        """Kích hoạt đối thoại NPC Lugard từ xa."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+        ok = eng.click_mirror_npc()
+        if ok:
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 💬 Đã gửi lệnh tương tác NPC Lugard.")
+            return True
+        return False
+
+    def move_to_lugard_elbeland(self) -> bool:
+        """Tự động chuyển map Elbeland và di chuyển tới tọa độ NPC Lugard (50, 216)."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+
+        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland...")
+        eng.send_chat("/move Elbeland")
+
+        def _step_move():
+            time.sleep(1.8)
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang tự động bước tới NPC Lugard (50, 216)...")
+            eng.auto_move_to(50, 216, helper=False)
+
+        threading.Thread(target=_step_move, daemon=True).start()
+        return True
+
+    def start_mirror_auto(self) -> bool:
+        """Bắt đầu chạy Auto Double Goer cho slot này."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game! Không thể bật Auto Mirror.")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+
+        self.mirror_running = True
+        self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
+        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ▶️ BẮT ĐẦU AUTO DOUBLE GOER (MIRROR)")
+
+        def _worker():
+            while self.mirror_running:
+                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                    self.app.after(0, lambda: self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng Auto Mirror."))
+                    break
+
+                # 1. Kiểm tra xem đã ở trong map sự kiện chưa
+                in_event = eng.is_mirror_event_map() if eng else False
+                if in_event:
+                    self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer"))
+                    if not eng.is_helper_active():
+                        eng.start_helper()
+                    time.sleep(3.0)
+                    continue
+
+                # 2. Nếu đang ở ngoài làng, thử vào cửa
+                self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⏳ Đang thử vào cửa"))
+                ok = eng.enter_mirror()
+                if ok:
+                    self.app.after(0, lambda: self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa sự kiện."))
+
+                # Chờ 5 giây trước khi kiểm tra lại
+                slept = 0
+                while self.mirror_running and slept < 5.0:
+                    time.sleep(0.5)
+                    slept += 0.5
+
+            self.mirror_running = False
+            self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
+            self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng"))
+
+        self.mirror_worker_thread = threading.Thread(target=_worker, daemon=True)
+        self.mirror_worker_thread.start()
+        return True
+
+    def stop_mirror_auto(self):
+        """Dừng Auto Double Goer cho slot này."""
+        if self.mirror_running:
+            self.mirror_running = False
+            self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False)
+            self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng")
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Double Goer.")
+
+    def start_mirror_turbo_sniping(self, interval_ms: int = 80, max_duration_s: float = 15.0) -> bool:
+        """Kích hoạt chế độ Turbo Sniping (Spam Packet tốc độ cao) để cướp cổng Double Goer."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game! Không thể Turbo Snipe.")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+
+        if self.mirror_sniping:
+            return True
+
+        self.mirror_sniping = True
+        self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
+        self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms)", text_color="#c084fc")
+        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO SNIPING CƯỚP CỔNG (Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)")
+
+        def _sniper():
+            start_t = time.time()
+            sleep_sec = max(0.02, interval_ms / 1000.0)
+            packets_sent = 0
+            check_interval = 4 # Mỗi 4 packet kiểm tra map 1 lần để tối ưu CPU
+            iter_cnt = 0
+
+            while self.mirror_sniping:
+                now = time.time()
+                if now - start_t > max_duration_s:
+                    self.app.after(0, lambda: self.app.append_mirror_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {packets_sent} packets."
+                    ))
+                    break
+
+                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                    break
+
+                # Bắn packet vào cửa native tốc độ cao
+                eng.enter_mirror()
+                packets_sent += 1
+                iter_cnt += 1
+
+                if iter_cnt >= check_interval:
+                    iter_cnt = 0
+                    if eng.is_mirror_event_map():
+                        # Cướp cổng thành công!
+                        self.app.after(0, lambda: self.app.append_mirror_log(
+                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {packets_sent} packets ({time.time() - start_t:.2f}s)!"
+                        ))
+                        self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
+                        if not eng.is_helper_active():
+                            eng.start_helper()
+                        break
+
+                time.sleep(sleep_sec)
+
+            self.mirror_sniping = False
+            self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
+
+        self.mirror_snipe_thread = threading.Thread(target=_sniper, daemon=True)
+        self.mirror_snipe_thread.start()
+        return True
+
+    def stop_mirror_turbo_sniping(self):
+        """Dừng chế độ Turbo Sniping."""
+        if self.mirror_sniping:
+            self.mirror_sniping = False
+            self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False)
+            self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng")
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Turbo Sniping.")
+
 
 # ==============================================================================
 # GIAO DIỆN CHÍNH (MEGAMU AUTO TRAIN DASHBOARD)
@@ -1512,6 +1741,7 @@ class DashboardApp(ctk.CTk):
         # Thành phần UI lưu trữ
         self.slot_ui_elements: Dict[int, Dict[str, Any]] = {}
         self.moss_ui_elements: Dict[int, Dict[str, Any]] = {}
+        self.mirror_ui_elements: Dict[int, Dict[str, Any]] = {}
         self.editor_rows: List[Dict[str, Any]] = []
 
         # Xây dựng giao diện hoàn chỉnh
@@ -1795,6 +2025,18 @@ class DashboardApp(ctk.CTk):
         )
         self.tab_moss_btn.pack(side="left", padx=(0, 6))
 
+        self.tab_mirror_btn = ctk.CTkButton(
+            tab_left,
+            image=UiIconFactory.get("mirror", color="#94a3b8", size=(14, 14)),
+            compound="left",
+            text=f" {tr('mirror_event')}",
+            height=30,
+            corner_radius=6,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            command=lambda: self.switch_tab("mirror")
+        )
+        self.tab_mirror_btn.pack(side="left", padx=(0, 6))
+
         tab_right = ctk.CTkFrame(tab_bar_inner, fg_color="transparent")
         tab_right.pack(side="right", fill="y")
 
@@ -1913,18 +2155,20 @@ class DashboardApp(ctk.CTk):
         self.content_container = ctk.CTkFrame(self, fg_color="#0e1117")
         self.content_container.pack(fill="both", expand=True, padx=20, pady=(0, 6))
 
-        # 5 Panels cho 5 Tab
+        # 6 Panels cho 6 Tab
         self.panel_accounts = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
         self.panel_profiles = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
         self.panel_logs = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
         self.panel_ram = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
         self.panel_moss = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
+        self.panel_mirror = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
 
         self.build_accounts_view()
         self.build_profiles_view()
         self.build_logs_view()
         self.build_ram_view()
         self.build_moss_view()
+        self.build_mirror_view()
 
         # ----------------------------------------------------------------------
         # 5. FOOTER STATUS BAR
@@ -2246,6 +2490,11 @@ class DashboardApp(ctk.CTk):
                 self.create_moss_slot_row(new_slot_idx)
             except Exception:
                 pass
+        if hasattr(self, "create_mirror_slot_row") and hasattr(self, "mirror_scroll_frame"):
+            try:
+                self.create_mirror_slot_row(new_slot_idx)
+            except Exception:
+                pass
         self.update_combo_slot_options()
         self.update_header_stats()
         self.log_message(f"Đã thêm Account Slot #{new_slot_idx:02d} thành công.", "SUCCESS")
@@ -2264,6 +2513,10 @@ class DashboardApp(ctk.CTk):
             ctrl.stop_auto(reason=f"Người dùng bấm nút Xóa Slot #{last_idx:02d}", trigger_by="MANUAL")
         if hasattr(ctrl, "stop_moss"):
             ctrl.stop_moss()
+        if hasattr(ctrl, "stop_mirror_auto"):
+            ctrl.stop_mirror_auto()
+        if hasattr(ctrl, "stop_mirror_turbo_sniping"):
+            ctrl.stop_mirror_turbo_sniping()
         if ctrl.engine:
             try:
                 ctrl.engine.detach()
@@ -2284,6 +2537,15 @@ class DashboardApp(ctk.CTk):
             if el_m and el_m.get("row_frame"):
                 try:
                     el_m["row_frame"].destroy()
+                except Exception:
+                    pass
+
+        # Xóa UI row trong tab Mirror
+        if hasattr(self, "mirror_ui_elements"):
+            el_mir = self.mirror_ui_elements.pop(last_idx, None)
+            if el_mir and el_mir.get("row_frame"):
+                try:
+                    el_mir["row_frame"].destroy()
                 except Exception:
                     pass
 
@@ -2308,6 +2570,12 @@ class DashboardApp(ctk.CTk):
             for c in self.controllers:
                 try:
                     self.update_moss_slot_telemetry(c.slot_idx, c.char_name, c.assigned_pid)
+                except Exception:
+                    pass
+        if hasattr(self, "update_mirror_slot_telemetry"):
+            for c in self.controllers:
+                try:
+                    self.update_mirror_slot_telemetry(c.slot_idx, c.char_name, c.assigned_pid, c.coords)
                 except Exception:
                     pass
 
@@ -3435,6 +3703,7 @@ class DashboardApp(ctk.CTk):
             ("logs", getattr(self, "tab_logs_btn", None), "file"),
             ("ram", getattr(self, "tab_ram_btn", None), "bolt"),
             ("moss", getattr(self, "tab_moss_btn", None), "dice"),
+            ("mirror", getattr(self, "tab_mirror_btn", None), "mirror"),
         ]
         for name, btn, icon in tabs:
             if btn is None:
@@ -3465,6 +3734,8 @@ class DashboardApp(ctk.CTk):
             self.panel_ram.pack_forget()
         if hasattr(self, "panel_moss"):
             self.panel_moss.pack_forget()
+        if hasattr(self, "panel_mirror"):
+            self.panel_mirror.pack_forget()
 
         if tab_name == "accounts":
             if hasattr(self, "toolbar_frame") and hasattr(self, "content_container"):
@@ -3485,6 +3756,12 @@ class DashboardApp(ctk.CTk):
                 for ctrl in self.controllers:
                     if hasattr(self, "update_moss_slot_telemetry"):
                         self.update_moss_slot_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.assigned_pid)
+        elif tab_name == "mirror":
+            if hasattr(self, "panel_mirror"):
+                self.panel_mirror.pack(fill="both", expand=True)
+                for ctrl in self.controllers:
+                    if hasattr(self, "update_mirror_slot_telemetry"):
+                        self.update_mirror_slot_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.assigned_pid, ctrl.coords)
 
     # ==========================================================================
     # TAB 4: TỐI ƯU HÓA BỘ NHỚ RAM (RAM OPTIMIZER TAB)
@@ -4389,6 +4666,532 @@ class DashboardApp(ctk.CTk):
         if hasattr(self, "moss_log_txt"):
             self.moss_log_txt.delete("1.0", "end")
 
+    # ==========================================================================
+    # TAB 6: DOUBLE GOER (MIRROR OF DIMENSIONS)
+    # ==========================================================================
+    def build_mirror_view(self):
+        """Xây dựng giao diện Tab Auto Double Goer (Mirror of Dimensions) đa tài khoản."""
+        header_card = ctk.CTkFrame(self.panel_mirror, fg_color="#181c26", corner_radius=8, border_width=1, border_color="#2b3244")
+        header_card.pack(fill="x", padx=14, pady=(10, 6))
+
+        inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
+        inner_h.pack(fill="both", expand=True, padx=14, pady=8)
+
+        left_h = ctk.CTkFrame(inner_h, fg_color="transparent")
+        left_h.pack(side="left", fill="y")
+
+        title_lbl = ctk.CTkLabel(
+            left_h,
+            text="🪞 MEGAMU DOUBLE GOER • VÀO CỬA ĐA TÀI KHOẢN (DIMENSIONAL MIRROR)",
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            text_color="#a855f7"
+        )
+        title_lbl.pack(anchor="w")
+
+        sub_lbl = ctk.CTkLabel(
+            left_h,
+            text="Tự động di chuyển tới NPC Lugard (Elbeland 50, 216), tương tác NPC và dùng vé Gương Không Gian (Item 7279) vào Double Goer",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8"
+        )
+        sub_lbl.pack(anchor="w", pady=(2, 0))
+
+        # ACTION TOOLBAR
+        toolbar_card = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        toolbar_card.pack(fill="x", padx=14, pady=(2, 6))
+
+        inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
+        inner_tb.pack(fill="both", expand=True, padx=10, pady=8)
+
+        # Cụm Trái: Thao tác điều hướng & tương tác cơ bản
+        left_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
+        left_tb.pack(side="left", fill="y")
+
+        btn_move_all = ctk.CTkButton(
+            left_tb,
+            text="🚶 Tới Lugard (Tất Cả)",
+            height=30,
+            corner_radius=6,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#475569",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.move_all_to_lugard
+        )
+        btn_move_all.pack(side="left", padx=(0, 6))
+
+        btn_click_all = ctk.CTkButton(
+            left_tb,
+            text="💬 Click Lugard",
+            height=30,
+            corner_radius=6,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#475569",
+            text_color="#f59e0b",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.click_all_mirror_npc
+        )
+        btn_click_all.pack(side="left", padx=(0, 6))
+
+        btn_enter_all = ctk.CTkButton(
+            left_tb,
+            text="🚪 Vào Cửa (Tất Cả)",
+            height=30,
+            corner_radius=6,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#a855f7",
+            text_color="#c084fc",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.enter_all_mirror
+        )
+        btn_enter_all.pack(side="left", padx=(0, 10))
+
+        # Cụm Giữa: Cấu hình & Kích hoạt Turbo Sniping (Cướp Cổng Tốc Độ Cao)
+        mid_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
+        mid_tb.pack(side="left", fill="y")
+
+        ctk.CTkLabel(
+            mid_tb,
+            text="⚡ Chu kỳ:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#c084fc"
+        ).pack(side="left", padx=(0, 3))
+
+        self.mirror_snipe_delay_entry = ctk.CTkEntry(
+            mid_tb,
+            width=50,
+            height=30,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color="#181c26",
+            border_color="#7c3aed",
+            text_color="#f8fafc"
+        )
+        self.mirror_snipe_delay_entry.insert(0, "80")
+        self.mirror_snipe_delay_entry.pack(side="left", padx=(0, 6))
+
+        ctk.CTkLabel(
+            mid_tb,
+            text="Thời gian:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#94a3b8"
+        ).pack(side="left", padx=(0, 3))
+
+        self.mirror_snipe_dur_entry = ctk.CTkEntry(
+            mid_tb,
+            width=45,
+            height=30,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color="#181c26",
+            border_color="#2b3244",
+            text_color="#f8fafc"
+        )
+        self.mirror_snipe_dur_entry.insert(0, "15")
+        self.mirror_snipe_dur_entry.pack(side="left", padx=(0, 6))
+
+        self.btn_mirror_snipe_all = ctk.CTkButton(
+            mid_tb,
+            text="⚡ CƯỚP CỔNG (TẤT CẢ)",
+            height=30,
+            corner_radius=6,
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            text_color="#ffffff",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.start_all_mirror_turbo_sniping
+        )
+        self.btn_mirror_snipe_all.pack(side="left")
+
+        # Cụm Phải: Thao tác Auto thường đồng loạt & Dừng
+        right_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
+        right_tb.pack(side="right", fill="y")
+
+        self.btn_mirror_start_all = ctk.CTkButton(
+            right_tb,
+            text="▶️ Auto Thường",
+            height=30,
+            corner_radius=6,
+            fg_color="#059669",
+            hover_color="#047857",
+            text_color="#ffffff",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.start_all_mirror_auto
+        )
+        self.btn_mirror_start_all.pack(side="left", padx=(0, 6))
+
+        self.btn_mirror_stop_all = ctk.CTkButton(
+            right_tb,
+            text="⏹️ DỪNG TẤT CẢ",
+            height=30,
+            corner_radius=6,
+            fg_color="#dc2626",
+            hover_color="#b91c1c",
+            text_color="#ffffff",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.stop_all_mirror_auto
+        )
+        self.btn_mirror_stop_all.pack(side="left")
+
+        # BẢNG CÁC TÀI KHOẢN (MIRROR SLOT TABLE)
+        table_container = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        table_container.pack(fill="both", expand=True, padx=14, pady=(2, 6))
+
+        # Header bảng
+        tbl_h = ctk.CTkFrame(table_container, fg_color="transparent", height=30)
+        tbl_h.pack(fill="x", padx=10, pady=(6, 2))
+
+        headers = [
+            ("Nº", 45, "w"),
+            ("Tài khoản / PID", 220, "w"),
+            ("Tọa độ hiện tại", 150, "center"),
+            ("Trạng Thái Sự Kiện", 175, "center"),
+            ("Thao Tác", 280, "center"),
+        ]
+        for title, w, anc in headers:
+            ctk.CTkLabel(
+                tbl_h,
+                text=title,
+                width=w,
+                anchor=anc,
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color="#94a3b8"
+            ).pack(side="left", padx=4)
+
+        div = ctk.CTkFrame(table_container, fg_color="#1f2535", height=1)
+        div.pack(fill="x", padx=10, pady=(0, 4))
+
+        # Khung cuộn chứa từng dòng
+        self.mirror_scroll_frame = ctk.CTkScrollableFrame(table_container, fg_color="transparent")
+        self.mirror_scroll_frame.pack(fill="both", expand=True, padx=4, pady=(0, 6))
+
+        for ctrl in self.controllers:
+            self.create_mirror_slot_row(ctrl.slot_idx)
+
+        # KHUNG NHẬT KÝ DOUBLE GOER (MIRROR)
+        log_frame = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", height=140, corner_radius=8, border_width=1, border_color="#202430")
+        log_frame.pack(fill="x", padx=14, pady=(0, 10))
+        log_frame.pack_propagate(False)
+
+        lh = ctk.CTkFrame(log_frame, fg_color="transparent", height=24)
+        lh.pack(fill="x", padx=10, pady=(6, 2))
+
+        ctk.CTkLabel(
+            lh,
+            text="📜 NHẬT KÝ HOẠT ĐỘNG DOUBLE GOER (MIRROR)",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f1f5f9"
+        ).pack(side="left")
+
+        btn_clear = ctk.CTkButton(
+            lh,
+            text="Xóa nhật ký",
+            width=75,
+            height=22,
+            corner_radius=4,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            command=self.clear_mirror_log
+        )
+        btn_clear.pack(side="right")
+
+        self.mirror_log_txt = ctk.CTkTextbox(
+            log_frame,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            fg_color="#0b0d13",
+            text_color="#cbd5e1"
+        )
+        self.mirror_log_txt.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.append_mirror_log("🟢 Auto Double Goer (Mirror of Dimensions) sẵn sàng.")
+
+    def get_mirror_snipe_delay(self) -> int:
+        try:
+            return max(20, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
+        except Exception:
+            return 80
+
+    def get_mirror_snipe_dur(self) -> float:
+        try:
+            return max(3.0, min(120.0, float(self.mirror_snipe_dur_entry.get().strip())))
+        except Exception:
+            return 15.0
+
+    def create_mirror_slot_row(self, i: int):
+        """Tạo 1 dòng điều khiển Double Goer cho Slot i."""
+        ctrl = self.controllers[i - 1]
+        row_frame = ctk.CTkFrame(self.mirror_scroll_frame, fg_color="#141722", height=44, corner_radius=6)
+        row_frame.pack(fill="x", padx=2, pady=2)
+
+        # Cột 1: No.
+        ctk.CTkLabel(
+            row_frame,
+            text=f"{i:02d}",
+            width=45,
+            anchor="w",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#94a3b8"
+        ).pack(side="left", padx=(8, 4))
+
+        # Cột 2: Nhân vật / PID
+        char_disp = f"{ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "Chưa gán"
+        char_color = "#f8fafc" if ctrl.assigned_pid else "#64748b"
+        char_lbl = ctk.CTkLabel(
+            row_frame,
+            text=char_disp,
+            width=220,
+            anchor="w",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if ctrl.assigned_pid else "normal"),
+            text_color=char_color
+        )
+        char_lbl.pack(side="left", padx=4)
+
+        # Cột 3: Tọa độ hiện tại
+        coords_disp = ctrl.coords if ctrl.coords else "--, --"
+        coords_lbl = ctk.CTkLabel(
+            row_frame,
+            text=coords_disp,
+            width=150,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#38bdf8"
+        )
+        coords_lbl.pack(side="left", padx=4)
+
+        # Cột 4: Trạng thái sự kiện
+        st_text = "Chờ ngoài map" if ctrl.assigned_pid else "Chưa gán"
+        status_lbl = ctk.CTkLabel(
+            row_frame,
+            text=st_text,
+            width=175,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8"
+        )
+        status_lbl.pack(side="left", padx=4)
+
+        # Cột 5: Thao tác (Vào Cửa, Tới Lugard, Turbo Snipe, Auto Bật/Tắt)
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=280)
+        action_box.pack(side="left", padx=4)
+
+        btn_enter = ctk.CTkButton(
+            action_box,
+            text="🚪 Vào",
+            width=58,
+            height=26,
+            corner_radius=4,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#a855f7",
+            text_color="#c084fc",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: self.controllers[s - 1].enter_mirror()
+        )
+        btn_enter.pack(side="left", padx=(0, 4))
+
+        btn_move = ctk.CTkButton(
+            action_box,
+            text="🚶 Lugard",
+            width=65,
+            height=26,
+            corner_radius=4,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#38bdf8",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: self.controllers[s - 1].move_to_lugard_elbeland()
+        )
+        btn_move.pack(side="left", padx=(0, 4))
+
+        btn_snipe = ctk.CTkButton(
+            action_box,
+            text="⚡ Snipe",
+            width=62,
+            height=26,
+            corner_radius=4,
+            fg_color="#6d28d9",
+            hover_color="#5b21b6",
+            text_color="#ffffff",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: self.controllers[s - 1].start_mirror_turbo_sniping(
+                self.get_mirror_snipe_delay(), self.get_mirror_snipe_dur()
+            )
+        )
+        btn_snipe.pack(side="left", padx=(0, 4))
+
+        btn_toggle = ctk.CTkButton(
+            action_box,
+            text="▶️ Auto",
+            width=62,
+            height=26,
+            corner_radius=4,
+            fg_color="#059669",
+            hover_color="#047857",
+            text_color="#ffffff",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: self.toggle_mirror_slot_auto(s)
+        )
+        btn_toggle.pack(side="left")
+
+        # Lưu UI cache
+        self.mirror_ui_elements[i] = {
+            "row_frame": row_frame,
+            "char_lbl": char_lbl,
+            "coords_lbl": coords_lbl,
+            "status_lbl": status_lbl,
+            "btn_enter": btn_enter,
+            "btn_move": btn_move,
+            "btn_snipe": btn_snipe,
+            "btn_toggle": btn_toggle,
+        }
+
+    def update_mirror_slot_ui_state(self, slot_idx: int, is_running: bool):
+        el = self.mirror_ui_elements.get(slot_idx)
+        if not el:
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        active = is_running or ctrl.mirror_running or ctrl.mirror_sniping
+        if el.get("btn_toggle"):
+            if active:
+                el["btn_toggle"].configure(text="⏹️ Dừng", fg_color="#dc2626", hover_color="#b91c1c")
+            else:
+                el["btn_toggle"].configure(text="▶️ Auto", fg_color="#059669", hover_color="#047857")
+        if el.get("status_lbl"):
+            if ctrl.mirror_sniping:
+                el["status_lbl"].configure(text="⚡ Turbo Sniping...", text_color="#c084fc")
+            elif ctrl.mirror_running:
+                el["status_lbl"].configure(text="Đang Auto...", text_color="#10b981")
+            else:
+                el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa gán", text_color="#94a3b8")
+
+    def update_mirror_slot_status(self, slot_idx: int, text: str, text_color: str = "#94a3b8"):
+        el = self.mirror_ui_elements.get(slot_idx)
+        if el and el.get("status_lbl"):
+            el["status_lbl"].configure(text=text, text_color=text_color)
+
+    def update_mirror_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int], coords: str = ""):
+        el = self.mirror_ui_elements.get(slot_idx)
+        if not el or not el.get("char_lbl"):
+            return
+        if pid:
+            disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
+            el["char_lbl"].configure(text=disp, text_color="#f8fafc", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
+            if el.get("status_lbl"):
+                ctrl = self.controllers[slot_idx - 1]
+                if not ctrl.mirror_running and not ctrl.mirror_sniping:
+                    el["status_lbl"].configure(text="Chờ", text_color="#94a3b8")
+        else:
+            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            if el.get("status_lbl"):
+                el["status_lbl"].configure(text="Chưa gán", text_color="#64748b")
+        if el.get("coords_lbl") and coords:
+            el["coords_lbl"].configure(text=coords)
+
+    def toggle_mirror_slot_auto(self, slot_idx: int):
+        ctrl = self.controllers[slot_idx - 1]
+        if ctrl.mirror_running or ctrl.mirror_sniping:
+            ctrl.stop_mirror_auto()
+            ctrl.stop_mirror_turbo_sniping()
+        else:
+            ctrl.start_mirror_auto()
+
+    def start_all_mirror_turbo_sniping(self):
+        """Kích hoạt Turbo Sniping (Spam Cướp Cổng) cho toàn bộ tài khoản đang kết nối."""
+        delay_ms = self.get_mirror_snipe_delay()
+        dur_s = self.get_mirror_snipe_dur()
+
+        def _runner():
+            started = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ok = ctrl.start_mirror_turbo_sniping(interval_ms=delay_ms, max_duration_s=dur_s)
+                    if ok:
+                        started += 1
+            if started > 0:
+                self.after(0, lambda: self.append_mirror_log(
+                    f"⚡ ĐÃ KÍCH HOẠT TURBO SNIPING CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms, tối đa {dur_s:.0f}s)!"
+                ))
+            else:
+                self.after(0, lambda: self.append_mirror_log("⚠️ Không có tài khoản nào đang kết nối để kích hoạt Turbo Sniping!"))
+        threading.Thread(target=_runner, daemon=True).start()
+
+    def enter_all_mirror(self):
+        """Gửi lệnh vào cửa Double Goer cho toàn bộ tài khoản đang kết nối."""
+        def _enterer():
+            cnt = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.enter_mirror()
+                    cnt += 1
+                    time.sleep(0.08)
+            self.after(0, lambda: self.append_mirror_log(f"🚪 Đã gửi lệnh vào cửa Double Goer cho {cnt} tài khoản!"))
+        threading.Thread(target=_enterer, daemon=True).start()
+
+    def move_all_to_lugard(self):
+        """Di chuyển toàn bộ tài khoản về Elbeland tới NPC Lugard (50, 216)."""
+        def _mover():
+            cnt = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.move_to_lugard_elbeland()
+                    cnt += 1
+                    time.sleep(0.15)
+            self.after(0, lambda: self.append_mirror_log(f"🚶 Đã gửi lệnh di chuyển tới Lugard cho {cnt} tài khoản!"))
+        threading.Thread(target=_mover, daemon=True).start()
+
+    def click_all_mirror_npc(self):
+        """Gửi lệnh tương tác NPC Lugard cho toàn bộ tài khoản đang kết nối."""
+        def _clicker():
+            cnt = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.click_mirror_npc()
+                    cnt += 1
+                    time.sleep(0.08)
+            self.after(0, lambda: self.append_mirror_log(f"💬 Đã tương tác NPC Lugard cho {cnt} tài khoản!"))
+        threading.Thread(target=_clicker, daemon=True).start()
+
+    def start_all_mirror_auto(self):
+        """Kích hoạt Auto Double Goer cho TẤT CẢ các tài khoản đang kết nối."""
+        def _batch_runner():
+            started = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ok = ctrl.start_mirror_auto()
+                    if ok:
+                        started += 1
+                        time.sleep(0.1)
+            if started > 0:
+                self.after(0, lambda: self.append_mirror_log(f"🚀 Đã kích hoạt Auto Mirror cho {started} tài khoản đang kết nối!"))
+            else:
+                self.after(0, lambda: self.append_mirror_log("⚠️ Không có tài khoản nào đang kết nối để chạy Auto Mirror!"))
+        threading.Thread(target=_batch_runner, daemon=True).start()
+
+    def stop_all_mirror_auto(self):
+        """Dừng Auto Double Goer & Turbo Sniping trên toàn bộ các tài khoản."""
+        for ctrl in self.controllers:
+            ctrl.stop_mirror_auto()
+            ctrl.stop_mirror_turbo_sniping()
+        self.append_mirror_log("⏹️ Đã dừng Auto Mirror & Turbo Sniping trên toàn bộ tài khoản.")
+
+    def append_mirror_log(self, text: str):
+        if hasattr(self, "mirror_log_txt"):
+            t_str = time.strftime("%H:%M:%S")
+            self.mirror_log_txt.insert("end", f"[{t_str}] {text}\n")
+            self.mirror_log_txt.see("end")
+
+    def clear_mirror_log(self):
+        if hasattr(self, "mirror_log_txt"):
+            self.mirror_log_txt.delete("1.0", "end")
+
     def jump_to_config_tab(self, slot_idx: int):
         """Nhảy nhanh sang Tab Cấu hình khi bấm nút '⚙' ở Slot."""
         ctrl = self.controllers[slot_idx - 1]
@@ -4406,6 +5209,8 @@ class DashboardApp(ctk.CTk):
             ctrl.detach()
             if hasattr(self, "update_moss_slot_telemetry"):
                 self.update_moss_slot_telemetry(slot_idx, "---", None)
+            if hasattr(self, "update_mirror_slot_telemetry"):
+                self.update_mirror_slot_telemetry(slot_idx, "---", None)
             return
 
         try:
@@ -4418,6 +5223,8 @@ class DashboardApp(ctk.CTk):
             ctrl.attach_pid(pid)
             if hasattr(self, "update_moss_slot_telemetry"):
                 self.update_moss_slot_telemetry(slot_idx, ctrl.char_name, pid)
+            if hasattr(self, "update_mirror_slot_telemetry"):
+                self.update_mirror_slot_telemetry(slot_idx, ctrl.char_name, pid, ctrl.coords)
         except Exception as e:
             self.log_message(f"[Slot {slot_idx:02d}] Không thể gán PID: {e}", "ERROR")
 
@@ -4549,6 +5356,11 @@ class DashboardApp(ctk.CTk):
             if hasattr(self, "update_moss_slot_telemetry"):
                 try:
                     self.update_moss_slot_telemetry(slot_idx, name, ctrl.assigned_pid)
+                except Exception:
+                    pass
+            if hasattr(self, "update_mirror_slot_telemetry"):
+                try:
+                    self.update_mirror_slot_telemetry(slot_idx, name, ctrl.assigned_pid, coords)
                 except Exception:
                     pass
         try:

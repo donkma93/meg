@@ -137,6 +137,7 @@ python -m PyInstaller ^
     --add-data="config\slot_assignments.json;config" ^
     --add-data="config\ui_settings.json;config" ^
     --add-data="config\megamu_offsets.json;config" ^
+    --add-data="config\moss_slots_config.json;config" ^
     --hidden-import="PIL" ^
     --hidden-import="PIL.Image" ^
     --hidden-import="PIL.ImageTk" ^

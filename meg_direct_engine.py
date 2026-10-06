@@ -69,6 +69,9 @@ DEFAULT_OFFSETS = {
     "world_scene_index": "0x20",
     "moss_roll": "0x238B380",
     "moss_open": "0x238B0A0",
+    "mirror_enter": "0xFDCA30",
+    "mirror_npc_click": "0xFCE6E0",
+    "mirror_is_event_map": "0xFCF820",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -148,6 +151,30 @@ try {
         nativeMossOpen = new NativeFunction(baseAddr.add(moOff), 'void', ['int', 'pointer']);
     }
 } catch (eMossOpen) {}
+
+var nativeMirrorEnter = null;
+try {
+    var meOff = off('__MIRROR_ENTER__');
+    if (!meOff.isNull()) {
+        nativeMirrorEnter = new NativeFunction(baseAddr.add(meOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eMirrorEnter) {}
+
+var nativeMirrorNpcClick = null;
+try {
+    var mnOff = off('__MIRROR_NPC_CLICK__');
+    if (!mnOff.isNull()) {
+        nativeMirrorNpcClick = new NativeFunction(baseAddr.add(mnOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eMirrorNpc) {}
+
+var nativeMirrorIsEventMap = null;
+try {
+    var mimOff = off('__MIRROR_IS_EVENT_MAP__');
+    if (!mimOff.isNull()) {
+        nativeMirrorIsEventMap = new NativeFunction(baseAddr.add(mimOff), 'bool', []);
+    }
+} catch (eMirrorMap) {}
 
 var cfInstance = null;
 var pendingCommand = null;
@@ -569,6 +596,39 @@ rpc.exports = {
         return false;
     },
 
+    enterMirror: function() {
+        try {
+            ensureThreadAttached();
+            if (nativeMirrorEnter !== null) {
+                nativeMirrorEnter(ptr(0), ptr(0));
+                return true;
+            }
+        } catch (eME) {}
+        return false;
+    },
+
+    clickMirrorNpc: function(npcPtr) {
+        try {
+            ensureThreadAttached();
+            if (nativeMirrorNpcClick !== null) {
+                var p = (npcPtr && npcPtr !== 0) ? ptr(npcPtr) : ptr(0);
+                nativeMirrorNpcClick(p, ptr(0));
+                return true;
+            }
+        } catch (eMN) {}
+        return false;
+    },
+
+    isMirrorEventMap: function() {
+        try {
+            ensureThreadAttached();
+            if (nativeMirrorIsEventMap !== null) {
+                return Boolean(nativeMirrorIsEventMap());
+            }
+        } catch (eMM) {}
+        return false;
+    },
+
     cleanup: function() {
         shuttingDown = true;
         try {
@@ -756,6 +816,9 @@ class MegDirectEngine:
             "__WORLD_SCENE_INDEX__": self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20"),
             "__MOSS_ROLL__": self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x238B380"),
             "__MOSS_OPEN__": self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x238B0A0"),
+            "__MIRROR_ENTER__": self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xFDCA30"),
+            "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xFCE6E0"),
+            "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xFCF820"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -1401,6 +1464,37 @@ class MegDirectEngine:
                     return True
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi open_moss: {e}")
+        return False
+
+    def enter_mirror(self) -> bool:
+        """Gửi lệnh native vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
+        if self.is_ready:
+            try:
+                res = self._call("enterMirror")
+                if res:
+                    return True
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi enter_mirror: {e}")
+        return False
+
+    def click_mirror_npc(self, npc_ptr: int = 0) -> bool:
+        """Kích hoạt đối thoại NPC Lugard sự kiện Double Goer."""
+        if self.is_ready:
+            try:
+                res = self._call("clickMirrorNpc", int(npc_ptr))
+                if res:
+                    return True
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi click_mirror_npc: {e}")
+        return False
+
+    def is_mirror_event_map(self) -> bool:
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer hay không."""
+        if self.is_ready:
+            try:
+                return bool(self._call("isMirrorEventMap"))
+            except Exception:
+                pass
         return False
 
     def detach(self):
