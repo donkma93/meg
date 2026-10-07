@@ -175,7 +175,7 @@ ensure_desktop_attached()
 # IL2CPP RVA & Offsets (GameAssembly.dll)
 # ==============================================================================
 
-GAME_TYPE_INFO_RVA = 0x54E7140
+GAME_TYPE_INFO_RVA = 0x54AD718
 KLASS_STATIC_FIELDS_OFFSET = 0xB8
 GAME_STATIC_INSTANCE_OFFSET = 0x8
 GAME_PLAYER_OFFSET = 0x208
@@ -195,8 +195,8 @@ AUTO_MOVE_WORKING_OFFSET = 0x498
 AUTO_MOVE_TYPE_OFFSET = 0x49C
 AUTO_MOVE_HELPER_OFFSET = 0x4A0
 AUTO_MOVE_DEST_OFFSET = 0x4A8
-START_AUTO_MOVE_RVA = 0xB89240
-STOP_AUTO_MOVE_RVA = 0xB86A20
+START_AUTO_MOVE_RVA = 0xCAF5D0
+STOP_AUTO_MOVE_RVA = 0xCA2F90
 
 # MuHelper (Auto Attack) Offsets
 PLAYER_HELPER_OFFSET = 0x1E8       # UserHelper inside _Player
@@ -996,6 +996,9 @@ class ProcessMemoryReader:
 
             cls.write_u8(handle, player_ptr + AUTO_MOVE_WORKING_OFFSET, 0)
             cls.write_i32(handle, player_ptr + AUTO_MOVE_TYPE_OFFSET, -1)
+            movement_ptr = cls.read_ptr(handle, player_ptr + BODY_MOVEMENT_OFFSET)
+            if movement_ptr:
+                cls.write_u8(handle, movement_ptr + MOVEMENT_MOVING_OFFSET, 0)
             return True
         finally:
             kernel32.CloseHandle(handle)
@@ -1875,8 +1878,8 @@ class MegNavigator:
             self.toggle_auto_attack(log_callback=_log)
             time.sleep(0.5)
 
-        _log(f"[➔] Đang ở '{cur_map}' (Map ID {map_id}). Gửi lệnh '/m {clean_target}'...")
-        BackgroundInputSimulator.send_chat_command(self.hwnd, f"/m {clean_target}")
+        _log(f"[➔] Đang ở '{cur_map}' (Map ID {map_id}). Gửi lệnh '/move {clean_target}'...")
+        BackgroundInputSimulator.send_chat_command(self.hwnd, f"/move {clean_target}")
 
         start_time = time.time()
         while time.time() - start_time < max_wait_sec:

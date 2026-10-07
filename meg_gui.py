@@ -326,6 +326,7 @@ class ModernOptionMenu(ctk.CTkFrame):
         border_color: str = "transparent",
         hover_color: str = "#222736",
         text_color: str = "#f1f5f9",
+        on_open: Optional[Callable[[], Any]] = None,
         **kwargs
     ):
         # Bỏ qua các tham số riêng của CTkOptionMenu nếu truyền vào
@@ -354,6 +355,7 @@ class ModernOptionMenu(ctk.CTkFrame):
         self._req_width = width
         self._req_height = height
         self._last_close_time = 0.0
+        self.on_open = on_open
 
         self.values = list(values) if values else ["--"]
         self.variable = variable or ctk.StringVar(value=self.values[0] if self.values else "--")
@@ -412,6 +414,11 @@ class ModernOptionMenu(ctk.CTkFrame):
         self._open_popup()
 
     def _open_popup(self):
+        if callable(self.on_open):
+            try:
+                self.on_open()
+            except Exception:
+                pass
         self._close_popup()
         self.update_idletasks()
         rx = self.winfo_rootx()
@@ -932,6 +939,24 @@ class ConfigPersistenceManager:
                         "name": f"Config {idx}",
                         "config": json.loads(json.dumps(fallback))
                     }
+
+            # Tự động đồng bộ nếu autotrain_megamu_config.json được chỉnh sửa mới hơn
+            root_single = Path("autotrain_megamu_config.json")
+            single_candidates = [f for f in [root_single, DEFAULT_CONFIG_FILE] if f.exists()]
+            if single_candidates:
+                latest_single = max(single_candidates, key=lambda f: f.stat().st_mtime)
+                try:
+                    p_mtime = PROFILE_FILE.stat().st_mtime if PROFILE_FILE.exists() else 0.0
+                    if latest_single.stat().st_mtime > p_mtime:
+                        s_data = json.loads(latest_single.read_text(encoding="utf-8"))
+                        if isinstance(s_data, dict) and s_data.get("stages"):
+                            store["profiles"]["1"]["config"] = s_data
+                            tmp_p = PROFILE_FILE.with_suffix(".tmp")
+                            tmp_p.write_text(json.dumps(store, indent=4, ensure_ascii=False), encoding="utf-8")
+                            tmp_p.replace(PROFILE_FILE)
+                except Exception:
+                    pass
+
             return store
 
     @classmethod
@@ -1090,6 +1115,7 @@ class SlotController:
 
         self.assigned_pid: Optional[int] = None
         self.char_name = "---"
+        self.last_known_char_name = ""
         self.level = "---"
         self.coords = "--,--"
         self.status = tr("idle")
@@ -1117,7 +1143,10 @@ class SlotController:
     def set_profile(self, profile_idx: int):
         """Thay đổi Profile và lưu ngay vào file JSON."""
         old_idx = self.profile_index
-        self.profile_index = max(1, min(10, int(profile_idx)))
+        new_idx = max(1, min(10, int(profile_idx)))
+        if old_idx == new_idx:
+            return
+        self.profile_index = new_idx
         ConfigPersistenceManager.save_slot_assignment(self.slot_idx, self.profile_index)
 
         # Nếu đang chạy Auto, nạp config mới từ file và update worker trực tiếp
@@ -1131,8 +1160,20 @@ class SlotController:
             )
             self.set_status(tr("running", n=self.profile_index))
 
-    def attach_pid(self, pid: int):
+    def attach_pid(self, pid: int) -> bool:
         """Kết nối tới Game PID."""
+        if not pid or not psutil.pid_exists(pid):
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Tiến trình MEGAMU (PID {pid}) không tồn tại hoặc đã đóng!", "WARNING")
+            self.set_status(tr("game_closed"))
+            return False
+
+        # Nếu đang gán PID khác thì dọn dẹp PID cũ
+        if self.assigned_pid and self.assigned_pid != pid:
+            old_p = self.assigned_pid
+            if MegDirectEngine:
+                MegDirectEngine.release_engine(old_p)
+            self.engine = None
+
         self.assigned_pid = pid
 
         # Nạp tức thì tên nhân vật và level từ tiêu đề cửa sổ / RAM để hiển thị ngay lập tức
@@ -1146,6 +1187,7 @@ class SlotController:
                 pass
         if t_name:
             self.char_name = t_name
+            self.last_known_char_name = t_name
 
         try:
             from meg_navigator import ProcessMemoryReader
@@ -1174,6 +1216,92 @@ class SlotController:
                 self.set_status(tr("connected_status"))
         else:
             self.set_status(tr("connected_status"))
+        return True
+
+    def reconnect_game(self) -> bool:
+        """
+        Kết nối lại thông minh cho Slot khi bị mất kết nối hoặc game mở lại:
+        1. Quét mới tiến trình qua self.app.refresh_games().
+        2. Nếu self.assigned_pid còn tồn tại trên Windows -> Kết nối lại PID này.
+        3. Nếu self.assigned_pid đã chết hoặc chưa gán:
+           - Dọn dẹp engine cũ của PID chết.
+           - Tìm trong các PID chưa được gán cho slot khác:
+             + Tìm theo tên nhân vật (self.last_known_char_name hoặc self.char_name).
+             + Nếu không có tên trùng khớp, lấy PID trống đầu tiên.
+           - Gán PID mới, attach, cập nhật UI và dropdown.
+        """
+        self.app.refresh_games()
+        living_games = self.app.detected_games
+
+        # Trường hợp 1: PID hiện tại vẫn còn sống
+        if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
+            if MegDirectEngine:
+                if self.engine:
+                    ok = self.engine.reconnect()
+                else:
+                    self.engine = MegDirectEngine.get_engine(self.assigned_pid)
+                    ok = self.engine.attach()
+            else:
+                ok = True
+
+            self.sync_telemetry()
+            self.set_status(tr("connected_status"))
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Đã kết nối lại thành công MEGAMU (PID {self.assigned_pid}).", "SUCCESS")
+            return True
+
+        # Trường hợp 2: PID hiện tại đã chết hoặc rỗng -> Tìm kiếm PID mới
+        old_pid = self.assigned_pid
+        if old_pid and MegDirectEngine:
+            MegDirectEngine.release_engine(old_pid)
+        self.engine = None
+        self.assigned_pid = None
+
+        # Lấy danh sách PID đã được các slot khác gán (chỉ tính PID còn sống)
+        other_assigned_pids = {
+            c.assigned_pid for c in self.app.controllers
+            if c != self and c.assigned_pid and psutil.pid_exists(c.assigned_pid)
+        }
+        available_pids = [p for p in living_games.keys() if p not in other_assigned_pids]
+
+        if not available_pids:
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Không tìm thấy tiến trình MEGAMU mới nào đang chạy để kết nối lại.", "WARNING")
+            self.set_status(tr("game_closed"))
+            return False
+
+        # Tìm kiếm theo tên nhân vật trước đó
+        target_name = (self.last_known_char_name or (self.char_name if self.char_name != "---" else "")).strip().lower()
+        matched_pid = None
+
+        if target_name:
+            for cand_pid in available_pids:
+                cand_title = living_games.get(cand_pid, "")
+                cand_name = character_name_from_window_title(cand_title)
+                if not cand_name:
+                    try:
+                        from meg_navigator import ProcessMemoryReader
+                        cand_name = ProcessMemoryReader.read_character_name(cand_pid) or ""
+                    except Exception:
+                        pass
+                if cand_name and cand_name.strip().lower() == target_name:
+                    matched_pid = cand_pid
+                    break
+
+        if matched_pid is None:
+            matched_pid = available_pids[0]
+
+        ok = self.attach_pid(matched_pid)
+        if ok:
+            el = self.app.slot_ui_elements.get(self.slot_idx)
+            if el and el.get("proc_var"):
+                title = living_games.get(matched_pid, "")
+                cname = character_name_from_window_title(title) or self.char_name
+                disp = f"{cname} ({matched_pid})" if (cname and cname != "---") else f"MEGAMU ({matched_pid})"
+                el["proc_var"].set(disp)
+
+            self.app.update_header_stats()
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Tự động nhận diện và kết nối lại MEGAMU (PID {matched_pid}) thành công!", "SUCCESS")
+            return True
+        return False
 
     def detach(self):
         """Ngắt kết nối."""
@@ -1183,11 +1311,14 @@ class SlotController:
         if hasattr(self, "stop_mirror_turbo_sniping"):
             self.stop_mirror_turbo_sniping()
         self.stop_auto(reason="Người dùng ngắt kết nối slot hoặc đổi gán game", trigger_by="MANUAL")
+        old_pid = self.assigned_pid
         self.assigned_pid = None
         self.char_name = "---"
         self.level = "---"
         self.coords = "--,--"
         self.set_status(tr("idle"))
+        if MegDirectEngine and old_pid:
+            MegDirectEngine.release_engine(old_pid)
         self.engine = None
 
     def start_auto(self) -> bool:
@@ -1202,15 +1333,21 @@ class SlotController:
             self.set_auto(False)
             return False
 
-        if not self.assigned_pid:
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Chưa chọn Game MEGAMU!", "WARNING")
-            self.set_auto(False)
-            return False
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            # Tự động thử kết nối lại nếu có game đang mở
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Game đang mất kết nối. Đang tự động kết nối lại...", "INFO")
+            ok_reconn = self.reconnect_game()
+            if not ok_reconn:
+                self.set_status(tr("game_closed"))
+                self.set_auto(False)
+                return False
 
-        if not psutil.pid_exists(self.assigned_pid):
-            self.set_status(tr("game_closed"))
-            self.set_auto(False)
-            return False
+        # Tự động đồng bộ nếu người dùng vừa sửa ở Tab Editor
+        if hasattr(self.app, 'save_editor_to_file'):
+            try:
+                self.app.save_editor_to_file(silent=True)
+            except Exception:
+                pass
 
         # Đọc cấu hình tươi mới 100% từ file đĩa JSON!
         cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
@@ -1220,8 +1357,12 @@ class SlotController:
             self.set_auto(False)
             return False
 
+        stage_summary = "; ".join([
+            f"C{i+1}:Lv{s.get('min_level')}-{s.get('max_level')} {s.get('map_name')}({s.get('x')},{s.get('y')})"
+            for i, s in enumerate(stages)
+        ])
         self.app.log_message(
-            f"[Slot {self.slot_idx:02d}] BẬT AUTO C{self.profile_index}: Tải {len(stages)} chặng từ file đĩa.",
+            f"[Slot {self.slot_idx:02d}] BẬT AUTO C{self.profile_index} ({len(stages)} chặng): {stage_summary}",
             "SUCCESS"
         )
 
@@ -1308,10 +1449,15 @@ class SlotController:
             if self.assigned_pid:
                 p_closed = self.assigned_pid
                 c_closed = self.char_name
+                if self.char_name and self.char_name != "---":
+                    self.last_known_char_name = self.char_name
                 self.set_status(tr("game_closed"))
                 self.char_name = "---"
                 self.level = "---"
                 self.coords = "--,--"
+                if MegDirectEngine:
+                    MegDirectEngine.release_engine(p_closed)
+                self.engine = None
                 if self.auto_requested or self.worker:
                     self.stop_auto(
                         reason=f"Tiến trình game MEGAMU.exe (PID {p_closed} - {c_closed}) đã bị đóng hoặc bị văng/crash!",
@@ -1433,17 +1579,12 @@ class SlotController:
                                 self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
                                     f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác..."
                                 ))
-                                try:
-                                    eng.open_moss(self.moss_category)
-                                    time.sleep(0.08)
-                                except Exception:
-                                    pass
-                                c_res = eng.clean_inventory_junk("both")
+                                c_res = eng.clean_inventory_junk("drop")
                                 cleaned = c_res.get("cleaned", 0)
                                 self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Đã dọn {c} món đồ rác (Giữ lại đồ Hoàn Hảo/Socket/Set/Ngọc/Đồ cộng). Tiếp tục quay..."
+                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món đồ rác ra ngoài đất (Giữ lại đồ Hoàn Hảo/Socket/Set/Ngọc/Đồ cộng). Tiếp tục quay..."
                                 ))
-                                time.sleep(0.4)
+                                time.sleep(0.3)
                             elif free_slots < 2 and junk_count == 0:
                                 self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
                                     f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Exc / Socket / Set / Ngọc). Tự động dừng quay an toàn!"
@@ -1468,18 +1609,13 @@ class SlotController:
                     cleaned_items = 0
                     if self.moss_auto_clean and eng and eng.is_ready:
                         try:
-                            try:
-                                eng.open_moss(self.moss_category)
-                                time.sleep(0.08)
-                            except Exception:
-                                pass
-                            c_res = eng.clean_inventory_junk("both")
+                            c_res = eng.clean_inventory_junk("drop")
                             cleaned_items = c_res.get("cleaned", 0)
                             if cleaned_items > 0:
                                 self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Đã dọn {c} món rác khi bị đầy hòm. Thử quay tiếp..."
+                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món rác ra ngoài đất khi bị đầy hòm. Thử quay tiếp..."
                                 ))
-                                time.sleep(0.4)
+                                time.sleep(0.3)
                                 consecutive_fails = 0
                                 continue
                         except Exception:
@@ -1566,15 +1702,10 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
         try:
-            try:
-                eng.open_moss(self.moss_category)
-                time.sleep(0.08)
-            except Exception:
-                pass
-            res = eng.clean_inventory_junk("both")
+            res = eng.clean_inventory_junk("drop")
             cleaned = res.get("cleaned", 0)
             self.app.append_moss_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🧹 Đã dọn {cleaned} món đồ rác (Đã giữ lại đồ Hoàn Hảo / Socket / Set / Ngọc / Đồ đã nâng cấp)."
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã vứt {cleaned} món đồ rác ra ngoài đất (Đã giữ lại đồ Hoàn Hảo / Socket / Set / Ngọc / Đồ đã nâng cấp)."
             )
             return cleaned
         except Exception as e:
@@ -1856,6 +1987,18 @@ class DashboardApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def _get_map_display_list(self) -> List[str]:
+        if self.map_resolver:
+            try:
+                if hasattr(self.map_resolver, "get_all_map_names"):
+                    resolved_maps = self.map_resolver.get_all_map_names()
+                elif hasattr(self.map_resolver, "display_names"):
+                    resolved_maps = list(self.map_resolver.display_names)
+                else:
+                    resolved_maps = []
+                if resolved_maps:
+                    return resolved_maps
+            except Exception:
+                pass
         maps = []
         candidate_paths = [
             MAP_COMMANDS_FILE,
@@ -2388,6 +2531,7 @@ class DashboardApp(ctk.CTk):
             border_color="#242b3a",
             hover_color="#222736",
             command=lambda val, s=i: self.on_slot_pid_selected(s, val),
+            on_open=lambda s=i: self.on_proc_combo_opened(s),
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
         )
         proc_combo.pack(side="left", padx=4)
@@ -2468,7 +2612,7 @@ class DashboardApp(ctk.CTk):
             image=UiIconFactory.get("chevron_down", color="#64748b", size=(10, 10))
         ).pack(side="right", padx=(0, 8))
 
-        # Cột 5: Status (Text mặc định, không border-radius)
+        # Cột 5: Status (Text mặc định, hỗ trợ click để kết nối lại)
         status_lbl = ctk.CTkLabel(
             row_frame,
             text="Idle",
@@ -2478,6 +2622,23 @@ class DashboardApp(ctk.CTk):
             text_color="#94a3b8"
         )
         status_lbl.pack(side="left", padx=6)
+        status_lbl.bind("<Button-1>", lambda e, s=i: self.on_slot_status_clicked(s))
+
+        # Chuột phải vào dòng mở menu tiện ích
+        import tkinter as tk
+        def _show_slot_ctx(event, s=i):
+            try:
+                menu = tk.Menu(self, tearoff=0, bg="#181c26", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+                menu.add_command(label="🔄 Kết nối lại (Reconnect)", command=lambda: self.on_slot_status_clicked(s))
+                menu.add_command(label="⚙️ Mở Cấu hình", command=lambda: self.jump_to_config_tab(s))
+                menu.add_separator()
+                menu.add_command(label="❌ Ngắt kết nối", command=lambda: self.controllers[s - 1].detach())
+                menu.tk_popup(event.x_root, event.y_root)
+            except Exception:
+                pass
+
+        for _w in (row_frame, slot_lbl, status_lbl, coords_frame, coords_lbl):
+            _w.bind("<Button-3>", lambda e, s=i: _show_slot_ctx(e, s))
 
         # Cột 6: Actions (Play/Stop | Configure | Slot Logs)
         actions_box = ctk.CTkFrame(row_frame, fg_color="transparent")
@@ -3588,6 +3749,8 @@ class DashboardApp(ctk.CTk):
 
     def on_editor_profile_change(self, val: str):
         try:
+            # Tự động lưu cấu hình hiện tại trước khi chuyển sang xem profile khác
+            self.save_editor_to_file(silent=True)
             idx = int(val.replace("Config ", "").strip())
             self.load_profile_into_editor(idx)
         except Exception:
@@ -3602,10 +3765,13 @@ class DashboardApp(ctk.CTk):
         except Exception as e:
             self.log_message(f"Lỗi khi tải lại cấu hình: {e}", "ERROR")
 
-    def save_editor_to_file(self):
+    def save_editor_to_file(self, silent: bool = False, target_idx: Optional[int] = None):
         """Lưu toàn bộ thay đổi trực tiếp vào file JSON."""
         try:
-            idx = int(self.editor_profile_var.get().replace("Config ", "").strip())
+            if target_idx is not None:
+                idx = int(target_idx)
+            else:
+                idx = int(self.editor_profile_var.get().replace("Config ", "").strip())
             # Đọc config gốc để giữ các trường mở rộng
             cfg = ConfigPersistenceManager.load_single_profile(idx)
             try:
@@ -3634,25 +3800,38 @@ class DashboardApp(ctk.CTk):
                     except Exception:
                         pass
 
-            cfg["stages"] = new_stages
+            existing_stages = cfg.get("stages", [])
+            existing_respawn = cfg.get("respawn_delay", 15)
+            is_changed = (existing_respawn != respawn or existing_stages != new_stages)
+
+            # Nếu gọi ở chế độ silent (chuyển tab) và không hề có thay đổi nào, bỏ qua không chạm đĩa/worker
+            if silent and not is_changed:
+                return
+
+            if new_stages:
+                cfg["stages"] = new_stages
             # Ghi trực tiếp vào file đĩa
             ConfigPersistenceManager.save_single_profile(idx, cfg)
-            self.log_message(
-                f"Đã lưu thành công Config {idx} ({len(new_stages)} chặng) vào file autotrain_profiles.json!",
-                "SUCCESS"
-            )
+            if not silent:
+                self.log_message(
+                    f"Đã lưu thành công Config {idx} ({len(new_stages)} chặng) vào file autotrain_profiles.json!",
+                    "SUCCESS"
+                )
 
-            # Cập nhật các worker đang chạy Config này
-            for ctrl in self.controllers:
-                if ctrl.profile_index == idx and ctrl.worker and ctrl.worker.running:
-                    if hasattr(ctrl.worker, 'update_config'):
-                        ctrl.worker.update_config(cfg)
-                    self.log_message(
-                        f"[Slot {ctrl.slot_idx:02d}] Áp dụng ngay cấu hình vừa lưu mà không cần khởi động lại!",
-                        "SUCCESS"
-                    )
+            # Chỉ cập nhật các worker đang chạy Config này nếu stages thực sự thay đổi
+            if is_changed:
+                for ctrl in self.controllers:
+                    if ctrl.profile_index == idx and ctrl.worker and ctrl.worker.running:
+                        if hasattr(ctrl.worker, 'update_config'):
+                            ctrl.worker.update_config(cfg)
+                        if not silent:
+                            self.log_message(
+                                f"[Slot {ctrl.slot_idx:02d}] Áp dụng ngay cấu hình vừa lưu mà không cần khởi động lại!",
+                                "SUCCESS"
+                            )
         except Exception as e:
-            self.log_message(f"Lỗi khi lưu cấu hình: {e}", "ERROR")
+            if not silent:
+                self.log_message(f"Lỗi khi lưu cấu hình: {e}", "ERROR")
 
     # ==========================================================================
     # TAB 3: NHẬT KÝ (LOGS TAB)
@@ -3780,6 +3959,13 @@ class DashboardApp(ctk.CTk):
     # ĐIỀU HƯỚNG TAB
     # ==========================================================================
     def switch_tab(self, tab_name: str):
+        # Tự động lưu cấu hình nếu đang ở tab profiles và chuyển sang tab khác
+        if getattr(self, "active_tab", None) == "profiles" and tab_name != "profiles":
+            try:
+                self.save_editor_to_file(silent=True)
+            except Exception:
+                pass
+
         self.active_tab = tab_name
 
         act_bg = "#18202d"
@@ -3833,6 +4019,11 @@ class DashboardApp(ctk.CTk):
             self.panel_accounts.pack(fill="both", expand=True)
         elif tab_name == "profiles":
             self.panel_profiles.pack(fill="both", expand=True)
+            try:
+                cur_cfg = int(self.editor_profile_var.get().replace("Config ", "").strip())
+                self.load_profile_into_editor(cur_cfg)
+            except Exception:
+                pass
         elif tab_name == "logs":
             self.panel_logs.pack(fill="both", expand=True)
             self.render_logs()
@@ -5382,6 +5573,13 @@ class DashboardApp(ctk.CTk):
                 pid = int(m.group(1))
             else:
                 pid = int(val.split(" - ")[0].strip())
+
+            # Nếu PID đã chết, thử tự động reconnect tìm game mới
+            if not psutil.pid_exists(pid):
+                self.log_message(f"[Slot {slot_idx:02d}] Cửa sổ MEGAMU (PID {pid}) đã đóng. Đang tự động quét và kết nối lại...", "WARNING")
+                ctrl.reconnect_game()
+                return
+
             ctrl.attach_pid(pid)
             if hasattr(self, "update_moss_slot_telemetry"):
                 self.update_moss_slot_telemetry(slot_idx, ctrl.char_name, pid)
@@ -5389,6 +5587,21 @@ class DashboardApp(ctk.CTk):
                 self.update_mirror_slot_telemetry(slot_idx, ctrl.char_name, pid, ctrl.coords)
         except Exception as e:
             self.log_message(f"[Slot {slot_idx:02d}] Không thể gán PID: {e}", "ERROR")
+
+    def on_slot_status_clicked(self, slot_idx: int):
+        """Khi người dùng click vào nhãn trạng thái 'Mất kết nối', tự động kết nối lại."""
+        ctrl = self.controllers[slot_idx - 1]
+        is_dead = (ctrl.assigned_pid and not psutil.pid_exists(ctrl.assigned_pid))
+        is_disc = ctrl.status in (tr("game_closed"), tr("status_disconnected"), "Game đã đóng", "Mất kết nối")
+        if is_dead or is_disc or not ctrl.assigned_pid:
+            self.log_message(f"[Slot {slot_idx:02d}] Đang thử kết nối lại tài khoản...", "INFO")
+            ok = ctrl.reconnect_game()
+            if not ok:
+                self.log_message(f"[Slot {slot_idx:02d}] Kết nối lại thất bại: Chưa tìm thấy cửa sổ MEGAMU mới.", "WARNING")
+
+    def on_proc_combo_opened(self, slot_idx: int):
+        """Tự động làm mới danh sách Game khi người dùng bấm vào ComboBox."""
+        self.refresh_games()
 
     def on_slot_profile_selected(self, slot_idx: int, val: str):
         try:
@@ -5427,17 +5640,17 @@ class DashboardApp(ctk.CTk):
                 lbl = el["status_lbl"]
                 tl = str(text).lower()
                 if "tự động đánh" in tl or "running" in tl or "đang chạy" in tl or "at spot" in tl or "tại bãi" in tl or "executando" in tl:
-                    lbl.configure(text=tr("status_running"), text_color="#4ade80")
+                    lbl.configure(text=tr("status_running"), text_color="#4ade80", cursor="")
                 elif "moving" in tl or "chạy ra bãi" in tl or "di chuyển" in tl or "map" in tl or "movendo" in tl:
-                    lbl.configure(text=tr("status_moving"), text_color="#facc15")
+                    lbl.configure(text=tr("status_moving"), text_color="#facc15", cursor="")
                 elif "game đã đóng" in tl or "game_closed" in tl or "closed" in tl or "disconnect" in tl or "pk" in tl or "mất kết nối" in tl or "desconectado" in tl:
-                    lbl.configure(text=tr("status_disconnected"), text_color="#f87171")
+                    lbl.configure(text=tr("status_disconnected"), text_color="#f87171", cursor="hand2")
                 elif "đã kết nối" in tl or "connected" in tl or "stopped" in tl or "đã dừng" in tl or "parado" in tl:
-                    lbl.configure(text=tr("status_stopped"), text_color="#e2e8f0")
+                    lbl.configure(text=tr("status_stopped"), text_color="#e2e8f0", cursor="")
                 elif "idle" in tl or "chờ" in tl or "aguardando" in tl:
-                    lbl.configure(text=tr("status_idle"), text_color="#94a3b8")
+                    lbl.configure(text=tr("status_idle"), text_color="#94a3b8", cursor="")
                 else:
-                    lbl.configure(text=str(text), text_color="#94a3b8")
+                    lbl.configure(text=str(text), text_color="#94a3b8", cursor="")
         try:
             self.after(0, _apply)
         except Exception:
@@ -5557,14 +5770,16 @@ class DashboardApp(ctk.CTk):
         self.log_message(f"Đã làm mới: Phát hiện {len(self.detected_games)} cửa sổ MEGAMU.exe.", "INFO")
 
     def assign_all(self):
-        """Gán tất cả tiến trình MEGAMU vào các Slot trống."""
+        """Gán tất cả tiến trình MEGAMU vào các Slot trống hoặc slot bị mất kết nối."""
         self.refresh_games()
-        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid}
+        # Chỉ coi PID là đã gán nếu PID đó thực sự đang tồn tại trên Windows
+        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)}
         available_pids = [p for p in self.detected_games if p not in assigned_pids]
 
         assigned_count = 0
         for ctrl in self.controllers:
-            if not ctrl.assigned_pid and available_pids:
+            is_dead_or_empty = (not ctrl.assigned_pid) or (not psutil.pid_exists(ctrl.assigned_pid))
+            if is_dead_or_empty and available_pids:
                 pid = available_pids.pop(0)
                 ctrl.attach_pid(pid)
                 # Cập nhật dropdown
@@ -5602,7 +5817,7 @@ class DashboardApp(ctk.CTk):
             return
 
         self.refresh_games()
-        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid}
+        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)}
         available_pids = [p for p in self.detected_games if p not in assigned_pids]
 
         if len(available_pids) < 1:
@@ -5617,13 +5832,13 @@ class DashboardApp(ctk.CTk):
 
         target_slots = None
         for g_start, g_end in groups:
-            empty_slots = [c for c in self.controllers if g_start <= c.slot_idx <= g_end and not c.assigned_pid]
+            empty_slots = [c for c in self.controllers if g_start <= c.slot_idx <= g_end and (not c.assigned_pid or not psutil.pid_exists(c.assigned_pid))]
             if len(empty_slots) >= min(5, len(available_pids)):
                 target_slots = empty_slots
                 break
 
         if not target_slots:
-            target_slots = [c for c in self.controllers if not c.assigned_pid]
+            target_slots = [c for c in self.controllers if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid)]
 
         count = 0
         for ctrl in target_slots[:5]:
@@ -5650,7 +5865,7 @@ class DashboardApp(ctk.CTk):
         self.log_message(f"Gán Team 5: Đã gán thành công {count} tài khoản.", "SUCCESS")
 
     def connect_all(self):
-        """Kết nối tới tất cả các slot đã chọn PID."""
+        """Kết nối tới tất cả các slot đã chọn PID hoặc tự động kết nối lại các slot bị mất kết nối."""
         if getattr(self, "is_update_mandatory", False):
             self.open_update_dialog()
             return
@@ -5667,10 +5882,37 @@ class DashboardApp(ctk.CTk):
             self.open_license_dialog()
             return
 
+        # 1. Quét mới 100% tiến trình game MEGAMU trên máy
+        self.refresh_games()
+        living_pids = set(self.detected_games.keys())
+
+        # 2. Duyệt qua từng slot để kết nối hoặc kết nối lại
+        connected_count = 0
+        reconnected_count = 0
+
         for ctrl in self.controllers:
-            if ctrl.assigned_pid and not (ctrl.engine and ctrl.engine.is_ready):
-                ctrl.attach_pid(ctrl.assigned_pid)
+            # Slot bị mất kết nối (PID chết)
+            if ctrl.assigned_pid and ctrl.assigned_pid not in living_pids:
+                if ctrl.reconnect_game():
+                    reconnected_count += 1
+            # Slot có PID còn sống
+            elif ctrl.assigned_pid and ctrl.assigned_pid in living_pids:
+                if not (ctrl.engine and ctrl.engine.is_ready):
+                    ctrl.attach_pid(ctrl.assigned_pid)
+                connected_count += 1
+            # Slot chưa có PID nhưng trước đó đã từng có nhân vật
+            elif not ctrl.assigned_pid and ctrl.last_known_char_name:
+                if ctrl.reconnect_game():
+                    reconnected_count += 1
+
         self.update_header_stats()
+        total = connected_count + reconnected_count
+        if reconnected_count > 0:
+            self.log_message(f"Kết nối tất cả: Đã kết nối lại thành công {reconnected_count} tài khoản bị mất kết nối (Tổng kết nối: {total}).", "SUCCESS")
+        elif total > 0:
+            self.log_message(f"Kết nối tất cả: Đã kết nối thành công {total} tài khoản.", "INFO")
+        else:
+            self.log_message("Kết nối tất cả: Không tìm thấy tài khoản MEGAMU nào để kết nối.", "WARNING")
 
     def start_all(self):
         """Bật Auto cho tất cả các slot có game."""

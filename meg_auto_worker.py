@@ -98,11 +98,71 @@ class MapResolver:
             except Exception as e:
                 print(f"[MapResolver] Lỗi đọc file map_commands.json: {e}", flush=True)
 
+        # Tích hợp thêm cấu hình từ maps.ini (MAP_CATALOG & ALIASES)
+        ini_candidates = [
+            os.path.join(base_dir, "maps.ini"),
+            os.path.join(base_dir, "config", "maps.ini"),
+        ]
+        if getattr(sys, "frozen", False):
+            ini_candidates.append(os.path.join(exe_dir, "maps.ini"))
+            ini_candidates.append(os.path.join(exe_dir, "config", "maps.ini"))
+        for ip in ini_candidates:
+            if ip and os.path.exists(ip):
+                try:
+                    import configparser
+                    cp = configparser.ConfigParser(interpolation=None)
+                    cp.read(ip, encoding="utf-8")
+                    if "MAP_CATALOG" in cp:
+                        for raw_id, map_name in cp["MAP_CATALOG"].items():
+                            try:
+                                m_id = int(str(raw_id).strip())
+                                name_str = str(map_name).strip()
+                                if m_id not in self.id_to_name:
+                                    self.id_to_name[m_id] = name_str
+                                norm_n = self._norm(name_str)
+                                if norm_n and norm_n not in self.map_ids:
+                                    self.map_ids[norm_n] = m_id
+                                if name_str and name_str not in self.display_names:
+                                    self.display_names.append(name_str)
+                                if norm_n and norm_n not in self.aliases:
+                                    clean_cmd = name_str.lower().replace(" ", "")
+                                    self.aliases[norm_n] = f"/move {clean_cmd}"
+                            except Exception:
+                                pass
+                    if "ALIASES" in cp:
+                        for alias_k, cmd_v in cp["ALIASES"].items():
+                            norm_k = self._norm(str(alias_k).strip())
+                            cmd_clean = str(cmd_v).strip().lower()
+                            if norm_k:
+                                if cmd_clean.startswith("/"):
+                                    self.aliases[norm_k] = cmd_clean
+                                else:
+                                    self.aliases[norm_k] = f"/move {cmd_clean}"
+                                norm_cmd = self._norm(cmd_clean)
+                                if norm_cmd in self.map_ids and norm_k not in self.map_ids:
+                                    self.map_ids[norm_k] = self.map_ids[norm_cmd]
+                    if "POPULAR_MAPS" in cp:
+                        for _, pop_name in cp["POPULAR_MAPS"].items():
+                            name_str = str(pop_name).strip()
+                            if name_str and name_str not in self.display_names:
+                                self.display_names.append(name_str)
+                            norm_p = self._norm(name_str)
+                            if norm_p and norm_p not in self.aliases:
+                                clean_cmd = name_str.lower().replace(" ", "")
+                                self.aliases[norm_p] = f"/move {clean_cmd}"
+                    break
+                except Exception as e_ini:
+                    print(f"[MapResolver] Lỗi đọc maps.ini: {e_ini}", flush=True)
+
     @classmethod
     def get_instance(cls) -> "MapResolver":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def get_all_map_names(self) -> List[str]:
+        """Trả về toàn bộ danh sách tên bản đồ đã hợp nhất từ map_commands.json và maps.ini."""
+        return list(self.display_names)
 
     @staticmethod
     def _norm(text: str) -> str:
@@ -123,7 +183,9 @@ class MapResolver:
 
         if alternate:
             if cmd.startswith("/move "):
-                return "/m " + cmd[6:]
+                return "/warp " + cmd[6:]
+            elif cmd.startswith("/warp "):
+                return "/move " + cmd[6:]
             elif cmd.startswith("/m "):
                 return "/move " + cmd[3:]
         return cmd
@@ -190,6 +252,7 @@ class AutoTrainWorker:
         self.last_moved_time = 0.0
         self.bypass_angle_offset = 0.0
         self.bypass_idx = 0
+        self.last_helper_stop_check = 0.0
 
         # Xử lý Hồi sinh / Reset Level
         self.respawn_until = 0.0
@@ -237,6 +300,14 @@ class AutoTrainWorker:
     def stop(self, reason: str = "Dừng Auto"):
         self.running = False
         self.stop_event.set()
+
+        # Đợi worker thread kết thúc để tránh race condition gọi di chuyển dở dang
+        if self.thread and self.thread.is_alive() and threading.current_thread() != self.thread:
+            try:
+                self.thread.join(timeout=0.6)
+            except Exception:
+                pass
+
         if self.core:
             try:
                 # 1. Tắt Auto Move nếu đang chạy
@@ -249,13 +320,11 @@ class AutoTrainWorker:
                 # 3. Hãm phanh cố định nhân vật đứng yên tại vị trí hiện tại
                 self.core.cancel_move()
 
-                # Đọc tọa độ hiện tại và ghim tại chỗ
+                # Lấy tọa độ hiện tại để ghi log trạng thái dừng
                 info = self.core.get_player_info(max_age=0.2)
                 if info and info.get("tileX") and info.get("tileY"):
                     cx = int(info["tileX"])
                     cy = int(info["tileY"])
-                    self.core.move_to(cx, cy)
-                    self.core.cancel_move()
                     self._log(f"Đã dừng Auto [{reason}]: Nhân vật đứng yên tại ({cx}, {cy}), MuHelper đã TẮT.", "INFO")
                 else:
                     self._log(f"Đã dừng Auto [{reason}]: Đã hãm phanh di chuyển và tắt MuHelper.", "INFO")
@@ -263,6 +332,46 @@ class AutoTrainWorker:
                 self._log(f"Lỗi khi dừng auto [{reason}]: {e}", "WARNING")
         else:
             self._log(f"Worker đã dừng [{reason}].", "INFO")
+
+    def update_config(self, new_config: Dict[str, Any]):
+        """Cập nhật cấu hình trực tiếp khi worker đang chạy (Hot-Reload thông minh)."""
+        try:
+            self.config = new_config
+            new_stages = new_config.get("stages", [])
+            if not new_stages:
+                return
+
+            # Nếu danh sách stages không có gì thay đổi so với hiện tại, TUYỆT ĐỐI không reset trạng thái!
+            if self.stages == new_stages:
+                return
+
+            self.stages = new_stages
+
+            # Đánh giá xem với level hiện tại, chặng mới có gì khác với chặng đang cắm không
+            if self.last_level is not None:
+                new_idx, new_stage = self._match_stage(self.last_level)
+                if new_stage:
+                    new_tx, new_ty = self._get_stage_target(new_stage)
+                    new_key = (
+                        new_idx,
+                        int(new_stage.get("min_level", 1)),
+                        int(new_stage.get("max_level", 400)),
+                        str(new_stage.get("map_name") or new_stage.get("map", "")),
+                        new_tx, new_ty
+                    )
+                    # Nếu chặng phù hợp cho level hiện tại KHÔNG ĐỔI và bot ĐÃ Ở BÃI, giữ nguyên trạng thái cắm bãi!
+                    if new_key == self.current_stage_key and self.arrived_at_spot:
+                        self._log(f"Cập nhật cấu hình: Chặng hiện tại ({new_stage.get('map_name')}) không đổi, giữ nguyên vị trí cắm bãi.", "INFO")
+                        return
+
+            # Chỉ reset lộ trình khi chặng thực sự thay đổi mục tiêu
+            self.current_stage_key = None
+            self.arrived_at_spot = False
+            self.map_move_sent = False
+            self.map_wait_active = False
+            self._log(f"Đã nạp nóng cấu hình mới ({len(new_stages)} chặng)! Đang điều hướng lại theo chặng mới...", "SUCCESS")
+        except Exception as e:
+            self._log(f"Lỗi khi nạp nóng cấu hình: {e}", "ERROR")
 
     def _get_stage_target(self, stage: Dict[str, Any]) -> Tuple[int, int]:
         wps = stage.get("waypoints", [])
@@ -274,19 +383,27 @@ class AutoTrainWorker:
         return 0, 0
 
     def _match_stage(self, level: int) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
-        """Khớp chặng bãi train tương ứng với cấp độ nhân vật hiện tại."""
+        """Khớp chặng bãi train tương ứng với cấp độ nhân vật hiện tại (ưu tiên chặng cụ thể nhất)."""
         if not self.stages:
             return None, None
         if len(self.stages) == 1:
             return 0, self.stages[0]
 
+        # Thu thập các chặng thỏa mãn min_level <= level <= max_level
+        candidates = []
         for idx, stage in enumerate(self.stages):
             min_l = int(stage.get("min_level", 1))
             max_l = int(stage.get("max_level", 400))
             if min_l <= level <= max_l:
-                return idx, stage
+                candidates.append((idx, stage, max_l - min_l))
 
-        # Nếu level lớn hơn tất cả các chặng đã cấu hình (ví dụ lv 400), chọn chặng cuối
+        if candidates:
+            # Ưu tiên dải hẹp nhất (ví dụ chặng 400-400 ưu tiên trước 400-1000)
+            candidates.sort(key=lambda c: (c[2], c[0]))
+            best_idx, best_stage, _ = candidates[0]
+            return best_idx, best_stage
+
+        # Nếu level lớn hơn tất cả các chặng đã cấu hình, chọn chặng cuối
         if level > int(self.stages[-1].get("max_level", 400)):
             return len(self.stages) - 1, self.stages[-1]
         if level < int(self.stages[0].get("min_level", 1)):
@@ -326,19 +443,41 @@ class AutoTrainWorker:
         self.expected_map_id = self.map_resolver.expected_map_id(self.route_map_name)
         self.current_target = (x, y)
 
+        # 1. Nếu cấu hình tắt auto_warp: Không gửi lệnh chuyển map, chỉ đi thẳng ra bãi
+        if stage.get("auto_warp") is False:
+            self._log(f"Bỏ qua lệnh chuyển map '{map_name}' (auto_warp tắt); chỉ cần đi thẳng tới tọa độ ({x}, {y}).", "SUCCESS")
+            self._move_to_target_after_map_verified()
+            return True
+
+        # 2. Nếu nhân vật đã ở đúng Map ID: Tuyệt đối không dịch chuyển lại, chỉ cần đi đến tọa độ cần đến
+        if current_map_id is not None and self.expected_map_id is not None:
+            try:
+                cur_id = int(current_map_id)
+                exp_id = int(self.expected_map_id)
+                if cur_id >= 0 and cur_id == exp_id:
+                    self._log(
+                        f"Nhân vật đã ở tại map '{map_name}' (MapID {exp_id}); "
+                        f"không cần dịch chuyển lại, chỉ cần đi đến tọa độ ({x}, {y}).",
+                        "SUCCESS"
+                    )
+                    self._move_to_target_after_map_verified()
+                    return True
+            except Exception:
+                pass
+
         exp_str = f" [MapID: {self.expected_map_id}]" if self.expected_map_id is not None else ""
         self._log(f"{reason}: {command} -> ({x}, {y}){exp_str}")
 
         # TRƯỚC KHI GỬI LỆNH CHUYỂN MAP: TẮT MUHELPER VÀ HÃM PHANH DI CHUYỂN!
-        # Game MU / MEGAMU chặn tuyệt đối lệnh /move khi đang bật auto đánh hoặc đang di chuyển!
+        # Game MU / MEGAMU chặn tuyệt đối lệnh /move khi đang bật auto đánh hoặc đang di chuyển (In-Combat / Busy)!
         try:
             self.core.stop_helper()
             self.core.cancel_move()
-            time.sleep(0.08)
+            time.sleep(0.35)  # Chờ 350ms để animation ra chiêu dừng hẳn và thoát trạng thái combat
         except Exception:
             pass
 
-        if not self.core.send_chat(command):
+        if not self.core.send_chat(command, force_simulator=use_alternate):
             self._log("Could not send map command.", "WARNING")
             return False
 
@@ -370,6 +509,14 @@ class AutoTrainWorker:
         self.last_move_issue = now
         self.last_stride_time = now
         self.last_moved_time = now
+        self.map_sensor_trusted = True
+        self.map_sensor_suspect = False
+        # Đảm bảo tắt MuHelper trước khi chạy để không vừa chạy vừa đánh quái dọc đường
+        try:
+            if self.core.is_helper_active():
+                self.core.stop_helper()
+        except Exception:
+            pass
         if hasattr(self.core, "start_auto_move"):
             self.core.start_auto_move(x, y, helper=False)
         else:
@@ -377,7 +524,7 @@ class AutoTrainWorker:
         self.map_move_sent = True
         self.map_wait_active = False
         self._set_state(f"CHẠY RA BÃI ({x}, {y})")
-        self._log(f"Đã xác thực bản đồ; kích hoạt Auto Move tới bãi ({x}, {y}).", "SUCCESS")
+        self._log(f"Đã xác thực bản đồ; chỉ cần đi đến tọa độ ({x}, {y}).", "SUCCESS")
 
     def _route_map_gate(self, stage: Dict[str, Any], current_map_id: Optional[int]) -> bool:
         """
@@ -392,6 +539,12 @@ class AutoTrainWorker:
             self.expected_map_id = expected
 
         if self.expected_map_id is None:
+            return False
+
+        # 0. Nếu tắt auto_warp: Không kiểm soát cổng chuyển map, đi thẳng ra bãi
+        if stage.get("auto_warp") is False:
+            if not self.map_move_sent:
+                self._move_to_target_after_map_verified()
             return False
 
         try:
@@ -433,20 +586,12 @@ class AutoTrainWorker:
             self._send_map_command(stage, reason=f"Map check {cur}; expected {exp}", current_map_id=cur)
             return True
 
-        # 5. Đang trong thời gian chờ map sau khi đã gửi lệnh hoặc đang đi bộ qua cổng
+        # 5. Đang trong thời gian chờ map sau khi đã gửi lệnh chuyển map
         if self.map_wait_active:
             if cur == exp:
                 self.map_sensor_trusted = True
                 self.map_sensor_suspect = False
                 self._move_to_target_after_map_verified()
-                return True
-
-            # Xử lý thông minh: ELF / nhân vật Level < 10 ở Noria (3) đi bộ qua cổng sang Lorencia (0)
-            if cur == 3 and exp == 0 and self.last_level is not None and self.last_level < 10:
-                self._set_state("ĐI BỘ QUA CỔNG NORIA (150, 7)")
-                if now >= self.next_map_retry_at:
-                    self.core.move_to(150, 7)
-                    self.next_map_retry_at = now + 4.0
                 return True
 
             # Thử lại lệnh chuyển map định kỳ nếu MapID vẫn chưa đổi
@@ -476,60 +621,79 @@ class AutoTrainWorker:
 
         return False
 
-    def _go_to_stage(self, stage: Dict[str, Any], reason: str, current_map_id: Optional[int], force_command: bool = False) -> bool:
+    def _go_to_stage(
+        self,
+        stage: Dict[str, Any],
+        reason: str,
+        current_map_id: Optional[int],
+        force_command: bool = False,
+        current_coords: Optional[Tuple[int, int]] = None
+    ) -> bool:
+        prev_map_name = self.route_map_name
+        prev_expected = self.expected_map_id
+
         self._reset_route_tracking(stage)
         expected = self.expected_map_id
+        map_name = stage.get("map_name") or stage.get("map", "")
+        tx, ty = self.current_target if self.current_target else (0, 0)
 
-        # Nếu đã ở đúng map thì chạy thẳng tới bãi luôn
-        if not force_command and expected is not None and current_map_id is not None:
+        # Kiểm tra xem nhân vật đã ở tại map hay chưa
+        already_at_map = False
+        skip_reason = ""
+
+        # A. Kiểm tra theo MapID từ Telemetry
+        if current_map_id is not None and expected is not None:
             try:
-                if int(current_map_id) == int(expected):
-                    self._log(f"{reason}: already on MapID {expected}; moving directly to {self.current_target}.")
-                    self._move_to_target_after_map_verified()
-                    return True
+                cur_id = int(current_map_id)
+                exp_id = int(expected)
+                if cur_id >= 0 and exp_id >= 0:
+                    if cur_id == exp_id:
+                        already_at_map = True
+                        skip_reason = f"Đang ở đúng MapID {exp_id} ({map_name})"
+                    else:
+                        # Khác MapID: Nhân vật đang ở map khác (VD: ELF ở Noria MapID 3, hoặc ở Elbeland MapID 51 muốn về Lorencia MapID 0)
+                        # Trong MEGAMU level đầu vẫn chuyển map bình thường -> Bắt buộc gửi lệnh chuyển map, không được coi là đã ở tại map!
+                        already_at_map = False
             except Exception:
                 pass
 
-        # Nếu cấu hình tắt auto_warp thì không gửi lệnh chuyển map mà chạy luôn
+        # B. Kiểm tra nếu cùng tên bản đồ với chặng trước đó (chỉ áp dụng khi telemetry chưa xác định được MapID)
+        if not already_at_map and (current_map_id is None or int(current_map_id) < 0):
+            if prev_map_name and map_name:
+                norm_prev = self.map_resolver._norm(prev_map_name)
+                norm_new = self.map_resolver._norm(map_name)
+                if norm_prev and norm_new and norm_prev == norm_new:
+                    already_at_map = True
+                    skip_reason = f"Cùng bản đồ '{map_name}' với chặng trước"
+
+        # C. Cấu hình auto_warp = false
         if stage.get("auto_warp") is False:
-            self._log(f"{reason}: Bỏ qua chuyển map (auto_warp tắt); chạy thẳng tới bãi {self.current_target}.", "SUCCESS")
+            already_at_map = True
+            skip_reason = "auto_warp đã tắt trong cấu hình"
+
+        # Khi nhân vật thực sự ở tại map rồi thì không cần dịch chuyển lại, chỉ cần đi đến tọa độ cần đến
+        if already_at_map and not force_command:
+            self._log(
+                f"{reason}: {skip_reason} -> Không cần dịch chuyển lại, chỉ cần đi đến tọa độ ({tx}, {ty}).",
+                "SUCCESS"
+            )
             self._move_to_target_after_map_verified()
             return True
 
-        # Xử lý thông minh: Nhân vật Level < 10 ở Noria (Map 3) muốn sang Lorencia (Map 0)
-        # Server MU Online chặn lệnh /move /warp khi Level < 10 (chỉ cho phép đi bộ qua cổng).
-        # Tự động đi bộ qua Cổng Noria (150, 7) để bước sang Lorencia (121, 232)!
-        if self.last_level is not None and self.last_level < 10:
-            try:
-                if int(current_map_id) == 3 and int(expected) == 0:
-                    self._log(
-                        f"{reason}: Nhân vật Level {self.last_level} < 10 (chưa đủ Level 10 để dùng /move). "
-                        "Tự động đi bộ qua Cổng Noria (150, 7) để sang Lorencia...",
-                        "INFO"
-                    )
-                    self.core.stop_helper()
-                    self.core.cancel_move()
-                    time.sleep(0.08)
-                    self.core.move_to(150, 7)
-                    self._set_state("ĐI BỘ QUA CỔNG NORIA (150, 7)")
-                    self.map_wait_active = True
-                    self.map_command_sent_at = time.time()
-                    self.next_map_retry_at = time.time() + 4.5
-                    return True
-            except Exception:
-                pass
-
         return self._send_map_command(stage, reason, current_map_id)
 
-    def _ensure_helper(self) -> bool:
+    def _ensure_helper(self, target_x: Optional[int] = None, target_y: Optional[int] = None, force_restart: bool = False) -> bool:
         """Đảm bảo bật Auto Đánh (MuHelper) khi đã tới bãi."""
-        if self.core.is_helper_active(force_refresh=True):
+        if not force_restart and self.core.is_helper_active(force_refresh=True):
             return True
 
-        self._log("Đã tới bãi đích. Đang kích hoạt bật Auto Đánh (MuHelper)...", "SUCCESS")
-        ok = self.core.start_helper()
+        tx = int(target_x) if target_x is not None else (self.current_target[0] if self.current_target else 0)
+        ty = int(target_y) if target_y is not None else (self.current_target[1] if self.current_target else 0)
+
+        self._log(f"Đã tới bãi đích ({tx}, {ty}). Đang kích hoạt bật Auto Đánh (MuHelper)...", "SUCCESS")
+        ok = self.core.start_helper(target_x=tx, target_y=ty, force_restart=force_restart)
         if ok or self.core.is_helper_active(force_refresh=True):
-            self._log("🎉 Auto Đánh (MuHelper) đã BẬT thành công.", "SUCCESS")
+            self._log("🎉 Auto Đánh (MuHelper) đã BẬT thành công tại đúng tọa độ bãi.", "SUCCESS")
             return True
 
         self._log("Chưa phát hiện phản hồi bật MuHelper từ game; sẽ tự động thử lại ở chu kỳ tiếp theo...", "WARNING")
@@ -559,6 +723,7 @@ class AutoTrainWorker:
                 current_map_id = info.get("mapId", -1)
                 px = int(info.get("tileX", 0))
                 py = int(info.get("tileY", 0))
+                is_moving = bool(info.get("isMoving", False))
 
                 # 2. Xử lý trạng thái nhân vật chưa tải xong
                 if level <= 0:
@@ -614,7 +779,7 @@ class AutoTrainWorker:
                     stg_title = stage.get("name", f"Chặng #{idx + 1}")
                     map_str = stage.get("map_name") or stage.get("map", "")
                     self._log(f"Level {level} khớp {stg_title} [{stage.get('min_level')}-{stage.get('max_level')}] tại '{map_str}'.")
-                    self._go_to_stage(stage, reason=f"Bắt đầu {stg_title}", current_map_id=current_map_id)
+                    self._go_to_stage(stage, reason=f"Bắt đầu {stg_title}", current_map_id=current_map_id, current_coords=(px, py))
                     time.sleep(0.3)
                     continue
 
@@ -649,30 +814,51 @@ class AutoTrainWorker:
                     time.sleep(self.stable_poll_interval)
                     continue
 
-                # A. Đã tới đích bãi train (hoặc dừng lại rất sát bãi <= 7.5 ô do vật cản/hàng rào)
-                is_moving = bool(info.get("isMoving", False))
-                time_since_move = (now - self.last_move_issue) if self.last_move_issue > 0 else 0.0
-                is_arrived = (dist <= arrive_thresh) or (
-                    dist <= 7.5 and not is_moving and time_since_move >= 2.5
-                )
+                # A. Đã tới đích bãi train
+                # Hysteresis Leash:
+                # - Khi chưa tới bãi: Cần tiếp cận sát đích (dist <= 1.2 ô) HOẶC đứng yên sát bãi (dist <= arrive_thresh và not is_moving)
+                #   TUYỆT ĐỐI không bật helper khi nhân vật vẫn đang chạy (is_moving) để tránh ghim sai tọa độ gốc!
+                # - Khi ĐÃ tới bãi: cho phép MuHelper tự do di chuyển săn quái trong bán kính cắm bãi camp_leash (14.0 ô).
+                #   Chỉ khi nào bị chết văng về thành (dist > camp_leash) mới coi là rời bãi để bắt đầu lộ trình chạy lại.
+                camp_leash = max(14.0, float(self.config.get("respawn_distance", 15.0)))
+                raw_arrive = float(self.config.get("arrive_distance", self.config.get("arrival_distance", 1.5)))
+                arrive_thresh = max(1.0, min(2.0, raw_arrive))
+
+                if self.arrived_at_spot:
+                    is_arrived = (dist <= camp_leash)
+                else:
+                    is_at_spot = (dist <= 1.2) or (dist <= arrive_thresh and not is_moving)
+                    is_arrived = is_at_spot and (not is_moving)
 
                 if is_arrived:
                     if not self.arrived_at_spot:
                         self.arrived_at_spot = True
                         if hasattr(self.core, "stop_auto_move"):
                             self.core.stop_auto_move()
-                        else:
-                            self.core.cancel_move()
-                        self._log(f"🎉 ĐÃ TỚI BÃI TRAIN ({px}, {py})! Khoảng cách tới đích: {dist:.1f} ô. Kích hoạt Auto Đánh...", "SUCCESS")
+                        self.core.cancel_move()
+
+                        # Chờ 350ms để nhân vật dừng hẳn quán tính và đứng yên hoàn toàn tại đúng tọa độ bãi
+                        time.sleep(0.35)
+
+                        # Cập nhật lại tọa độ thực tế sau khi dừng hẳn
+                        latest_info = self.core.get_player_info(max_age=0.1)
+                        if latest_info:
+                            px = int(latest_info.get("tileX", px))
+                            py = int(latest_info.get("tileY", py))
+                            dist = math.hypot(px - tx, py - ty)
+
+                        self._log(f"🎉 ĐÃ ĐỨNG YÊN TẠI BÃI ({px}, {py}) [Mục tiêu: ({tx}, {ty}) | Lệch: {dist:.1f} ô]! Kích hoạt Auto Đánh (MuHelper)...", "SUCCESS")
                         self._set_state(f"TỰ ĐỘNG ĐÁNH ({tx}, {ty})")
+
                         if stage.get("auto_attack", True):
-                            self._ensure_helper()
+                            # Force restart để đảm bảo MuHelper lưu đúng tọa độ bãi (tx, ty) làm tọa độ gốc cắm bãi
+                            self._ensure_helper(target_x=tx, target_y=ty, force_restart=True)
                         self.next_helper_check = now + self.helper_recheck_interval
 
                     # Kiểm tra định kỳ để giữ MuHelper luôn BẬT khi đang cắm bãi
                     if now >= self.next_helper_check:
                         if stage.get("auto_attack", True):
-                            self._ensure_helper()
+                            self._ensure_helper(target_x=tx, target_y=ty, force_restart=False)
                         self.next_helper_check = now + self.helper_recheck_interval
 
                     self.last_dist = dist
@@ -684,6 +870,17 @@ class AutoTrainWorker:
                 # B. Đang trên đường chạy ra bãi (Continuous Sprint Navigation)
                 self.arrived_at_spot = False
                 self.next_helper_check = 0.0
+
+                # ĐẢM BẢO TẮT MUHELPER TRONG SUỐT QUÁ TRÌNH CHẠY RA BÃI (chưa tới đích)
+                # Tuyệt đối không để MuHelper bật sớm trước khi đến vị trí
+                if (now - self.last_helper_stop_check) >= 0.75:
+                    self.last_helper_stop_check = now
+                    try:
+                        if self.core.is_helper_active():
+                            self._log(f"Đang trên đường chạy tới ({tx}, {ty}) [còn {dist:.1f} ô]; tắt MuHelper để tập trung di chuyển...", "INFO")
+                            self.core.stop_helper()
+                    except Exception:
+                        pass
 
                 if (now - self.last_progress_log_time) >= 1.5:
                     self._log(f"Đang tự tìm đường tới ({tx}, {ty}) [Hiện tại: ({px}, {py})] | Cự ly còn: {dist:.1f} ô...")
@@ -706,6 +903,9 @@ class AutoTrainWorker:
                         self.last_moved_time = now
 
                 # 2. Sải bước liên tục mỗi 0.85s để nhân vật duy trì chạy một mạch không khựng
+                if not self.running or self.stop_event.is_set():
+                    break
+
                 time_since_stride = now - self.last_stride_time
                 need_stride = (
                     (self.last_stride_time == 0.0) or
