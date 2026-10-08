@@ -106,6 +106,8 @@ DEFAULT_OFFSETS = {
     "inventory_items": "0x28",
     "get_auto_login": "0x10A9500",
     "set_auto_login": "0xF4B220",
+    "npc_talk": "0x10B2B40",
+    "viewport": "0x110",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -318,6 +320,14 @@ try {
     }
 } catch (eMirrorTeleport) {}
 
+var nativeNpcTalk = null;
+try {
+    var ntOff = off('__NPC_TALK__');
+    if (!ntOff.isNull()) {
+        nativeNpcTalk = new NativeFunction(baseAddr.add(ntOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eNT) {}
+
 var nativeInvSellItem = null;
 try {
     var isiOff = off('__INV_SELL_ITEM__');
@@ -453,6 +463,7 @@ try {
 var cfInstance = null;
 var pendingCommand = null;
 var chatHook = null;
+var guiHook = null;
 
 function getChatFrameInstance() {
     if (cfInstance !== null && !cfInstance.isNull()) return cfInstance;
@@ -643,10 +654,79 @@ function setupMossWindow(mossWin, cat) {
     }
 }
 
+function findMossNpc() {
+    try {
+        var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+        if (typeInfo.isNull()) return null;
+        var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+        if (staticFields.isNull()) return null;
+        var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+        if (gameInstance.isNull()) return null;
+        var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+        if (viewport.isNull()) return null;
+        var objDict = viewport.add(ptr('0x20')).readPointer();
+        if (objDict.isNull()) return null;
+
+        var entries = objDict.add(ptr('0x18')).readPointer();
+        if (entries.isNull()) return null;
+        var count = objDict.add(ptr('0x20')).readS32();
+        if (count <= 0 || count > 500) return null;
+
+        for (var i = 0; i < count; i++) {
+            var entryAddr = entries.add(0x20 + i * 24);
+            var val = entryAddr.add(16).readPointer();
+            if (val.isNull()) continue;
+            var body = val.add(ptr('0x18')).readPointer();
+            if (body.isNull()) continue;
+
+            var bIdx = body.add(0x20).readS32();
+            if (bIdx < 0) continue;
+
+            var name = "";
+            try {
+                var namePtr = body.add(off('__PLAYER_NAME__')).readPointer();
+                if (!namePtr.isNull()) {
+                    var len = namePtr.add(0x10).readS32();
+                    if (len > 0 && len < 64) {
+                        name = namePtr.add(0x14).readUtf16String(len);
+                    }
+                }
+            } catch (eN) {}
+
+            var tx = -1, ty = -1;
+            try {
+                var cPtr = body.add(off('__PLAYER_COORD__')).readPointer();
+                if (!cPtr.isNull()) {
+                    tx = cPtr.add(0x10).readS32();
+                    ty = cPtr.add(0x14).readS32();
+                }
+            } catch (eC) {}
+
+            var isMoss = false;
+            if (name && name.toLowerCase().indexOf('moss') !== -1) {
+                isMoss = true;
+            } else if (tx >= 18 && tx <= 26 && ty >= 220 && ty <= 230) {
+                isMoss = true;
+            }
+
+            if (isMoss) {
+                return {
+                    ptr: body,
+                    index: bIdx,
+                    name: name || "Moss The Gambler",
+                    x: tx,
+                    y: ty
+                };
+            }
+        }
+    } catch (eFind) {}
+    return null;
+}
+
 try {
     var guiUpdateOff = off('__GAME_UI_UPDATE__');
     if (!guiUpdateOff.isNull()) {
-        Interceptor.attach(baseAddr.add(guiUpdateOff), {
+        guiHook = Interceptor.attach(baseAddr.add(guiUpdateOff), {
             onEnter: function(args) {
                 if (shuttingDown) return;
                 try {
@@ -1242,6 +1322,60 @@ rpc.exports = {
         }
     },
 
+    findMossNpc: function() {
+        try {
+            ensureThreadAttached();
+            var npc = findMossNpc();
+            if (!npc) return { found: false };
+            return {
+                found: true,
+                index: npc.index,
+                name: npc.name,
+                x: npc.x,
+                y: npc.y
+            };
+        } catch (e) {
+            return { found: false, error: e.toString() };
+        }
+    },
+
+    interactMossNpc: function(categoryId) {
+        try {
+            ensureThreadAttached();
+            var cat = parseInt(categoryId || 0);
+            var npc = findMossNpc();
+            if (!npc) {
+                return { success: false, error: "NPC_NOT_FOUND" };
+            }
+
+            if (nativeNpcTalk !== null) {
+                try {
+                    nativeNpcTalk(npc.ptr, ptr(0));
+                } catch (eNT) {}
+            }
+
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                        setupMossWindow(mossWin, cat);
+                    }
+                }
+            } catch (eUI) {}
+
+            return {
+                success: true,
+                index: npc.index,
+                name: npc.name,
+                x: npc.x,
+                y: npc.y
+            };
+        } catch (eInteract) {
+            return { success: false, error: eInteract.toString() };
+        }
+    },
+
     enterMirror: function(slot) {
         try {
             ensureThreadAttached();
@@ -1578,11 +1712,20 @@ rpc.exports = {
             }
         } catch (eH) {}
         try {
+            if (guiHook !== null) {
+                guiHook.detach();
+                guiHook = null;
+            }
+        } catch (eG) {}
+        try {
             if (fastTelemetryTimer !== null) {
                 clearInterval(fastTelemetryTimer);
                 fastTelemetryTimer = null;
             }
         } catch (e0) {}
+        try {
+            Interceptor.flush();
+        } catch (eF) {}
         return true;
     }
 };
@@ -1780,6 +1923,8 @@ class MegDirectEngine:
             "__INVENTORY_ITEMS__": self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28"),
             "__GET_AUTO_LOGIN__": self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0x10A9500"),
             "__SET_AUTO_LOGIN__": self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xF4B220"),
+            "__NPC_TALK__": self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x10B2B40"),
+            "__VIEWPORT__": self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -2456,6 +2601,133 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi open_moss: {e}")
         return False
 
+    def find_moss_npc(self) -> Dict[str, Any]:
+        """
+        Quét tìm NPC Moss The Gambler thực tế trong Viewport của game:
+        1. Ưu tiên đọc trực tiếp bộ nhớ RAM (ReadProcessMemory) từ Viewport.ObjectList (Zero-Injection, siêu tốc, an toàn tuyệt đối 100%).
+        2. Fallback qua Frida RPC nếu đang sẵn sàng.
+        """
+        rpm_res = self._find_moss_npc_rpm()
+        if rpm_res and rpm_res.get("found"):
+            return rpm_res
+
+        if self.is_ready:
+            try:
+                res = self._call("findMossNpc")
+                if res and isinstance(res, dict) and res.get("found"):
+                    return res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi RPC findMossNpc: {e}")
+
+        return rpm_res
+
+    def _find_moss_npc_rpm(self) -> Dict[str, Any]:
+        """Fallback quét tìm NPC Moss qua Win32 ReadProcessMemory từ Viewport.ObjectList."""
+        if sys.platform != "win32" or not self.pid:
+            return {"found": False}
+        try:
+            k32 = ctypes.windll.kernel32
+            hProc = k32.OpenProcess(0x0410, False, self.pid)
+            if not hProc:
+                return {"found": False}
+            try:
+                def read_ptr(addr):
+                    buf = ctypes.c_ulonglong()
+                    k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr), ctypes.byref(buf), 8, None)
+                    return buf.value
+
+                def read_i32(addr):
+                    buf = ctypes.c_int32()
+                    k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr), ctypes.byref(buf), 4, None)
+                    return buf.value
+
+                def read_str(addr):
+                    if not addr: return ""
+                    try:
+                        l = read_i32(addr + 0x10)
+                        if 0 < l < 64:
+                            buf = ctypes.create_unicode_buffer(l)
+                            k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr + 0x14), ctypes.byref(buf), l * 2, None)
+                            return buf.value
+                    except Exception:
+                        pass
+                    return ""
+
+                base = self.get_module_base("GameAssembly.dll")
+                if not base:
+                    return {"found": False}
+
+                type_info_off = int(self.offsets.get("game_type_info") or "0x549B980", 16)
+                vp_off = int(self.offsets.get("viewport") or "0x110", 16)
+
+                type_info = read_ptr(base + type_info_off)
+                if not type_info: return {"found": False}
+                static_fields = read_ptr(type_info + 0xB8)
+                if not static_fields: return {"found": False}
+                game_inst = read_ptr(static_fields + 0x8)
+                if not game_inst: return {"found": False}
+                viewport = read_ptr(game_inst + vp_off)
+                if not viewport: return {"found": False}
+                obj_dict = read_ptr(viewport + 0x20)
+                if not obj_dict: return {"found": False}
+                entries = read_ptr(obj_dict + 0x18)
+                if not entries: return {"found": False}
+                count = read_i32(obj_dict + 0x20)
+                if count <= 0 or count > 500: return {"found": False}
+
+                for i in range(count):
+                    entry_addr = entries + 0x20 + i * 24
+                    val = read_ptr(entry_addr + 16)
+                    if not val: continue
+                    body = read_ptr(val + 0x18)
+                    if not body: continue
+                    b_idx = read_i32(body + 0x20)
+                    if b_idx < 0: continue
+
+                    b_name = read_str(read_ptr(body + 0x28))
+                    c_ptr = read_ptr(body + 0x68)
+                    tx, ty = (read_i32(c_ptr + 0x10), read_i32(c_ptr + 0x14)) if c_ptr else (-1, -1)
+
+                    is_moss = False
+                    if b_name and "moss" in b_name.lower():
+                        is_moss = True
+                    elif 18 <= tx <= 26 and 220 <= ty <= 230:
+                        is_moss = True
+
+                    if is_moss:
+                        return {
+                            "found": True,
+                            "index": b_idx,
+                            "name": b_name or "Moss The Gambler",
+                            "x": tx,
+                            "y": ty
+                        }
+            finally:
+                k32.CloseHandle(hProc)
+        except Exception:
+            pass
+        return {"found": False}
+
+    def interact_moss_npc(self, category_id: int = 0) -> Dict[str, Any]:
+        """
+        Tương tác/click trực tiếp vào NPC Moss thực tế:
+        Phát lệnh Native NPC Talk (Mega.NpcManager$$JBMPIOPHIHI 0x10B2B40) để Server mở phiên đối thoại
+        và hiển thị bảng Moss Merchant chính thức.
+        """
+        if self.is_ready:
+            try:
+                res = self._call("interactMossNpc", int(category_id))
+                if res and isinstance(res, dict):
+                    if res.get("success"):
+                        _safe_log(f"[MegDirectEngine] PID {self.pid} tương tác click NPC Moss thành công: {res}")
+                        log_crash_trace("DIRECT_ENGINE", "INFO", f"PID {self.pid} interact_moss_npc success: {res}")
+                    return res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi interact_moss_npc: {e}")
+                return {"success": False, "error": str(e)}
+        return {"success": False, "error": "NOT_ATTACHED"}
+
+
     def enter_mirror(self, slot: int = 0) -> bool:
         """Gửi lệnh native vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
         if self.is_ready:
@@ -2562,10 +2834,11 @@ class MegDirectEngine:
 
     def detach(self):
         """
-        Ngắt kết nối an toàn tuyệt đối chống crash GameAssembly do LdrUnloadDll:
-        1. Gọi exports.cleanup() gỡ Interceptor hook và dừng timer telemetry
-        2. Giữ nguyên agent resident trong bộ nhớ không ép dỡ nạp DLL
-        3. Giải phóng mutex để tiến trình khác có thể kết nối
+        Ngắt kết nối an toàn tuyệt đối chống crash GameAssembly / frida-agent do LdrUnloadDll:
+        1. Gọi exports.cleanup() gỡ Interceptor hook (chatHook, guiHook), dừng timer telemetry, và Interceptor.flush()
+        2. Chờ 120ms để các thread Unity rút sạch hoàn toàn khỏi trampoline
+        3. Gọi session.detach() một cách tường minh trước khi dọn dẹp biến
+        4. Giải phóng mutex để tiến trình khác có thể kết nối
         """
         self.is_ready = False
         with self._rpc_lock:
@@ -2573,6 +2846,12 @@ class MegDirectEngine:
                 if self.script:
                     try:
                         self.script.exports_sync.cleanup()
+                    except Exception:
+                        pass
+                time.sleep(0.12)
+                if self.session:
+                    try:
+                        self.session.detach()
                     except Exception:
                         pass
             except Exception:

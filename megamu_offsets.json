@@ -51,5 +51,7 @@
     "player_inventory": "0x1B8",
     "inventory_items": "0x28",
     "get_auto_login": "0x10A9500",
-    "set_auto_login": "0xF4B220"
+    "set_auto_login": "0xF4B220",
+    "npc_talk": "0x10B2B40",
+    "viewport": "0x110"
 }
