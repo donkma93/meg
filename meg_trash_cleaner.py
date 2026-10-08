@@ -10,7 +10,7 @@ Tiêu chuẩn bảo tồn an toàn (Tuyệt đối không vứt đồ quý):
 - Đồ Hoàn Hảo (Excellent item)
 - Đồ Thần (Ancient / Set item)
 - Đồ Socket
-- Đồ đã nâng cấp/đập ngọc (+1 trở lên)
+- Đồ đã nâng cấp/đập ngọc (+5 trở lên)
 - Ngọc các loại (Bless, Soul, Chaos, Life, Creation, Harmony...) và vé, cánh, talisman
 - Trang bị đang đeo trên người (Slots 0..11)
 
@@ -387,10 +387,11 @@ class InventoryTrashCleanerApp:
             row = ctk.CTkFrame(self.scroll_items, fg_color="#181c26", height=32, corner_radius=4)
             row.pack(fill="x", pady=2, padx=2)
 
-            ctk.CTkLabel(row, text=f"Slot {slot:02d}", width=70, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left", padx=2)
+            slot_str = f"MR1 {slot:02d}" if 76 <= slot < 108 else (f"MR2 {slot:02d}" if 108 <= slot < 140 else f"Slot {slot:02d}")
+            ctk.CTkLabel(row, text=slot_str, width=70, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left", padx=2)
             ctk.CTkLabel(row, text=sec_name, width=210, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#f8fafc").pack(side="left", padx=2)
             ctk.CTkLabel(row, text=f"+{lvl}", width=80, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=2)
-            ctk.CTkLabel(row, text="Đồ thường (+0 không tính năng)", width=200, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=2)
+            ctk.CTkLabel(row, text="Đồ thường (+0..+4 không tính năng)", width=200, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=2)
             ctk.CTkLabel(row, text="🗑️ Rác (Vứt)", width=110, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#ef4444").pack(side="left", padx=2)
 
             btn_del = ctk.CTkButton(

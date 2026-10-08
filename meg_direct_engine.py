@@ -101,7 +101,7 @@ DEFAULT_OFFSETS = {
     "mirror_is_event_map": "0xFEFA00",
     "mirror_teleport_event": "0xFF5AF0",
     "inv_sell_item": "0x14B8B30",
-    "inv_trash_item": "0x122B8E0",
+    "inv_trash_item": "0x14351C0",
     "player_inventory": "0x1B8",
     "inventory_items": "0x28",
     "get_auto_login": "0x10A9500",
@@ -411,10 +411,16 @@ function sendDropPacket(slot, targetX, targetY) {
 
 var nativeGetConfig = null;
 try {
-    nativeGetConfig = new NativeFunction(baseAddr.add(off('0x1094130')), 'pointer', ['pointer']);
+    nativeGetConfig = new NativeFunction(baseAddr.add(ptr('0x10A4AC0')), 'pointer', ['pointer']);
 } catch (eCfg) {}
 
+var nativeGetUser2FA = null;
+try {
+    nativeGetUser2FA = new NativeFunction(baseAddr.add(ptr('0x10A9570')), 'pointer', ['pointer']);
+} catch (e2fa) {}
+
 function ensureDropAllowed() {
+    var ok = false;
     try {
         if (nativeGetConfig !== null) {
             var cfg = nativeGetConfig(ptr(0));
@@ -422,11 +428,19 @@ function ensureDropAllowed() {
                 var clientInfo = cfg.add(0x20).readPointer();
                 if (!clientInfo.isNull()) {
                     clientInfo.add(0xE1).writeU8(1);
-                    return true;
+                    ok = true;
                 }
             }
         }
     } catch (e1) {}
+    try {
+        if (nativeGetUser2FA !== null) {
+            var u2fa = nativeGetUser2FA(ptr(0));
+            if (!u2fa.isNull()) {
+                u2fa.add(0x20).writeU8(0);
+            }
+        }
+    } catch (e2faErr) {}
     try {
         var tiOffset = off('__GAME_TYPE_INFO__');
         if (!tiOffset.isNull()) {
@@ -441,7 +455,7 @@ function ensureDropAllowed() {
                             var ci = cfgObj.add(ptr('0x20')).readPointer();
                             if (!ci.isNull()) {
                                 ci.add(0xE1).writeU8(1);
-                                return true;
+                                ok = true;
                             }
                         }
                     }
@@ -449,7 +463,7 @@ function ensureDropAllowed() {
             }
         }
     } catch (e2) {}
-    return false;
+    return ok;
 }
 
 var nativeGetGameUI = null;
@@ -656,6 +670,7 @@ function setupMossWindow(mossWin, cat) {
 
 function findMossNpc() {
     try {
+        var localPlayer = getPlayerPtr();
         var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
         if (typeInfo.isNull()) return null;
         var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
@@ -678,6 +693,9 @@ function findMossNpc() {
             if (val.isNull()) continue;
             var body = val.add(ptr('0x18')).readPointer();
             if (body.isNull()) continue;
+
+            // Bỏ qua chính bản thân nhân vật người chơi
+            if (!localPlayer.isNull() && body.equals(localPlayer)) continue;
 
             var bIdx = body.add(0x20).readS32();
             if (bIdx < 0) continue;
@@ -703,10 +721,16 @@ function findMossNpc() {
             } catch (eC) {}
 
             var isMoss = false;
-            if (name && name.toLowerCase().indexOf('moss') !== -1) {
-                isMoss = true;
-            } else if (tx >= 18 && tx <= 26 && ty >= 220 && ty <= 230) {
-                isMoss = true;
+            if (name) {
+                // Nếu đọc được tên, bắt buộc phải chứa "moss" (không phân biệt hoa thường)
+                if (name.toLowerCase().indexOf('moss') !== -1) {
+                    isMoss = true;
+                }
+            } else {
+                // Chỉ fallback theo tọa độ khi tên hoàn toàn rỗng VÀ đứng chuẩn xác tại bệ NPC Moss (21..25, 223..227)
+                if (tx >= 21 && tx <= 25 && ty >= 223 && ty <= 227) {
+                    isMoss = true;
+                }
             }
 
             if (isMoss) {
@@ -1461,12 +1485,17 @@ rpc.exports = {
             var itemsArr = inv.add(itemsOff).readPointer();
             if (itemsArr.isNull()) return JSON.stringify({ error: "no_items_arr" });
 
-            var totalMain = 64;
+            var maxSlot = 140;
+            try {
+                var arrLen = itemsArr.add(0x18).readS32();
+                if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+            } catch (eLen) {}
+            var totalCount = maxSlot - 12;
             var freeSlots = 0;
             var junkSlots = [];
             var keptSlots = [];
 
-            for (var s = 12; s < 76; s++) {
+            for (var s = 12; s < maxSlot; s++) {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                 if (itemPtr.isNull()) {
                     freeSlots++;
@@ -1479,24 +1508,26 @@ rpc.exports = {
                 var sockOpt = itemPtr.add(0x28).readS32();
                 var sec = Math.floor(itemIndex / 512);
 
-                // Bảo tồn nghiêm ngặt:
-                // 1. Đồ Hoàn Hảo (excOpt > 0)
-                // 2. Đồ Thần (ancOpt > 0)
-                // 3. Đồ Socket (sockOpt > 0)
-                // 4. Đồ đã nâng cấp/đập ngọc (itemLevel > 0)
-                // 5. Ngọc và nguyên liệu/vé/talisman (sec >= 12 && sec <= 15)
-                var isKept = (excOpt > 0) || (ancOpt > 0) || (sockOpt > 0) || (itemLevel > 0) || (sec >= 12 && sec <= 15);
+                // Bảo tồn nghiêm ngặt theo yêu cầu:
+                // 1. Đồ thường từ +5 trở lên (itemLevel >= 5)
+                // 2. Đồ Hoàn Hảo (excOpt > 0)
+                // 3. Đồ Thần (ancOpt > 0)
+                // 4. Đồ Socket (sockOpt > 0)
+                // 5. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
+                // -> Còn lại (đồ thường +0 đến +4 không Exc/Set/Socket) là đồ rác có thể vứt.
+                var isKept = (excOpt > 0) || (ancOpt > 0) || (sockOpt > 0) || (itemLevel >= 5) || (sec >= 12 && sec <= 15);
+                var isExt = (s >= 76);
                 if (isKept) {
-                    keptSlots.push({ slot: s, index: itemIndex, level: itemLevel, exc: excOpt, anc: ancOpt, sock: sockOpt });
+                    keptSlots.push({ slot: s, index: itemIndex, level: itemLevel, exc: excOpt, anc: ancOpt, sock: sockOpt, isExt: isExt });
                 } else {
-                    junkSlots.push({ slot: s, index: itemIndex, level: itemLevel });
+                    junkSlots.push({ slot: s, index: itemIndex, level: itemLevel, isExt: isExt });
                 }
             }
 
             return JSON.stringify({
-                total: totalMain,
+                total: totalCount,
                 free: freeSlots,
-                used: totalMain - freeSlots,
+                used: totalCount - freeSlots,
                 junkCount: junkSlots.length,
                 keptCount: keptSlots.length,
                 junkSlots: junkSlots,
@@ -1525,30 +1556,36 @@ rpc.exports = {
                 return JSON.stringify({ cleaned: 0, error: "no_native_fn" });
             }
 
+            var dropCoord = ptr(0);
             var curX = 0;
             var curY = 0;
             try {
                 var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
                 if (!curCoord.isNull()) {
+                    dropCoord = curCoord;
                     var klass = curCoord.readPointer();
                     if (!klass.isNull()) coordBuf.writePointer(klass);
                     coordBuf.add(0x08).writePointer(ptr(0));
                     curX = curCoord.add(0x10).readS32();
                     curY = curCoord.add(0x14).readS32();
+                    coordBuf.add(0x10).writeS32(curX + 1);
+                    coordBuf.add(0x14).writeS32(curY);
                 }
             } catch (eXY) {}
-
-            var dropX = curX + 1;
-            var dropY = curY;
-            coordBuf.add(0x10).writeS32(dropX);
-            coordBuf.add(0x14).writeS32(dropY);
+            if (dropCoord.isNull()) {
+                dropCoord = coordBuf;
+            }
 
             var cleaned = 0;
             var useMethod = (method || "drop").toLowerCase();
 
-            ensureDropAllowed();
+            var maxSlot = 140;
+            try {
+                var arrLen = itemsArr.add(0x18).readS32();
+                if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+            } catch (eLen) {}
 
-            for (var s = 12; s < 76; s++) {
+            for (var s = 12; s < maxSlot; s++) {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                 if (itemPtr.isNull()) continue;
 
@@ -1559,8 +1596,9 @@ rpc.exports = {
                 var sockOpt = itemPtr.add(0x28).readS32();
                 var sec = Math.floor(itemIndex / 512);
 
-                // Giữ lại tuyệt đối mọi đồ giá trị: Exc, Ancient, Socket, Đồ đã ép cấp (>0), Ngọc/Vé (sec 12-15)
-                if (excOpt > 0 || ancOpt > 0 || sockOpt > 0 || itemLevel > 0 || (sec >= 12 && sec <= 15)) {
+                // Giữ lại: Đồ thường từ +5 trở lên, Exc, Ancient, Socket, Ngọc/Vé sự kiện/Cánh/Sách phép (sec 12-15)
+                // Cho phép vứt: Đồ thường từ +0 đến +4 không Exc/Ancient/Socket
+                if (excOpt > 0 || ancOpt > 0 || sockOpt > 0 || itemLevel >= 5 || (sec >= 12 && sec <= 15)) {
                     continue;
                 }
 
@@ -1568,7 +1606,8 @@ rpc.exports = {
                 try {
                     if (useMethod === "drop" || useMethod === "trash" || useMethod === "both") {
                         if (nativeInvTrashItem !== null) {
-                            nativeInvTrashItem(s, coordBuf, ptr(0));
+                            ensureDropAllowed();
+                            nativeInvTrashItem(s, dropCoord, ptr(0));
                             itemHandled = true;
                         }
                     }
@@ -1580,7 +1619,7 @@ rpc.exports = {
                     }
                     if (itemHandled) {
                         cleaned++;
-                        try { Thread.sleep(0.06); } catch (eSleep) {}
+                        try { Thread.sleep(0.12); } catch (eSleep) {}
                     }
                 } catch (eAct) {}
             }
@@ -1603,28 +1642,34 @@ rpc.exports = {
             }
 
             var p = getPlayerPtr();
-            var curX = 0;
-            var curY = 0;
+            var dropCoord = ptr(0);
+            var dropX = 0;
+            var dropY = 0;
             try {
                 if (!p.isNull()) {
                     var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
                     if (!curCoord.isNull()) {
+                        dropCoord = curCoord;
                         var klass = curCoord.readPointer();
                         if (!klass.isNull()) coordBuf.writePointer(klass);
                         coordBuf.add(0x08).writePointer(ptr(0));
-                        curX = curCoord.add(0x10).readS32();
-                        curY = curCoord.add(0x14).readS32();
+                        var curX = curCoord.add(0x10).readS32();
+                        var curY = curCoord.add(0x14).readS32();
+                        dropX = curX + ox;
+                        dropY = curY + oy;
+                        coordBuf.add(0x10).writeS32(dropX);
+                        coordBuf.add(0x14).writeS32(dropY);
+                        if (ox !== 0 || oy !== 0) {
+                            dropCoord = coordBuf;
+                        }
                     }
                 }
             } catch (ePXY) {}
+            if (dropCoord.isNull()) {
+                dropCoord = coordBuf;
+            }
 
-            var dropX = curX + ox;
-            var dropY = curY + oy;
-
-            coordBuf.add(0x10).writeS32(dropX);
-            coordBuf.add(0x14).writeS32(dropY);
-
-            nativeInvTrashItem(s, coordBuf, ptr(0));
+            nativeInvTrashItem(s, dropCoord, ptr(0));
 
             return JSON.stringify({ ok: true, allowed: allowed, slot: s, x: dropX, y: dropY });
         } catch (e) {
@@ -1655,7 +1700,16 @@ rpc.exports = {
             }
             if (nativeInvTrashItem !== null) {
                 ensureDropAllowed();
-                nativeInvTrashItem(s, ptr(0), ptr(0));
+                var p = getPlayerPtr();
+                var dropCoord = ptr(0);
+                try {
+                    if (!p.isNull()) {
+                        var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
+                        if (!curCoord.isNull()) dropCoord = curCoord;
+                    }
+                } catch (ePXY) {}
+                if (dropCoord.isNull()) dropCoord = coordBuf;
+                nativeInvTrashItem(s, dropCoord, ptr(0));
                 return true;
             }
         } catch (e) {}
@@ -1918,7 +1972,7 @@ class MegDirectEngine:
             "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xFEFA00"),
             "__MIRROR_TELEPORT_EVENT__": self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0xFF5AF0"),
             "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x14B8B30"),
-            "__INV_TRASH_ITEM__": self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x122B8E0"),
+            "__INV_TRASH_ITEM__": self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x14351C0"),
             "__PLAYER_INVENTORY__": self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B8"),
             "__INVENTORY_ITEMS__": self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28"),
             "__GET_AUTO_LOGIN__": self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0x10A9500"),
@@ -2689,10 +2743,12 @@ class MegDirectEngine:
                     tx, ty = (read_i32(c_ptr + 0x10), read_i32(c_ptr + 0x14)) if c_ptr else (-1, -1)
 
                     is_moss = False
-                    if b_name and "moss" in b_name.lower():
-                        is_moss = True
-                    elif 18 <= tx <= 26 and 220 <= ty <= 230:
-                        is_moss = True
+                    if b_name:
+                        if "moss" in b_name.lower():
+                            is_moss = True
+                    else:
+                        if 21 <= tx <= 25 and 223 <= ty <= 227:
+                            is_moss = True
 
                     if is_moss:
                         return {

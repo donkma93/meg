@@ -1215,6 +1215,7 @@ class SlotController:
         self.moss_rolls_count: int = 0
         self.moss_running: bool = False
         self.moss_worker_thread: Optional[threading.Thread] = None
+        self.moss_paused_worker: bool = False
 
         # Cấu hình Double Goer (Mirror) riêng cho Slot này
         self.mirror_running: bool = False
@@ -1650,6 +1651,19 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
+        # 1. Tạm dừng Auto Train nếu đang chạy để tránh xung đột di chuyển / giữ bãi
+        if self.worker or self.auto_requested:
+            self.moss_paused_worker = True
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏸️ Tạm dừng Auto Train để quay Moss...")
+            self.stop_auto("Tạm dừng Auto Train để quay Moss", trigger_by="EVENT")
+            time.sleep(0.3)
+
+        # 2. Tắt MuHelper nếu đang bật để không gây gián đoạn
+        if eng.is_helper_active(force_refresh=True):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚔️ Đang tạm tắt MuHelper...")
+            eng.stop_helper()
+            time.sleep(0.2)
+
         self.moss_running = True
         self.app.update_moss_slot_ui_state(self.slot_idx, is_running=True)
         cat_name = self.app.get_moss_cat_name(self.moss_category)
@@ -1725,7 +1739,7 @@ class SlotController:
                                 c_res = eng.clean_inventory_junk("drop")
                                 cleaned = c_res.get("cleaned", 0)
                                 self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món đồ rác ra ngoài đất (Giữ lại đồ Hoàn Hảo/Socket/Set/Ngọc/Đồ cộng). Tiếp tục quay..."
+                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món đồ rác ra ngoài đất (Giữ lại đồ Hoàn Hảo/Socket/Set/Ngọc/Đồ +5 trở lên). Tiếp tục quay..."
                                 ))
                                 time.sleep(0.3)
                             elif free_slots < 2 and junk_count == 0:
@@ -1800,6 +1814,14 @@ class SlotController:
             self.moss_running = False
             self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
 
+            # Khôi phục Auto Train nếu trước đó bị tạm dừng bởi sự kiện Moss
+            if getattr(self, "moss_paused_worker", False):
+                self.moss_paused_worker = False
+                def _resume_train():
+                    self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔄 Tự động khôi phục Auto Train quay lại bãi train...")
+                    self.start_auto()
+                self.app.after(1000, _resume_train)
+
         self.moss_worker_thread = threading.Thread(target=_worker, daemon=True)
         self.moss_worker_thread.start()
         return True
@@ -1810,6 +1832,14 @@ class SlotController:
             self.moss_running = False
             self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False)
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Quay Moss.")
+
+            # Khôi phục Auto Train nếu trước đó bị tạm dừng bởi sự kiện Moss
+            if getattr(self, "moss_paused_worker", False):
+                self.moss_paused_worker = False
+                def _resume_train_stop():
+                    self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔄 Tự động khôi phục Auto Train quay lại bãi train...")
+                    self.start_auto()
+                self.app.after(1000, _resume_train_stop)
 
     def roll_moss_once(self) -> bool:
         """Quay thử 1 lần cho riêng slot này (Yêu cầu phải có NPC Moss xuất hiện)."""
@@ -1902,7 +1932,7 @@ class SlotController:
                 )
             else:
                 self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã vứt {cleaned} món đồ rác ra ngoài đất (Đã giữ lại đồ Hoàn Hảo / Socket / Set / Ngọc / Đồ đã nâng cấp)."
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã vứt {cleaned} món đồ rác ra ngoài đất (Đã giữ lại đồ Hoàn Hảo / Socket / Set / Ngọc / Đồ +5 trở lên)."
                 )
             return cleaned
         except Exception as e:
@@ -1920,6 +1950,19 @@ class SlotController:
             return False
         if not eng.is_ready:
             eng.attach()
+
+        # 1. Tạm dừng Auto Train nếu đang chạy để tránh xung đột di chuyển / giữ bãi
+        if self.worker or self.auto_requested:
+            self.moss_paused_worker = True
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏸️ Tạm dừng Auto Train để tham gia sự kiện Moss...")
+            self.stop_auto("Tạm dừng Auto Train tham gia sự kiện Moss Merchant", trigger_by="EVENT")
+            time.sleep(0.3)
+
+        # 2. Tắt MuHelper trước khi chuyển map nếu đang chạy (MEGAMU cấm warp khi Helper đang đánh)
+        if eng.is_helper_active(force_refresh=True):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚔️ Tạm tắt MuHelper để chuyển map về Elbeland...")
+            eng.stop_helper()
+            time.sleep(0.3)
 
         self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland...")
         eng.send_chat("/move Elbeland")
