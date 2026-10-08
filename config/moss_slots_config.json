@@ -1,17 +1,7 @@
 {
-  "schedule": {
-    "auto_schedule": true,
-    "auto_move_before": true,
-    "times": [
-      "00:15",
-      "06:15",
-      "12:15",
-      "18:15"
-    ]
-  },
   "slots": {
     "1": {
-      "category": 2,
+      "category": 5,
       "delay_ms": 2000,
       "max_rolls": 0,
       "auto_clean": false
@@ -35,7 +25,7 @@
       "auto_clean": false
     },
     "5": {
-      "category": 2,
+      "category": 5,
       "delay_ms": 2000,
       "max_rolls": 0,
       "auto_clean": false

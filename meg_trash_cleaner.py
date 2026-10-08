@@ -7,6 +7,7 @@ Chương trình chuyên biệt quét và tự động vứt các vật phẩm r�
 ra đất hoặc dọn sạch hòm đồ một cách thông minh và an toàn 100%.
 
 Tiêu chuẩn bảo tồn an toàn (Tuyệt đối không vứt đồ quý):
+- Đồ Divine, Vũ khí Thiên Sứ (Archangel), Đồ Rồng (Dragon)
 - Đồ Hoàn Hảo (Excellent item)
 - Đồ Thần (Ancient / Set item)
 - Đồ Socket

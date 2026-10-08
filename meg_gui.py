@@ -1732,6 +1732,9 @@ class SlotController:
                         if inv and not inv.get("error"):
                             free_slots = int(inv.get("free", 64))
                             junk_count = int(inv.get("junkCount", 0))
+                            moss_plus = int(inv.get("mossPlusCount", 0))
+
+                            # Nếu còn ít ô trống và có đồ rác thường +0..+4 -> vứt ra ngoài đất
                             if free_slots < 4 and junk_count > 0:
                                 self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
                                     f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác..."
@@ -1739,12 +1742,32 @@ class SlotController:
                                 c_res = eng.clean_inventory_junk("drop")
                                 cleaned = c_res.get("cleaned", 0)
                                 self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món đồ rác ra ngoài đất (Giữ lại đồ Hoàn Hảo/Socket/Set/Ngọc/Đồ +5 trở lên). Tiếp tục quay..."
+                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món đồ rác ra ngoài đất. Tiếp tục kiểm tra..."
                                 ))
                                 time.sleep(0.3)
-                            elif free_slots < 2 and junk_count == 0:
+                                inv = eng.get_inventory_summary()
+                                if inv and not inv.get("error"):
+                                    free_slots = int(inv.get("free", 64))
+                                    junk_count = int(inv.get("junkCount", 0))
+                                    moss_plus = int(inv.get("mossPlusCount", 0))
+
+                            # Nếu hòm đồ bị đầy do chứa đồ Moss +5..+7 không thể vứt ra đất -> Tự động ra NPC Leah bán đồ
+                            if free_slots < 4 and moss_plus > 0:
+                                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, f=free_slots, m=moss_plus: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {c}] 🛒 Hòm đồ còn {f} ô do chứa {m} món đồ Moss +5..+7 không thể vứt. Tự động ra NPC Leah bán đồ..."
+                                ))
+                                self.sell_moss_items_at_merchant(eng)
+                                time.sleep(0.3)
+                                inv = eng.get_inventory_summary()
+                                if inv and not inv.get("error"):
+                                    free_slots = int(inv.get("free", 64))
+                                    junk_count = int(inv.get("junkCount", 0))
+                                    moss_plus = int(inv.get("mossPlusCount", 0))
+
+                            # Nếu hòm đồ đã đầy các vật phẩm quý giá (Divine / Rồng / Exc / Socket / Set / Ngọc / +8+) -> Dừng an toàn
+                            if free_slots < 2 and junk_count == 0 and moss_plus == 0:
                                 self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Exc / Socket / Set / Ngọc). Tự động dừng quay an toàn!"
+                                    f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Divine / Rồng / Exc / Socket / Set / Ngọc / +8 trở lên). Tự động dừng quay an toàn!"
                                 ))
                                 break
                     except Exception:
@@ -1762,18 +1785,35 @@ class SlotController:
                     self.app.after(0, _update_ui)
                 else:
                     consecutive_fails += 1
-                    # Nếu quay không thành công (có thể bị đầy hòm), thử dọn rác ngay
-                    cleaned_items = 0
+                    # Nếu quay không thành công (có thể bị đầy hòm), thử dọn rác và bán đồ ngay
                     if self.moss_auto_clean and eng and eng.is_ready:
                         try:
-                            c_res = eng.clean_inventory_junk("drop")
-                            cleaned_items = c_res.get("cleaned", 0)
-                            if cleaned_items > 0:
-                                self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món rác ra ngoài đất khi bị đầy hòm. Thử quay tiếp..."
+                            inv = eng.get_inventory_summary()
+                            free_slots = int(inv.get("free", 64)) if inv else 0
+                            junk_count = int(inv.get("junkCount", 0)) if inv else 0
+                            moss_plus = int(inv.get("mossPlusCount", 0)) if inv else 0
+
+                            handled = False
+                            if junk_count > 0:
+                                c_res = eng.clean_inventory_junk("drop")
+                                cleaned_items = c_res.get("cleaned", 0)
+                                if cleaned_items > 0:
+                                    self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
+                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món rác ra ngoài đất khi bị đầy hòm. Thử quay tiếp..."
+                                    ))
+                                    time.sleep(0.3)
+                                    consecutive_fails = 0
+                                    handled = True
+
+                            if (free_slots < 4 or not handled) and moss_plus > 0:
+                                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, m=moss_plus: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {c}] 🛒 Hòm bị đầy ({m} món đồ Moss +5..+7). Đang ra NPC Leah bán đồ..."
                                 ))
-                                time.sleep(0.3)
+                                self.sell_moss_items_at_merchant(eng)
                                 consecutive_fails = 0
+                                continue
+
+                            if handled:
                                 continue
                         except Exception:
                             pass
@@ -1932,12 +1972,103 @@ class SlotController:
                 )
             else:
                 self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã vứt {cleaned} món đồ rác ra ngoài đất (Đã giữ lại đồ Hoàn Hảo / Socket / Set / Ngọc / Đồ +5 trở lên)."
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã vứt {cleaned} món đồ rác ra ngoài đất (Đã giữ lại đồ Divine / Rồng / Hoàn Hảo / Socket / Set / Ngọc / Đồ +5 trở lên)."
                 )
             return cleaned
         except Exception as e:
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi dọn đồ: {e}")
             return 0
+
+    def sell_moss_items_at_merchant(self, eng=None) -> bool:
+        """
+        Tự động di chuyển ra NPC Leah (37, 236 Elbeland) bán đồ Moss +5..+7 khi thùng đồ bị đầy,
+        sau đó quay lại bệ NPC Moss (22, 225) và mở lại bảng tiếp tục quay.
+        Bảo vệ tuyệt đối: Đồ Divine, Đồ Rồng, Hoàn Hảo, Socket, Set Thần, Ngọc/Vé sự kiện/Cánh/Sách phép, Đồ >= +8.
+        """
+        if not eng:
+            if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                return False
+            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng or not eng.is_ready:
+            return False
+
+        try:
+            # 1. Di chuyển ra vị trí NPC Leah (37, 236)
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] 🚶 Đang tự động bước ra NPC Leah (37, 236) để bán đồ..."
+            ))
+            eng.start_auto_move(37, 236, helper=False)
+
+            # Chờ nhân vật di chuyển đến gần Leah (37, 236)
+            start_t = time.time()
+            while time.time() - start_t < 6.0:
+                time.sleep(0.35)
+                p_info = eng.get_player_info()
+                if p_info:
+                    px = p_info.get("x", 0) or p_info.get("tileX", 0)
+                    py = p_info.get("y", 0) or p_info.get("tileY", 0)
+                    if px > 0 and py > 0 and abs(px - 37) <= 4 and abs(py - 236) <= 4:
+                        break
+
+            # 2. Tương tác với NPC Merchant để mở phiên giao dịch
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] 🤝 Đang tương tác mở phiên giao dịch với NPC Leah..."
+            ))
+            eng.interact_merchant_npc()
+            time.sleep(0.5)
+
+            # 3. Gửi lệnh bán các món đồ Moss +5, +6, +7
+            s_res = eng.sell_moss_plus_items()
+            sold_count = s_res.get("sold", 0) if isinstance(s_res, dict) else 0
+            sold_items = s_res.get("items", []) if isinstance(s_res, dict) else []
+
+            if sold_count > 0:
+                summary_names = [f"{it.get('name', 'Item')}+{it.get('level', 0)}" for it in sold_items[:5]]
+                sum_text = ", ".join(summary_names)
+                if len(sold_items) > 5:
+                    sum_text += f" ... (+{len(sold_items)-5} món khác)"
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cnt=sold_count, st=sum_text: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ Moss +5..+7 ({st})!"
+                ))
+            else:
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] ℹ️ Không còn món đồ Moss +5..+7 nào cần bán."
+                ))
+            time.sleep(0.4)
+
+            # 4. Di chuyển quay lại bệ NPC Moss (22, 225)
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] 🚶 Đang quay trở lại bệ NPC Moss (22, 225)..."
+            ))
+            eng.start_auto_move(22, 225, helper=False)
+
+            start_t2 = time.time()
+            while time.time() - start_t2 < 6.0:
+                time.sleep(0.35)
+                p_info = eng.get_player_info()
+                if p_info:
+                    px = p_info.get("x", 0) or p_info.get("tileX", 0)
+                    py = p_info.get("y", 0) or p_info.get("tileY", 0)
+                    if px > 0 and py > 0 and abs(px - 22) <= 3 and abs(py - 225) <= 3:
+                        break
+
+            time.sleep(0.4)
+            # 5. Tương tác lại với NPC Moss để khôi phục phiên quay thưởng
+            eng.interact_moss_npc(self.moss_category)
+            time.sleep(0.4)
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] 🎰 Đã kết nối lại NPC Moss. Tiếp tục quay thưởng!"
+            ))
+            return True
+        except Exception as e:
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name, err=str(e): self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] ⚠️ Lỗi trong quá trình tự động đi bán đồ Moss: {err}"
+            ))
+            return False
+
+    def sell_moss_inventory(self):
+        """Kích hoạt thủ công tiến trình đi bán đồ Moss +5..+7 tại NPC Leah trên luồng riêng."""
+        threading.Thread(target=self.sell_moss_items_at_merchant, daemon=True).start()
 
     def move_to_moss_elbeland(self) -> bool:
         """Tự động chuyển map Elbeland và di chuyển tới tọa độ NPC Moss Merchant (22, 225)."""
@@ -5489,8 +5620,8 @@ class DashboardApp(ctk.CTk):
         )
         status_lbl.pack(side="left", padx=4)
 
-        # Cột 7: Thao tác (Auto Bật/Tắt & Tới NPC & Mở NPC & 1 Lần & Dọn rác)
-        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=310)
+        # Cột 7: Thao tác (Auto Bật/Tắt & Tới NPC & Mở NPC & 1 Lần & Dọn rác & Bán đồ)
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=365)
         action_box.pack(side="left", padx=4)
 
         btn_toggle = ctk.CTkButton(
@@ -5569,7 +5700,23 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda s=i: ctrl.clean_moss_inventory()
         )
-        btn_clean.pack(side="left")
+        btn_clean.pack(side="left", padx=(0, 4))
+
+        btn_sell = ctk.CTkButton(
+            action_box,
+            text="🛒 Bán",
+            width=46,
+            height=26,
+            corner_radius=4,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#10b981",
+            text_color="#34d399",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: ctrl.sell_moss_inventory()
+        )
+        btn_sell.pack(side="left")
 
         # Lưu UI cache
         self.moss_ui_elements[i] = {
@@ -5585,6 +5732,7 @@ class DashboardApp(ctk.CTk):
             "btn_open": btn_open,
             "btn_once": btn_once,
             "btn_clean": btn_clean,
+            "btn_sell": btn_sell,
         }
 
     def on_moss_slot_category_changed(self, slot_idx: int, cat_name: str):

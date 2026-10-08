@@ -100,7 +100,7 @@ DEFAULT_OFFSETS = {
     "mirror_npc_click": "0xFED810",
     "mirror_is_event_map": "0xFEFA00",
     "mirror_teleport_event": "0xFF5AF0",
-    "inv_sell_item": "0x14B8B30",
+    "inv_sell_item": "0x1441860",
     "inv_trash_item": "0x14351C0",
     "player_inventory": "0x1B8",
     "inventory_items": "0x28",
@@ -466,6 +466,88 @@ function ensureDropAllowed() {
     return ok;
 }
 
+var nativeGetItemName = null;
+try {
+    nativeGetItemName = new NativeFunction(baseAddr.add(ptr('0x11F6C80')), 'pointer', ['pointer']);
+} catch (eNm) {}
+
+function getItemName(itemPtr) {
+    if (!itemPtr || itemPtr.isNull()) return "";
+    try {
+        if (nativeGetItemName !== null) {
+            var sPtr = nativeGetItemName(itemPtr);
+            if (!sPtr.isNull()) {
+                var len = sPtr.add(0x10).readS32();
+                if (len > 0 && len < 200) {
+                    var str = sPtr.add(0x14).readUtf16String(len);
+                    if (str && str.length > 0) return str;
+                }
+            }
+        }
+    } catch (e1) {}
+    try {
+        var te = itemPtr.add(0x58).readPointer();
+        if (!te.isNull()) {
+            var offsets = [0x38, 0x30, 0x28, 0x20, 0x40, 0x48, 0x50];
+            for (var i = 0; i < offsets.length; i++) {
+                var sPtr = te.add(offsets[i]).readPointer();
+                if (!sPtr.isNull()) {
+                    var len = sPtr.add(0x10).readS32();
+                    if (len > 0 && len < 200) {
+                        var text = sPtr.add(0x14).readUtf16String(len);
+                        if (text && text.length > 0) return text;
+                    }
+                }
+            }
+        }
+    } catch (e2) {}
+    return "";
+}
+
+function isDivineOrDragonItem(itemPtr, itemIndex) {
+    var sec = Math.floor(itemIndex / 512);
+    var type = itemIndex % 512;
+
+    // 1. Phân loại theo Item ID cố định trong database MU Online (Bảo vệ cứng 100%):
+    // Set Rồng Đỏ (Dragon Set): Sec 7..11, Type 1
+    // Set Rồng Đen (Black Dragon): Sec 7..11, Type 16
+    // Set Nữ Thần (Divine Set - Elf): Sec 7..11, Type 18
+    // Set Dragon Knight (Hiệp sĩ rồng): Sec 7..11, Type 29
+    // Set Dark Devil / Dragon Soul / các set rồng mở rộng: Sec 7..11 (Type 30, 31)
+    if ((type === 1 || type === 16 || type === 18 || type === 29 || type === 30 || type === 31) && (sec >= 7 && sec <= 11)) {
+        return true;
+    }
+    // Khiên Rồng (Dragon Shield / Dragon Slayer Shield): Sec 6, Type 7, 17
+    if (sec === 6 && (type === 7 || type === 17)) return true;
+    // Vũ khí Rồng: Chaos Dragon Axe (Sec 1, Type 6), Dragon Spear (Sec 3, Type 10)
+    if (sec === 1 && type === 6) return true;
+    if (sec === 3 && type === 10) return true;
+    // Vũ khí Divine Archangel (Tuyệt Tác Thần / Thiên Sứ):
+    // Sec 0: Kiếm (Type 19, 30, 31, 40, 41)
+    // Sec 2: Quyền trượng (Type 13, 30)
+    // Sec 4: Cung/Nỏ (Type 18, 30)
+    // Sec 5: Gậy/Sách (Type 10, 36, 40)
+    if (sec === 0 && (type === 19 || type === 30 || type === 31 || type === 40 || type === 41)) return true;
+    if (sec === 2 && (type === 13 || type === 30)) return true;
+    if (sec === 4 && (type === 18 || type === 30)) return true;
+    if (sec === 5 && (type === 10 || type === 36 || type === 40)) return true;
+
+    // 2. Phân loại theo tên native của vật phẩm trong Game Memory (Hỗ trợ đa ngôn ngữ EN, PT, ES, VN):
+    var name = getItemName(itemPtr).toLowerCase();
+    if (name.length > 0) {
+        var keywords = [
+            "divine", "divino", "divina", "archangel", "arcanjo", "thiên sứ", "nữ thần",
+            "dragon", "dragao", "dragão", "rồng"
+        ];
+        for (var k = 0; k < keywords.length; k++) {
+            if (name.indexOf(keywords[k]) !== -1) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 var nativeGetGameUI = null;
 try {
     var guiOff = off('__GET_GAME_UI__');
@@ -743,6 +825,106 @@ function findMossNpc() {
                 };
             }
         }
+    } catch (eFind) {}
+    return null;
+}
+
+function findMerchantNpc() {
+    try {
+        var localPlayer = getPlayerPtr();
+        var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+        if (typeInfo.isNull()) return null;
+        var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+        if (staticFields.isNull()) return null;
+        var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+        if (gameInstance.isNull()) return null;
+        var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+        if (viewport.isNull()) return null;
+        var objDict = viewport.add(ptr('0x20')).readPointer();
+        if (objDict.isNull()) return null;
+
+        var entries = objDict.add(ptr('0x18')).readPointer();
+        if (entries.isNull()) return null;
+        var count = objDict.add(ptr('0x20')).readS32();
+        if (count <= 0 || count > 500) return null;
+
+        var px = 0, py = 0;
+        try {
+            if (!localPlayer.isNull()) {
+                var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                if (!pCoord.isNull()) {
+                    px = pCoord.add(0x10).readS32();
+                    py = pCoord.add(0x14).readS32();
+                }
+            }
+        } catch (eP) {}
+
+        var bestNpc = null;
+        var bestDist = 999999;
+
+        for (var i = 0; i < count; i++) {
+            var entryAddr = entries.add(0x20 + i * 24);
+            var val = entryAddr.add(16).readPointer();
+            if (val.isNull()) continue;
+            var body = val.add(ptr('0x18')).readPointer();
+            if (body.isNull()) continue;
+
+            if (!localPlayer.isNull() && body.equals(localPlayer)) continue;
+
+            var bIdx = body.add(0x20).readS32();
+            if (bIdx < 0) continue;
+
+            var name = "";
+            try {
+                var namePtr = body.add(off('__PLAYER_NAME__')).readPointer();
+                if (!namePtr.isNull()) {
+                    var len = namePtr.add(0x10).readS32();
+                    if (len > 0 && len < 64) {
+                        name = namePtr.add(0x14).readUtf16String(len);
+                    }
+                }
+            } catch (eN) {}
+
+            var tx = -1, ty = -1;
+            try {
+                var cPtr = body.add(off('__PLAYER_COORD__')).readPointer();
+                if (!cPtr.isNull()) {
+                    tx = cPtr.add(0x10).readS32();
+                    ty = cPtr.add(0x14).readS32();
+                }
+            } catch (eC) {}
+
+            var lowerName = (name || "").toLowerCase();
+            if (lowerName.indexOf('moss') !== -1) continue;
+
+            var isMerchant = false;
+            if (lowerName.indexOf('leah') !== -1 || lowerName.indexOf('lia') !== -1 ||
+                lowerName.indexOf('silvia') !== -1 || lowerName.indexOf('merchant') !== -1 ||
+                lowerName.indexOf('potion') !== -1 || lowerName.indexOf('tạp hóa') !== -1 ||
+                lowerName.indexOf('thuốc') !== -1 || lowerName.indexOf('thương nhân') !== -1) {
+                isMerchant = true;
+            } else if ((tx >= 34 && tx <= 40 && ty >= 233 && ty <= 239) ||
+                       (tx >= 41 && tx <= 47 && ty >= 226 && ty <= 232)) {
+                isMerchant = true;
+            } else if (px > 0 && Math.abs(tx - px) <= 4 && Math.abs(ty - py) <= 4) {
+                isMerchant = true;
+            }
+
+            if (isMerchant) {
+                var dist = Math.abs(tx - (px || 37)) + Math.abs(ty - (py || 236));
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestNpc = {
+                        ptr: body,
+                        index: bIdx,
+                        name: name || "Merchant Leah",
+                        x: tx,
+                        y: ty
+                    };
+                }
+            }
+        }
+        return bestNpc;
     } catch (eFind) {}
     return null;
 }
@@ -1400,6 +1582,112 @@ rpc.exports = {
         }
     },
 
+    findMerchantNpc: function() {
+        try {
+            ensureThreadAttached();
+            var npc = findMerchantNpc();
+            if (!npc) return { found: false };
+            return {
+                found: true,
+                index: npc.index,
+                name: npc.name,
+                x: npc.x,
+                y: npc.y
+            };
+        } catch (e) {
+            return { found: false, error: e.toString() };
+        }
+    },
+
+    interactMerchantNpc: function() {
+        try {
+            ensureThreadAttached();
+            var npc = findMerchantNpc();
+            if (!npc) {
+                return { success: false, error: "MERCHANT_NOT_FOUND" };
+            }
+            if (nativeNpcTalk !== null) {
+                try {
+                    nativeNpcTalk(npc.ptr, ptr(0));
+                } catch (eNT) {}
+            }
+            return {
+                success: true,
+                index: npc.index,
+                name: npc.name,
+                x: npc.x,
+                y: npc.y
+            };
+        } catch (eInteract) {
+            return { success: false, error: eInteract.toString() };
+        }
+    },
+
+    sellMossPlusItems: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) return JSON.stringify({ sold: 0, error: "no_player" });
+
+            var invOff = off('__PLAYER_INVENTORY__');
+            var inv = p.add(invOff).readPointer();
+            if (inv.isNull()) return JSON.stringify({ sold: 0, error: "no_inventory" });
+
+            var itemsOff = off('__INVENTORY_ITEMS__');
+            var itemsArr = inv.add(itemsOff).readPointer();
+            if (itemsArr.isNull()) return JSON.stringify({ sold: 0, error: "no_items_arr" });
+
+            if (nativeInvSellItem === null) {
+                return JSON.stringify({ sold: 0, error: "no_native_sell_fn" });
+            }
+
+            var maxSlot = 140;
+            try {
+                var arrLen = itemsArr.add(0x18).readS32();
+                if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+            } catch (eLen) {}
+
+            var sold = 0;
+            var soldItems = [];
+
+            for (var s = 12; s < maxSlot; s++) {
+                var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                if (itemPtr.isNull()) continue;
+
+                var itemIndex = itemPtr.add(0x10).readS32();
+                var itemLevel = itemPtr.add(0x14).readS32();
+                var excOpt = itemPtr.add(0x20).readS32();
+                var ancOpt = itemPtr.add(0x24).readS32();
+                var sockOpt = itemPtr.add(0x28).readS32();
+                var sec = Math.floor(itemIndex / 512);
+
+                // BẢO VỆ TUYỆT ĐỐI (Không bao giờ bán):
+                // 1. Đồ Divine, Đồ Rồng (isDivineOrDragonItem)
+                // 2. Đồ Hoàn Hảo (excOpt > 0)
+                // 3. Đồ Thần (ancOpt > 0)
+                // 4. Đồ Socket (sockOpt > 0)
+                // 5. Cấp độ >= +8 (giữ lại đồ xịn +8 trở lên)
+                // 6. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
+                if (isDivineOrDragonItem(itemPtr, itemIndex)) continue;
+                if (excOpt > 0 || ancOpt > 0 || sockOpt > 0) continue;
+                if (sec >= 12 && sec <= 15) continue;
+                if (itemLevel < 5 || itemLevel > 7) continue; // CHỈ BÁN ĐỒ MOSS +5, +6, +7!
+
+                var itName = getItemName(itemPtr);
+                try {
+                    nativeInvSellItem(s, itemPtr, ptr(0));
+                    sold++;
+                    soldItems.push({ slot: s, name: itName, level: itemLevel });
+                    try { Thread.sleep(0.12); } catch (eSleep) {}
+                } catch (eSell) {}
+            }
+
+            return JSON.stringify({ sold: sold, items: soldItems });
+        } catch (e) {
+            return JSON.stringify({ sold: 0, error: e.toString() });
+        }
+    },
+
     enterMirror: function(slot) {
         try {
             ensureThreadAttached();
@@ -1493,6 +1781,7 @@ rpc.exports = {
             var totalCount = maxSlot - 12;
             var freeSlots = 0;
             var junkSlots = [];
+            var mossPlusSlots = [];
             var keptSlots = [];
 
             for (var s = 12; s < maxSlot; s++) {
@@ -1509,18 +1798,26 @@ rpc.exports = {
                 var sec = Math.floor(itemIndex / 512);
 
                 // Bảo tồn nghiêm ngặt theo yêu cầu:
-                // 1. Đồ thường từ +5 trở lên (itemLevel >= 5)
-                // 2. Đồ Hoàn Hảo (excOpt > 0)
-                // 3. Đồ Thần (ancOpt > 0)
-                // 4. Đồ Socket (sockOpt > 0)
-                // 5. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
-                // -> Còn lại (đồ thường +0 đến +4 không Exc/Set/Socket) là đồ rác có thể vứt.
-                var isKept = (excOpt > 0) || (ancOpt > 0) || (sockOpt > 0) || (itemLevel >= 5) || (sec >= 12 && sec <= 15);
+                // 1. Đồ Divine, Đồ Rồng (tuyệt đối không vứt hay bán)
+                // 2. Đồ thường từ +5 trở lên (itemLevel >= 5)
+                // 3. Đồ Hoàn Hảo (excOpt > 0)
+                // 4. Đồ Thần (ancOpt > 0)
+                // 5. Đồ Socket (sockOpt > 0)
+                // 6. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
+                // -> Còn lại (đồ thường +0 đến +4 không Exc/Set/Socket/Divine/Rồng) là đồ rác có thể vứt.
+                var isDivineOrDragon = isDivineOrDragonItem(itemPtr, itemIndex);
+                var isKept = isDivineOrDragon || (excOpt > 0) || (ancOpt > 0) || (sockOpt > 0) || (itemLevel >= 5) || (sec >= 12 && sec <= 15);
                 var isExt = (s >= 76);
+                var itName = getItemName(itemPtr);
                 if (isKept) {
-                    keptSlots.push({ slot: s, index: itemIndex, level: itemLevel, exc: excOpt, anc: ancOpt, sock: sockOpt, isExt: isExt });
+                    keptSlots.push({ slot: s, index: itemIndex, name: itName, level: itemLevel, exc: excOpt, anc: ancOpt, sock: sockOpt, isExt: isExt, isSpecial: isDivineOrDragon });
+                    // Phân loại đồ Moss +5..+7 thông thường (không Divine/Rồng, không Exc, không Thần, không Socket, sec < 12)
+                    // để tự động mang ra NPC bán khi hòm đồ bị đầy không thể vứt ra đất
+                    if (!isDivineOrDragon && excOpt === 0 && ancOpt === 0 && sockOpt === 0 && (sec < 12 || sec > 15) && (itemLevel >= 5 && itemLevel <= 7)) {
+                        mossPlusSlots.push({ slot: s, index: itemIndex, name: itName, level: itemLevel, isExt: isExt });
+                    }
                 } else {
-                    junkSlots.push({ slot: s, index: itemIndex, level: itemLevel, isExt: isExt });
+                    junkSlots.push({ slot: s, index: itemIndex, name: itName, level: itemLevel, isExt: isExt });
                 }
             }
 
@@ -1529,8 +1826,10 @@ rpc.exports = {
                 free: freeSlots,
                 used: totalCount - freeSlots,
                 junkCount: junkSlots.length,
+                mossPlusCount: mossPlusSlots.length,
                 keptCount: keptSlots.length,
                 junkSlots: junkSlots,
+                mossPlusSlots: mossPlusSlots,
                 keptSlots: keptSlots
             });
         } catch (eInv) {
@@ -1596,9 +1895,9 @@ rpc.exports = {
                 var sockOpt = itemPtr.add(0x28).readS32();
                 var sec = Math.floor(itemIndex / 512);
 
-                // Giữ lại: Đồ thường từ +5 trở lên, Exc, Ancient, Socket, Ngọc/Vé sự kiện/Cánh/Sách phép (sec 12-15)
-                // Cho phép vứt: Đồ thường từ +0 đến +4 không Exc/Ancient/Socket
-                if (excOpt > 0 || ancOpt > 0 || sockOpt > 0 || itemLevel >= 5 || (sec >= 12 && sec <= 15)) {
+                // Bảo vệ tuyệt đối: Đồ Divine, Đồ Rồng, Đồ thường >= +5, Exc, Ancient, Socket, Ngọc/Vé sự kiện/Cánh/Sách phép (sec 12-15)
+                // Cho phép vứt: Đồ thường từ +0 đến +4 không Exc/Ancient/Socket/Divine/Rồng
+                if (isDivineOrDragonItem(itemPtr, itemIndex) || excOpt > 0 || ancOpt > 0 || sockOpt > 0 || itemLevel >= 5 || (sec >= 12 && sec <= 15)) {
                     continue;
                 }
 
@@ -1669,6 +1968,27 @@ rpc.exports = {
                 dropCoord = coordBuf;
             }
 
+            var itemP = ptr(0);
+            var itemIdx = -1;
+            try {
+                if (!p.isNull()) {
+                    var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                    if (!inv.isNull()) {
+                        var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                        if (!itemsArr.isNull()) {
+                            itemP = itemsArr.add(0x20 + s * 8).readPointer();
+                            if (!itemP.isNull()) {
+                                itemIdx = itemP.add(0x10).readS32();
+                            }
+                        }
+                    }
+                }
+            } catch (eCheck) {}
+
+            if (!itemP.isNull() && isDivineOrDragonItem(itemP, itemIdx)) {
+                return JSON.stringify({ ok: false, err: "protected_item_divine_or_dragon", slot: s });
+            }
+
             nativeInvTrashItem(s, dropCoord, ptr(0));
 
             return JSON.stringify({ ok: true, allowed: allowed, slot: s, x: dropX, y: dropY });
@@ -1682,6 +2002,7 @@ rpc.exports = {
             ensureThreadAttached();
             var s = parseInt(slot);
             var itemP = ptr(0);
+            var itemIdx = -1;
             try {
                 var p = getPlayerPtr();
                 if (!p.isNull()) {
@@ -1690,10 +2011,16 @@ rpc.exports = {
                         var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
                         if (!itemsArr.isNull()) {
                             itemP = itemsArr.add(0x20 + s * 8).readPointer();
+                            if (!itemP.isNull()) {
+                                itemIdx = itemP.add(0x10).readS32();
+                            }
                         }
                     }
                 }
             } catch (eP) {}
+            if (!itemP.isNull() && isDivineOrDragonItem(itemP, itemIdx)) {
+                return false;
+            }
             if (nativeInvSellItem !== null) {
                 nativeInvSellItem(s, itemP, ptr(0));
                 return true;
@@ -1971,7 +2298,7 @@ class MegDirectEngine:
             "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xFED810"),
             "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xFEFA00"),
             "__MIRROR_TELEPORT_EVENT__": self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0xFF5AF0"),
-            "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x14B8B30"),
+            "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x1441860"),
             "__INV_TRASH_ITEM__": self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x14351C0"),
             "__PLAYER_INVENTORY__": self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B8"),
             "__INVENTORY_ITEMS__": self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28"),
@@ -2782,6 +3109,40 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi interact_moss_npc: {e}")
                 return {"success": False, "error": str(e)}
         return {"success": False, "error": "NOT_ATTACHED"}
+
+    def find_merchant_npc(self) -> Dict[str, Any]:
+        """Tìm NPC thương nhân gần nhất (Leah / Silvia / Potion Merchant) trong tầm nhìn."""
+        if self.is_ready:
+            try:
+                res = self._call("findMerchantNpc")
+                if res and isinstance(res, dict):
+                    return res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi find_merchant_npc: {e}")
+        return {"found": False}
+
+    def interact_merchant_npc(self) -> Dict[str, Any]:
+        """Tương tác/đối thoại với NPC thương nhân (Leah/Silvia/...) để mở phiên giao dịch bán đồ."""
+        if self.is_ready:
+            try:
+                res = self._call("interactMerchantNpc")
+                if res and isinstance(res, dict):
+                    return res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi interact_merchant_npc: {e}")
+                return {"success": False, "error": str(e)}
+        return {"success": False, "error": "NOT_ATTACHED"}
+
+    def sell_moss_plus_items(self) -> Dict[str, Any]:
+        """Tự động bán các món đồ Moss cấp độ +5, +6, +7 cho NPC thương nhân (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)."""
+        if self.is_ready:
+            try:
+                res_str = self._call("sellMossPlusItems")
+                if res_str:
+                    return json.loads(res_str) if isinstance(res_str, str) else res_str
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi sell_moss_plus_items: {e}")
+        return {"sold": 0, "error": "not_ready"}
 
 
     def enter_mirror(self, slot: int = 0) -> bool:
