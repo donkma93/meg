@@ -894,6 +894,8 @@ function findMerchantNpc() {
                 }
             } catch (eC) {}
 
+            // Tuyệt đối loại bỏ mọi NPC / vật thể quanh bệ Moss (20..26, 222..228)
+            if (tx >= 20 && tx <= 26 && ty >= 222 && ty <= 228) continue;
             var lowerName = (name || "").toLowerCase();
             if (lowerName.indexOf('moss') !== -1) continue;
 
@@ -901,17 +903,18 @@ function findMerchantNpc() {
             if (lowerName.indexOf('leah') !== -1 || lowerName.indexOf('lia') !== -1 ||
                 lowerName.indexOf('silvia') !== -1 || lowerName.indexOf('merchant') !== -1 ||
                 lowerName.indexOf('potion') !== -1 || lowerName.indexOf('tạp hóa') !== -1 ||
-                lowerName.indexOf('thuốc') !== -1 || lowerName.indexOf('thương nhân') !== -1) {
+                lowerName.indexOf('thuốc') !== -1 || lowerName.indexOf('thương nhân') !== -1 ||
+                lowerName.indexOf('poção') !== -1 || lowerName.indexOf('pocion') !== -1) {
                 isMerchant = true;
-            } else if ((tx >= 34 && tx <= 40 && ty >= 233 && ty <= 239) ||
-                       (tx >= 41 && tx <= 47 && ty >= 226 && ty <= 232)) {
+            } else if ((tx >= 35 && tx <= 40 && ty >= 234 && ty <= 239) ||
+                       (tx >= 42 && tx <= 47 && ty >= 227 && ty <= 232)) {
                 isMerchant = true;
-            } else if (px > 0 && Math.abs(tx - px) <= 4 && Math.abs(ty - py) <= 4) {
+            } else if (px >= 34 && px <= 48 && py >= 225 && py <= 242 && Math.abs(tx - px) <= 3 && Math.abs(ty - py) <= 3) {
                 isMerchant = true;
             }
 
             if (isMerchant) {
-                var dist = Math.abs(tx - (px || 37)) + Math.abs(ty - (py || 236));
+                var dist = Math.abs(tx - 37) + Math.abs(ty - 236);
                 if (dist < bestDist) {
                     bestDist = dist;
                     bestNpc = {

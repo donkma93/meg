@@ -1993,71 +1993,121 @@ class SlotController:
             return False
 
         try:
-            # 1. Di chuyển ra vị trí NPC Leah (37, 236)
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Đang tự động bước ra NPC Leah (37, 236) để bán đồ..."
-            ))
-            eng.start_auto_move(37, 236, helper=False)
+            # Điểm đích trước mặt Leah: ô (36, 235)
+            target_leah_x, target_leah_y = 36, 235
 
-            # Chờ nhân vật di chuyển đến gần Leah (37, 236)
-            start_t = time.time()
-            while time.time() - start_t < 6.0:
-                time.sleep(0.35)
-                p_info = eng.get_player_info()
-                if p_info:
-                    px = p_info.get("x", 0) or p_info.get("tileX", 0)
-                    py = p_info.get("y", 0) or p_info.get("tileY", 0)
-                    if px > 0 and py > 0 and abs(px - 37) <= 4 and abs(py - 236) <= 4:
-                        break
-
-            # 2. Tương tác với NPC Merchant để mở phiên giao dịch
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🤝 Đang tương tác mở phiên giao dịch với NPC Leah..."
+                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Leah ({target_leah_x}, {target_leah_y}) để bán đồ..."
             ))
+
+            # BƯỚC 1: Di chuyển tới Leah (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
+            reached_leah = False
+            for attempt in range(2):
+                eng.start_auto_move(target_leah_x, target_leah_y, helper=False)
+                start_t = time.time()
+                while time.time() - start_t < 12.0:
+                    time.sleep(0.4)
+                    if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
+                        eng.stop_auto_move()
+                        return False
+
+                    p_info = eng.get_player_info()
+                    if p_info:
+                        px = p_info.get("x", 0) or p_info.get("tileX", 0)
+                        py = p_info.get("y", 0) or p_info.get("tileY", 0)
+                        if px > 0 and py > 0:
+                            # Nếu đã đứng trong bán kính 3 ô tính từ Leah (37, 236)
+                            dist = max(abs(px - 37), abs(py - 236))
+                            if dist <= 3:
+                                reached_leah = True
+                                break
+
+                if reached_leah:
+                    break
+                else:
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, a=attempt+1: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] ⏳ Chưa tới được Leah (lần {a}/2), đang tiếp tục bước tới..."
+                    ))
+
+            # Dừng bước di chuyển và đứng yên hoàn toàn trước khi nói chuyện với NPC
+            eng.stop_auto_move()
+            time.sleep(0.6)
+
+            p_info = eng.get_player_info()
+            px = p_info.get("x", 0) if p_info else 0
+            py = p_info.get("y", 0) if p_info else 0
+
+            # BƯỚC 2: Tìm và tương tác với NPC Leah
+            npc_found = eng.find_merchant_npc()
+            npc_name = "Merchant Leah"
+            if npc_found and npc_found.get("found"):
+                npc_name = npc_found.get("name", "Merchant Leah")
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=npc_name, nx=npc_found.get('x'), ny=npc_found.get('y'): self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🎯 Đã tiếp cận NPC {n} tại ({nx}, {ny}). Đang mở giao dịch bán đồ..."
+                ))
+            else:
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🤝 Đang mở đối thoại với NPC Leah tại ({px}, {py})..."
+                ))
+
+            # Gọi native tương tác đối thoại với NPC
             eng.interact_merchant_npc()
-            time.sleep(0.5)
+            # Chờ Server phản hồi gói tin mở giao dịch
+            time.sleep(0.8)
 
-            # 3. Gửi lệnh bán các món đồ Moss +5, +6, +7
+            # BƯỚC 3: Gửi lệnh bán các món đồ Moss +5..+7
             s_res = eng.sell_moss_plus_items()
             sold_count = s_res.get("sold", 0) if isinstance(s_res, dict) else 0
             sold_items = s_res.get("items", []) if isinstance(s_res, dict) else []
 
             if sold_count > 0:
-                summary_names = [f"{it.get('name', 'Item')}+{it.get('level', 0)}" for it in sold_items[:5]]
+                summary_names = [f"{it.get('name', 'Item')}+{it.get('level', 0)}" for it in sold_items[:6]]
                 sum_text = ", ".join(summary_names)
-                if len(sold_items) > 5:
-                    sum_text += f" ... (+{len(sold_items)-5} món khác)"
+                if len(sold_items) > 6:
+                    sum_text += f" ... (+{len(sold_items)-6} món khác)"
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cnt=sold_count, st=sum_text: self.app.append_moss_log(
                     f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ Moss +5..+7 ({st})!"
                 ))
             else:
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] ℹ️ Không còn món đồ Moss +5..+7 nào cần bán."
+                    f"[Slot {s:02d} - {c}] ℹ️ Không phát hiện món đồ Moss +5..+7 nào cần bán (hoặc đã bán xong)."
                 ))
-            time.sleep(0.4)
+            time.sleep(0.5)
 
-            # 4. Di chuyển quay lại bệ NPC Moss (22, 225)
+            # BƯỚC 4: Di chuyển quay lại bệ NPC Moss (22, 225)
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 🚶 Đang quay trở lại bệ NPC Moss (22, 225)..."
             ))
-            eng.start_auto_move(22, 225, helper=False)
 
-            start_t2 = time.time()
-            while time.time() - start_t2 < 6.0:
-                time.sleep(0.35)
-                p_info = eng.get_player_info()
-                if p_info:
-                    px = p_info.get("x", 0) or p_info.get("tileX", 0)
-                    py = p_info.get("y", 0) or p_info.get("tileY", 0)
-                    if px > 0 and py > 0 and abs(px - 22) <= 3 and abs(py - 225) <= 3:
-                        break
+            reached_moss = False
+            for attempt2 in range(2):
+                eng.start_auto_move(22, 225, helper=False)
+                start_t2 = time.time()
+                while time.time() - start_t2 < 12.0:
+                    time.sleep(0.4)
+                    if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
+                        eng.stop_auto_move()
+                        return False
 
-            time.sleep(0.4)
-            # 5. Tương tác lại với NPC Moss để khôi phục phiên quay thưởng
+                    p_info = eng.get_player_info()
+                    if p_info:
+                        px = p_info.get("x", 0) or p_info.get("tileX", 0)
+                        py = p_info.get("y", 0) or p_info.get("tileY", 0)
+                        if px > 0 and py > 0 and max(abs(px - 22), abs(py - 225)) <= 3:
+                            reached_moss = True
+                            break
+
+                if reached_moss:
+                    break
+
+            eng.stop_auto_move()
+            time.sleep(0.6)
+
+            # BƯỚC 5: Tương tác lại với NPC Moss để khôi phục phiên quay thưởng
             eng.interact_moss_npc(self.moss_category)
-            time.sleep(0.4)
+            time.sleep(0.5)
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🎰 Đã kết nối lại NPC Moss. Tiếp tục quay thưởng!"
+                f"[Slot {s:02d} - {c}] 🎰 Đã kết nối lại NPC Moss (22, 225). Tiếp tục quay thưởng!"
             ))
             return True
         except Exception as e:
@@ -2068,7 +2118,13 @@ class SlotController:
 
     def sell_moss_inventory(self):
         """Kích hoạt thủ công tiến trình đi bán đồ Moss +5..+7 tại NPC Leah trên luồng riêng."""
-        threading.Thread(target=self.sell_moss_items_at_merchant, daemon=True).start()
+        self._manual_selling = True
+        def _run():
+            try:
+                self.sell_moss_items_at_merchant()
+            finally:
+                self._manual_selling = False
+        threading.Thread(target=_run, daemon=True).start()
 
     def move_to_moss_elbeland(self) -> bool:
         """Tự động chuyển map Elbeland và di chuyển tới tọa độ NPC Moss Merchant (22, 225)."""
