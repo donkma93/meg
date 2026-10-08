@@ -28,7 +28,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 set "HAS_GXX=1"
 where g++ >nul 2>nul
-if %ERRORLEVEL% NEQ 0 (
+if errorlevel 1 (
     set "HAS_GXX=0"
     if exist "meg_license_bridge.dll" (
         echo   [CHU Y] Khong tim thay 'g++' trong PATH.
@@ -51,10 +51,10 @@ if "!HAS_GXX!"=="1" (
 
 :: Kiem tra va tu dong cai dat PyInstaller neu thieu
 python -m PyInstaller --version >nul 2>nul
-if %ERRORLEVEL% NEQ 0 (
+if errorlevel 1 (
     echo   - PyInstaller chua co san. Dang tu dong cai dat PyInstaller...
     python -m pip install pyinstaller
-    if %ERRORLEVEL% NEQ 0 (
+    if errorlevel 1 (
         color 0c
         echo [LOI] Khong the cai dat PyInstaller qua pip!
         pause
@@ -136,8 +136,8 @@ python -m PyInstaller ^
     --add-data="config\autotrain_megamu_config.json;config" ^
     --add-data="config\slot_assignments.json;config" ^
     --add-data="config\ui_settings.json;config" ^
-    --add-data="config\megamu_offsets.json;config" ^
     --add-data="config\moss_slots_config.json;config" ^
+    --add-data="config\maps.ini;config" ^
     --hidden-import="PIL" ^
     --hidden-import="PIL.Image" ^
     --hidden-import="PIL.ImageTk" ^
@@ -149,11 +149,14 @@ python -m PyInstaller ^
     --hidden-import="license_client" ^
     --hidden-import="updater" ^
     --hidden-import="meg_ram_optimizer" ^
+    --hidden-import="meg_account_manager" ^
+    --hidden-import="meg_navigator" ^
+    --hidden-import="meg_trash_cleaner" ^
     --distpath="%BUILD_DIST%" ^
     --workpath="%BUILD_TEMP%" ^
     "meg_gui.py"
 
-if %ERRORLEVEL% NEQ 0 (
+if errorlevel 1 (
     color 0c
     echo [LOI] PyInstaller gap su co khi dong goi!
     pause
@@ -194,11 +197,13 @@ if exist "megamu_dashboard_icon.ico" copy /y "megamu_dashboard_icon.ico" "%TARGE
 if exist "megamu_dashboard_logo.png" copy /y "megamu_dashboard_logo.png" "%TARGET_FOLDER%\" >nul
 echo   + Da dong bo icon va logo vao thu muc Release
 
-:: 5.4 Tao thu muc config va dong bo cac file cau hinh
+:: 5.4 Tao thu muc config va dong bo cac file cau hinh (Bao mat tuyet doi: Khong lo file offset)
 mkdir "%TARGET_FOLDER%\config" >nul 2>&1
 copy /y "config\*.json" "%TARGET_FOLDER%\config\" >nul 2>&1
-if exist "megamu_offsets.json" copy /y "megamu_offsets.json" "%TARGET_FOLDER%\" >nul
-echo   + Da tao thu muc config/ va dong bo toan bo file JSON cau hinh
+if exist "config\maps.ini" copy /y "config\maps.ini" "%TARGET_FOLDER%\config\" >nul 2>&1
+if exist "%TARGET_FOLDER%\config\megamu_offsets.json" del /f /q "%TARGET_FOLDER%\config\megamu_offsets.json" >nul 2>&1
+if exist "%TARGET_FOLDER%\megamu_offsets.json" del /f /q "%TARGET_FOLDER%\megamu_offsets.json" >nul 2>&1
+echo   + Da tao thu muc config/ va dong bo cac file cau hinh (Bao mat offset)
 
 :: 5.5 Don dep thu muc tam thoi
 if exist "%BUILD_TEMP%" rmdir /s /q "%BUILD_TEMP%" >nul 2>&1

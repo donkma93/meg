@@ -418,7 +418,7 @@ class InventoryTrashCleanerApp:
                 self.log(f"🗑️ Đã gửi lệnh vứt đồ tại ô Slot {slot:02d} ra đất!")
                 self.root.after(400, self.scan_inventory)
             else:
-                err = res.get("error", "unknown")
+                err = res.get("err") or res.get("error", "unknown")
                 self.log(f"⚠️ Không thể vứt đồ Slot {slot:02d}: {err}")
                 if err == "no_coord":
                     self.log("   → Nhân vật chưa có tọa độ! Hãy để nhân vật di chuyển trước.")

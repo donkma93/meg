@@ -105,6 +105,17 @@ enable_debug_privilege()
 # ==============================================================================
 # HÀM THU HỒI BỘ NHỚ RAM TIẾN TRÌNH (CORE RAM TRIM ENGINE)
 # ==============================================================================
+def trim_self() -> bool:
+    """Thu hồi Working Set RAM của chính tiến trình Dashboard hiện tại."""
+    try:
+        h = ctypes.windll.kernel32.GetCurrentProcess()
+        ctypes.windll.kernel32.SetProcessWorkingSetSize(h, -1, -1)
+        ctypes.windll.psapi.EmptyWorkingSet(h)
+        return True
+    except Exception:
+        return False
+
+
 def trim_single_process(pid: int) -> bool:
     """
     Thu hồi Working Set RAM của tiến trình MEGAMU về cho hệ thống.
@@ -191,6 +202,8 @@ def optimize_all_megamu(proc_titles: Optional[Dict[int, str]] = None) -> Dict[st
     after_mb = total_after_b / 1048576
     saved_mb = diff_b / 1048576
     saved_pct = (diff_b / total_before_b * 100) if total_before_b > 0 else 0.0
+
+    trim_self()
 
     return {
         "total_clients": len(clients_before),

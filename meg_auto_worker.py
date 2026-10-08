@@ -271,6 +271,7 @@ class AutoTrainWorker:
         self.map_unknown_fallback_at = 0.0
         self.map_move_sent = False
         self.next_map_retry_at = 0.0
+        self.map_retry_count = 0
 
     def _log(self, msg: str, level: str = "INFO"):
         if self.log_callback:
@@ -430,6 +431,7 @@ class AutoTrainWorker:
         self.last_move_issue = 0.0
         self.map_sensor_trusted = False
         self.map_sensor_suspect = False
+        self.map_retry_count = 0
 
     def _send_map_command(self, stage: Dict[str, Any], reason: str, current_map_id: Optional[int], use_alternate: bool = False) -> bool:
         map_name = stage.get("map_name") or stage.get("map", "")
@@ -511,6 +513,7 @@ class AutoTrainWorker:
         self.last_moved_time = now
         self.map_sensor_trusted = True
         self.map_sensor_suspect = False
+        self.map_retry_count = 0
         # Đảm bảo tắt MuHelper trước khi chạy để không vừa chạy vừa đánh quái dọc đường
         try:
             if self.core.is_helper_active():
@@ -596,12 +599,45 @@ class AutoTrainWorker:
 
             # Thử lại lệnh chuyển map định kỳ nếu MapID vẫn chưa đổi
             if now >= self.next_map_retry_at:
+                self.map_retry_count += 1
                 self.next_map_retry_at = now + max(4.0, float(self.config.get("map_command_retry_delay", 5.0)))
                 self._log(
-                    f"MapID vẫn là {cur} (chưa chuyển sang {exp}). Đang thử lại lệnh chuyển map... "
+                    f"MapID vẫn là {cur} (chưa chuyển sang {exp}) [Lần thử {self.map_retry_count}]. Đang thử lại lệnh chuyển map... "
                     "(Lưu ý: Nếu server game từ chối lệnh, hãy kiểm tra điều kiện Level tối thiểu và Zen của nhân vật)",
                     "WARNING"
                 )
+
+                # NẾU THỬ LẠI TỪ LẦN 1 TRỞ ĐI: CÓ THỂ NHÂN VẬT VỪA HỒI SINH BỊ KẸT TỌA ĐỘ / ĐÓNG BĂNG TRẠNG THÁI (RESPAWN FREEZE / NON-WARP TILE)
+                # Tự động đóng dialog (ESC) và bước nhẹ 2-3 bước để gửi gói tin Move giải phóng trạng thái kẹt!
+                if self.map_retry_count >= 1:
+                    try:
+                        # 1. Nhấn ESC đóng các pop-up/dialog/khung chat rác kẹt
+                        hwnd = getattr(self.core, "get_hwnd", lambda: None)()
+                        if hwnd:
+                            from meg_direct_engine import MegDirectEngine
+                            MegDirectEngine.send_background_key(hwnd, 0x1B, 0.05)  # VK_ESCAPE
+                            time.sleep(0.12)
+
+                        # 2. Lấy tọa độ hiện tại và nhích nhẹ 2-3 ô gỡ kẹt
+                        pinfo = self.core.get_player_info(max_age=0.2)
+                        if pinfo:
+                            c_px = int(pinfo.get("tileX", 0))
+                            c_py = int(pinfo.get("tileY", 0))
+                            if c_px > 0 and c_py > 0:
+                                jiggle_offsets = [(2, 2), (-2, 2), (2, -2), (-2, -2), (3, 0), (0, 3), (-3, 0), (0, -3)]
+                                jox, joy = jiggle_offsets[(self.map_retry_count - 1) % len(jiggle_offsets)]
+                                jx, jy = c_px + jox, c_py + joy
+                                self._log(f"⚡ Nghi ngờ kẹt điểm hồi sinh/SafeZone tại ({c_px}, {c_py}); tự động bước sang ({jx}, {jy}) để mở khóa trạng thái trước khi warp...", "INFO")
+                                if hasattr(self.core, "start_auto_move"):
+                                    self.core.start_auto_move(jx, jy, helper=False)
+                                else:
+                                    self.core.move_to(jx, jy, bypass_angle=0.0)
+                                time.sleep(0.55)
+                                self.core.cancel_move()
+                                time.sleep(0.15)
+                    except Exception as e:
+                        pass
+
                 self._send_map_command(stage, reason=f"Thử lại chuyển map {cur}→{exp}", current_map_id=cur, use_alternate=True)
                 return True
 
