@@ -1751,10 +1751,10 @@ class SlotController:
                                     junk_count = int(inv.get("junkCount", 0))
                                     moss_plus = int(inv.get("mossPlusCount", 0))
 
-                            # Nếu hòm đồ bị đầy do chứa đồ Moss +5..+7 không thể vứt ra đất -> Tự động ra NPC Leah bán đồ
+                            # Nếu hòm đồ bị đầy do chứa đồ Moss +5..+7 không thể vứt ra đất -> Tự động ra NPC Rhea (29, 235) bán đồ
                             if free_slots < 4 and moss_plus > 0:
                                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, f=free_slots, m=moss_plus: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {c}] 🛒 Hòm đồ còn {f} ô do chứa {m} món đồ Moss +5..+7 không thể vứt. Tự động ra NPC Leah bán đồ..."
+                                    f"[Slot {s:02d} - {c}] 🛒 Hòm đồ còn {f} ô do chứa {m} món đồ Moss +5..+7 không thể vứt. Tự động ra NPC Rhea (29, 235) bán đồ..."
                                 ))
                                 self.sell_moss_items_at_merchant(eng)
                                 time.sleep(0.3)
@@ -1807,7 +1807,7 @@ class SlotController:
 
                             if (free_slots < 4 or not handled) and moss_plus > 0:
                                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, m=moss_plus: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {c}] 🛒 Hòm bị đầy ({m} món đồ Moss +5..+7). Đang ra NPC Leah bán đồ..."
+                                    f"[Slot {s:02d} - {c}] 🛒 Hòm bị đầy ({m} món đồ Moss +5..+7). Đang ra NPC Rhea (29, 235) bán đồ..."
                                 ))
                                 self.sell_moss_items_at_merchant(eng)
                                 consecutive_fails = 0
@@ -1981,7 +1981,7 @@ class SlotController:
 
     def sell_moss_items_at_merchant(self, eng=None) -> bool:
         """
-        Tự động di chuyển ra NPC Leah (37, 236 Elbeland) bán đồ Moss +5..+7 khi thùng đồ bị đầy,
+        Tự động di chuyển ra NPC Rhea (29, 235 Elbeland) bán đồ Moss +5..+7 khi thùng đồ bị đầy,
         sau đó quay lại bệ NPC Moss (22, 225) và mở lại bảng tiếp tục quay.
         Bảo vệ tuyệt đối: Đồ Divine, Đồ Rồng, Hoàn Hảo, Socket, Set Thần, Ngọc/Vé sự kiện/Cánh/Sách phép, Đồ >= +8.
         """
@@ -1993,17 +1993,17 @@ class SlotController:
             return False
 
         try:
-            # Điểm đích trước mặt Leah: ô (36, 235)
-            target_leah_x, target_leah_y = 36, 235
+            # Điểm đích trước mặt Rhea: ô (28, 235) ngay cạnh Rhea (29, 235)
+            target_rhea_x, target_rhea_y = 28, 235
 
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Leah ({target_leah_x}, {target_leah_y}) để bán đồ..."
+                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Rhea ({target_rhea_x}, {target_rhea_y}) để bán đồ..."
             ))
 
-            # BƯỚC 1: Di chuyển tới Leah (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
-            reached_leah = False
+            # BƯỚC 1: Di chuyển tới Rhea (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
+            reached_rhea = False
             for attempt in range(2):
-                eng.start_auto_move(target_leah_x, target_leah_y, helper=False)
+                eng.start_auto_move(target_rhea_x, target_rhea_y, helper=False)
                 start_t = time.time()
                 while time.time() - start_t < 12.0:
                     time.sleep(0.4)
@@ -2016,17 +2016,17 @@ class SlotController:
                         px = p_info.get("x", 0) or p_info.get("tileX", 0)
                         py = p_info.get("y", 0) or p_info.get("tileY", 0)
                         if px > 0 and py > 0:
-                            # Nếu đã đứng trong bán kính 3 ô tính từ Leah (37, 236)
-                            dist = max(abs(px - 37), abs(py - 236))
+                            # Nếu đã đứng trong bán kính 3 ô tính từ Rhea (29, 235)
+                            dist = max(abs(px - 29), abs(py - 235))
                             if dist <= 3:
-                                reached_leah = True
+                                reached_rhea = True
                                 break
 
-                if reached_leah:
+                if reached_rhea:
                     break
                 else:
                     self.app.after(0, lambda s=self.slot_idx, c=self.char_name, a=attempt+1: self.app.append_moss_log(
-                        f"[Slot {s:02d} - {c}] ⏳ Chưa tới được Leah (lần {a}/2), đang tiếp tục bước tới..."
+                        f"[Slot {s:02d} - {c}] ⏳ Chưa tới được Rhea (lần {a}/2), đang tiếp tục bước tới..."
                     ))
 
             # Dừng bước di chuyển và đứng yên hoàn toàn trước khi nói chuyện với NPC
@@ -2037,17 +2037,17 @@ class SlotController:
             px = p_info.get("x", 0) if p_info else 0
             py = p_info.get("y", 0) if p_info else 0
 
-            # BƯỚC 2: Tìm và tương tác với NPC Leah
+            # BƯỚC 2: Tìm và tương tác với NPC Rhea
             npc_found = eng.find_merchant_npc()
-            npc_name = "Merchant Leah"
+            npc_name = "Merchant Rhea"
             if npc_found and npc_found.get("found"):
-                npc_name = npc_found.get("name", "Merchant Leah")
+                npc_name = npc_found.get("name", "Merchant Rhea")
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=npc_name, nx=npc_found.get('x'), ny=npc_found.get('y'): self.app.append_moss_log(
                     f"[Slot {s:02d} - {c}] 🎯 Đã tiếp cận NPC {n} tại ({nx}, {ny}). Đang mở giao dịch bán đồ..."
                 ))
             else:
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 🤝 Đang mở đối thoại với NPC Leah tại ({px}, {py})..."
+                    f"[Slot {s:02d} - {c}] 🤝 Đang mở đối thoại với NPC Rhea tại ({px}, {py})..."
                 ))
 
             # Gọi native tương tác đối thoại với NPC

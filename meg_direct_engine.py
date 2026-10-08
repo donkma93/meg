@@ -900,27 +900,34 @@ function findMerchantNpc() {
             if (lowerName.indexOf('moss') !== -1) continue;
 
             var isMerchant = false;
-            if (lowerName.indexOf('leah') !== -1 || lowerName.indexOf('lia') !== -1 ||
+            // 1. Nhận diện theo tên NPC thương nhân (Rhea Elbeland, Leah, Silvia, Merchant, Potion...)
+            if (lowerName.indexOf('rhea') !== -1 || lowerName.indexOf('leah') !== -1 || lowerName.indexOf('lia') !== -1 ||
                 lowerName.indexOf('silvia') !== -1 || lowerName.indexOf('merchant') !== -1 ||
                 lowerName.indexOf('potion') !== -1 || lowerName.indexOf('tạp hóa') !== -1 ||
                 lowerName.indexOf('thuốc') !== -1 || lowerName.indexOf('thương nhân') !== -1 ||
                 lowerName.indexOf('poção') !== -1 || lowerName.indexOf('pocion') !== -1) {
                 isMerchant = true;
-            } else if ((tx >= 35 && tx <= 40 && ty >= 234 && ty <= 239) ||
-                       (tx >= 42 && tx <= 47 && ty >= 227 && ty <= 232)) {
+            }
+            // 2. Nhận diện theo tọa độ Rhea Elbeland (28..31, 233..237) hoặc Leah/Silvia
+            else if ((tx >= 27 && tx <= 31 && ty >= 233 && ty <= 237) ||
+                     (tx >= 35 && tx <= 40 && ty >= 234 && ty <= 239) ||
+                     (tx >= 42 && tx <= 47 && ty >= 227 && ty <= 232)) {
                 isMerchant = true;
-            } else if (px >= 34 && px <= 48 && py >= 225 && py <= 242 && Math.abs(tx - px) <= 3 && Math.abs(ty - py) <= 3) {
+            }
+            // 3. Nếu nhân vật đã đứng gần khu vực chợ (px >= 27 && px <= 48 && py >= 225 && py <= 242) và đứng cạnh NPC (<= 3 ô)
+            else if (px >= 27 && px <= 48 && py >= 225 && py <= 242 && Math.abs(tx - px) <= 3 && Math.abs(ty - py) <= 3) {
                 isMerchant = true;
             }
 
             if (isMerchant) {
-                var dist = Math.abs(tx - 37) + Math.abs(ty - 236);
+                // Ưu tiên NPC gần tọa độ Rhea (29, 235) nhất
+                var dist = Math.abs(tx - 29) + Math.abs(ty - 235);
                 if (dist < bestDist) {
                     bestDist = dist;
                     bestNpc = {
                         ptr: body,
                         index: bIdx,
-                        name: name || "Merchant Leah",
+                        name: name || "Merchant Rhea",
                         x: tx,
                         y: ty
                     };
