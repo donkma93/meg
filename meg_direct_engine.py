@@ -74,8 +74,12 @@ DEFAULT_OFFSETS = {
     "get_world": "0x10ABBE0",
     "game_type_info": "0x549B980",
     "world_scene_index": "0x20",
-    "moss_roll": "0x238B380",
-    "moss_open": "0x238B0A0",
+    "moss_roll": "0x2347260",
+    "moss_open": "0x2346F80",
+    "ui_moss_window": "0x1C8",
+    "window_show": "0x25117F0",
+    "window_set_state": "0x25115F0",
+    "moss_roll_handler": "0x26D1180",
     "mirror_enter": "0xFDCA30",
     "mirror_npc_click": "0xFCE6E0",
     "mirror_is_event_map": "0xFCF820",
@@ -83,6 +87,8 @@ DEFAULT_OFFSETS = {
     "inv_trash_item": "0x14BBAD0",
     "player_inventory": "0x1B8",
     "inventory_items": "0x28",
+    "get_auto_login": "0x10A9500",
+    "set_auto_login": "0xF4B220",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -215,6 +221,30 @@ try {
     }
 } catch (eMossOpen) {}
 
+var nativeWindowShow = null;
+try {
+    var wsOff = off('__WINDOW_SHOW__');
+    if (!wsOff.isNull()) {
+        nativeWindowShow = new NativeFunction(baseAddr.add(wsOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eWS) {}
+
+var nativeWindowSetState = null;
+try {
+    var wssOff = off('__WINDOW_SET_STATE__');
+    if (!wssOff.isNull()) {
+        nativeWindowSetState = new NativeFunction(baseAddr.add(wssOff), 'void', ['pointer', 'bool', 'pointer']);
+    }
+} catch (eWSS) {}
+
+var nativeMossRollHandler = null;
+try {
+    var mrhOff = off('__MOSS_ROLL_HANDLER__');
+    if (!mrhOff.isNull()) {
+        nativeMossRollHandler = new NativeFunction(baseAddr.add(mrhOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eMRH) {}
+
 var nativeMirrorEnter = null;
 try {
     var meOff = off('__MIRROR_ENTER__');
@@ -254,6 +284,22 @@ try {
         nativeInvTrashItem = new NativeFunction(baseAddr.add(itiOff), 'void', ['int', 'pointer', 'pointer']);
     }
 } catch (eInvTrash) {}
+
+var nativeGetAutoLogin = null;
+try {
+    var galOff = off('__GET_AUTO_LOGIN__');
+    if (!galOff.isNull()) {
+        nativeGetAutoLogin = new NativeFunction(baseAddr.add(galOff), 'pointer', []);
+    }
+} catch (eGAL) {}
+
+var nativeSetAutoLogin = null;
+try {
+    var salOff = off('__SET_AUTO_LOGIN__');
+    if (!salOff.isNull()) {
+        nativeSetAutoLogin = new NativeFunction(baseAddr.add(salOff), 'void', ['pointer', 'int', 'pointer', 'pointer']);
+    }
+} catch (eSAL) {}
 
 var nativeGetGS = null;
 try {
@@ -486,6 +532,8 @@ try {
     }
 } catch (eHook) {}
 
+var pendingMossOpenCategory = null;
+
 try {
     var guiUpdateOff = off('__GAME_UI_UPDATE__');
     if (!guiUpdateOff.isNull()) {
@@ -497,6 +545,26 @@ try {
                     if (gui && !gui.isNull()) {
                         var cf = gui.add(off('__UI_CHAT_FRAME__')).readPointer();
                         if (cf && !cf.isNull()) cfInstance = cf;
+
+                        if (pendingMossOpenCategory !== null) {
+                            try {
+                                var cat = pendingMossOpenCategory;
+                                pendingMossOpenCategory = null;
+                                var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                                if (!mossWin.isNull()) {
+                                    mossWin.add(0x78).writeS32(cat);
+                                    var win = mossWin.add(0x20).readPointer();
+                                    if (!win.isNull()) {
+                                        if (nativeWindowShow !== null) {
+                                            nativeWindowShow(win, ptr(0));
+                                        } else if (nativeWindowSetState !== null) {
+                                            nativeWindowSetState(win, 1, ptr(0));
+                                        }
+                                        win.add(0x48).writeU8(1);
+                                    }
+                                }
+                            } catch (eMossUI) {}
+                        }
                     }
                     if (pendingCommand !== null) {
                         var cmd = pendingCommand;
@@ -940,23 +1008,72 @@ rpc.exports = {
     rollMoss: function(categoryId) {
         try {
             ensureThreadAttached();
+            var cat = parseInt(categoryId || 0);
+
+            // 1. Gửi gói tin roll qua native packet
             if (nativeMossRoll !== null) {
-                nativeMossRoll(parseInt(categoryId), ptr(0));
-                return true;
+                nativeMossRoll(cat, ptr(0));
             }
-        } catch (eMR) {}
-        return false;
+
+            // 2. Kích hoạt handler UI RollButton
+            try {
+                if (nativeGetGameUI !== null && nativeMossRollHandler !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                        if (!mossWin.isNull()) {
+                            mossWin.add(0x78).writeS32(cat);
+                            nativeMossRollHandler(mossWin, ptr(0));
+                        }
+                    }
+                }
+            } catch (eRH) {}
+
+            return true;
+        } catch (eMR) {
+            return false;
+        }
     },
 
     openMoss: function(categoryId) {
         try {
             ensureThreadAttached();
+            var cat = parseInt(categoryId || 0);
+
+            // 1. Kích hoạt trực tiếp mở UI trên màn hình qua GameUI
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                        if (!mossWin.isNull()) {
+                            mossWin.add(0x78).writeS32(cat);
+                            var win = mossWin.add(0x20).readPointer();
+                            if (!win.isNull()) {
+                                if (nativeWindowShow !== null) {
+                                    nativeWindowShow(win, ptr(0));
+                                } else if (nativeWindowSetState !== null) {
+                                    nativeWindowSetState(win, 1, ptr(0));
+                                }
+                                win.add(0x48).writeU8(1);
+                            }
+                        }
+                    }
+                }
+            } catch (eDirectUI) {}
+
+            // 2. Đặt cờ cho Main Thread Update render an toàn
+            pendingMossOpenCategory = cat;
+
+            // 3. Gửi native packet category
             if (nativeMossOpen !== null) {
-                nativeMossOpen(parseInt(categoryId || 0), ptr(0));
-                return true;
+                nativeMossOpen(cat, ptr(0));
             }
-        } catch (eMO) {}
-        return false;
+
+            return true;
+        } catch (eMO) {
+            return false;
+        }
     },
 
     enterMirror: function() {
@@ -1228,6 +1345,47 @@ rpc.exports = {
         return false;
     },
 
+    autoLogin: function(server, account, character) {
+        try {
+            ensureThreadAttached();
+            var autoLogin = null;
+            if (nativeGetAutoLogin !== null) {
+                try { autoLogin = nativeGetAutoLogin(); } catch (eG) {}
+            }
+            if (autoLogin === null || autoLogin.isNull()) {
+                return JSON.stringify({ ok: false, err: "auto_login_null" });
+            }
+
+            var s = parseInt(server || 1);
+            var acc = account ? String(account) : "";
+            var chr = character ? String(character) : "";
+
+            var accStr = il2cpp_string_new(Memory.allocUtf8String(acc));
+            var chrStr = il2cpp_string_new(Memory.allocUtf8String(chr));
+
+            if (nativeSetAutoLogin !== null) {
+                try {
+                    nativeSetAutoLogin(autoLogin, s, accStr, chrStr);
+                } catch (eSet) {}
+            }
+
+            // Ghi đè trực tiếp các cờ để đảm bảo client kích hoạt luồng AutoLogin
+            try {
+                autoLogin.add(0x20).writeU8(0); // IsServerSelectionDisabled = 0
+                autoLogin.add(0x21).writeU8(0); // IsAccountSelectionDisabled = 0
+                autoLogin.add(0x22).writeU8(0); // IsCharacterSelectionDisabled = 0
+                autoLogin.add(0x23).writeU8(0); // QuickSwitchBackToPrevious = 0
+                autoLogin.add(0x24).writeS32(s); // QuickSwitchServerValue
+                autoLogin.add(0x28).writePointer(accStr); // QuickSwitchAccountValue
+                autoLogin.add(0x30).writePointer(chrStr); // QuickSwitchCharacterValue
+            } catch (eWrite) {}
+
+            return JSON.stringify({ ok: true, server: s, account: acc, character: chr });
+        } catch (e) {
+            return JSON.stringify({ ok: false, err: e.toString() });
+        }
+    },
+
     cleanup: function() {
         shuttingDown = true;
         try {
@@ -1420,8 +1578,12 @@ class MegDirectEngine:
             "__AUTO_MOVE_HELPER__": self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x4A0"),
             "__AUTO_MOVE_DEST__": self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x4A8"),
             "__WORLD_SCENE_INDEX__": self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20"),
-            "__MOSS_ROLL__": self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x238B380"),
-            "__MOSS_OPEN__": self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x238B0A0"),
+            "__MOSS_ROLL__": self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x2347260"),
+            "__MOSS_OPEN__": self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x2346F80"),
+            "__UI_MOSS_WINDOW__": self.offsets.get("ui_moss_window") or DEFAULT_OFFSETS.get("ui_moss_window", "0x1C8"),
+            "__WINDOW_SHOW__": self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x25117F0"),
+            "__WINDOW_SET_STATE__": self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x25115F0"),
+            "__MOSS_ROLL_HANDLER__": self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x26D1180"),
             "__MIRROR_ENTER__": self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xFDCA30"),
             "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xFCE6E0"),
             "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xFCF820"),
@@ -1429,6 +1591,8 @@ class MegDirectEngine:
             "__INV_TRASH_ITEM__": self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x14BBAD0"),
             "__PLAYER_INVENTORY__": self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B8"),
             "__INVENTORY_ITEMS__": self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28"),
+            "__GET_AUTO_LOGIN__": self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0x10A9500"),
+            "__SET_AUTO_LOGIN__": self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xF4B220"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -1640,6 +1804,8 @@ class MegDirectEngine:
             pass
 
         return self.move_to(target_x, target_y)
+
+    auto_move_to = start_auto_move
 
     def stop_auto_move(self) -> bool:
         """Dừng Auto Move của game."""
@@ -2152,7 +2318,17 @@ class MegDirectEngine:
                 return bool(self._call("sellInventorySlot", int(slot)))
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi sell_inventory_slot: {e}")
-        return False
+    def auto_login(self, server: int = 1, account: str = "", character: str = "") -> Dict[str, Any]:
+        """Gửi lệnh AutoLogin native vào GameAssembly.dll để tự động đăng nhập vào game."""
+        if self.is_ready:
+            try:
+                res = self._call("autoLogin", int(server), str(account), str(character))
+                if res:
+                    return json.loads(res) if isinstance(res, str) else res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi auto_login: {e}")
+                return {"ok": False, "err": str(e)}
+        return {"ok": False, "err": "not_ready"}
 
     def detach(self):
         """

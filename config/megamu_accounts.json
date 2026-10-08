@@ -1,0 +1,29 @@
+{
+  "exe_path": "C:\\Users\\donpv\\AppData\\Local\\Programs\\MEGAMU\\bin\\MEGAMU.exe",
+  "accounts": [
+    {
+      "username": "clario",
+      "nickname": "clario",
+      "character": "GunApao",
+      "characters_list": [
+        "GunApao"
+      ],
+      "server": 3,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "anhdontb",
+      "nickname": "anhdontb",
+      "character": "codedao",
+      "characters_list": [
+        "codedao",
+        "trua1",
+        "toi1"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    }
+  ]
+}
