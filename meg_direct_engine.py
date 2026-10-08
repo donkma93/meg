@@ -33,10 +33,22 @@ try:
 except ImportError:
     psutil = None
 
+try:
+    from meg_crash_tracer import trace_gc_protection, trace_frida_event, trace_process_exit, log_crash_trace
+except ImportError:
+    def trace_gc_protection(*args, **kwargs): pass
+    def trace_frida_event(*args, **kwargs): pass
+    def trace_process_exit(*args, **kwargs): pass
+    def log_crash_trace(*args, **kwargs): pass
+
 def _safe_log(msg: str):
     try:
         enc = sys.stdout.encoding or "utf-8"
         print(msg.encode(enc, errors="replace").decode(enc), flush=True)
+    except Exception:
+        pass
+    try:
+        log_crash_trace("DIRECT_ENGINE", "INFO", msg)
     except Exception:
         pass
 
@@ -651,24 +663,6 @@ try {
                                 setupMossWindow(mossWin, cat);
                             } catch (eMossUI) {}
                         }
-
-                        // Auto-Watchdog: Khi bảng Moss đang mở, nếu timer 0x98 <= 0.001 (không trong animation quay)
-                        // thì tự động tắt LoadingImage để người dùng click chuột thủ công không bao giờ bị kẹt
-                        try {
-                            var mossWinCheck = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
-                            if (!mossWinCheck.isNull()) {
-                                var winCheck = mossWinCheck.add(0x20).readPointer();
-                                if (!winCheck.isNull() && winCheck.add(0x48).readU8() === 1) {
-                                    var timerVal = mossWinCheck.add(0x98).readFloat();
-                                    if (timerVal <= 0.0001) {
-                                        var lImg = mossWinCheck.add(0x60).readPointer();
-                                        if (!lImg.isNull() && nativeGameObjectSetActive !== null) {
-                                            nativeGameObjectSetActive(lImg, 0, ptr(0));
-                                        }
-                                    }
-                                }
-                            }
-                        } catch (eMossWD) {}
                     }
                     if (pendingCommand !== null) {
                         var cmd = pendingCommand;
@@ -692,8 +686,10 @@ try {
 
 var pDomainGet = ga.findExportByName('il2cpp_domain_get');
 var pThreadAttach = ga.findExportByName('il2cpp_thread_attach');
+var pObjectNew = ga.findExportByName('il2cpp_object_new');
 var il2cpp_domain_get = pDomainGet ? new NativeFunction(pDomainGet, 'pointer', []) : null;
 var il2cpp_thread_attach = pThreadAttach ? new NativeFunction(pThreadAttach, 'pointer', ['pointer']) : null;
+var il2cpp_object_new = pObjectNew ? new NativeFunction(pObjectNew, 'pointer', ['pointer']) : null;
 
 function ensureThreadAttached() {
     try {
@@ -707,7 +703,6 @@ function ensureThreadAttached() {
 }
 
 var coordBuf = Memory.alloc(64);
-var autoMoveCoordBuf = Memory.alloc(64);
 var cachedCoordKlass = ptr(0);
 var shuttingDown = false;
 
@@ -824,6 +819,7 @@ var fastTelemetrySeq = 0;
 function fastTelemetryTick() {
     if (shuttingDown) return;
     try {
+        ensureThreadAttached();
         var nowMs = Date.now();
         var readName = (!lastFastCharName || (nowMs - lastFastNameReadAt) >= 2000);
         if (readName) lastFastNameReadAt = nowMs;
@@ -851,6 +847,20 @@ rpc.exports = {
             ensureThreadAttached();
             var p = getPlayerPtr();
             if (p.isNull()) return false;
+
+            var destCoord = ptr(0);
+            try {
+                var existing = p.add(off('__AUTO_MOVE_DEST__')).readPointer();
+                if (!existing.isNull()) destCoord = existing;
+            } catch (eD) {}
+
+            if (!destCoord.isNull()) {
+                destCoord.add(0x10).writeS32(parseInt(targetX));
+                destCoord.add(0x14).writeS32(parseInt(targetY));
+                var ok = moveToNative(p, destCoord, 0.0, ptr(0), 0, 1, ptr(0));
+                return Boolean(ok);
+            }
+
             var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
             var klass = ptr(0);
             try { if (!curCoord.isNull()) klass = curCoord.readPointer(); } catch (e1) {}
@@ -859,12 +869,6 @@ rpc.exports = {
                     var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
                     if (!lastCoord.isNull()) klass = lastCoord.readPointer();
                 } catch (e2) {}
-            }
-            if (klass.isNull()) {
-                try {
-                    var destCoord = p.add(off('__AUTO_MOVE_DEST__')).readPointer();
-                    if (!destCoord.isNull()) klass = destCoord.readPointer();
-                } catch (e3) {}
             }
             if (klass.isNull()) {
                 try {
@@ -879,6 +883,17 @@ rpc.exports = {
             }
 
             if (!klass.isNull()) {
+                if (il2cpp_object_new !== null) {
+                    try {
+                        var managedCoord = il2cpp_object_new(klass);
+                        if (!managedCoord.isNull()) {
+                            managedCoord.add(0x10).writeS32(parseInt(targetX));
+                            managedCoord.add(0x14).writeS32(parseInt(targetY));
+                            var okM = moveToNative(p, managedCoord, 0.0, ptr(0), 0, 1, ptr(0));
+                            return Boolean(okM);
+                        }
+                    } catch (eNM) {}
+                }
                 coordBuf.writePointer(klass);
                 coordBuf.add(0x08).writePointer(ptr(0));
                 coordBuf.add(0x10).writeS32(parseInt(targetX));
@@ -1036,26 +1051,37 @@ rpc.exports = {
             ensureThreadAttached();
             var p = getPlayerPtr();
             if (p.isNull()) return false;
-            var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
+
+            // 1. Tìm Managed Coord object sẵn có trong player instance
+            var destCoord = ptr(0);
+            try {
+                var existing = p.add(off('__AUTO_MOVE_DEST__')).readPointer();
+                if (!existing.isNull()) destCoord = existing;
+            } catch (eDest) {}
+
+            if (destCoord.isNull()) {
+                try {
+                    var tCoord = p.add(ptr('0x18')).readPointer();
+                    if (!tCoord.isNull()) destCoord = tCoord;
+                } catch (eT) {}
+            }
+
+            // 2. Tìm vtable / class pointer của Coord
             var klass = ptr(0);
-            try { if (!curCoord.isNull()) klass = curCoord.readPointer(); } catch (e1) {}
+            if (!destCoord.isNull()) {
+                try { klass = destCoord.readPointer(); } catch (eK) {}
+            }
+            if (klass.isNull()) {
+                try {
+                    var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!curCoord.isNull()) klass = curCoord.readPointer();
+                } catch (e1) {}
+            }
             if (klass.isNull()) {
                 try {
                     var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
                     if (!lastCoord.isNull()) klass = lastCoord.readPointer();
                 } catch (e2) {}
-            }
-            if (klass.isNull()) {
-                try {
-                    var destCoord = p.add(off('__AUTO_MOVE_DEST__')).readPointer();
-                    if (!destCoord.isNull()) klass = destCoord.readPointer();
-                } catch (e3) {}
-            }
-            if (klass.isNull()) {
-                try {
-                    var tCoord = p.add(ptr('0x18')).readPointer();
-                    if (!tCoord.isNull()) klass = tCoord.readPointer();
-                } catch (e4) {}
             }
             if (!klass.isNull()) {
                 cachedCoordKlass = klass;
@@ -1063,25 +1089,42 @@ rpc.exports = {
                 klass = cachedCoordKlass;
             }
 
-            if (!klass.isNull()) {
-                autoMoveCoordBuf.writePointer(klass);
-                autoMoveCoordBuf.add(0x08).writePointer(ptr(0));
-                autoMoveCoordBuf.add(0x10).writeS32(parseInt(x));
-                autoMoveCoordBuf.add(0x14).writeS32(parseInt(y));
+            // 3. Nếu destCoord chưa có, cấp phát đối tượng Managed chuẩn GC heap qua il2cpp_object_new
+            if (destCoord.isNull() && il2cpp_object_new !== null && !klass.isNull()) {
+                try {
+                    destCoord = il2cpp_object_new(klass);
+                } catch (eNew) {}
+            }
 
-                // 1. Cấu hình cờ Auto Move chuẩn Type 0 để vòng lặp Update của game khởi tạo BodyActivity (0xabb8d0)
-                p.add(off('__AUTO_MOVE_DEST__')).writePointer(autoMoveCoordBuf);
+            if (!destCoord.isNull()) {
+                destCoord.add(0x10).writeS32(parseInt(x));
+                destCoord.add(0x14).writeS32(parseInt(y));
+
+                // Cấu hình cờ Auto Move chuẩn Type 0 để vòng lặp Update của game khởi tạo BodyActivity (0xabb8d0)
+                p.add(off('__AUTO_MOVE_DEST__')).writePointer(destCoord);
                 p.add(off('__AUTO_MOVE_TYPE__')).writeS32(0);
                 p.add(off('__AUTO_MOVE_HELPER__')).writeU8(helper ? 1 : 0);
                 p.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
 
-                // 2. Kích hoạt trực tiếp bước di chuyển khởi hành qua moveToNative (BJKOMKOAAOG)
-                // Giúp nhân vật lập tức bước đi về hướng đích mà KHÔNG CẦN người chơi phải click chuột mồi!
+                // Kích hoạt trực tiếp bước di chuyển khởi hành qua moveToNative
                 try {
-                    moveToNative(p, autoMoveCoordBuf, 0.0, ptr(0), 0, 1, ptr(0));
+                    moveToNative(p, destCoord, 0.0, ptr(0), 0, 1, ptr(0));
                 } catch (eMove) {}
 
                 return true;
+            } else {
+                // TUYỆT ĐỐI KHÔNG ghi Memory.alloc vào __AUTO_MOVE_DEST__ (0x4A8)!
+                // Vì con trỏ ngoài Managed Heap sẽ làm sập Boehm GC 0xC0000005 khi quét dọn rác.
+                if (!klass.isNull()) {
+                    coordBuf.writePointer(klass);
+                    coordBuf.add(0x08).writePointer(ptr(0));
+                    coordBuf.add(0x10).writeS32(parseInt(x));
+                    coordBuf.add(0x14).writeS32(parseInt(y));
+                    try {
+                        moveToNative(p, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
+                    } catch (eM2) {}
+                    return true;
+                }
             }
         } catch (eAM) {}
         return false;
@@ -1744,13 +1787,22 @@ class MegDirectEngine:
 
     def _on_message(self, message: Dict[str, Any], data: Any):
         try:
-            if message.get("type") == "send":
+            m_type = message.get("type")
+            if m_type == "error":
+                desc = message.get("description", "")
+                stack = message.get("stack", "")
+                trace_frida_event("SCRIPT_ERROR", f"Frida Script Error PID {self.pid}: {desc} | Stack: {stack}", pid=self.pid, level="ERROR")
+                _safe_log(f"[MegDirectEngine] SCRIPT_ERROR PID {self.pid}: {desc}")
+                return
+            if m_type == "send":
                 payload = message.get("payload")
                 if isinstance(payload, dict):
                     p_type = payload.get("type")
                     if p_type == "fast_state":
                         info = payload.get("info")
                         if isinstance(info, dict):
+                            if "name" in info and info["name"]:
+                                self.char_name = info["name"]
                             if "tileX" in info and "x" not in info:
                                 info["x"] = info["tileX"]
                             if "tileY" in info and "y" not in info:
@@ -1775,6 +1827,17 @@ class MegDirectEngine:
                             _safe_log(f"[MegDirectEngine] Native Chat gửi lỗi '{cmd_val}': {payload.get('error')}")
         except Exception:
             pass
+
+    def _on_detached(self, reason: str, crash: Any = None):
+        details = f"Phiên Frida bị ngắt kết nối (reason: {reason})"
+        if crash:
+            details += f" | Crash report: {crash}"
+        level = "WARN" if reason in ("application-requested", "process-terminated") else "ERROR"
+        trace_frida_event("FRIDA_DETACHED", details, pid=self.pid, level=level)
+        if reason == "crash" or (crash is not None):
+            char_display = getattr(self, "char_name", "")
+            trace_process_exit(self.pid, f"CRASH: Tiến trình MEGAMU bị sập ngầm! Chi tiết: {reason} - {crash}", char_name=char_display)
+        self.is_ready = False
 
     def reconnect(self) -> bool:
         """Thực hiện ngắt kết nối và kết nối lại sạch sẽ (Safe Reconnect)."""
@@ -1804,13 +1867,19 @@ class MegDirectEngine:
 
         try:
             self.session = frida.attach(self.pid)
+            try:
+                self.session.on("detached", self._on_detached)
+            except Exception:
+                pass
             js_code = self._generate_js()
             self.script = self.session.create_script(js_code)
             self.script.on("message", self._on_message)
             self.script.load()
             self.is_ready = True
+            trace_frida_event("ATTACH_SUCCESS", f"Đã kết nối Frida session thành công tới PID {self.pid}", pid=self.pid)
             return True
         except Exception as e:
+            trace_frida_event("ATTACH_ERROR", f"Lỗi attach Frida tới PID {self.pid}: {e}", pid=self.pid, level="ERROR")
             _safe_log(f"[MegDirectEngine] Lỗi attach Frida tới PID {self.pid}: {e}")
             self.is_ready = False
             return False

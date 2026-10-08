@@ -29,6 +29,12 @@ if sys.platform == "win32":
         pass
 
 try:
+    from meg_crash_tracer import trace_ram_trim
+except ImportError:
+    def trace_ram_trim(event: str, details: str, pid: Optional[int] = None):
+        pass
+
+try:
     import psutil
 except ImportError:
     psutil = None
@@ -120,8 +126,10 @@ def trim_single_process(pid: int) -> bool:
     """
     Thu hồi Working Set RAM của tiến trình MEGAMU về cho hệ thống.
     Kết hợp SetProcessWorkingSetSize(-1, -1) và EmptyWorkingSet để giải phóng tối đa.
+    Ghi nhận trace log để theo dõi.
     """
     try:
+        trace_ram_trim("TRIM_REQUEST", f"Yêu cầu giải phóng Working Set RAM PID {pid}", pid=pid)
         h = ctypes.windll.kernel32.OpenProcess(PROCESS_PERMS, False, pid)
         if not h:
             # Fallback nếu cần quyền khác
@@ -136,9 +144,13 @@ def trim_single_process(pid: int) -> bool:
             except Exception:
                 ret = 1
             ctypes.windll.kernel32.CloseHandle(h)
-            return bool(ret)
+            success = bool(ret)
+            trace_ram_trim("TRIM_SUCCESS" if success else "TRIM_FAIL", f"Kết quả trim RAM PID {pid}: {'Thành công' if success else 'Thất bại'}", pid=pid)
+            return success
+        trace_ram_trim("TRIM_FAIL", f"Không thể mở handle tiến trình PID {pid} để trim RAM", pid=pid)
         return False
-    except Exception:
+    except Exception as e:
+        trace_ram_trim("TRIM_ERROR", f"Ngoại lệ khi trim RAM PID {pid}: {e}", pid=pid)
         return False
 
 
@@ -229,7 +241,7 @@ class RamOptimizerManager:
         return cls._instance
 
     def __init__(self):
-        self.auto_trim_enabled: bool = True  # Mặc định BẬT chạy ngầm tự động
+        self.auto_trim_enabled: bool = False  # Mặc định TẮT chạy ngầm để đảm bảo ổn định 24/7 tuyệt đối
         self.interval_seconds: int = 180  # Mặc định 3 phút
         self.total_saved_mb: float = 0.0
         self.worker_thread: Optional[threading.Thread] = None
@@ -241,14 +253,14 @@ class RamOptimizerManager:
         try:
             if RAM_CONFIG_FILE.exists():
                 data = json.loads(RAM_CONFIG_FILE.read_text(encoding="utf-8"))
-                self.auto_trim_enabled = bool(data.get("auto_trim_enabled", True))
+                self.auto_trim_enabled = bool(data.get("auto_trim_enabled", False))
                 self.interval_seconds = int(data.get("interval_seconds", 180))
                 self.total_saved_mb = float(data.get("total_saved_mb", 0.0))
             else:
-                self.auto_trim_enabled = True
+                self.auto_trim_enabled = False
                 self.save_config()
         except Exception:
-            self.auto_trim_enabled = True
+            self.auto_trim_enabled = False
 
     def save_config(self):
         try:
@@ -283,6 +295,7 @@ class RamOptimizerManager:
     def set_auto_trim(self, enabled: bool):
         self.auto_trim_enabled = enabled
         self.save_config()
+        trace_ram_trim("CONFIG_CHANGE", f"Người dùng {'BẬT' if enabled else 'TẮT'} chế độ dọn RAM ngầm định kỳ (auto_trim={enabled})")
         if enabled:
             self.start_worker()
         else:
@@ -312,6 +325,7 @@ class RamOptimizerManager:
                 break
 
             # Thực hiện dọn RAM định kỳ
+            trace_ram_trim("AUTO_TRIM_TRIGGERED", f"Bắt đầu chu kỳ dọn RAM tự động định kỳ ({self.interval_seconds}s)")
             res = optimize_all_megamu()
             if res.get("saved_mb", 0) > 0:
                 self.total_saved_mb += res["saved_mb"]

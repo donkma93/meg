@@ -106,6 +106,11 @@ CONFIG_DIR = BASE_DIR / "config"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 AUTO_STOP_LOG_FILE = BASE_DIR / "auto_stop_events.log"
 
+try:
+    from meg_crash_tracer import log_crash_trace
+except ImportError:
+    def log_crash_trace(*args, **kwargs): pass
+
 def record_auto_stop_log(
     slot_idx: int,
     pid: Optional[int],
@@ -120,6 +125,7 @@ def record_auto_stop_log(
     Phân loại rõ ràng:
     - MANUAL: Do con người (người dùng) chủ động bấm dừng / thao tác giao diện.
     - SYSTEM: Do hệ thống / game tự ngắt (crash, mất PID, mất bản quyền, lỗi chặng...).
+    Đồng bộ vào auto_stop_events.log và auto_crash_trace.log để truy vết sự cố 24/7.
     """
     try:
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -131,6 +137,15 @@ def record_auto_stop_log(
         )
         with open(AUTO_STOP_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line)
+        
+        log_crash_trace(
+            source="DASHBOARD_AUDIT",
+            event=tag,
+            details=f"Slot {slot_idx:02d} | Reason: {reason} | Coords: {coords} | Level: {level}",
+            pid=pid,
+            char_name=char_name,
+            level="WARN" if tag == "SYSTEM" else "INFO"
+        )
     except Exception:
         pass
 

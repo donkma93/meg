@@ -42,6 +42,12 @@ try:
 except ImportError:
     psutil = None
 
+try:
+    from meg_crash_tracer import trace_gc_protection, log_crash_trace
+except ImportError:
+    def trace_gc_protection(*args, **kwargs): pass
+    def log_crash_trace(*args, **kwargs): pass
+
 # Đảm bảo UTF-8 console output trên Windows
 if sys.platform == "win32":
     try:
@@ -568,7 +574,6 @@ class ProcessMemoryReader:
     _cached_coord_regions: Dict[int, List[Tuple[int, int]]] = {}
     _coord_needle = "Coord(".encode("utf-16le")
     _coord_regex = re.compile(r"Coord\((\d{1,3}),\s*(\d{1,3})\)")
-    _allocated_dest_coords: Dict[int, int] = {}
 
     @staticmethod
     def get_module_base(pid: int, module_name: str = "GameAssembly.dll") -> Optional[int]:
@@ -944,21 +949,10 @@ class ProcessMemoryReader:
                 if dest_ptr:
                     cls.write_ptr(handle, player_ptr + AUTO_MOVE_DEST_OFFSET, dest_ptr)
                 else:
-                    allocated = cls._allocated_dest_coords.get(pid)
-                    if not allocated:
-                        alloc_res = kernel32.VirtualAllocEx(handle, None, 64, 0x1000 | 0x2000, 0x04)
-                        if alloc_res:
-                            allocated = alloc_res if isinstance(alloc_res, int) else getattr(alloc_res, "value", int(alloc_res))
-                            if allocated:
-                                cls._allocated_dest_coords[pid] = allocated
-                    if allocated:
-                        dest_ptr = allocated
-                        cur_coord = cls.read_ptr(handle, player_ptr + BODY_CURRENT_COORD_OFFSET)
-                        if cur_coord:
-                            klass = cls.read_ptr(handle, cur_coord)
-                            if klass:
-                                cls.write_ptr(handle, dest_ptr, klass)
-                        cls.write_ptr(handle, player_ptr + AUTO_MOVE_DEST_OFFSET, dest_ptr)
+                    # BẢO VỆ GC: Tuyệt đối KHÔNG cấp phát con trỏ unmanaged ghi vào AUTO_MOVE_DEST_OFFSET (0x4A8).
+                    # Vì khi Unity Boehm GC chạy dọn rác, nó sẽ duyệt trường tham chiếu C# này. Con trỏ ngoài Managed Heap sẽ gây EXCEPTION_ACCESS_VIOLATION (0xC0000005)!
+                    trace_gc_protection("DEST_COORD_SAFE_GUARD", f"PID {pid}: dest_ptr is null. Bỏ qua ghi unmanaged pointer để bảo vệ Boehm GC khỏi crash 0xC0000005.", pid=pid)
+                    return False
 
             if dest_ptr:
                 cls.write_i32(handle, dest_ptr + COORD_X_OFFSET, int(target_x))
