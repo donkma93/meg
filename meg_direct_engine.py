@@ -108,6 +108,8 @@ DEFAULT_OFFSETS = {
     "set_auto_login": "0xF4B220",
     "npc_talk": "0x10B2B40",
     "viewport": "0x110",
+    "component_get_game_object": "0x452CB30",
+    "get_window_handler": "0x10A9770",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -288,6 +290,14 @@ try {
     }
 } catch (eGOSA) {}
 
+var nativeComponentGetGameObject = null;
+try {
+    var cggoOff = off('__COMPONENT_GET_GAMEOBJECT__');
+    if (!cggoOff.isNull()) {
+        nativeComponentGetGameObject = new NativeFunction(baseAddr.add(cggoOff), 'pointer', ['pointer']);
+    }
+} catch (eCGGO) {}
+
 var nativeMirrorEnter = null;
 try {
     var meOff = off('__MIRROR_ENTER__');
@@ -327,6 +337,14 @@ try {
         nativeNpcTalk = new NativeFunction(baseAddr.add(ntOff), 'void', ['pointer', 'pointer']);
     }
 } catch (eNT) {}
+
+var nativeGetWindowHandler = null;
+try {
+    var gwhOff = off('__GET_WINDOW_HANDLER__');
+    if (!gwhOff.isNull()) {
+        nativeGetWindowHandler = new NativeFunction(baseAddr.add(gwhOff), 'pointer', []);
+    }
+} catch (eGWH) {}
 
 var nativeInvSellItem = null;
 try {
@@ -502,6 +520,38 @@ function getItemName(itemPtr) {
         }
     } catch (e2) {}
     return "";
+}
+
+function checkMirrorItem(itemPtr, idx) {
+    var itName = getItemName(itemPtr) || "";
+    var lowName = itName.toLowerCase();
+
+    // 1. Nhận diện theo Item Index chuẩn (7279 = Mirror of Dimensions, 7280 = Sign of Dimensions)
+    if (idx === 7279) {
+        return { isTicket: true, isSign: false, name: itName || "Mirror of Dimensions" };
+    }
+    if (idx === 7280) {
+        return { isTicket: false, isSign: true, name: itName || "Sign of Dimensions" };
+    }
+
+    // 2. Nhận diện theo Tên Item (tiếng Anh và tiếng Bồ Đào Nha MEGAMU)
+    if (lowName.length > 0) {
+        if (lowName.indexOf("mirror of dimensions") !== -1 ||
+            lowName.indexOf("espelho das dimens") !== -1 ||
+            lowName.indexOf("doppelganger ticket") !== -1 ||
+            lowName.indexOf("mirror ticket") !== -1) {
+            return { isTicket: true, isSign: false, name: itName };
+        }
+        if (lowName.indexOf("sign of dimensions") !== -1 ||
+            lowName.indexOf("sinal das dimens") !== -1) {
+            return { isTicket: false, isSign: true, name: itName };
+        }
+        if (lowName.indexOf("mirror") !== -1 || lowName.indexOf("espelho") !== -1) {
+            return { isTicket: true, isSign: false, name: itName };
+        }
+    }
+
+    return { isTicket: false, isSign: false, name: itName };
 }
 
 function isDivineOrDragonItem(itemPtr, itemIndex) {
@@ -690,6 +740,49 @@ try {
 
 var pendingMossOpenCategory = null;
 
+function ensureMossRollButtonActive(mossWin, resetTimer) {
+    if (!mossWin || mossWin.isNull()) return false;
+    try {
+        // 1. Ép TẮT LoadingImage (offset 0x60)
+        var loadingImg = mossWin.add(0x60).readPointer();
+        if (!loadingImg.isNull() && nativeGameObjectSetActive !== null) {
+            try {
+                nativeGameObjectSetActive(loadingImg, 0, ptr(0));
+            } catch (eLI) {}
+        }
+
+        // 2. ÉP BẬT RollButton.gameObject = true (offset 0x58)
+        var rollBtn = mossWin.add(0x58).readPointer();
+        if (!rollBtn.isNull()) {
+            var btnObj = ptr(0);
+            if (nativeComponentGetGameObject !== null) {
+                try {
+                    btnObj = nativeComponentGetGameObject(rollBtn);
+                } catch (eGO) {}
+            }
+            if (btnObj.isNull()) {
+                // Fallback đọc pointer gameObject từ Unity Component (offset 0x10)
+                try {
+                    btnObj = rollBtn.add(0x10).readPointer();
+                } catch (eFB) {}
+            }
+            if (!btnObj.isNull() && nativeGameObjectSetActive !== null) {
+                try {
+                    nativeGameObjectSetActive(btnObj, 1, ptr(0));
+                } catch (eAct) {}
+            }
+        }
+
+        // 3. Reset timer quay 0x98 về 0 nếu được chỉ định
+        if (resetTimer) {
+            mossWin.add(0x98).writeFloat(0.0);
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
 function setupMossWindow(mossWin, cat) {
     if (!mossWin || mossWin.isNull()) return false;
     try {
@@ -723,18 +816,10 @@ function setupMossWindow(mossWin, cat) {
             } catch (eCat) {}
         }
 
-        // 4. ÉP BUỘC TẮT LoadingImage (offset 0x60) để KHÔNG BAO GIỜ bị kẹt xoay vòng loading
-        try {
-            var loadingImg = mossWin.add(0x60).readPointer();
-            if (!loadingImg.isNull() && nativeGameObjectSetActive !== null) {
-                nativeGameObjectSetActive(loadingImg, 0, ptr(0));
-            }
-        } catch (eLoad) {}
+        // 4. LUÔN BẢO ĐẢM NÚT QUAY (RollButton) BẬT VÀ LoadingImage TẮT
+        ensureMossRollButtonActive(mossWin);
 
-        // 5. Reset timer quay 0x98 về 0 để sẵn sàng nhận lệnh quay mới
-        mossWin.add(0x98).writeFloat(0.0);
-
-        // 6. Hiển thị cửa sổ (MWindow tại offset 0x20)
+        // 5. Hiển thị cửa sổ (MWindow tại offset 0x20)
         var win = mossWin.add(0x20).readPointer();
         if (!win.isNull()) {
             if (nativeWindowShow !== null) {
@@ -959,6 +1044,21 @@ try {
                                 setupMossWindow(mossWin, cat);
                             } catch (eMossUI) {}
                         }
+
+                        // Khi cửa sổ Moss đang hiển thị trên màn hình:
+                        // Nếu timer quay rảnh rỗi (0.0), đảm bảo RollButton luôn bật và LoadingImage tắt
+                        try {
+                            var mossWinCheck = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                            if (!mossWinCheck.isNull()) {
+                                var mWinObj = mossWinCheck.add(0x20).readPointer();
+                                if (!mWinObj.isNull() && mWinObj.add(0x48).readU8() === 1) {
+                                    var rTimer = mossWinCheck.add(0x98).readFloat();
+                                    if (rTimer === 0.0) {
+                                        ensureMossRollButtonActive(mossWinCheck, false);
+                                    }
+                                }
+                            }
+                        } catch (eMossWatch) {}
                     }
                     if (pendingCommand !== null) {
                         var cmd = pendingCommand;
@@ -1485,23 +1585,20 @@ rpc.exports = {
                             } catch (eRH) {}
                         }
 
-                        // 4. Ép timer AGFHDCHLLIB tại offset 0x98 thành 0.001f (bỏ qua delay 2.0s animation)
+                        // 4. Ép timer AGFHDCHLLIB tại offset 0x98 thành 0.001f để kích hoạt gửi packet
                         mossWin.add(0x98).writeFloat(0.001);
 
                         // 5. Kích hoạt trực tiếp MMossMerchantWindow.Update (RVA 0x26D1580)
                         // Mã máy MEGAMU tại 0x26D16F8-0x26D175B sẽ phát gói tin C1 05 70 10 [cat]
-                        // trực tiếp qua GSConnection.SendPacket (0x122AC90)
                         if (nativeMossRoll !== null) {
-                            nativeMossRoll(mossWin, ptr(0));
+                            try {
+                                nativeMossRoll(mossWin, ptr(0));
+                            } catch (eRoll) {}
                         }
 
-                        // 6. Ép TẮT LoadingImage để không bị kẹt xoay vòng loading trên giao diện
-                        try {
-                            var loadingImg = mossWin.add(0x60).readPointer();
-                            if (!loadingImg.isNull() && nativeGameObjectSetActive !== null) {
-                                nativeGameObjectSetActive(loadingImg, 0, ptr(0));
-                            }
-                        } catch (eLoad) {}
+                        // 6. QUAN TRỌNG: PHỤC HỒI NGAY NÚT QUAY (RollButton.gameObject = true) VÀ TẮT LOADING
+                        // Khắc phục triệt để lỗi mất nút quay trên UI do NEOMFDBIIHM chủ động SetActive(false)
+                        ensureMossRollButtonActive(mossWin);
 
                         return true;
                     }
@@ -1528,12 +1625,34 @@ rpc.exports = {
                     if (!gui.isNull()) {
                         var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
                         setupMossWindow(mossWin, cat);
+                        ensureMossRollButtonActive(mossWin);
                     }
                 }
             } catch (eDirectUI) {}
 
             return true;
         } catch (eMO) {
+            return false;
+        }
+    },
+
+    resetMossUI: function(categoryId) {
+        try {
+            ensureThreadAttached();
+            var cat = parseInt(categoryId || 0);
+            if (nativeGetGameUI !== null) {
+                var gui = nativeGetGameUI();
+                if (!gui.isNull()) {
+                    var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                    if (!mossWin.isNull()) {
+                        setupMossWindow(mossWin, cat);
+                        ensureMossRollButtonActive(mossWin);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        } catch (e) {
             return false;
         }
     },
@@ -1564,19 +1683,46 @@ rpc.exports = {
                 return { success: false, error: "NPC_NOT_FOUND" };
             }
 
+            // 1. Gỡ bỏ RemoteWindow trên WindowHandler để WindowHandler.GGIMAINAJJO() trả về false (0),
+            // đảm bảo NpcManager.JBMPIOPHIHI (0x10B2B40) không bao giờ bị chặn và gửi trọn vẹn packet 0x30 lên Server
+            try {
+                if (nativeGetWindowHandler !== null) {
+                    var wh = nativeGetWindowHandler();
+                    if (wh && !wh.isNull()) {
+                        wh.add(0x28).writePointer(ptr(0));
+                    }
+                }
+            } catch (eWH) {}
+
+            // 2. Nếu cửa sổ Moss đang hiển thị ở client, tạm thời tắt cờ isOpen (offset 0x48 của MWindow)
+            var mossWin = null;
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                        if (!mossWin.isNull()) {
+                            var win = mossWin.add(0x20).readPointer();
+                            if (!win.isNull()) {
+                                win.add(0x48).writeU8(0);
+                            }
+                        }
+                    }
+                }
+            } catch (eResetWin) {}
+
+            // 3. Kích hoạt nativeNpcTalk gửi packet đối thoại 0x30 thật lên Server
             if (nativeNpcTalk !== null) {
                 try {
                     nativeNpcTalk(npc.ptr, ptr(0));
                 } catch (eNT) {}
             }
 
+            // 4. Khởi tạo và thiết lập trạng thái bảng Moss trên Client kèm bảo đảm RollButton luôn active
             try {
-                if (nativeGetGameUI !== null) {
-                    var gui = nativeGetGameUI();
-                    if (!gui.isNull()) {
-                        var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
-                        setupMossWindow(mossWin, cat);
-                    }
+                if (mossWin && !mossWin.isNull()) {
+                    setupMossWindow(mossWin, cat);
+                    ensureMossRollButtonActive(mossWin, true);
                 }
             } catch (eUI) {}
 
@@ -1616,6 +1762,14 @@ rpc.exports = {
             if (!npc) {
                 return { success: false, error: "MERCHANT_NOT_FOUND" };
             }
+            try {
+                if (nativeGetWindowHandler !== null) {
+                    var whM = nativeGetWindowHandler();
+                    if (whM && !whM.isNull()) {
+                        whM.add(0x28).writePointer(ptr(0));
+                    }
+                }
+            } catch (eWHM) {}
             if (nativeNpcTalk !== null) {
                 try {
                     nativeNpcTalk(npc.ptr, ptr(0));
@@ -1701,11 +1855,11 @@ rpc.exports = {
     enterMirror: function(slot) {
         try {
             ensureThreadAttached();
-            var itemSlot = 0;
-            if (slot !== undefined && slot !== null) {
+            var itemSlot = -1;
+            if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
                 itemSlot = parseInt(slot);
             } else {
-                // Tự động tìm vị trí vé Mirror of Dimensions (itemIndex 7279) trong hòm đồ chính (slot 12 - 75)
+                // Tự động tìm vị trí vé Mirror of Dimensions (ID 7279 hoặc theo tên) trong toàn bộ hòm đồ (slot 12 - 139)
                 try {
                     var p = getPlayerPtr();
                     if (!p.isNull()) {
@@ -1713,11 +1867,17 @@ rpc.exports = {
                         if (!inv.isNull()) {
                             var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
                             if (!itemsArr.isNull()) {
-                                for (var s = 12; s < 76; s++) {
+                                var maxSlot = 140;
+                                try {
+                                    var arrLen = itemsArr.add(0x18).readS32();
+                                    if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+                                } catch (eLen) {}
+                                for (var s = 12; s < maxSlot; s++) {
                                     var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                                     if (!itemPtr.isNull()) {
                                         var idx = itemPtr.add(0x10).readS32();
-                                        if (idx === 7279) {
+                                        var check = checkMirrorItem(itemPtr, idx);
+                                        if (check.isTicket) {
                                             itemSlot = s;
                                             break;
                                         }
@@ -1728,12 +1888,59 @@ rpc.exports = {
                     }
                 } catch (eScan) {}
             }
-            if (nativeMirrorEnter !== null) {
+            if (itemSlot >= 12 && nativeMirrorEnter !== null) {
                 nativeMirrorEnter(itemSlot, ptr(0));
-                return true;
+                return JSON.stringify({ success: true, slot: itemSlot });
             }
-        } catch (eME) {}
-        return false;
+            return JSON.stringify({ success: false, error: itemSlot < 0 ? "no_ticket" : "invalid_slot" });
+        } catch (eME) {
+            return JSON.stringify({ success: false, error: eME.toString() });
+        }
+    },
+
+    getMirrorTicketInfo: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (!p.isNull()) {
+                var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                if (!inv.isNull()) {
+                    var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                    if (!itemsArr.isNull()) {
+                        var tickets = [];
+                        var ticketDetails = [];
+                        var signSlots = [];
+                        var maxSlot = 140;
+                        try {
+                            var arrLen = itemsArr.add(0x18).readS32();
+                            if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+                        } catch (eLen) {}
+                        for (var s = 12; s < maxSlot; s++) {
+                            var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                            if (!itemPtr.isNull()) {
+                                var idx = itemPtr.add(0x10).readS32();
+                                var check = checkMirrorItem(itemPtr, idx);
+                                if (check.isTicket) {
+                                    tickets.push(s);
+                                    ticketDetails.push({ slot: s, id: idx, name: check.name, isExtended: (s >= 76) });
+                                } else if (check.isSign) {
+                                    signSlots.push(s);
+                                }
+                            }
+                        }
+                        return JSON.stringify({
+                            hasTicket: tickets.length > 0,
+                            count: tickets.length,
+                            slots: tickets,
+                            details: ticketDetails,
+                            signs: signSlots,
+                            hasOnlySign: (tickets.length === 0 && signSlots.length > 0)
+                        });
+                    }
+                }
+            }
+        } catch (eScan) {}
+        return JSON.stringify({ hasTicket: false, count: 0, slots: [], details: [], signs: [], hasOnlySign: false });
     },
 
     clickMirrorNpc: function(npcPtr) {
@@ -2316,6 +2523,8 @@ class MegDirectEngine:
             "__SET_AUTO_LOGIN__": self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xF4B220"),
             "__NPC_TALK__": self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x10B2B40"),
             "__VIEWPORT__": self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110"),
+            "__COMPONENT_GET_GAMEOBJECT__": self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x452CB30"),
+            "__GET_WINDOW_HANDLER__": self.offsets.get("get_window_handler") or DEFAULT_OFFSETS.get("get_window_handler", "0x10A9770"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -2992,6 +3201,17 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi open_moss: {e}")
         return False
 
+    def reset_moss_ui(self, category_id: int = 0) -> bool:
+        """Khôi phục trạng thái bảng Moss và đảm bảo nút Quay (RollButton) luôn hiển thị."""
+        if self.is_ready:
+            try:
+                res = self._call("resetMossUI", int(category_id))
+                if res:
+                    return True
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi reset_moss_ui: {e}")
+        return False
+
     def find_moss_npc(self) -> Dict[str, Any]:
         """
         Quét tìm NPC Moss The Gambler thực tế trong Viewport của game:
@@ -3155,16 +3375,37 @@ class MegDirectEngine:
         return {"sold": 0, "error": "not_ready"}
 
 
-    def enter_mirror(self, slot: int = 0) -> bool:
+    def enter_mirror(self, slot: int = -1) -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
         if self.is_ready:
             try:
-                res = self._call("enterMirror", int(slot))
-                if res:
-                    return True
+                res = self._call("enterMirror", int(slot) if slot >= 0 else None)
+                if isinstance(res, str):
+                    try:
+                        res = json.loads(res)
+                    except Exception:
+                        pass
+                if isinstance(res, dict):
+                    return res
+                if bool(res):
+                    return {"success": True}
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi enter_mirror: {e}")
-        return False
+                return {"success": False, "error": str(e)}
+        return {"success": False, "error": "not_ready"}
+
+    def get_mirror_ticket_info(self) -> Dict[str, Any]:
+        """Kiểm tra vé Mirror of Dimensions (item 7279) trong hòm đồ."""
+        if self.is_ready:
+            try:
+                res = self._call("getMirrorTicketInfo")
+                if isinstance(res, str):
+                    return json.loads(res)
+                if isinstance(res, dict):
+                    return res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi get_mirror_ticket_info: {e}")
+        return {"hasTicket": False, "count": 0, "slots": []}
 
     def teleport_to_event_map(self) -> bool:
         """Dịch chuyển trực tiếp vào Bản đồ Sự Kiện (Event Map - Gate 507) qua native."""

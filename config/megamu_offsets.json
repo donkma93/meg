@@ -53,5 +53,8 @@
     "get_auto_login": "0x10A9500",
     "set_auto_login": "0xF4B220",
     "npc_talk": "0x10B2B40",
-    "viewport": "0x110"
+    "viewport": "0x110",
+    "item_mirror_ticket": 7279,
+    "component_get_game_object": "0x452CB30",
+    "get_window_handler": "0x10A9770"
 }

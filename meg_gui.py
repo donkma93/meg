@@ -206,6 +206,7 @@ SLOT_ASSIGNMENTS_FILE = CONFIG_DIR / "slot_assignments.json"
 UI_SETTINGS_FILE = CONFIG_DIR / "ui_settings.json"
 MAP_COMMANDS_FILE = CONFIG_DIR / "map_commands.json"
 MOSS_CONFIG_FILE = CONFIG_DIR / "moss_slots_config.json"
+MIRROR_CONFIG_FILE = CONFIG_DIR / "mirror_schedule_config.json"
 
 PROFILE_NAMES = [f"Config {i}" for i in range(1, 11)]
  
@@ -1180,6 +1181,46 @@ class ConfigPersistenceManager:
                 tmp = MOSS_CONFIG_FILE.with_suffix(".tmp")
                 tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
                 tmp.replace(MOSS_CONFIG_FILE)
+            except Exception:
+                pass
+
+    @classmethod
+    def load_mirror_schedule_config(cls) -> Dict[str, Any]:
+        """Đọc cấu hình Lịch Trình Auto Double Goer / Mirror (2 tiếng 1 lần từ 00:15, chuẩn bị trước 5 phút)."""
+        with cls._lock:
+            if MIRROR_CONFIG_FILE.exists():
+                try:
+                    data = json.loads(MIRROR_CONFIG_FILE.read_text(encoding="utf-8"))
+                    sched = data.get("schedule", {})
+                    return {
+                        "auto_schedule": bool(sched.get("auto_schedule", True)),
+                        "auto_prep_before": bool(sched.get("auto_prep_before", True))
+                    }
+                except Exception:
+                    pass
+            return {"auto_schedule": True, "auto_prep_before": True}
+
+    @classmethod
+    def save_mirror_schedule_config(cls, auto_schedule: bool = True, auto_prep_before: bool = True):
+        """Lưu cấu hình Lịch Trình Auto Double Goer / Mirror."""
+        with cls._lock:
+            try:
+                store = {}
+                if MIRROR_CONFIG_FILE.exists():
+                    try:
+                        store = json.loads(MIRROR_CONFIG_FILE.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                store["schedule"] = {
+                    "auto_schedule": bool(auto_schedule),
+                    "auto_prep_before": bool(auto_prep_before),
+                    "interval_hours": 2,
+                    "prep_minutes_before": 5,
+                    "times": [f"{h:02d}:15" for h in range(0, 24, 2)]
+                }
+                tmp = MIRROR_CONFIG_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(MIRROR_CONFIG_FILE)
             except Exception:
                 pass
 
@@ -2164,6 +2205,65 @@ class SlotController:
         threading.Thread(target=_step_move, daemon=True).start()
         return True
 
+    def check_mirror_ticket(self) -> Dict[str, Any]:
+        """Kiểm tra xem slot này có vé Mirror of Dimensions (item 7279) trong hòm đồ không."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            return {"hasTicket": False, "count": 0, "slots": [], "error": "not_connected"}
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return {"hasTicket": False, "count": 0, "slots": [], "error": "no_engine"}
+        if not eng.is_ready:
+            eng.attach()
+        info = eng.get_mirror_ticket_info()
+        return info
+
+    def prepare_mirror_event(self) -> bool:
+        """Giai đoạn chuẩn bị trước 5 phút: Tắt helper, chuyển về Event Map / Lugard, và kiểm tra vé."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+
+        # 1. Tạm dừng Auto Helper / đánh quái ngoài bãi
+        try:
+            if eng.is_helper_active():
+                eng.stop_helper()
+        except Exception:
+            pass
+
+        # 2. Dịch chuyển về Event Map (Gate 507 / /event)
+        self.move_to_event_map()
+
+        # 3. Chờ client ổn định sau chuyển map rồi kiểm tra vé trong túi đồ
+        time.sleep(1.2)
+        t_info = eng.get_mirror_ticket_info()
+        if t_info.get("hasTicket"):
+            details = t_info.get("details", [])
+            main_slots = [d["slot"] for d in details if not d.get("isExtended")]
+            ext_slots = [d["slot"] for d in details if d.get("isExtended")]
+            loc_parts = []
+            if main_slots:
+                loc_parts.append(f"Hòm chính ô [{', '.join(str(s) for s in main_slots)}]")
+            if ext_slots:
+                loc_parts.append(f"Ba lô phụ ô [{', '.join(str(s) for s in ext_slots)}]")
+            loc_str = " • ".join(loc_parts) if loc_parts else f"ô [{', '.join(str(s) for s in t_info.get('slots', []))}]"
+            self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ✅ Đã sẵn sàng {t_info.get('count')} vé Mirror ({loc_str})!"
+            )
+        elif t_info.get("hasOnlySign"):
+            signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
+            self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CHÚ Ý: Tìm thấy Mảnh Vé Sign of Dimensions tại ô [{signs_str}], chưa ghép thành vé Mirror hoàn chỉnh!"
+            )
+        else:
+            self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CẢNH BÁO: Chưa tìm thấy vé Mirror of Dimensions (Item 7279) trong hòm đồ (đã quét ô 12-139)!"
+            )
+        return True
+
     def enter_mirror(self) -> bool:
         """Gọi native function vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
@@ -2174,12 +2274,18 @@ class SlotController:
             return False
         if not eng.is_ready:
             eng.attach()
-        ok = eng.enter_mirror()
-        if ok:
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa Double Goer thành công (Native 0xFF08D0).")
+        res = eng.enter_mirror()
+        if res.get("success"):
+            slot_used = res.get("slot", "?")
+            ext_tag = " (Ba lô phụ)" if isinstance(slot_used, int) and slot_used >= 76 else ""
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa Double Goer bằng vé ô {slot_used}{ext_tag} (Native 0xFF08D0).")
             return True
         else:
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không thể gửi lệnh vào cửa Double Goer.")
+            err = res.get("error", "Unknown")
+            if err == "no_ticket":
+                self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không tìm thấy vé Mirror trong toàn bộ hòm đồ (ô 12-139)!")
+            else:
+                self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không thể gửi lệnh vào cửa: {err}")
             return False
 
     def click_mirror_npc(self) -> bool:
@@ -2242,7 +2348,7 @@ class SlotController:
                 # 1. Kiểm tra xem đã ở trong map sự kiện chưa
                 in_event = eng.is_mirror_event_map() if eng else False
                 if in_event:
-                    self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer"))
+                    self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
                     if not eng.is_helper_active():
                         eng.start_helper()
                     time.sleep(3.0)
@@ -2250,9 +2356,11 @@ class SlotController:
 
                 # 2. Nếu đang ở ngoài làng, thử vào cửa
                 self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⏳ Đang thử vào cửa"))
-                ok = eng.enter_mirror()
-                if ok:
-                    self.app.after(0, lambda: self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa sự kiện."))
+                res = eng.enter_mirror()
+                if res.get("success"):
+                    self.app.after(0, lambda s=res.get("slot", "?"): self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa (vé ô {s})."))
+                elif res.get("error") == "no_ticket":
+                    self.app.after(0, lambda: self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không có vé Mirror trong hòm đồ!"))
 
                 # Chờ 5 giây trước khi kiểm tra lại
                 slept = 0
@@ -2297,10 +2405,19 @@ class SlotController:
 
         def _sniper():
             start_t = time.time()
-            sleep_sec = max(0.02, interval_ms / 1000.0)
+            sleep_sec = max(0.015, interval_ms / 1000.0)
             packets_sent = 0
-            check_interval = 4 # Mỗi 4 packet kiểm tra map 1 lần để tối ưu CPU
+            check_interval = 4  # Mỗi 4 packet kiểm tra map 1 lần để tối ưu CPU
             iter_cnt = 0
+
+            # 1. Tìm và cache vị trí slot vé trước để Native JS không cần duyệt 140 slot mỗi mili-giây
+            cached_slot = -1
+            try:
+                t_info = eng.get_mirror_ticket_info()
+                if t_info.get("hasTicket") and t_info.get("slots"):
+                    cached_slot = int(t_info["slots"][0])
+            except Exception:
+                pass
 
             while self.mirror_sniping:
                 now = time.time()
@@ -2313,17 +2430,24 @@ class SlotController:
                 if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
                     break
 
-                # Bắn packet vào cửa native tốc độ cao
-                eng.enter_mirror()
+                # Bắn packet vào cửa native tốc độ cao (truyền slot trực tiếp để đạt tốc độ tối đa)
+                res = eng.enter_mirror(slot=cached_slot if cached_slot >= 0 else None)
                 packets_sent += 1
                 iter_cnt += 1
+
+                if not res.get("success") and res.get("error") == "no_ticket":
+                    self.app.after(0, lambda: self.app.append_mirror_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Hủy Turbo Snipe: Không có vé Mirror (Item 7279) trong hòm đồ!"
+                    ))
+                    break
 
                 if iter_cnt >= check_interval:
                     iter_cnt = 0
                     if eng.is_mirror_event_map():
-                        # Cướp cổng thành công!
+                        # Cướp cổng thành công trong tích tắc!
+                        elapsed = time.time() - start_t
                         self.app.after(0, lambda: self.app.append_mirror_log(
-                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {packets_sent} packets ({time.time() - start_t:.2f}s)!"
+                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {packets_sent} packets ({elapsed:.2f}s)!"
                         ))
                         self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
                         if not eng.is_helper_active():
@@ -2437,10 +2561,14 @@ class DashboardApp(ctk.CTk):
         self.running = True
         self._last_moss_trigger_key = None
         self._last_moss_move_key = None
+        self._last_mirror_trigger_key = None
+        self._last_mirror_prep_key = None
+        self._last_mirror_stop_key = None
         self.after(500, self._periodic_game_scan)
         self.after(800, self._periodic_telemetry)
         self.after(1000, self._periodic_license_monitor)
         self.after(1000, self._periodic_moss_scheduler)
+        self.after(1000, self._periodic_mirror_scheduler)
         threading.Thread(target=self._verify_license_async, daemon=True).start()
         threading.Thread(target=self._check_update_async, kwargs={"manual": False}, daemon=True).start()
 
@@ -6124,6 +6252,88 @@ class DashboardApp(ctk.CTk):
         )
         sub_lbl.pack(anchor="w", pady=(2, 0))
 
+        # CỤM PHẢI: LỊCH TRÌNH VÀ ĐỒNG HỒ ĐẾM NGƯỢC THỜI GIAN THỰC (Mỗi 2 tiếng: 00:15, 02:15, ..., chuẩn bị trước 5 phút)
+        sched_card = ctk.CTkFrame(inner_h, fg_color="#121622", corner_radius=8, border_width=1, border_color="#2b3244")
+        sched_card.pack(side="right", fill="y", padx=(10, 0))
+
+        sched_inner = ctk.CTkFrame(sched_card, fg_color="transparent")
+        sched_inner.pack(padx=12, pady=6)
+
+        top_s = ctk.CTkFrame(sched_inner, fg_color="transparent")
+        top_s.pack(fill="x")
+
+        ctk.CTkLabel(
+            top_s,
+            text="⚡ LỊCH CỔNG MIRROR (2H/LẦN): MỞ CỔNG :10 • PRE-FIRE TURBO :09:59 • BẮT ĐẦU :15",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#c084fc"
+        ).pack(side="left", padx=(0, 10))
+
+        self.cb_mirror_auto_schedule = ctk.CTkCheckBox(
+            top_s,
+            text="⚡ Tự động Turbo cướp cổng tích tắc (:09:59 - :10:15)",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8",
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            command=self.on_toggle_mirror_auto_schedule
+        )
+        self.cb_mirror_auto_schedule.pack(side="right")
+
+        bot_s = ctk.CTkFrame(sched_inner, fg_color="transparent")
+        bot_s.pack(fill="x", pady=(3, 0))
+
+        self.lbl_mirror_next_event = ctk.CTkLabel(
+            bot_s,
+            text="Mở cổng: --:10",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#94a3b8"
+        )
+        self.lbl_mirror_next_event.pack(side="left", padx=(0, 10))
+
+        self.lbl_mirror_countdown = ctk.CTkLabel(
+            bot_s,
+            text="⏳ Mở cổng sau: --:--:--",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#a855f7"
+        )
+        self.lbl_mirror_countdown.pack(side="left", padx=(0, 10))
+
+        self.cb_mirror_auto_prep_before = ctk.CTkCheckBox(
+            bot_s,
+            text="Chuẩn bị trước (:08 về Lugard & check vé)",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8",
+            fg_color="#7c3aed",
+            hover_color="#6d28d9",
+            command=self.on_toggle_mirror_auto_schedule
+        )
+        self.cb_mirror_auto_prep_before.pack(side="left", padx=(0, 8))
+
+        self.lbl_mirror_sched_status = ctk.CTkLabel(
+            bot_s,
+            text="🟢 Đang chờ",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#cbd5e1"
+        )
+        self.lbl_mirror_sched_status.pack(side="right")
+
+        # Nạp cấu hình lịch trình từ file
+        try:
+            m_sched_cfg = ConfigPersistenceManager.load_mirror_schedule_config()
+            if m_sched_cfg.get("auto_schedule", True):
+                self.cb_mirror_auto_schedule.select()
+            else:
+                self.cb_mirror_auto_schedule.deselect()
+
+            if m_sched_cfg.get("auto_prep_before", True):
+                self.cb_mirror_auto_prep_before.select()
+            else:
+                self.cb_mirror_auto_prep_before.deselect()
+        except Exception:
+            self.cb_mirror_auto_schedule.select()
+            self.cb_mirror_auto_prep_before.select()
+
         # ACTION TOOLBAR
         toolbar_card = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
         toolbar_card.pack(fill="x", padx=14, pady=(2, 6))
@@ -6135,16 +6345,46 @@ class DashboardApp(ctk.CTk):
         left_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
         left_tb.pack(side="left", fill="y")
 
-        btn_move_all = ctk.CTkButton(
+        btn_prep_all = ctk.CTkButton(
             left_tb,
-            text="🚶 Tới Event Map (Tất Cả)",
+            text="🚶 Chuẩn Bị (Trước 5p)",
+            height=30,
+            corner_radius=6,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#38bdf8",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.prepare_all_mirror_event
+        )
+        btn_prep_all.pack(side="left", padx=(0, 6))
+
+        btn_check_all = ctk.CTkButton(
+            left_tb,
+            text="🔍 Check Vé (Tất Cả)",
             height=30,
             corner_radius=6,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
             border_color="#475569",
-            text_color="#38bdf8",
+            text_color="#e2e8f0",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.check_all_mirror_tickets
+        )
+        btn_check_all.pack(side="left", padx=(0, 6))
+
+        btn_move_all = ctk.CTkButton(
+            left_tb,
+            text="🚶 Tới Event Map",
+            height=30,
+            corner_radius=6,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#475569",
+            text_color="#94a3b8",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.move_all_to_event_map
         )
@@ -6167,7 +6407,7 @@ class DashboardApp(ctk.CTk):
 
         btn_enter_all = ctk.CTkButton(
             left_tb,
-            text="🚪 Vào Cửa (Tất Cả)",
+            text="🚪 Vào Cửa",
             height=30,
             corner_radius=6,
             fg_color="#1e293b",
@@ -6274,10 +6514,11 @@ class DashboardApp(ctk.CTk):
         tbl_h.pack(fill="x", padx=10, pady=(6, 2))
 
         headers = [
-            ("Nº", 45, "w"),
-            ("Tài khoản / PID", 220, "w"),
-            ("Tọa độ hiện tại", 150, "center"),
-            ("Trạng Thái Sự Kiện", 175, "center"),
+            ("Nº", 40, "w"),
+            ("Tài khoản / PID", 180, "w"),
+            ("Tọa độ", 110, "center"),
+            ("Vé Mirror (140 Ô)", 160, "center"),
+            ("Trạng Thái Sự Kiện", 170, "center"),
             ("Thao Tác", 280, "center"),
         ]
         for title, w, anc in headers:
@@ -6360,7 +6601,7 @@ class DashboardApp(ctk.CTk):
         ctk.CTkLabel(
             row_frame,
             text=f"{i:02d}",
-            width=45,
+            width=40,
             anchor="w",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color="#94a3b8"
@@ -6372,7 +6613,7 @@ class DashboardApp(ctk.CTk):
         char_lbl = ctk.CTkLabel(
             row_frame,
             text=char_disp,
-            width=220,
+            width=180,
             anchor="w",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if ctrl.assigned_pid else "normal"),
             text_color=char_color
@@ -6384,33 +6625,60 @@ class DashboardApp(ctk.CTk):
         coords_lbl = ctk.CTkLabel(
             row_frame,
             text=coords_disp,
-            width=150,
+            width=110,
             anchor="center",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#38bdf8"
         )
         coords_lbl.pack(side="left", padx=4)
 
-        # Cột 4: Trạng thái sự kiện
-        st_text = "Chờ ngoài map" if ctrl.assigned_pid else "Chưa gán"
+        # Cột 4: Vé Mirror (Tự động cập nhật từ RAM / Engine)
+        ticket_lbl = ctk.CTkLabel(
+            row_frame,
+            text="--",
+            width=160,
+            anchor="center",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#94a3b8"
+        )
+        ticket_lbl.pack(side="left", padx=4)
+
+        # Cột 5: Trạng thái sự kiện
+        st_text = "Chờ ngoài map" if ctrl.assigned_pid else "Chưa kết nối"
         status_lbl = ctk.CTkLabel(
             row_frame,
             text=st_text,
-            width=175,
+            width=170,
             anchor="center",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#94a3b8"
         )
         status_lbl.pack(side="left", padx=4)
 
-        # Cột 5: Thao tác (Vào Cửa, Tới Lugard, Turbo Snipe, Auto Bật/Tắt)
+        # Cột 6: Thao tác (Check Vé, Vào Cửa, Tới Lugard, Turbo Snipe, Auto Bật/Tắt)
         action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=280)
         action_box.pack(side="left", padx=4)
+
+        btn_ticket = ctk.CTkButton(
+            action_box,
+            text="🎟️ Vé",
+            width=42,
+            height=26,
+            corner_radius=4,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#475569",
+            text_color="#e2e8f0",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: self.check_mirror_slot_ticket(s)
+        )
+        btn_ticket.pack(side="left", padx=(0, 4))
 
         btn_enter = ctk.CTkButton(
             action_box,
             text="🚪 Vào",
-            width=58,
+            width=50,
             height=26,
             corner_radius=4,
             fg_color="#1e293b",
@@ -6426,7 +6694,7 @@ class DashboardApp(ctk.CTk):
         btn_move = ctk.CTkButton(
             action_box,
             text="🚶 Event",
-            width=65,
+            width=58,
             height=26,
             corner_radius=4,
             fg_color="#1e293b",
@@ -6442,7 +6710,7 @@ class DashboardApp(ctk.CTk):
         btn_snipe = ctk.CTkButton(
             action_box,
             text="⚡ Snipe",
-            width=62,
+            width=56,
             height=26,
             corner_radius=4,
             fg_color="#6d28d9",
@@ -6458,7 +6726,7 @@ class DashboardApp(ctk.CTk):
         btn_toggle = ctk.CTkButton(
             action_box,
             text="▶️ Auto",
-            width=62,
+            width=56,
             height=26,
             corner_radius=4,
             fg_color="#059669",
@@ -6474,12 +6742,75 @@ class DashboardApp(ctk.CTk):
             "row_frame": row_frame,
             "char_lbl": char_lbl,
             "coords_lbl": coords_lbl,
+            "ticket_lbl": ticket_lbl,
             "status_lbl": status_lbl,
             "btn_enter": btn_enter,
             "btn_move": btn_move,
             "btn_snipe": btn_snipe,
             "btn_toggle": btn_toggle,
         }
+
+    def refresh_mirror_slot_ticket_display(self, slot_idx: int):
+        """Tự động quét và cập nhật hiển thị vé cho Slot i lên giao diện."""
+        if slot_idx < 1 or slot_idx > len(self.controllers):
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        el = self.mirror_ui_elements.get(slot_idx)
+        if not el:
+            return
+        if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+            if el.get("ticket_lbl"):
+                el["ticket_lbl"].configure(text="--", text_color="#64748b")
+            return
+
+        def _bg_check():
+            try:
+                t_info = ctrl.check_mirror_ticket()
+                def _update():
+                    curr_el = self.mirror_ui_elements.get(slot_idx)
+                    if not curr_el or not curr_el.get("ticket_lbl"):
+                        return
+                    if t_info.get("hasTicket"):
+                        slots = t_info.get("slots", [])
+                        cnt = t_info.get("count", len(slots))
+                        details = t_info.get("details", [])
+                        main_cnt = sum(1 for d in details if not d.get("isExtended"))
+                        ext_cnt = sum(1 for d in details if d.get("isExtended"))
+                        if ext_cnt > 0 and main_cnt > 0:
+                            s_desc = f"{cnt} vé (C:{main_cnt}|P:{ext_cnt})"
+                        elif ext_cnt > 0:
+                            s_desc = f"{cnt} vé (Ba lô phụ)"
+                        else:
+                            s_desc = f"{cnt} vé [{', '.join(str(s) for s in slots[:2])}]"
+                        curr_el["ticket_lbl"].configure(text=f"🎟️ {s_desc}", text_color="#10b981")
+                        if curr_el.get("status_lbl"):
+                            curr_st = curr_el["status_lbl"].cget("text")
+                            if curr_st in ("Chờ ngoài map", "Chưa kết nối", "Chờ", "⚠️ Chưa có vé", "--"):
+                                curr_el["status_lbl"].configure(text="🟢 Sẵn sàng", text_color="#10b981")
+                    elif t_info.get("hasOnlySign"):
+                        signs = t_info.get("signs", [])
+                        curr_el["ticket_lbl"].configure(text=f"⚠️ Mảnh [{len(signs)} cái]", text_color="#f97316")
+                        if curr_el.get("status_lbl"):
+                            curr_st = curr_el["status_lbl"].cget("text")
+                            if curr_st in ("Chờ ngoài map", "Chưa kết nối", "Chờ", "🟢 Sẵn sàng"):
+                                curr_el["status_lbl"].configure(text="⚠️ Cần ghép vé", text_color="#f97316")
+                    else:
+                        curr_el["ticket_lbl"].configure(text="⚠️ 0 vé (Trống)", text_color="#f59e0b")
+                        if curr_el.get("status_lbl"):
+                            curr_st = curr_el["status_lbl"].cget("text")
+                            if curr_st in ("Chờ ngoài map", "Chưa kết nối", "Chờ", "🟢 Sẵn sàng"):
+                                curr_el["status_lbl"].configure(text="⚠️ Hết vé", text_color="#f59e0b")
+                self.after(0, _update)
+            except Exception:
+                pass
+
+        threading.Thread(target=_bg_check, daemon=True).start()
+
+    def refresh_all_mirror_tickets_display(self):
+        """Tự động quét và cập nhật hiển thị vé cho toàn bộ các tài khoản đang kết nối."""
+        for i, ctrl in enumerate(self.controllers, 1):
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                self.refresh_mirror_slot_ticket_display(i)
 
     def update_mirror_slot_ui_state(self, slot_idx: int, is_running: bool):
         el = self.mirror_ui_elements.get(slot_idx)
@@ -6494,11 +6825,11 @@ class DashboardApp(ctk.CTk):
                 el["btn_toggle"].configure(text="▶️ Auto", fg_color="#059669", hover_color="#047857")
         if el.get("status_lbl"):
             if ctrl.mirror_sniping:
-                el["status_lbl"].configure(text="⚡ Turbo Sniping...", text_color="#c084fc")
+                el["status_lbl"].configure(text="⚡ Cướp cổng...", text_color="#c084fc")
             elif ctrl.mirror_running:
-                el["status_lbl"].configure(text="Đang Auto...", text_color="#10b981")
+                el["status_lbl"].configure(text="🔄 Auto Mirror", text_color="#38bdf8")
             else:
-                el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa gán", text_color="#94a3b8")
+                el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa kết nối", text_color="#94a3b8")
 
     def update_mirror_slot_status(self, slot_idx: int, text: str, text_color: str = "#94a3b8"):
         el = self.mirror_ui_elements.get(slot_idx)
@@ -6512,14 +6843,12 @@ class DashboardApp(ctk.CTk):
         if pid:
             disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
             el["char_lbl"].configure(text=disp, text_color="#f8fafc", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
-            if el.get("status_lbl"):
-                ctrl = self.controllers[slot_idx - 1]
-                if not ctrl.mirror_running and not ctrl.mirror_sniping:
-                    el["status_lbl"].configure(text="Chờ", text_color="#94a3b8")
         else:
             el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
             if el.get("status_lbl"):
-                el["status_lbl"].configure(text="Chưa gán", text_color="#64748b")
+                el["status_lbl"].configure(text="Chưa kết nối", text_color="#64748b")
+            if el.get("ticket_lbl"):
+                el["ticket_lbl"].configure(text="--", text_color="#64748b")
         if el.get("coords_lbl") and coords:
             el["coords_lbl"].configure(text=coords)
 
@@ -6619,6 +6948,292 @@ class DashboardApp(ctk.CTk):
     def clear_mirror_log(self):
         if hasattr(self, "mirror_log_txt"):
             self.mirror_log_txt.delete("1.0", "end")
+
+    def get_mirror_schedule_config(self) -> Dict[str, Any]:
+        """Lấy cấu hình lập lịch Mirror hiện tại từ UI."""
+        is_auto = bool(self.cb_mirror_auto_schedule.get()) if hasattr(self, "cb_mirror_auto_schedule") else True
+        is_prep = bool(self.cb_mirror_auto_prep_before.get()) if hasattr(self, "cb_mirror_auto_prep_before") else True
+        return {
+            "auto_schedule": is_auto,
+            "auto_prep_before": is_prep
+        }
+
+    def on_toggle_mirror_auto_schedule(self):
+        """Xử lý khi người dùng bật/tắt checkbox Auto Schedule hoặc Auto Prep."""
+        cfg = self.get_mirror_schedule_config()
+        ConfigPersistenceManager.save_mirror_schedule_config(cfg)
+        status_txt = "BẬT" if cfg.get("auto_schedule") else "TẮT"
+        prep_txt = "Có (trước 5p)" if cfg.get("auto_prep_before") else "Không"
+        self.append_mirror_log(f"⏰ [Cấu Hình Lịch Trình] Tự động vào: {status_txt} | Chuẩn bị trước 5p: {prep_txt}")
+
+    def check_mirror_slot_ticket(self, slot_idx: int):
+        """Kiểm tra vé Mirror của slot cụ thể."""
+        if slot_idx < 1 or slot_idx > len(self.controllers):
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        def _checker():
+            t_info = ctrl.check_mirror_ticket()
+            if t_info.get("hasTicket"):
+                details = t_info.get("details", [])
+                main_slots = [d["slot"] for d in details if not d.get("isExtended")]
+                ext_slots = [d["slot"] for d in details if d.get("isExtended")]
+                loc_parts = []
+                if main_slots:
+                    loc_parts.append(f"Hòm chính [{', '.join(str(s) for s in main_slots)}]")
+                if ext_slots:
+                    loc_parts.append(f"Ba lô phụ [{', '.join(str(s) for s in ext_slots)}]")
+                loc_str = " • ".join(loc_parts) if loc_parts else f"ô [{', '.join(str(s) for s in t_info.get('slots', []))}]"
+                self.after(0, lambda: self.append_mirror_log(
+                    f"[Slot {slot_idx:02d} - {ctrl.char_name}] 🎟️ Có {t_info.get('count')} vé Mirror ({loc_str})!"
+                ))
+            elif t_info.get("hasOnlySign"):
+                signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
+                self.after(0, lambda: self.append_mirror_log(
+                    f"[Slot {slot_idx:02d} - {ctrl.char_name}] ⚠️ Phát hiện Mảnh Ghép Sign of Dimensions tại ô [{signs_str}] (Chưa ghép thành vé Mirror hoàn chỉnh)!"
+                ))
+            else:
+                err = t_info.get("error")
+                if err == "not_connected":
+                    msg = "⚠️ Chưa kết nối Game!"
+                elif err == "no_engine":
+                    msg = "⚠️ Engine chưa khởi tạo!"
+                else:
+                    msg = "⚠️ Không tìm thấy vé Mirror of Dimensions (đã quét toàn bộ ô 12-139)!"
+                self.after(0, lambda: self.append_mirror_log(f"[Slot {slot_idx:02d} - {ctrl.char_name}] {msg}"))
+        threading.Thread(target=_checker, daemon=True).start()
+
+    def check_all_mirror_tickets(self):
+        """Kiểm tra vé Mirror trên toàn bộ các tài khoản đang kết nối."""
+        def _check_all():
+            self.after(0, lambda: self.append_mirror_log("🔍 Đang kiểm tra vé Mirror trên toàn bộ tài khoản (ô 12 - 139)..."))
+            total_connected = 0
+            has_ticket_count = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    total_connected += 1
+                    t_info = ctrl.check_mirror_ticket()
+                    if t_info.get("hasTicket"):
+                        has_ticket_count += 1
+                        details = t_info.get("details", [])
+                        main_slots = [d["slot"] for d in details if not d.get("isExtended")]
+                        ext_slots = [d["slot"] for d in details if d.get("isExtended")]
+                        loc_parts = []
+                        if main_slots:
+                            loc_parts.append(f"Chính: {main_slots}")
+                        if ext_slots:
+                            loc_parts.append(f"Phụ: {ext_slots}")
+                        loc_desc = " | ".join(loc_parts) if loc_parts else f"ô {t_info.get('slots', [])}"
+                        self.after(0, lambda c=ctrl, inf=t_info, ld=loc_desc: self.append_mirror_log(
+                            f"  -> [Slot {c.slot_idx:02d} - {c.char_name}] 🎟️ Có {inf.get('count')} vé ({ld})"
+                        ))
+                    elif t_info.get("hasOnlySign"):
+                        signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
+                        self.after(0, lambda c=ctrl, ss=signs_str: self.append_mirror_log(
+                            f"  -> [Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Chỉ có Mảnh Ghép Sign of Dimensions tại ô [{ss}]"
+                        ))
+                    else:
+                        self.after(0, lambda c=ctrl: self.append_mirror_log(
+                            f"  -> [Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ KHÔNG CÓ VÉ MIRROR (ô 12-139 trống)!"
+                        ))
+                    time.sleep(0.05)
+            self.after(0, lambda tc=total_connected, ht=has_ticket_count: self.append_mirror_log(
+                f"📊 Kết quả kiểm tra: {ht}/{tc} tài khoản có vé sẵn sàng."
+            ))
+        threading.Thread(target=_check_all, daemon=True).start()
+
+    def prepare_all_mirror_event(self):
+        """Kích hoạt giai đoạn chuẩn bị trước 5 phút cho toàn bộ tài khoản."""
+        def _prep():
+            self.after(0, lambda: self.append_mirror_log("🚶 [Giai đoạn Chuẩn Bị] Đang đưa các tài khoản về Event Map & kiểm tra vé..."))
+            cnt = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.prepare_mirror_event()
+                    cnt += 1
+                    time.sleep(0.1)
+            self.after(0, lambda: self.append_mirror_log(f"✅ Đã thực hiện giai đoạn chuẩn bị cho {cnt} tài khoản!"))
+        threading.Thread(target=_prep, daemon=True).start()
+
+    def _periodic_mirror_scheduler(self):
+        """Vòng lặp tính toán đếm ngược và tự động kích hoạt sự kiện Mirror.
+        - Mỗi 2 tiếng một lần: 00:15, 02:15, 04:15, ..., 22:15.
+        - CỔNG MỞ TỪ PHÚT :10 ĐẾN :15 (ĐÃ CÓ THỂ VÀO CỬA TỪ LÚC :10).
+        - Giai đoạn chuẩn bị (di chuyển về Lugard, check vé) tự động kích hoạt từ phút :08 (trước khi cổng mở 2 phút).
+        - PRE-FIRE TURBO SNIPING: Đón đầu từ :09:59 (trước 2 giây) để giật cổng trong tích tắc trước đối thủ!
+        - Trong suốt khung :10 - :15: Tự động giữ nhịp Turbo Sniping cho toàn bộ tài khoản có vé đến khi vào map.
+        - Khi vào được map Double Goer: Tự động bật MuHelper đánh quái.
+        """
+        if not self.running:
+            return
+
+        poll_interval_ms = 1000
+
+        try:
+            now = datetime.now()
+            valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+
+            # 1. Xác định xem hiện tại có đang nằm trong khung MỞ CỔNG (:10:00 - :14:59 của giờ chẵn) hay không
+            is_in_gate_open_window = False
+            current_event_hour = None
+            if now.hour in valid_hours and 10 <= now.minute < 15:
+                is_in_gate_open_window = True
+                current_event_hour = now.hour
+
+            # 2. Tìm mốc MỞ CỔNG (:10) và mốc BẮT ĐẦU (:15) tiếp theo
+            next_gate_open = None
+            next_event_start = None
+            for h in valid_hours:
+                cand_gate = now.replace(hour=h, minute=10, second=0, microsecond=0)
+                cand_start = now.replace(hour=h, minute=15, second=0, microsecond=0)
+                if cand_gate > now:
+                    next_gate_open = cand_gate
+                    next_event_start = cand_start
+                    break
+            if not next_gate_open:
+                # Đã qua 22:10 hôm nay -> mốc kế tiếp là 00:10 ngày mai
+                tomorrow = now + timedelta(days=1)
+                next_gate_open = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
+                next_event_start = tomorrow.replace(hour=0, minute=15, second=0, microsecond=0)
+
+            is_auto = hasattr(self, "cb_mirror_auto_schedule") and (self.cb_mirror_auto_schedule.get() == 1)
+            is_prep_enabled = hasattr(self, "cb_mirror_auto_prep_before") and (self.cb_mirror_auto_prep_before.get() == 1)
+
+            diff_to_open = int((next_gate_open - now).total_seconds())
+
+            # 3. ĐIỀU CHỈNH ĐỘ PHÂN GIẢI CLOCK (POLLING INTERVAL):
+            if not is_in_gate_open_window and diff_to_open <= 15:
+                # Dưới 15 giây trước giờ mở cổng: Chuyển sang nhịp 100ms để bắt chuẩn xác từng mili-giây
+                poll_interval_ms = 100
+            elif is_in_gate_open_window:
+                # Khi cổng đang mở: Polling 500ms để theo dõi sát sao
+                poll_interval_ms = 500
+            else:
+                poll_interval_ms = 1000
+
+            # 4. PRE-FIRE TURBO SNIPING: Giật thời gian trong tích tắc!
+            # Nếu còn <= 2 giây trước giờ mở cổng (:09:58 - :09:59):
+            # Kích hoạt Turbo Sniping ngay lập tức để thread ấm máy, packet bắn đón đầu microsecond đầu tiên khi server mở :10:00!
+            gate_prefire_key = next_gate_open.strftime("%Y%m%d_%H%M_prefire")
+            if not is_in_gate_open_window and diff_to_open <= 2:
+                if getattr(self, "_last_mirror_prefire_key", None) != gate_prefire_key:
+                    self._last_mirror_prefire_key = gate_prefire_key
+                    if is_auto:
+                        self.append_mirror_log(
+                            f"⚡ [PRE-FIRE TURBO SNIPING] Còn {diff_to_open}s tới giờ mở cổng ({next_gate_open.strftime('%H:%M')})! Kích hoạt Turbo Sniping đón đầu để cướp cổng trong tích tắc!"
+                        )
+                        self.start_all_mirror_turbo_sniping()
+
+            # TRƯỜNG HỢP 1: CỔNG ĐANG MỞ (:10:00 đến :14:59 của giờ chẵn)
+            if is_in_gate_open_window:
+                start_dt = now.replace(minute=15, second=0, microsecond=0)
+                remain_open_sec = max(0, int((start_dt - now).total_seconds()))
+                m_rem = remain_open_sec // 60
+                s_rem = remain_open_sec % 60
+
+                if hasattr(self, "lbl_mirror_next_event"):
+                    self.lbl_mirror_next_event.configure(text=f"Đợt này: {current_event_hour:02d}:10 - {current_event_hour:02d}:15")
+
+                if hasattr(self, "lbl_mirror_countdown"):
+                    self.lbl_mirror_countdown.configure(
+                        text=f"⚡ CỔNG ĐANG MỞ: {m_rem:02d}:{s_rem:02d} (Bắt đầu lúc :{15:02d})",
+                        text_color="#eab308"
+                    )
+
+                if hasattr(self, "lbl_mirror_sched_status"):
+                    self.lbl_mirror_sched_status.configure(text="⚡ ĐANG CƯỚP CỔNG", text_color="#eab308")
+
+                # Kích hoạt đợt đầu lúc :10 nếu chưa được kích hoạt bởi pre-fire
+                gate_key = now.strftime("%Y%m%d_%H10_gate_open")
+                if getattr(self, "_last_mirror_gate_key", None) != gate_key:
+                    self._last_mirror_gate_key = gate_key
+                    if is_auto:
+                        self.append_mirror_log(
+                            f"🚀 [CỔNG ĐÃ MỞ LÚC {now.strftime('%H:%M')}] Bắt đầu tự động vào cửa Double Goer cho toàn bộ tài khoản!"
+                        )
+                        self.start_all_mirror_turbo_sniping()
+
+                # Trong suốt khung mở cổng (:10 - :15), nếu tài khoản nào có vé mà chưa vào được Double Goer,
+                # và hiện không trong trạng thái sniping, tự động tiếp tục kích hoạt Turbo để vào bằng được!
+                if is_auto and (now.second % 10 == 0):
+                    for ctrl in self.controllers:
+                        if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                            eng = ctrl.engine
+                            if eng and not eng.is_mirror_event_map() and not getattr(ctrl, "mirror_sniping", False):
+                                t_info = eng.get_mirror_ticket_info()
+                                if t_info.get("hasTicket"):
+                                    ctrl.start_mirror_turbo_sniping(
+                                        interval_ms=self.get_mirror_snipe_delay(),
+                                        max_duration_s=min(12.0, float(remain_open_sec))
+                                    )
+
+            # TRƯỜNG HỢP 2: ĐANG NGOÀI KHUNG MỞ CỔNG (Đếm ngược tới mốc :10 tiếp theo)
+            else:
+                hours_left = diff_to_open // 3600
+                mins_left = (diff_to_open % 3600) // 60
+                secs_left = diff_to_open % 60
+
+                if hasattr(self, "lbl_mirror_next_event"):
+                    self.lbl_mirror_next_event.configure(
+                        text=f"Mở cổng: {next_gate_open.strftime('%H:%M')} (Bắt đầu: {next_event_start.strftime('%H:%M')})"
+                    )
+
+                if hasattr(self, "lbl_mirror_countdown"):
+                    if hours_left > 0:
+                        cnt_str = f"⏳ Mở cổng sau: {hours_left:02d}:{mins_left:02d}:{secs_left:02d}"
+                    else:
+                        cnt_str = f"⏳ Mở cổng sau: {mins_left:02d}:{secs_left:02d}"
+                    self.lbl_mirror_countdown.configure(text=cnt_str, text_color="#a855f7")
+
+                # Giai đoạn chuẩn bị (kích hoạt từ phút :08, tức là trước giờ mở cổng 120s = 2 phút):
+                if diff_to_open <= 120:
+                    if hasattr(self, "lbl_mirror_sched_status"):
+                        if diff_to_open <= 2:
+                            self.lbl_mirror_sched_status.configure(text="⚡ PRE-FIRE TURBO", text_color="#f59e0b")
+                        else:
+                            self.lbl_mirror_sched_status.configure(text="🏃 ĐANG CHUẨN BỊ", text_color="#38bdf8")
+                    if hasattr(self, "lbl_mirror_countdown"):
+                        self.lbl_mirror_countdown.configure(text_color="#38bdf8")
+
+                    prep_key = next_gate_open.strftime("%Y%m%d_%H%M_prep")
+                    if getattr(self, "_last_mirror_prep_key", None) != prep_key:
+                        self._last_mirror_prep_key = prep_key
+                        if is_auto and is_prep_enabled:
+                            self.append_mirror_log(
+                                f"⏰ [Tự Động Chuẩn Bị] Còn {diff_to_open}s tới giờ mở cổng ({next_gate_open.strftime('%H:%M')})! Đang chuyển map về Lugard & kiểm tra vé..."
+                            )
+                            self.prepare_all_mirror_event()
+                else:
+                    if hasattr(self, "lbl_mirror_sched_status"):
+                        if is_auto:
+                            self.lbl_mirror_sched_status.configure(text=f"🟢 Chờ mở cổng ({next_gate_open.strftime('%H:%M')})", text_color="#10b981")
+                        else:
+                            self.lbl_mirror_sched_status.configure(text="⏸️ Tắt tự động", text_color="#94a3b8")
+
+            # 5. Tự động thăm dò vé định kỳ mỗi 4 giây để UI luôn cập nhật mới nhất
+            self._mirror_poll_tick = getattr(self, "_mirror_poll_tick", 0) + 1
+            if self._mirror_poll_tick % 4 == 0:
+                self.refresh_all_mirror_tickets_display()
+
+            # 6. Kiểm tra trạng thái map sự kiện cho từng slot: nếu đã vào map Double Goer thì tự bật MuHelper
+            if self._mirror_poll_tick % 3 == 0:
+                for s_i, c in enumerate(self.controllers, 1):
+                    if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                        el_s = self.mirror_ui_elements.get(s_i)
+                        if el_s and el_s.get("status_lbl"):
+                            try:
+                                eng = c.engine
+                                if eng and eng.is_mirror_event_map():
+                                    el_s["status_lbl"].configure(text="⚔️ Trong Double Goer", text_color="#10b981")
+                                    if not eng.is_helper_active():
+                                        eng.start_helper()
+                            except Exception:
+                                pass
+
+        except Exception:
+            pass
+
+        finally:
+            self.after(poll_interval_ms, self._periodic_mirror_scheduler)
 
     def jump_to_config_tab(self, slot_idx: int):
         """Nhảy nhanh sang Tab Cấu hình khi bấm nút '⚙' ở Slot."""
