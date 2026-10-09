@@ -5357,16 +5357,21 @@ class DashboardApp(ctk.CTk):
     # TAB 5: TỰ ĐỘNG QUAY MOSS THE GAMBLER ĐA TÀI KHOẢN (MOSS MERCHANT GRID)
     # ==========================================================================
     MOSS_CAT_OPTIONS = [
-        ("0: 2 Soul (Vũ khí 1 / Swords)", 0),
-        ("1: 10 Soul (Vũ khí 2 / Maces)", 1),
-        ("2: 2 Bless (Cung / Bows)", 2),
-        ("3: 10 Bless (Gậy Phép / Staffs)", 3),
-        ("4: 2 Chaos (Khiên / Shields)", 4),
-        ("5: 10 Chaos (Trang Sức / Khác)", 5),
-        ("6: Category 6 (Tùy chọn)", 6),
-        ("7: Category 7 (Tùy chọn)", 7),
-        ("8: Category 8 (Tùy chọn)", 8),
-        ("9: Category 9 (Tùy chọn)", 9),
+        # === NHÓM QUAY BẰNG ZEN (TRỪ ZEN) ===
+        ("[ZEN] 0: Kiếm (Swords - 1,000,000 Zen)", 0),
+        ("[ZEN] 1: Chùy & Trượng (Maces/Scepters - 1,000,000 Zen)", 1),
+        ("[ZEN] 2: Cung & Nỏ (Bows/Crossbows - 1,000,000 Zen)", 2),
+        ("[ZEN] 3: Gậy Phép (Staffs - 1,000,000 Zen)", 3),
+        ("[ZEN] 4: Khiên (Shields - 1,000,000 Zen)", 4),
+        ("[ZEN] 5: Trang Sức & Khác (Accessories - 2,000,000 Zen)", 5),
+
+        # === NHÓM QUAY BẰNG NGỌC (TRỪ NGỌC SOUL / BLESS / CHAOS) ===
+        ("[NGỌC] 6: 2 Soul (Trừ 2 Ngọc Tâm Linh)", 6),
+        ("[NGỌC] 7: 10 Soul (Trừ 10 Ngọc Tâm Linh)", 7),
+        ("[NGỌC] 8: 2 Bless (Trừ 2 Ngọc Ước Nguyện)", 8),
+        ("[NGỌC] 9: 10 Bless (Trừ 10 Ngọc Ước Nguyện)", 9),
+        ("[NGỌC] 10: 2 Chaos (Trừ 2 Ngọc Hỗn Nguyên)", 10),
+        ("[NGỌC] 11: 10 Chaos (Trừ 10 Ngọc Hỗn Nguyên)", 11),
     ]
 
     def get_moss_cat_name(self, cat_id: int) -> str:
@@ -5380,12 +5385,18 @@ class DashboardApp(ctk.CTk):
             if name == cat_name:
                 return cid
         try:
-            return int(str(cat_name).split(":")[0].strip())
+            text = str(cat_name)
+            if ":" in text:
+                left = text.split(":")[0]
+                nums = [int(s) for s in left.replace("[", " ").replace("]", " ").split() if s.isdigit()]
+                if nums:
+                    return nums[-1]
+            return int(text.strip())
         except Exception:
             return 0
 
     def refresh_moss_categories_from_game(self):
-        """Đọc và đồng bộ danh sách Category thực tế của NPC Moss từ RAM Game."""
+        """Đọc và đồng bộ danh sách Category thực tế của NPC Moss từ RAM Game, phân định rõ Trừ Zen / Trừ Ngọc."""
         found_cats = []
         for ctrl in self.controllers:
             if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
@@ -5401,9 +5412,18 @@ class DashboardApp(ctk.CTk):
                 cid = c.get("id", 0)
                 cname = c.get("name", f"Category {cid}")
                 req_cnt = c.get("reqCount", 0)
-                desc = f"{cid}: {cname}"
-                if req_cnt > 0:
-                    desc += f" (x{req_cnt})"
+                curr = c.get("currency", "Zen")
+                req_type = c.get("reqType", 0)
+
+                # Phân định rõ trừ Zen hay trừ Ngọc
+                if curr.lower() == "zen" or req_type in (7183, -1) or "zen" in cname.lower():
+                    prefix = "[ZEN]"
+                    cost_str = f"{req_cnt:,} Zen" if req_cnt > 0 else "Zen"
+                else:
+                    prefix = f"[NGỌC {curr.upper()}]"
+                    cost_str = f"{req_cnt} {curr}" if req_cnt > 0 else curr
+
+                desc = f"{prefix} {cid}: {cname} (Trừ: {cost_str})"
                 new_opts.append((desc, cid))
             if new_opts:
                 self.MOSS_CAT_OPTIONS = new_opts
@@ -5415,9 +5435,11 @@ class DashboardApp(ctk.CTk):
                     combo = el.get("cat_combo")
                     if combo:
                         combo.configure(values=cat_names)
-                self.append_moss_log(f"✅ Đã đọc thành công {len(new_opts)} danh mục cược Moss Merchant từ game: {', '.join(cat_names[:4])}...")
+                self.append_moss_log(f"✅ Đã đọc thành công {len(new_opts)} danh mục cược Moss từ game:")
+                for name, _ in self.MOSS_CAT_OPTIONS[:6]:
+                    self.append_moss_log(f"   • {name}")
         else:
-            self.append_moss_log("ℹ️ Chưa lấy được danh mục từ RAM game (bảng Moss chưa mở). Đã nạp danh mục chuẩn: 2 Soul, 10 Soul, 2 Bless, 10 Bless...")
+            self.append_moss_log("ℹ️ Chưa lấy được danh mục từ RAM game (bảng Moss chưa mở). Đã nạp danh mục chuẩn cả Zen và Ngọc.")
 
     def build_moss_view(self):
         """Xây dựng giao diện Tab Auto Moss Merchant đa tài khoản đồng bộ 100%."""

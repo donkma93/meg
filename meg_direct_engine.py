@@ -1684,17 +1684,39 @@ rpc.exports = {
                                                 }
                                             }
                                         } catch (eN) {}
+                                        var trueId = i;
+                                        try {
+                                            var rawId = itemPtr.add(0x10).readS32();
+                                            if (rawId >= 0 && rawId < 1000) trueId = rawId;
+                                        } catch (eId) {}
                                         var reqType = 0;
                                         try { reqType = itemPtr.add(0x24).readS32(); } catch (eR) {}
                                         var reqCount = 0;
                                         try { reqCount = itemPtr.add(0x28).readS32(); } catch (eC) {}
                                         var isActive = false;
                                         try { isActive = itemPtr.add(0x20).readU8() === 1; } catch (eA) {}
+
+                                        var curName = "Zen";
+                                        if (reqType === 7183 || reqType === -1) {
+                                            curName = "Zen";
+                                        } else if (reqType === 7181) {
+                                            curName = "Bless";
+                                        } else if (reqType === 7182) {
+                                            curName = "Soul";
+                                        } else if (reqType === 7184) {
+                                            curName = "Chaos";
+                                        } else if (reqType === 7190) {
+                                            curName = "Life";
+                                        } else {
+                                            curName = "Item #" + reqType;
+                                        }
+
                                         categories.push({
-                                            id: i,
-                                            name: catName || ("Category " + i),
+                                            id: trueId,
+                                            name: catName || ("Category " + trueId),
                                             active: isActive,
                                             reqType: reqType,
+                                            currency: curName,
                                             reqCount: reqCount
                                         });
                                     }
