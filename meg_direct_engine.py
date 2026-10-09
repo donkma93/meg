@@ -110,6 +110,9 @@ DEFAULT_OFFSETS = {
     "viewport": "0x110",
     "component_get_game_object": "0x452CB30",
     "get_window_handler": "0x10A9770",
+    "npc_close_talk": "0x10B29F0",
+    "ui_merchant_window": "0x198",
+    "item_storage_type_info": "0x54A2348",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -338,6 +341,14 @@ try {
     }
 } catch (eNT) {}
 
+var nativeCloseTalk = null;
+try {
+    var nctOff = off('__NPC_CLOSE_TALK__');
+    if (!nctOff.isNull()) {
+        nativeCloseTalk = new NativeFunction(baseAddr.add(nctOff), 'void', []);
+    }
+} catch (eNCT) {}
+
 var nativeGetWindowHandler = null;
 try {
     var gwhOff = off('__GET_WINDOW_HANDLER__');
@@ -350,7 +361,7 @@ var nativeInvSellItem = null;
 try {
     var isiOff = off('__INV_SELL_ITEM__');
     if (!isiOff.isNull()) {
-        nativeInvSellItem = new NativeFunction(baseAddr.add(isiOff), 'void', ['int', 'pointer', 'pointer']);
+        nativeInvSellItem = new NativeFunction(baseAddr.add(isiOff), 'void', ['int', 'pointer']);
     }
 } catch (eInvSell) {}
 
@@ -536,17 +547,14 @@ function checkMirrorItem(itemPtr, idx) {
 
     // 2. Nhận diện theo Tên Item (tiếng Anh và tiếng Bồ Đào Nha MEGAMU)
     if (lowName.length > 0) {
-        if (lowName.indexOf("mirror of dimensions") !== -1 ||
-            lowName.indexOf("espelho das dimens") !== -1 ||
-            lowName.indexOf("doppelganger ticket") !== -1 ||
-            lowName.indexOf("mirror ticket") !== -1) {
-            return { isTicket: true, isSign: false, name: itName };
-        }
-        if (lowName.indexOf("sign of dimensions") !== -1 ||
-            lowName.indexOf("sinal das dimens") !== -1) {
+        var hasMirrorWord = (lowName.indexOf("mirror") !== -1 || lowName.indexOf("espelho") !== -1);
+        var hasDimWord = (lowName.indexOf("dimens") !== -1);
+        var hasSignWord = (lowName.indexOf("sign") !== -1 || lowName.indexOf("sinal") !== -1);
+
+        if (hasSignWord && (hasDimWord || hasMirrorWord)) {
             return { isTicket: false, isSign: true, name: itName };
         }
-        if (lowName.indexOf("mirror") !== -1 || lowName.indexOf("espelho") !== -1) {
+        if (hasMirrorWord || lowName.indexOf("doppelganger") !== -1) {
             return { isTicket: true, isSign: false, name: itName };
         }
     }
@@ -1837,19 +1845,67 @@ rpc.exports = {
             if (!npc) {
                 return { success: false, error: "MERCHANT_NOT_FOUND" };
             }
+
+            // 1. Tắt giao diện MossWindow nếu đang hiển thị
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var mossWinOff = off('__UI_MOSS_WINDOW__');
+                        var mossWin = mossWinOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossWinOff).readPointer();
+                        if (!mossWin.isNull()) {
+                            var mWin = mossWin.add(0x20).readPointer();
+                            if (!mWin.isNull()) {
+                                mWin.add(0x48).writeU8(0);
+                            }
+                        }
+                    }
+                }
+            } catch (eCloseMoss) {}
+
+            // 2. Dọn sạch WindowHandler để NPCTalk không bị return sớm bởi WindowHandler.IsAnyWindowOpen()
             try {
                 if (nativeGetWindowHandler !== null) {
                     var whM = nativeGetWindowHandler();
                     if (whM && !whM.isNull()) {
-                        whM.add(0x28).writePointer(ptr(0));
+                        whM.add(0x20).writePointer(ptr(0)); // FocusedWindow
+                        whM.add(0x28).writePointer(ptr(0)); // RemoteWindow
                     }
                 }
             } catch (eWHM) {}
+
+            // 3. Gán con trỏ NPC mục tiêu vào LocalPlayer (offset 0x3F8)
+            try {
+                var p = getPlayerPtr();
+                if (!p.isNull()) {
+                    p.add(ptr('0x3F8')).writePointer(npc.ptr);
+                }
+            } catch (eP3F8) {}
+
+            // 4. Gọi NPCTalk gửi packet 0x76 và 0x30 mở phiên đối thoại
             if (nativeNpcTalk !== null) {
                 try {
                     nativeNpcTalk(npc.ptr, ptr(0));
                 } catch (eNT) {}
             }
+
+            // 5. Kích hoạt giao diện MerchantWindow (GameUI + 0x198)
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui2 = nativeGetGameUI();
+                    if (!gui2.isNull()) {
+                        var merchOff = off('__UI_MERCHANT_WINDOW__');
+                        var mWinPtr = merchOff.isNull() ? gui2.add(ptr('0x198')).readPointer() : gui2.add(merchOff).readPointer();
+                        if (!mWinPtr.isNull()) {
+                            var mwObj = mWinPtr.add(0x20).readPointer();
+                            if (!mwObj.isNull()) {
+                                mwObj.add(0x48).writeU8(1);
+                            }
+                        }
+                    }
+                }
+            } catch (eMerchShow) {}
+
             return {
                 success: true,
                 index: npc.index,
@@ -1859,6 +1915,52 @@ rpc.exports = {
             };
         } catch (eInteract) {
             return { success: false, error: eInteract.toString() };
+        }
+    },
+
+    closeMerchantNpc: function() {
+        try {
+            ensureThreadAttached();
+            // 1. Gửi packet C1:31 đóng đối thoại NPC
+            if (nativeCloseTalk !== null) {
+                try { nativeCloseTalk(); } catch (eCT) {}
+            }
+            // 2. Tắt cửa sổ MerchantWindow trong UI
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var merchOff = off('__UI_MERCHANT_WINDOW__');
+                        var mWinPtr = merchOff.isNull() ? gui.add(ptr('0x198')).readPointer() : gui.add(merchOff).readPointer();
+                        if (!mWinPtr.isNull()) {
+                            var mwObj = mWinPtr.add(0x20).readPointer();
+                            if (!mwObj.isNull()) {
+                                mwObj.add(0x48).writeU8(0);
+                            }
+                        }
+                    }
+                }
+            } catch (eMerchClose) {}
+            // 3. Xóa Target NPC trong LocalPlayer
+            try {
+                var p = getPlayerPtr();
+                if (!p.isNull()) {
+                    p.add(ptr('0x3F8')).writePointer(ptr(0));
+                }
+            } catch (eClrTarget) {}
+            // 4. Dọn WindowHandler
+            try {
+                if (nativeGetWindowHandler !== null) {
+                    var wh = nativeGetWindowHandler();
+                    if (wh && !wh.isNull()) {
+                        wh.add(0x20).writePointer(ptr(0));
+                        wh.add(0x28).writePointer(ptr(0));
+                    }
+                }
+            } catch (eClrWH) {}
+            return { success: true };
+        } catch (e) {
+            return { success: false, error: e.toString() };
         }
     },
 
@@ -1888,6 +1990,56 @@ rpc.exports = {
 
             var sold = 0;
             var soldItems = [];
+            var candidatesCount = 0;
+
+            // 1. Quản lý static fields của ItemStorage (SellingSlot tại 0x20)
+            var itemStorageStatic = ptr(0);
+            try {
+                var isTypeInfoOff = off('__ITEM_STORAGE_TYPE_INFO__');
+                if (!isTypeInfoOff.isNull()) {
+                    var isTypeInfo = baseAddr.add(isTypeInfoOff).readPointer();
+                    if (!isTypeInfo.isNull()) {
+                        itemStorageStatic = isTypeInfo.add(0xB8).readPointer();
+                    }
+                }
+            } catch (eIST) {}
+
+            // 2. Tìm MainStorage trong InventoryWindow để map ItemSlot
+            var mainStorage = ptr(0);
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var invWin = gui.add(ptr('0x188')).readPointer();
+                        if (!invWin.isNull()) {
+                            mainStorage = invWin.add(ptr('0x58')).readPointer();
+                        }
+                    }
+                }
+            } catch (eMS) {}
+
+            // 3. Đảm bảo cửa sổ MerchantWindow luôn active và không bị chặn bởi popup ExpensiveSellWindow
+            function dismissExpensiveSellWindow() {
+                try {
+                    if (nativeGetGameUI !== null) {
+                        var gui = nativeGetGameUI();
+                        if (!gui.isNull()) {
+                            var merchOff = off('__UI_MERCHANT_WINDOW__');
+                            var mWinPtr = merchOff.isNull() ? gui.add(ptr('0x198')).readPointer() : gui.add(merchOff).readPointer();
+                            if (!mWinPtr.isNull()) {
+                                var mwObj = mWinPtr.add(0x20).readPointer();
+                                if (!mwObj.isNull()) {
+                                    mwObj.add(0x48).writeU8(1); // Đảm bảo trạng thái Open
+                                }
+                                var expWin = mWinPtr.add(0x68).readPointer();
+                                if (!expWin.isNull()) {
+                                    expWin.add(0x48).writeU8(0);
+                                }
+                            }
+                        }
+                    }
+                } catch (eExp) {}
+            }
 
             for (var s = 12; s < maxSlot; s++) {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
@@ -1910,18 +2062,74 @@ rpc.exports = {
                 if (isDivineOrDragonItem(itemPtr, itemIndex)) continue;
                 if (excOpt > 0 || ancOpt > 0 || sockOpt > 0) continue;
                 if (sec >= 12 && sec <= 15) continue;
-                if (itemLevel < 5 || itemLevel > 7) continue; // CHỈ BÁN ĐỒ MOSS +5, +6, +7!
+                if (itemLevel > 7) continue; // BÁN TOÀN BỘ ĐỒ RÁC THƯỜNG TỪ +0 ĐẾN +7!
 
+                candidatesCount++;
                 var itName = getItemName(itemPtr);
+
+                // Gán SellingSlot trước khi gửi lệnh bán để Client xử lý mượt mà khi Server phản hồi
+                if (!itemStorageStatic.isNull()) {
+                    try {
+                        var slotObj = ptr(0);
+                        if (!mainStorage.isNull()) {
+                            try {
+                                var cellsDict = mainStorage.add(ptr('0x38')).readPointer();
+                                if (!cellsDict.isNull()) {
+                                    var entriesPtr = cellsDict.add(ptr('0x18')).readPointer();
+                                    var cCount = cellsDict.add(ptr('0x20')).readS32();
+                                    for (var ci = 0; ci < cCount; ci++) {
+                                        var cEntry = entriesPtr.add(0x20 + ci * 24);
+                                        var cKey = cEntry.add(0x10).readS32();
+                                        if (cKey === s) {
+                                            slotObj = cEntry.add(0x18).readPointer();
+                                            break;
+                                        }
+                                    }
+                                }
+                            } catch (eSlotFind) {}
+                        }
+                        itemStorageStatic.add(0x20).writePointer(slotObj);
+                    } catch (eSetSelling) {}
+                }
+
+                dismissExpensiveSellWindow();
+
+                var soldSuccess = false;
                 try {
-                    nativeInvSellItem(s, itemPtr, ptr(0));
-                    sold++;
-                    soldItems.push({ slot: s, name: itName, level: itemLevel });
+                    // Thử phương án A: Slot tuyệt đối (s)
+                    nativeInvSellItem(s, itemPtr);
                     try { Thread.sleep(0.12); } catch (eSleep) {}
+                    dismissExpensiveSellWindow();
+
+                    // Xác thực thực tế: kiểm tra xem item tại slot s có thực sự bị xóa khỏi itemsArr không
+                    var verifyPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                    if (verifyPtr.isNull() || !verifyPtr.equals(itemPtr)) {
+                        soldSuccess = true;
+                    } else if (s >= 12) {
+                        // Thử phương án B: Slot tương đối (s - 12)
+                        var relSlot = s - 12;
+                        nativeInvSellItem(relSlot, itemPtr);
+                        try { Thread.sleep(0.12); } catch (eSleep2) {}
+                        dismissExpensiveSellWindow();
+                        var verifyPtr2 = itemsArr.add(0x20 + s * 8).readPointer();
+                        if (verifyPtr2.isNull() || !verifyPtr2.equals(itemPtr)) {
+                            soldSuccess = true;
+                        }
+                    }
                 } catch (eSell) {}
+
+                if (soldSuccess) {
+                    sold++;
+                    soldItems.push({ slot: s, name: itName || ("Item " + itemIndex), level: itemLevel });
+                }
             }
 
-            return JSON.stringify({ sold: sold, items: soldItems });
+            return JSON.stringify({
+                sold: sold,
+                items: soldItems,
+                candidates: candidatesCount,
+                error: (sold === 0 && candidatesCount > 0) ? "server_not_confirm" : null
+            });
         } catch (e) {
             return JSON.stringify({ sold: 0, error: e.toString() });
         }
@@ -2033,8 +2241,9 @@ rpc.exports = {
     isMirrorEventMap: function() {
         try {
             ensureThreadAttached();
-            if (nativeMirrorIsEventMap !== null) {
-                return Boolean(nativeMirrorIsEventMap(ptr(0)));
+            var info = readPlayerInfoSnapshot(false);
+            if (info && info.mapId !== undefined && info.mapId >= 0) {
+                return (info.mapId >= 65 && info.mapId <= 68);
             }
         } catch (eMM) {}
         return false;
@@ -2600,6 +2809,9 @@ class MegDirectEngine:
             "__VIEWPORT__": self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110"),
             "__COMPONENT_GET_GAMEOBJECT__": self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x452CB30"),
             "__GET_WINDOW_HANDLER__": self.offsets.get("get_window_handler") or DEFAULT_OFFSETS.get("get_window_handler", "0x10A9770"),
+            "__NPC_CLOSE_TALK__": self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x10B29F0"),
+            "__UI_MERCHANT_WINDOW__": self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x198"),
+            "__ITEM_STORAGE_TYPE_INFO__": self.offsets.get("item_storage_type_info") or DEFAULT_OFFSETS.get("item_storage_type_info", "0x54A2348"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -3438,7 +3650,7 @@ class MegDirectEngine:
         return {"found": False}
 
     def interact_merchant_npc(self) -> Dict[str, Any]:
-        """Tương tác/đối thoại với NPC thương nhân (Leah/Silvia/...) để mở phiên giao dịch bán đồ."""
+        """Tương tác/đối thoại với NPC thương nhân (Rhea/Leah/Silvia/...) để mở phiên giao dịch bán đồ."""
         if self.is_ready:
             try:
                 res = self._call("interactMerchantNpc")
@@ -3446,6 +3658,18 @@ class MegDirectEngine:
                     return res
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi interact_merchant_npc: {e}")
+                return {"success": False, "error": str(e)}
+        return {"success": False, "error": "NOT_ATTACHED"}
+
+    def close_merchant_npc(self) -> Dict[str, Any]:
+        """Đóng phiên giao dịch với NPC thương nhân (gửi packet C1:31, tắt giao diện shop)."""
+        if self.is_ready:
+            try:
+                res = self._call("closeMerchantNpc")
+                if res and isinstance(res, dict):
+                    return res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi close_merchant_npc: {e}")
                 return {"success": False, "error": str(e)}
         return {"success": False, "error": "NOT_ATTACHED"}
 
@@ -3461,11 +3685,12 @@ class MegDirectEngine:
         return {"sold": 0, "error": "not_ready"}
 
 
-    def enter_mirror(self, slot: int = -1) -> Dict[str, Any]:
+    def enter_mirror(self, slot: Optional[int] = None) -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
         if self.is_ready:
             try:
-                res = self._call("enterMirror", int(slot) if slot >= 0 else None)
+                arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
+                res = self._call("enterMirror", arg_slot)
                 if isinstance(res, str):
                     try:
                         res = json.loads(res)
@@ -3516,9 +3741,12 @@ class MegDirectEngine:
         return False
 
     def is_mirror_event_map(self) -> bool:
-        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer hay không."""
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (Map ID 65-68) hay không."""
         if self.is_ready:
             try:
+                tele = self.get_latest_telemetry()
+                if tele and "mapId" in tele and tele["mapId"] >= 0:
+                    return tele["mapId"] in (65, 66, 67, 68)
                 return bool(self._call("isMirrorEventMap"))
             except Exception:
                 pass

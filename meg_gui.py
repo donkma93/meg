@@ -2035,11 +2035,15 @@ class SlotController:
             return False
 
         try:
+            # Đóng bảng Moss trước khi di chuyển để tránh kẹt trạng thái giao diện
+            eng.close_merchant_npc()
+            time.sleep(0.3)
+
             # Điểm đích trước mặt Rhea: ô (28, 235) ngay cạnh Rhea (29, 235)
             target_rhea_x, target_rhea_y = 28, 235
 
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Rhea ({target_rhea_x}, {target_rhea_y}) để bán đồ..."
+                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Rhea ({target_rhea_x}, {target_rhea_y}) để dọn bán đồ rác..."
             ))
 
             # BƯỚC 1: Di chuyển tới Rhea (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
@@ -2073,7 +2077,7 @@ class SlotController:
 
             # Dừng bước di chuyển và đứng yên hoàn toàn trước khi nói chuyện với NPC
             eng.stop_auto_move()
-            time.sleep(0.6)
+            time.sleep(0.5)
 
             p_info = eng.get_player_info()
             px = p_info.get("x", 0) if p_info else 0
@@ -2093,11 +2097,18 @@ class SlotController:
                 ))
 
             # Gọi native tương tác đối thoại với NPC
-            eng.interact_merchant_npc()
-            # Chờ Server phản hồi gói tin mở giao dịch
-            time.sleep(0.8)
+            interact_res = eng.interact_merchant_npc()
+            # Chờ Server phản hồi gói tin mở giao dịch Shop
+            time.sleep(1.2)
+            if isinstance(interact_res, dict) and not interact_res.get("success", False):
+                err_name = interact_res.get("error", "UNKNOWN")
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, err=err_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] ⚠️ Không thể kết nối đối thoại với NPC ({err}). Hủy lượt bán này."
+                ))
+                eng.close_merchant_npc()
+                return False
 
-            # BƯỚC 3: Gửi lệnh bán các món đồ Moss +5..+7
+            # BƯỚC 3: Gửi lệnh bán các món đồ rác thường (+0..+7, bảo vệ +8+, Divine, Rồng, Exc, Anc, Sock, Ngọc)
             s_res = eng.sell_moss_plus_items()
             sold_count = s_res.get("sold", 0) if isinstance(s_res, dict) else 0
             sold_items = s_res.get("items", []) if isinstance(s_res, dict) else []
@@ -2108,13 +2119,24 @@ class SlotController:
                 if len(sold_items) > 6:
                     sum_text += f" ... (+{len(sold_items)-6} món khác)"
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cnt=sold_count, st=sum_text: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ Moss +5..+7 ({st})!"
+                    f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ rác ({st})!"
                 ))
             else:
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] ℹ️ Không phát hiện món đồ Moss +5..+7 nào cần bán (hoặc đã bán xong)."
-                ))
-            time.sleep(0.5)
+                err_code = s_res.get("error") if isinstance(s_res, dict) else None
+                cand_cnt = s_res.get("candidates", 0) if isinstance(s_res, dict) else 0
+                if err_code == "server_not_confirm":
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cc=cand_cnt: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] ⚠️ Phát hiện {cc} món đồ rác nhưng Server chưa phản hồi giao dịch bán đồ (Shop Rhea chưa sẵn sàng). Sẽ thử lại ở lượt sau."
+                    ))
+                else:
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] ℹ️ Không phát hiện món đồ rác nào cần bán (hoặc đã dọn sạch)."
+                    ))
+            time.sleep(0.4)
+
+            # Đóng phiên giao dịch Shop tại Rhea (gửi C1:31 và dọn WindowHandler)
+            eng.close_merchant_npc()
+            time.sleep(0.4)
 
             # BƯỚC 4: Di chuyển quay lại bệ NPC Moss (22, 225)
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
@@ -2396,13 +2418,43 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
+        # 1. Quét trước vé và phân biệt rõ Vé hoàn chỉnh vs Mảnh ghép Sign of Dimensions
+        cached_slot = -1
+        t_info = {}
+        for _try in range(3):
+            try:
+                t_info = eng.get_mirror_ticket_info()
+                if t_info.get("hasTicket") and t_info.get("slots"):
+                    cached_slot = int(t_info["slots"][0])
+                    break
+                if t_info.get("hasOnlySign"):
+                    break
+            except Exception:
+                pass
+            time.sleep(0.1)
+
+        # Trường hợp 1: Người dùng chỉ có Mảnh Ghép Sign of Dimensions (chưa ghép thành vé Mirror hoàn chỉnh)
+        if cached_slot < 0 and t_info.get("hasOnlySign"):
+            signs_cnt = len(t_info.get("signs", []))
+            self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không thể Turbo Snipe: Bạn chỉ có {signs_cnt} Mảnh Ghép Sign of Dimensions, CHƯA GHÉP thành vé Mirror hoàn chỉnh! Hãy nhặt đủ 5 mảnh để tạo thành vé trước."
+            )
+            return False
+
+        # Trường hợp 2: Hoàn toàn không tìm thấy vé Mirror trong hòm đồ
+        if cached_slot < 0 and not t_info.get("hasTicket"):
+            self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không thể Turbo Snipe: Không tìm thấy vé Mirror (Item 7279) trong toàn bộ hòm đồ (ô 12-139)!"
+            )
+            return False
+
         if self.mirror_sniping:
             return True
 
         self.mirror_sniping = True
         self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
         self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms)", text_color="#c084fc")
-        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO SNIPING CƯỚP CỔNG (Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)")
+        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO SNIPING CƯỚP CỔNG (Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)")
 
         def _sniper():
             start_t = time.time()
@@ -2410,15 +2462,8 @@ class SlotController:
             packets_sent = 0
             check_interval = 4  # Mỗi 4 packet kiểm tra map 1 lần để tối ưu CPU
             iter_cnt = 0
-
-            # 1. Tìm và cache vị trí slot vé trước để Native JS không cần duyệt 140 slot mỗi mili-giây
-            cached_slot = -1
-            try:
-                t_info = eng.get_mirror_ticket_info()
-                if t_info.get("hasTicket") and t_info.get("slots"):
-                    cached_slot = int(t_info["slots"][0])
-            except Exception:
-                pass
+            fail_no_ticket_cnt = 0
+            active_slot = cached_slot
 
             while self.mirror_sniping:
                 now = time.time()
@@ -2432,15 +2477,22 @@ class SlotController:
                     break
 
                 # Bắn packet vào cửa native tốc độ cao (truyền slot trực tiếp để đạt tốc độ tối đa)
-                res = eng.enter_mirror(slot=cached_slot if cached_slot >= 0 else None)
+                res = eng.enter_mirror(slot=active_slot if active_slot >= 0 else None)
                 packets_sent += 1
                 iter_cnt += 1
 
-                if not res.get("success") and res.get("error") == "no_ticket":
-                    self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Hủy Turbo Snipe: Không có vé Mirror (Item 7279) trong hòm đồ!"
-                    ))
-                    break
+                if not res.get("success") and res.get("error") in ("no_ticket", "only_signs"):
+                    fail_no_ticket_cnt += 1
+                    if fail_no_ticket_cnt >= 3:
+                        fresh_info = eng.get_mirror_ticket_info()
+                        if fresh_info.get("hasTicket") and fresh_info.get("slots"):
+                            active_slot = int(fresh_info["slots"][0])
+                            fail_no_ticket_cnt = 0
+                        else:
+                            self.app.after(0, lambda: self.app.append_mirror_log(
+                                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Hủy Turbo Snipe: Vé Mirror đã hết hoặc không còn trong hòm đồ!"
+                            ))
+                            break
 
                 if iter_cnt >= check_interval:
                     iter_cnt = 0
@@ -7294,10 +7346,15 @@ class DashboardApp(ctk.CTk):
             if self._mirror_poll_tick % 4 == 0:
                 self.refresh_all_mirror_tickets_display()
 
-            # 6. Kiểm tra trạng thái map sự kiện cho từng slot: nếu đã vào map Double Goer thì tự bật MuHelper
+            # 6. Kiểm tra trạng thái map sự kiện cho từng slot: CHỈ KHI slot đang BẬT Auto Double Goer hoặc Turbo Snipe
             if self._mirror_poll_tick % 3 == 0:
                 for s_i, c in enumerate(self.controllers, 1):
                     if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                        # TUYỆT ĐỐI KHÔNG can thiệp nếu slot này KHÔNG BẬT Double Goer
+                        is_mirror_active = getattr(c, "mirror_running", False) or getattr(c, "mirror_sniping", False)
+                        if not is_mirror_active:
+                            continue
+
                         el_s = self.mirror_ui_elements.get(s_i)
                         if el_s and el_s.get("status_lbl"):
                             try:

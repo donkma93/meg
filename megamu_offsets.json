@@ -56,5 +56,8 @@
     "viewport": "0x110",
     "item_mirror_ticket": 7279,
     "component_get_game_object": "0x452CB30",
-    "get_window_handler": "0x10A9770"
+    "get_window_handler": "0x10A9770",
+    "npc_close_talk": "0x10B29F0",
+    "ui_merchant_window": "0x198",
+    "item_storage_type_info": "0x54A2348"
 }
