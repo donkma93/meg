@@ -44,7 +44,7 @@ def test_engine_moss_methods():
     
     methods = [
         "roll_moss", "open_moss", "reset_moss_ui", "find_moss_npc",
-        "interact_moss_npc", "sell_moss_plus_items"
+        "interact_moss_npc", "sell_moss_plus_items", "get_moss_categories"
     ]
     for m in methods:
         assert hasattr(MegDirectEngine, m), f"MegDirectEngine thiếu phương thức '{m}'"

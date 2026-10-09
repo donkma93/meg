@@ -1657,6 +1657,59 @@ rpc.exports = {
         }
     },
 
+    getMossCategories: function() {
+        try {
+            ensureThreadAttached();
+            var categories = [];
+            if (nativeGetGameUI !== null) {
+                var gui = nativeGetGameUI();
+                if (!gui.isNull()) {
+                    var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                    if (!mossWin.isNull()) {
+                        var catList = mossWin.add(0x80).readPointer();
+                        if (!catList.isNull()) {
+                            var size = catList.add(0x18).readS32();
+                            var itemsArr = catList.add(0x10).readPointer();
+                            if (!itemsArr.isNull() && size > 0 && size < 50) {
+                                for (var i = 0; i < size; i++) {
+                                    var itemPtr = itemsArr.add(0x20 + i * 8).readPointer();
+                                    if (!itemPtr.isNull()) {
+                                        var catName = "";
+                                        try {
+                                            var namePtr = itemPtr.add(0x18).readPointer();
+                                            if (!namePtr.isNull()) {
+                                                var nLen = namePtr.add(0x10).readS32();
+                                                if (nLen > 0 && nLen < 100) {
+                                                    catName = namePtr.add(0x14).readUtf16String(nLen);
+                                                }
+                                            }
+                                        } catch (eN) {}
+                                        var reqType = 0;
+                                        try { reqType = itemPtr.add(0x24).readS32(); } catch (eR) {}
+                                        var reqCount = 0;
+                                        try { reqCount = itemPtr.add(0x28).readS32(); } catch (eC) {}
+                                        var isActive = false;
+                                        try { isActive = itemPtr.add(0x20).readU8() === 1; } catch (eA) {}
+                                        categories.push({
+                                            id: i,
+                                            name: catName || ("Category " + i),
+                                            active: isActive,
+                                            reqType: reqType,
+                                            reqCount: reqCount
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return JSON.stringify({ ok: true, categories: categories });
+        } catch (e) {
+            return JSON.stringify({ ok: false, error: e.toString(), categories: [] });
+        }
+    },
+
     findMossNpc: function() {
         try {
             ensureThreadAttached();
@@ -3338,7 +3391,18 @@ class MegDirectEngine:
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi interact_moss_npc: {e}")
                 return {"success": False, "error": str(e)}
-        return {"success": False, "error": "NOT_ATTACHED"}
+    def get_moss_categories(self) -> List[Dict[str, Any]]:
+        """Lấy danh sách các Category Moss Merchant thực tế đang nạp trong RAM Game."""
+        if self.is_ready:
+            try:
+                res_str = self._call("getMossCategories")
+                if res_str:
+                    res = json.loads(res_str) if isinstance(res_str, str) else res_str
+                    if isinstance(res, dict) and res.get("ok"):
+                        return res.get("categories", [])
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi get_moss_categories: {e}")
+        return []
 
     def find_merchant_npc(self) -> Dict[str, Any]:
         """Tìm NPC thương nhân gần nhất (Leah / Silvia / Potion Merchant) trong tầm nhìn."""

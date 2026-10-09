@@ -5357,25 +5357,67 @@ class DashboardApp(ctk.CTk):
     # TAB 5: TỰ ĐỘNG QUAY MOSS THE GAMBLER ĐA TÀI KHOẢN (MOSS MERCHANT GRID)
     # ==========================================================================
     MOSS_CAT_OPTIONS = [
-        ("0: Swords (Kiếm)", 0),
-        ("1: Scepters & Maces (Trượng & Chùy)", 1),
-        ("2: Bows & Crossbows (Cung & Nỏ)", 2),
-        ("3: Staffs (Gậy Phép)", 3),
-        ("4: Shields (Khiên)", 4),
-        ("5: Accessories & Others (Trang Sức / Khác)", 5),
+        ("0: 2 Soul (Vũ khí 1 / Swords)", 0),
+        ("1: 10 Soul (Vũ khí 2 / Maces)", 1),
+        ("2: 2 Bless (Cung / Bows)", 2),
+        ("3: 10 Bless (Gậy Phép / Staffs)", 3),
+        ("4: 2 Chaos (Khiên / Shields)", 4),
+        ("5: 10 Chaos (Trang Sức / Khác)", 5),
+        ("6: Category 6 (Tùy chọn)", 6),
+        ("7: Category 7 (Tùy chọn)", 7),
+        ("8: Category 8 (Tùy chọn)", 8),
+        ("9: Category 9 (Tùy chọn)", 9),
     ]
 
     def get_moss_cat_name(self, cat_id: int) -> str:
         for name, cid in self.MOSS_CAT_OPTIONS:
             if cid == cat_id:
                 return name
-        return f"{cat_id}: Unknown"
+        return f"{cat_id}: Category {cat_id}"
 
     def get_moss_cat_id(self, cat_name: str) -> int:
         for name, cid in self.MOSS_CAT_OPTIONS:
             if name == cat_name:
                 return cid
-        return 0
+        try:
+            return int(str(cat_name).split(":")[0].strip())
+        except Exception:
+            return 0
+
+    def refresh_moss_categories_from_game(self):
+        """Đọc và đồng bộ danh sách Category thực tế của NPC Moss từ RAM Game."""
+        found_cats = []
+        for ctrl in self.controllers:
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
+                if eng and eng.is_ready:
+                    cats = eng.get_moss_categories()
+                    if cats:
+                        found_cats = cats
+                        break
+        if found_cats:
+            new_opts = []
+            for c in found_cats:
+                cid = c.get("id", 0)
+                cname = c.get("name", f"Category {cid}")
+                req_cnt = c.get("reqCount", 0)
+                desc = f"{cid}: {cname}"
+                if req_cnt > 0:
+                    desc += f" (x{req_cnt})"
+                new_opts.append((desc, cid))
+            if new_opts:
+                self.MOSS_CAT_OPTIONS = new_opts
+                cat_names = [name for name, _ in self.MOSS_CAT_OPTIONS]
+                if hasattr(self, "batch_moss_cat_combo"):
+                    self.batch_moss_cat_combo.configure(values=cat_names)
+                    self.batch_moss_cat_combo.set(cat_names[0])
+                for s_i, el in self.moss_ui_elements.items():
+                    combo = el.get("cat_combo")
+                    if combo:
+                        combo.configure(values=cat_names)
+                self.append_moss_log(f"✅ Đã đọc thành công {len(new_opts)} danh mục cược Moss Merchant từ game: {', '.join(cat_names[:4])}...")
+        else:
+            self.append_moss_log("ℹ️ Chưa lấy được danh mục từ RAM game (bảng Moss chưa mở). Đã nạp danh mục chuẩn: 2 Soul, 10 Soul, 2 Bless, 10 Bless...")
 
     def build_moss_view(self):
         """Xây dựng giao diện Tab Auto Moss Merchant đa tài khoản đồng bộ 100%."""
@@ -5527,7 +5569,22 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.apply_batch_moss_category
         )
-        btn_apply_cat.pack(side="left", padx=(0, 14))
+        btn_apply_cat.pack(side="left", padx=(0, 6))
+
+        btn_refresh_cats = ctk.CTkButton(
+            left_tb,
+            text="🔄 Đọc từ Game",
+            height=30,
+            corner_radius=6,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#0284c7",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.refresh_moss_categories_from_game
+        )
+        btn_refresh_cats.pack(side="left", padx=(0, 12))
 
         ctk.CTkLabel(
             left_tb,
