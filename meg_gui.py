@@ -18,6 +18,7 @@ import os
 import sys
 import json
 import time
+from datetime import datetime, timedelta
 import math
 import heapq
 import ctypes
@@ -7229,8 +7230,10 @@ class DashboardApp(ctk.CTk):
                             except Exception:
                                 pass
 
-        except Exception:
-            pass
+        except Exception as e:
+            import traceback
+            print(f"[ERROR _periodic_mirror_scheduler] {e}")
+            traceback.print_exc()
 
         finally:
             self.after(poll_interval_ms, self._periodic_mirror_scheduler)
