@@ -113,6 +113,10 @@ DEFAULT_OFFSETS = {
     "npc_close_talk": "0x10B29F0",
     "ui_merchant_window": "0x198",
     "item_storage_type_info": "0x54A2348",
+    "mlogin_ui_type_info": "0x548c030",
+    "mlogin_submit": "0x1BF07B0",
+    "mlogin_token_login": "0x1BF3180",
+    "game_update": "0x10A2450",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -389,6 +393,22 @@ try {
     }
 } catch (eSAL) {}
 
+var nativeMLoginSubmit = null;
+try {
+    var mlsOff = off('__MLOGIN_SUBMIT__');
+    if (!mlsOff.isNull()) {
+        nativeMLoginSubmit = new NativeFunction(baseAddr.add(mlsOff), 'void', ['pointer', 'pointer', 'pointer', 'bool', 'pointer']);
+    }
+} catch (eMLS) {}
+
+var nativeMLoginTokenLogin = null;
+try {
+    var mltOff = off('__MLOGIN_TOKEN_LOGIN__');
+    if (!mltOff.isNull()) {
+        nativeMLoginTokenLogin = new NativeFunction(baseAddr.add(mltOff), 'void', ['pointer', 'pointer', 'pointer']);
+    }
+} catch (eMLT) {}
+
 var nativeGetGS = null;
 try {
     nativeGetGS = new NativeFunction(baseAddr.add(off('0x1094370')), 'pointer', ['pointer']);
@@ -533,15 +553,30 @@ function getItemName(itemPtr) {
     return "";
 }
 
+function readItemIndex(itemPtr) {
+    if (!itemPtr || itemPtr.isNull()) return -1;
+    var idx = -1;
+    try {
+        idx = itemPtr.add(0x60).readS32();
+    } catch (e1) {}
+    if (idx <= 0) {
+        try {
+            idx = itemPtr.add(0x10).readS32();
+        } catch (e2) {}
+    }
+    return idx;
+}
+
 function checkMirrorItem(itemPtr, idx) {
+    var trueIdx = (idx !== undefined && idx !== null && idx > 0) ? idx : readItemIndex(itemPtr);
     var itName = getItemName(itemPtr) || "";
     var lowName = itName.toLowerCase();
 
     // 1. Nhận diện theo Item Index chuẩn (7279 = Mirror of Dimensions, 7280 = Sign of Dimensions)
-    if (idx === 7279) {
+    if (trueIdx === 7279) {
         return { isTicket: true, isSign: false, name: itName || "Mirror of Dimensions" };
     }
-    if (idx === 7280) {
+    if (trueIdx === 7280) {
         return { isTicket: false, isSign: true, name: itName || "Sign of Dimensions" };
     }
 
@@ -1087,6 +1122,108 @@ try {
         });
     }
 } catch (eGUIHook) {}
+
+var gameUpdateHook = null;
+var pendingAutoLogin = null;
+var autoLoginLastStatus = { done: false, submitted: false, stage: "idle" };
+
+try {
+    var guOff = off('__GAME_UPDATE__');
+    if (!guOff.isNull()) {
+        gameUpdateHook = Interceptor.attach(baseAddr.add(guOff), {
+            onEnter: function(args) {
+                if (shuttingDown) return;
+                if (pendingAutoLogin === null) return;
+                try {
+                    var pal = pendingAutoLogin;
+                    if (!pal || pal.done) return;
+
+                    pal.frames++;
+
+                    // 1. Luôn cấu hình AutoLogin singleton nếu có
+                    var autoLogin = null;
+                    if (nativeGetAutoLogin !== null) {
+                        try { autoLogin = nativeGetAutoLogin(); } catch (eG) {}
+                    }
+                    if (autoLogin !== null && !autoLogin.isNull()) {
+                        try {
+                            var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
+                            var chrStr = il2cpp_string_new(Memory.allocUtf8String(pal.character));
+                            if (nativeSetAutoLogin !== null) {
+                                try { nativeSetAutoLogin(autoLogin, pal.server, accStr, chrStr); } catch (eSet) {}
+                            }
+                            autoLogin.add(0x20).writeU8(0);
+                            autoLogin.add(0x21).writeU8(0);
+                            autoLogin.add(0x22).writeU8(0);
+                            autoLogin.add(0x23).writeU8(0);
+                            autoLogin.add(0x24).writeS32(pal.server);
+                            autoLogin.add(0x28).writePointer(accStr);
+                            autoLogin.add(0x30).writePointer(chrStr);
+                        } catch (eAL) {}
+                    }
+
+                    // 2. Tìm MLoginUI.Instance
+                    var mLoginInst = null;
+                    try {
+                        var mTypeOff = off('__MLOGIN_UI_TYPE_INFO__');
+                        if (!mTypeOff.isNull()) {
+                            var mType = baseAddr.add(mTypeOff).readPointer();
+                            if (!mType.isNull()) {
+                                var sf = mType.add(0xB8).readPointer();
+                                if (!sf.isNull()) {
+                                    mLoginInst = sf.readPointer();
+                                }
+                            }
+                        }
+                    } catch (eType) {}
+
+                    // Nếu MLoginUI.Instance đã tồn tại (Game đã vào màn hình Login!):
+                    if (mLoginInst !== null && !mLoginInst.isNull()) {
+                        var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
+
+                        if (pal.password && nativeMLoginSubmit !== null) {
+                            var pwdStr = il2cpp_string_new(Memory.allocUtf8String(pal.password));
+                            nativeMLoginSubmit(mLoginInst, accStr, pwdStr, 1, ptr(0));
+                            pal.done = true;
+                            pal.submitted = true;
+                            autoLoginLastStatus = { done: true, submitted: true, stage: "submitted_password", account: pal.account };
+                            send({ type: "autologin_status", ok: true, stage: "submitted_password", account: pal.account });
+                            pendingAutoLogin = null;
+                            return;
+                        } else if (!pal.password && nativeMLoginTokenLogin !== null) {
+                            nativeMLoginTokenLogin(mLoginInst, accStr, ptr(0));
+                            pal.done = true;
+                            pal.submitted = true;
+                            autoLoginLastStatus = { done: true, submitted: true, stage: "submitted_token", account: pal.account };
+                            send({ type: "autologin_status", ok: true, stage: "submitted_token", account: pal.account });
+                            pendingAutoLogin = null;
+                            return;
+                        } else {
+                            pal.done = true;
+                            pal.submitted = true;
+                            autoLoginLastStatus = { done: true, submitted: true, stage: "configured_autologin", account: pal.account };
+                            send({ type: "autologin_status", ok: true, stage: "configured_autologin", account: pal.account });
+                            pendingAutoLogin = null;
+                            return;
+                        }
+                    }
+
+                    autoLoginLastStatus = { done: false, submitted: false, stage: "waiting_login_screen", frames: pal.frames, account: pal.account };
+
+                    if (pal.frames % 60 === 0) {
+                        send({ type: "autologin_status", ok: false, stage: "waiting_login_screen", frames: pal.frames, account: pal.account });
+                    }
+
+                    if (pal.frames > 1800) {
+                        autoLoginLastStatus = { done: true, submitted: false, stage: "timeout", account: pal.account };
+                        send({ type: "autologin_status", ok: false, stage: "timeout", account: pal.account });
+                        pendingAutoLogin = null;
+                    }
+                } catch (eGU) {}
+            }
+        });
+    }
+} catch (eHookGU) {}
 
 var pDomainGet = ga.findExportByName('il2cpp_domain_get');
 var pThreadAttach = ga.findExportByName('il2cpp_thread_attach');
@@ -2045,7 +2182,7 @@ rpc.exports = {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                 if (itemPtr.isNull()) continue;
 
-                var itemIndex = itemPtr.add(0x10).readS32();
+                var itemIndex = readItemIndex(itemPtr);
                 var itemLevel = itemPtr.add(0x14).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
@@ -2142,7 +2279,8 @@ rpc.exports = {
             if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
                 itemSlot = parseInt(slot);
             } else {
-                // Tự động tìm vị trí vé Mirror of Dimensions (ID 7279 hoặc theo tên) trong toàn bộ hòm đồ (slot 12 - 139)
+                // Tự động tìm vị trí vé Mirror of Dimensions (ID 7279 hoặc theo tên) trong toàn bộ hòm đồ
+                // ƯU TIÊN TUYỆT ĐỐI Hòm đồ chính (slot 12 - 75) vì Game Server MEGAMU yêu cầu vé ở Main Inventory!
                 try {
                     var p = getPlayerPtr();
                     if (!p.isNull()) {
@@ -2155,25 +2293,42 @@ rpc.exports = {
                                     var arrLen = itemsArr.add(0x18).readS32();
                                     if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
                                 } catch (eLen) {}
+
+                                var mainTicketSlot = -1;
+                                var extTicketSlot = -1;
+
                                 for (var s = 12; s < maxSlot; s++) {
                                     var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                                     if (!itemPtr.isNull()) {
-                                        var idx = itemPtr.add(0x10).readS32();
+                                        var idx = readItemIndex(itemPtr);
                                         var check = checkMirrorItem(itemPtr, idx);
                                         if (check.isTicket) {
-                                            itemSlot = s;
-                                            break;
+                                            if (s < 76 && mainTicketSlot < 0) {
+                                                mainTicketSlot = s;
+                                            } else if (s >= 76 && extTicketSlot < 0) {
+                                                extTicketSlot = s;
+                                            }
                                         }
                                     }
                                 }
+                                // Ưu tiên vé ở hòm đồ chính, nếu không có mới lấy ở ba lô mở rộng
+                                itemSlot = (mainTicketSlot >= 12) ? mainTicketSlot : extTicketSlot;
                             }
                         }
                     }
                 } catch (eScan) {}
             }
-            if (itemSlot >= 12 && nativeMirrorEnter !== null) {
-                nativeMirrorEnter(itemSlot, ptr(0));
-                return JSON.stringify({ success: true, slot: itemSlot });
+            if (itemSlot >= 0 && nativeMirrorEnter !== null) {
+                // Opcode GameAssembly.dll RVA 0xFED9C7:
+                // lea eax, [rcx - 0xc] -> Chuyển đổi slot thành 0-based relative slot (0..63) trước khi gửi packet BF:0E!
+                var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
+                nativeMirrorEnter(relSlot, ptr(0));
+                return JSON.stringify({
+                    success: true,
+                    slot: itemSlot,
+                    relSlot: relSlot,
+                    isExtended: (itemSlot >= 76)
+                });
             }
             return JSON.stringify({ success: false, error: itemSlot < 0 ? "no_ticket" : "invalid_slot" });
         } catch (eME) {
@@ -2193,6 +2348,8 @@ rpc.exports = {
                         var tickets = [];
                         var ticketDetails = [];
                         var signSlots = [];
+                        var mainTickets = [];
+                        var extTickets = [];
                         var maxSlot = 140;
                         try {
                             var arrLen = itemsArr.add(0x18).readS32();
@@ -2201,11 +2358,13 @@ rpc.exports = {
                         for (var s = 12; s < maxSlot; s++) {
                             var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                             if (!itemPtr.isNull()) {
-                                var idx = itemPtr.add(0x10).readS32();
+                                var idx = readItemIndex(itemPtr);
                                 var check = checkMirrorItem(itemPtr, idx);
                                 if (check.isTicket) {
                                     tickets.push(s);
-                                    ticketDetails.push({ slot: s, id: idx, name: check.name, isExtended: (s >= 76) });
+                                    var isExt = (s >= 76);
+                                    if (isExt) extTickets.push(s); else mainTickets.push(s);
+                                    ticketDetails.push({ slot: s, relSlot: (s >= 12 ? s - 12 : s), id: idx, name: check.name, isExtended: isExt });
                                 } else if (check.isSign) {
                                     signSlots.push(s);
                                 }
@@ -2215,6 +2374,10 @@ rpc.exports = {
                             hasTicket: tickets.length > 0,
                             count: tickets.length,
                             slots: tickets,
+                            mainSlots: mainTickets,
+                            extSlots: extTickets,
+                            hasMainTicket: mainTickets.length > 0,
+                            hasOnlyExtended: (mainTickets.length === 0 && extTickets.length > 0),
                             details: ticketDetails,
                             signs: signSlots,
                             hasOnlySign: (tickets.length === 0 && signSlots.length > 0)
@@ -2223,7 +2386,7 @@ rpc.exports = {
                 }
             }
         } catch (eScan) {}
-        return JSON.stringify({ hasTicket: false, count: 0, slots: [], details: [], signs: [], hasOnlySign: false });
+        return JSON.stringify({ hasTicket: false, count: 0, slots: [], mainSlots: [], extSlots: [], hasMainTicket: false, hasOnlyExtended: false, details: [], signs: [], hasOnlySign: false });
     },
 
     clickMirrorNpc: function(npcPtr) {
@@ -2291,7 +2454,7 @@ rpc.exports = {
                     freeSlots++;
                     continue;
                 }
-                var itemIndex = itemPtr.add(0x10).readS32();
+                var itemIndex = readItemIndex(itemPtr);
                 var itemLevel = itemPtr.add(0x14).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
@@ -2389,7 +2552,7 @@ rpc.exports = {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                 if (itemPtr.isNull()) continue;
 
-                var itemIndex = itemPtr.add(0x10).readS32();
+                var itemIndex = readItemIndex(itemPtr);
                 var itemLevel = itemPtr.add(0x14).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
@@ -2544,45 +2707,60 @@ rpc.exports = {
         return false;
     },
 
-    autoLogin: function(server, account, character) {
+    autoLogin: function(server, account, character, password) {
         try {
             ensureThreadAttached();
+            var s = parseInt(server || 1);
+            var acc = account ? String(account) : "";
+            var chr = character ? String(character) : "";
+            var pwd = (password !== undefined && password !== null) ? String(password) : "";
+
+            // 1. Cấu hình tức thì AutoLogin singleton nếu đã có sẵn
             var autoLogin = null;
             if (nativeGetAutoLogin !== null) {
                 try { autoLogin = nativeGetAutoLogin(); } catch (eG) {}
             }
-            if (autoLogin === null || autoLogin.isNull()) {
-                return JSON.stringify({ ok: false, err: "auto_login_null" });
-            }
-
-            var s = parseInt(server || 1);
-            var acc = account ? String(account) : "";
-            var chr = character ? String(character) : "";
-
-            var accStr = il2cpp_string_new(Memory.allocUtf8String(acc));
-            var chrStr = il2cpp_string_new(Memory.allocUtf8String(chr));
-
-            if (nativeSetAutoLogin !== null) {
+            if (autoLogin !== null && !autoLogin.isNull()) {
                 try {
-                    nativeSetAutoLogin(autoLogin, s, accStr, chrStr);
-                } catch (eSet) {}
+                    var accStr = il2cpp_string_new(Memory.allocUtf8String(acc));
+                    var chrStr = il2cpp_string_new(Memory.allocUtf8String(chr));
+                    if (nativeSetAutoLogin !== null) {
+                        try { nativeSetAutoLogin(autoLogin, s, accStr, chrStr); } catch (eSet) {}
+                    }
+                    autoLogin.add(0x20).writeU8(0);
+                    autoLogin.add(0x21).writeU8(0);
+                    autoLogin.add(0x22).writeU8(0);
+                    autoLogin.add(0x23).writeU8(0);
+                    autoLogin.add(0x24).writeS32(s);
+                    autoLogin.add(0x28).writePointer(accStr);
+                    autoLogin.add(0x30).writePointer(chrStr);
+                } catch (eALInit) {}
             }
 
-            // Ghi đè trực tiếp các cờ để đảm bảo client kích hoạt luồng AutoLogin
-            try {
-                autoLogin.add(0x20).writeU8(0); // IsServerSelectionDisabled = 0
-                autoLogin.add(0x21).writeU8(0); // IsAccountSelectionDisabled = 0
-                autoLogin.add(0x22).writeU8(0); // IsCharacterSelectionDisabled = 0
-                autoLogin.add(0x23).writeU8(0); // QuickSwitchBackToPrevious = 0
-                autoLogin.add(0x24).writeS32(s); // QuickSwitchServerValue
-                autoLogin.add(0x28).writePointer(accStr); // QuickSwitchAccountValue
-                autoLogin.add(0x30).writePointer(chrStr); // QuickSwitchCharacterValue
-            } catch (eWrite) {}
+            // 2. Đặt lệnh vào hàng đợi Main Thread để Game.Update thực thi chính xác và an toàn
+            autoLoginLastStatus = { done: false, submitted: false, stage: "queued", account: acc };
+            pendingAutoLogin = {
+                server: s,
+                account: acc,
+                character: chr,
+                password: pwd,
+                frames: 0,
+                done: false,
+                submitted: false
+            };
 
-            return JSON.stringify({ ok: true, server: s, account: acc, character: chr });
+            return JSON.stringify({ ok: true, server: s, account: acc, character: chr, queued: true });
         } catch (e) {
             return JSON.stringify({ ok: false, err: e.toString() });
         }
+    },
+
+    getAutoLoginStatus: function() {
+        return JSON.stringify(autoLoginLastStatus);
+    },
+
+    get_auto_login_status: function() {
+        return JSON.stringify(autoLoginLastStatus);
     },
 
     cleanup: function() {
@@ -2599,6 +2777,12 @@ rpc.exports = {
                 guiHook = null;
             }
         } catch (eG) {}
+        try {
+            if (gameUpdateHook !== null) {
+                gameUpdateHook.detach();
+                gameUpdateHook = null;
+            }
+        } catch (eGU) {}
         try {
             if (fastTelemetryTimer !== null) {
                 clearInterval(fastTelemetryTimer);
@@ -2812,6 +2996,10 @@ class MegDirectEngine:
             "__NPC_CLOSE_TALK__": self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x10B29F0"),
             "__UI_MERCHANT_WINDOW__": self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x198"),
             "__ITEM_STORAGE_TYPE_INFO__": self.offsets.get("item_storage_type_info") or DEFAULT_OFFSETS.get("item_storage_type_info", "0x54A2348"),
+            "__MLOGIN_UI_TYPE_INFO__": self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x548c030"),
+            "__MLOGIN_SUBMIT__": self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1BF07B0"),
+            "__MLOGIN_TOKEN_LOGIN__": self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1BF3180"),
+            "__GAME_UPDATE__": self.offsets.get("game_update") or DEFAULT_OFFSETS.get("game_update", "0x10A2450"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -2933,9 +3121,10 @@ class MegDirectEngine:
                 if fn:
                     return fn(*args)
             except Exception as e:
-                _safe_log(f"[MegDirectEngine] RPC _call '{func_name}' error: {e}")
-                # Nếu RPC lỗi do script bị mất, đánh dấu cần gắn lại
                 err_str = str(e).lower()
+                if "unable to find method" not in err_str:
+                    _safe_log(f"[MegDirectEngine] RPC _call '{func_name}' error: {e}")
+                # Nếu RPC lỗi do script bị mất, đánh dấu cần gắn lại
                 if "detached" in err_str or "destroyed" in err_str or "script is destroyed" in err_str:
                     self.is_ready = False
                 return None
@@ -3802,17 +3991,28 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi sell_inventory_slot: {e}")
         return False
 
-    def auto_login(self, server: int = 1, account: str = "", character: str = "") -> Dict[str, Any]:
-        """Gửi lệnh AutoLogin native vào GameAssembly.dll để tự động đăng nhập vào game."""
+    def auto_login(self, server: int = 1, account: str = "", character: str = "", password: str = "") -> Dict[str, Any]:
+        """Gửi lệnh AutoLogin native vào GameAssembly.dll, hỗ trợ QuickSwitch và submit mật khẩu trực tiếp."""
         if self.is_ready:
             try:
-                res = self._call("autoLogin", int(server), str(account), str(character))
+                res = self._call("autoLogin", int(server), str(account), str(character), str(password))
                 if res:
                     return json.loads(res) if isinstance(res, str) else res
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi auto_login: {e}")
                 return {"ok": False, "err": str(e)}
         return {"ok": False, "err": "not_ready"}
+
+    def get_autologin_status(self) -> Dict[str, Any]:
+        """Lấy trạng thái thực thi AutoLogin trên Unity Main Thread."""
+        if self.is_ready:
+            try:
+                res = self._call("getAutoLoginStatus")
+                if res:
+                    return json.loads(res) if isinstance(res, str) else res
+            except Exception as e:
+                pass
+        return {"done": False, "submitted": False, "stage": "disconnected"}
 
     def detach(self):
         """

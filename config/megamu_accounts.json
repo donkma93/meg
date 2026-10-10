@@ -24,6 +24,29 @@
       "server": 1,
       "enabled": true,
       "source": "registry"
+    },
+    {
+      "username": "thaibinh06",
+      "nickname": "thaibinh06",
+      "character": "Hface",
+      "characters_list": [
+        "Hface"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "anhdontb3",
+      "nickname": "anhdontb3",
+      "character": "laclac24",
+      "characters_list": [
+        "laclac24"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "manual",
+      "password": "Nammothai3"
     }
   ]
 }

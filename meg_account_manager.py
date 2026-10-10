@@ -140,19 +140,21 @@ class AccountManager:
             self.save_accounts()
         return added
 
-    def add_account(self, username: str, character: str = "", server: int = 1) -> bool:
-        """Thêm tài khoản mới không giới hạn."""
+    def add_account(self, username: str, password: str = "", character: str = "", server: int = 1) -> bool:
+        """Thêm tài khoản mới không giới hạn (hỗ trợ lưu mật khẩu tự động)."""
         username = username.strip()
         if not username:
             return False
         for a in self.accounts:
             if a["username"].lower() == username.lower():
+                if password:
+                    a["password"] = password
                 a["character"] = character
                 a["server"] = server
                 a["enabled"] = True
                 self.save_accounts()
                 return True
-        self.accounts.append({
+        acc_data = {
             "username": username,
             "nickname": username,
             "character": character,
@@ -160,7 +162,10 @@ class AccountManager:
             "server": server,
             "enabled": True,
             "source": "manual"
-        })
+        }
+        if password:
+            acc_data["password"] = password
+        self.accounts.append(acc_data)
         self.save_accounts()
         return True
 
@@ -173,10 +178,15 @@ class AccountManager:
             return True
         return False
 
-    def update_account(self, username: str, character: Optional[str] = None, server: Optional[int] = None) -> bool:
-        """Cập nhật nhân vật hoặc server của một tài khoản."""
+    def update_account(self, username: str, password: Optional[str] = None, character: Optional[str] = None, server: Optional[int] = None) -> bool:
+        """Cập nhật mật khẩu, nhân vật hoặc server của một tài khoản."""
         for a in self.accounts:
             if a["username"].lower() == username.lower():
+                if password is not None:
+                    if password == "":
+                        a.pop("password", None)
+                    else:
+                        a["password"] = password
                 if character is not None:
                     a["character"] = character
                     # Đảm bảo nhân vật có trong characters_list
@@ -210,6 +220,7 @@ class AccountManager:
         Returns: PID của tiến trình MEGAMU mới tạo hoặc None nếu thất bại.
         """
         username = acc.get("username", "")
+        password = acc.get("password", "")
         character = acc.get("character", "")
         server = acc.get("server", 1)
 
@@ -228,15 +239,12 @@ class AccountManager:
         try:
             proc = subprocess.Popen([exe], cwd=os.path.dirname(exe))
             pid = proc.pid
-            _log(f"   → Đã tạo tiến trình PID {pid}. Chờ GameAssembly.dll nạp (khoảng 3.5s)...")
+            _log(f"   → Đã tạo tiến trình PID {pid}. Đang chờ Game khởi động và nạp GameAssembly.dll...")
         except Exception as ex:
             _log(f"❌ Lỗi khởi chạy tiến trình: {ex}")
             return None
 
-        # Chờ game nạp xong GameAssembly.dll
-        time.sleep(3.5)
-
-        # Gắn DirectEngine và gọi AutoLogin native
+        # Gắn DirectEngine và kích hoạt AutoLogin native trên Unity Main Thread
         try:
             from meg_direct_engine import MegDirectEngine
             eng = MegDirectEngine.get_engine(pid)
@@ -245,22 +253,46 @@ class AccountManager:
                 return pid
 
             attached = False
-            for retry in range(5):
+            for _ in range(12):
+                if not psutil.pid_exists(pid):
+                    _log(f"❌ [PID {pid}] Tiến trình game đã bị đóng!")
+                    return None
                 if eng.attach():
                     attached = True
                     break
-                time.sleep(1.0)
+                time.sleep(0.8)
 
             if not attached:
                 _log(f"⚠️ [PID {pid}] Game chưa sẵn sàng để attach Frida. Đăng nhập thủ công hoặc thử lại sau.")
                 return pid
 
-            _log(f"🔑 [PID {pid}] Đang gửi lệnh AutoLogin (Server: {server}, Acc: '{username}', NV: '{character}')...")
-            res = eng.auto_login(server=server, account=username, character=character)
-            if res.get("ok"):
-                _log(f"✅ [PID {pid} - {username}] Gửi lệnh AutoLogin thành công! Game đang tự động vào nhân vật '{character}'.")
-            else:
-                _log(f"⚠️ [PID {pid} - {username}] AutoLogin phản hồi: {res}")
+            has_pwd = bool(password)
+            auth_tag = " (Đăng nhập Form & Mật khẩu)" if has_pwd else " (Đăng nhập Token Registry)"
+            _log(f"🔑 [PID {pid}] Đã gắn Hook thành công! Đang kích hoạt AutoLogin{auth_tag} (Server: {server}, Acc: '{username}', NV: '{character}')...")
+            eng.auto_login(server=server, account=username, character=character, password=password)
+
+            _log(f"⏳ [PID {pid}] Đang chờ game nạp màn hình MLoginUI trên Main Thread (tối đa 25s)...")
+            start_wait = time.time()
+            submitted = False
+            while time.time() - start_wait < 25.0:
+                if not psutil.pid_exists(pid):
+                    _log(f"❌ [PID {pid}] Tiến trình game đã bị đóng!")
+                    return None
+                status = eng.get_autologin_status()
+                if status.get("submitted") or status.get("done"):
+                    submitted = True
+                    stage = status.get("stage", "")
+                    if stage == "submitted_password":
+                        _log(f"✅ [PID {pid} - {username}] ĐÃ ĐIỀN FORM VÀ SUBMIT MẬT KHẨU THÀNH CÔNG trên Main Thread! Game đang vào nhân vật '{character}'...")
+                    elif stage == "submitted_token":
+                        _log(f"✅ [PID {pid} - {username}] ĐÃ ĐĂNG NHẬP BẰNG TOKEN REGISTRY THÀNH CÔNG trên Main Thread! Game đang vào nhân vật '{character}'...")
+                    else:
+                        _log(f"✅ [PID {pid} - {username}] AutoLogin đã kích hoạt thành công trên Main Thread!")
+                    break
+                time.sleep(0.4)
+
+            if not submitted:
+                _log(f"⚠️ [PID {pid} - {username}] Hết 25s chờ MLoginUI. Lệnh đăng nhập vẫn được giữ trong hàng đợi Main Thread.")
             return pid
         except Exception as eE:
             _log(f"⚠️ [PID {pid}] Lỗi khi gọi AutoLogin: {eE}")
@@ -269,6 +301,7 @@ class AccountManager:
     def login_existing_pid(self, pid: int, acc: Dict[str, Any], on_log: Optional[Callable[[str], None]] = None) -> bool:
         """Gửi lệnh AutoLogin native vào một tiến trình MEGAMU đang chạy."""
         username = acc.get("username", "")
+        password = acc.get("password", "")
         character = acc.get("character", "")
         server = acc.get("server", 1)
 
@@ -289,13 +322,25 @@ class AccountManager:
                 if not eng.attach():
                     _log(f"⚠️ [PID {pid}] Không thể kết nối Frida engine!")
                     return False
-            res = eng.auto_login(server=server, account=username, character=character)
-            if res.get("ok"):
-                _log(f"✅ [PID {pid} - {username}] Gửi lệnh AutoLogin thành công! (Server {server}, Nhân vật '{character}')")
-                return True
-            else:
-                _log(f"⚠️ [PID {pid} - {username}] AutoLogin phản hồi: {res}")
-                return False
+            eng.auto_login(server=server, account=username, character=character, password=password)
+
+            # Chờ Main Thread submit trong tối đa 4 giây
+            start_wait = time.time()
+            while time.time() - start_wait < 4.0:
+                status = eng.get_autologin_status()
+                if status.get("submitted") or status.get("done"):
+                    stage = status.get("stage", "")
+                    if stage == "submitted_password":
+                        _log(f"✅ [PID {pid} - {username}] ĐÃ ĐIỀN FORM VÀ SUBMIT MẬT KHẨU THÀNH CÔNG trên Main Thread! (Server {server}, Nhân vật '{character}')")
+                    elif stage == "submitted_token":
+                        _log(f"✅ [PID {pid} - {username}] ĐÃ ĐĂNG NHẬP BẰNG TOKEN THÀNH CÔNG trên Main Thread! (Server {server}, Nhân vật '{character}')")
+                    else:
+                        _log(f"✅ [PID {pid} - {username}] Đã kích hoạt AutoLogin thành công!")
+                    return True
+                time.sleep(0.2)
+
+            _log(f"✅ [PID {pid} - {username}] Đã đưa lệnh AutoLogin vào hàng đợi Main Thread (Server {server}, Nhân vật '{character}')")
+            return True
         except Exception as ex:
             _log(f"❌ [PID {pid}] Lỗi AutoLogin: {ex}")
             return False

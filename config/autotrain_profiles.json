@@ -13,41 +13,45 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
+                "poll_interval": 0.55,
+                "reset_confirm_seconds": 1.5,
+                "map_command_retry_delay": 4.5,
+                "map_verify_unknown_timeout": 6.0,
                 "stages": [
                     {
                         "min_level": 1,
                         "max_level": 69,
                         "map_name": "Lorencia",
-                        "x": 13,
-                        "y": 123
+                        "x": 8,
+                        "y": 134
                     },
                     {
                         "min_level": 70,
-                        "max_level": 1000,
+                        "max_level": 79,
                         "map_name": "Devias 4",
                         "x": 80,
                         "y": 151
                     },
                     {
-                        "min_level": 400,
-                        "max_level": 400,
-                        "map_name": "Dungeon 3",
-                        "x": 31,
-                        "y": 60
+                        "min_level": 80,
+                        "max_level": 159,
+                        "map_name": "Atlans 2",
+                        "x": 236,
+                        "y": 16
                     },
                     {
-                        "min_level": 400,
-                        "max_level": 400,
-                        "map_name": "Dungeon 3",
-                        "x": 33,
-                        "y": 117
+                        "min_level": 160,
+                        "max_level": 319,
+                        "map_name": "Tarkan 2",
+                        "x": 166,
+                        "y": 200
                     },
                     {
-                        "min_level": 400,
-                        "max_level": 400,
-                        "map_name": "Kanturu 2",
-                        "x": 144,
-                        "y": 58
+                        "min_level": 320,
+                        "max_level": 399,
+                        "map_name": "Aida 2",
+                        "x": 210,
+                        "y": 200
                     },
                     {
                         "min_level": 400,
@@ -56,11 +60,7 @@
                         "x": 90,
                         "y": 23
                     }
-                ],
-                "poll_interval": 0.55,
-                "reset_confirm_seconds": 1.5,
-                "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                ]
             }
         },
         "2": {
@@ -75,40 +75,54 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
-                "stages": [
-                    {
-                        "min_level": 1,
-                        "max_level": 39,
-                        "map_name": "Lorencia",
-                        "x": 70,
-                        "y": 147
-                    },
-                    {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
-                    },
-                    {
-                        "min_level": 60,
-                        "max_level": 159,
-                        "map_name": "Lost Tower 5",
-                        "x": 110,
-                        "y": 56
-                    },
-                    {
-                        "min_level": 160,
-                        "max_level": 1100,
-                        "map_name": "Tarkan 2",
-                        "x": 134,
-                        "y": 158
-                    }
-                ],
                 "poll_interval": 0.55,
                 "reset_confirm_seconds": 1.5,
                 "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                "map_verify_unknown_timeout": 6.0,
+                "stages": [
+                    {
+                        "min_level": 1,
+                        "max_level": 69,
+                        "map_name": "Noria",
+                        "x": 117,
+                        "y": 96
+                    },
+                    {
+                        "min_level": 70,
+                        "max_level": 79,
+                        "map_name": "Devias 4",
+                        "x": 80,
+                        "y": 151
+                    },
+                    {
+                        "min_level": 80,
+                        "max_level": 159,
+                        "map_name": "Atlans 2",
+                        "x": 234,
+                        "y": 16
+                    },
+                    {
+                        "min_level": 160,
+                        "max_level": 319,
+                        "map_name": "Tarkan 2",
+                        "x": 166,
+                        "y": 200
+                    },
+                    {
+                        "min_level": 320,
+                        "max_level": 399,
+                        "map_name": "Aida 2",
+                        "x": 210,
+                        "y": 200
+                    },
+                    {
+                        "min_level": 400,
+                        "max_level": 400,
+                        "map_name": "Arena",
+                        "x": 90,
+                        "y": 23
+                    }
+                ]
             }
         },
         "3": {
@@ -123,40 +137,54 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
-                "stages": [
-                    {
-                        "min_level": 1,
-                        "max_level": 39,
-                        "map_name": "Lorencia",
-                        "x": 70,
-                        "y": 147
-                    },
-                    {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
-                    },
-                    {
-                        "min_level": 60,
-                        "max_level": 159,
-                        "map_name": "Lost Tower 5",
-                        "x": 110,
-                        "y": 56
-                    },
-                    {
-                        "min_level": 160,
-                        "max_level": 399,
-                        "map_name": "Aida 2",
-                        "x": 86,
-                        "y": 20
-                    }
-                ],
                 "poll_interval": 0.55,
                 "reset_confirm_seconds": 1.5,
                 "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                "map_verify_unknown_timeout": 6.0,
+                "stages": [
+                    {
+                        "min_level": 1,
+                        "max_level": 69,
+                        "map_name": "Elbeland",
+                        "x": 29,
+                        "y": 155
+                    },
+                    {
+                        "min_level": 70,
+                        "max_level": 79,
+                        "map_name": "Devias 4",
+                        "x": 80,
+                        "y": 151
+                    },
+                    {
+                        "min_level": 80,
+                        "max_level": 159,
+                        "map_name": "Atlans 2",
+                        "x": 234,
+                        "y": 16
+                    },
+                    {
+                        "min_level": 160,
+                        "max_level": 319,
+                        "map_name": "Tarkan 2",
+                        "x": 166,
+                        "y": 200
+                    },
+                    {
+                        "min_level": 320,
+                        "max_level": 399,
+                        "map_name": "Aida 2",
+                        "x": 210,
+                        "y": 200
+                    },
+                    {
+                        "min_level": 400,
+                        "max_level": 400,
+                        "map_name": "Arena",
+                        "x": 90,
+                        "y": 23
+                    }
+                ]
             }
         },
         "4": {
@@ -171,40 +199,54 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
+                "poll_interval": 0.55,
+                "reset_confirm_seconds": 1.5,
+                "map_command_retry_delay": 4.5,
+                "map_verify_unknown_timeout": 6.0,
                 "stages": [
                     {
                         "min_level": 1,
-                        "max_level": 39,
+                        "max_level": 69,
                         "map_name": "Lorencia",
                         "x": 70,
                         "y": 147
                     },
                     {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
+                        "min_level": 70,
+                        "max_level": 79,
+                        "map_name": "Dungeon 1",
+                        "x": 110,
+                        "y": 130
                     },
                     {
-                        "min_level": 60,
+                        "min_level": 80,
                         "max_level": 159,
-                        "map_name": "Lost Tower 5",
-                        "x": 110,
-                        "y": 56
+                        "map_name": "Dungeon 3",
+                        "x": 10,
+                        "y": 10
                     },
                     {
                         "min_level": 160,
+                        "max_level": 319,
+                        "map_name": "Lost Tower 7",
+                        "x": 10,
+                        "y": 245
+                    },
+                    {
+                        "min_level": 320,
                         "max_level": 399,
-                        "map_name": "Aida 1",
-                        "x": 135,
-                        "y": 150
+                        "map_name": "Kanturu 1",
+                        "x": 140,
+                        "y": 185
+                    },
+                    {
+                        "min_level": 400,
+                        "max_level": 400,
+                        "map_name": "Arena",
+                        "x": 90,
+                        "y": 23
                     }
-                ],
-                "poll_interval": 0.55,
-                "reset_confirm_seconds": 1.5,
-                "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                ]
             }
         },
         "5": {
@@ -219,40 +261,40 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
+                "poll_interval": 0.55,
+                "reset_confirm_seconds": 1.5,
+                "map_command_retry_delay": 4.5,
+                "map_verify_unknown_timeout": 6.0,
                 "stages": [
                     {
                         "min_level": 1,
-                        "max_level": 39,
+                        "max_level": 69,
                         "map_name": "Lorencia",
                         "x": 70,
                         "y": 147
                     },
                     {
-                        "min_level": 40,
-                        "max_level": 59,
+                        "min_level": 70,
+                        "max_level": 139,
                         "map_name": "Dungeon 2",
                         "x": 217,
                         "y": 115
                     },
                     {
-                        "min_level": 60,
-                        "max_level": 159,
+                        "min_level": 140,
+                        "max_level": 319,
                         "map_name": "Lost Tower 5",
                         "x": 110,
                         "y": 56
                     },
                     {
-                        "min_level": 160,
-                        "max_level": 399,
-                        "map_name": "Aida 1",
-                        "x": 135,
-                        "y": 150
+                        "min_level": 320,
+                        "max_level": 400,
+                        "map_name": "Arena",
+                        "x": 90,
+                        "y": 23
                     }
-                ],
-                "poll_interval": 0.55,
-                "reset_confirm_seconds": 1.5,
-                "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                ]
             }
         },
         "6": {
@@ -267,40 +309,40 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
-                "stages": [
-                    {
-                        "min_level": 1,
-                        "max_level": 39,
-                        "map_name": "Lorencia",
-                        "x": 70,
-                        "y": 147
-                    },
-                    {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
-                    },
-                    {
-                        "min_level": 60,
-                        "max_level": 159,
-                        "map_name": "Lost Tower 5",
-                        "x": 110,
-                        "y": 56
-                    },
-                    {
-                        "min_level": 160,
-                        "max_level": 399,
-                        "map_name": "Aida 1",
-                        "x": 135,
-                        "y": 150
-                    }
-                ],
                 "poll_interval": 0.55,
                 "reset_confirm_seconds": 1.5,
                 "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                "map_verify_unknown_timeout": 6.0,
+                "stages": [
+                    {
+                        "min_level": 1,
+                        "max_level": 79,
+                        "map_name": "Elbeland",
+                        "x": 50,
+                        "y": 210
+                    },
+                    {
+                        "min_level": 80,
+                        "max_level": 159,
+                        "map_name": "Atlans 2",
+                        "x": 236,
+                        "y": 16
+                    },
+                    {
+                        "min_level": 160,
+                        "max_level": 319,
+                        "map_name": "Tarkan 2",
+                        "x": 166,
+                        "y": 200
+                    },
+                    {
+                        "min_level": 320,
+                        "max_level": 400,
+                        "map_name": "Kanturu 2",
+                        "x": 140,
+                        "y": 80
+                    }
+                ]
             }
         },
         "7": {
@@ -315,40 +357,40 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
-                "stages": [
-                    {
-                        "min_level": 1,
-                        "max_level": 39,
-                        "map_name": "Lorencia",
-                        "x": 70,
-                        "y": 147
-                    },
-                    {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
-                    },
-                    {
-                        "min_level": 60,
-                        "max_level": 159,
-                        "map_name": "Lost Tower 5",
-                        "x": 110,
-                        "y": 56
-                    },
-                    {
-                        "min_level": 160,
-                        "max_level": 399,
-                        "map_name": "Aida 1",
-                        "x": 135,
-                        "y": 150
-                    }
-                ],
                 "poll_interval": 0.55,
                 "reset_confirm_seconds": 1.5,
                 "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                "map_verify_unknown_timeout": 6.0,
+                "stages": [
+                    {
+                        "min_level": 1,
+                        "max_level": 79,
+                        "map_name": "Noria",
+                        "x": 170,
+                        "y": 110
+                    },
+                    {
+                        "min_level": 80,
+                        "max_level": 159,
+                        "map_name": "Devias 4",
+                        "x": 80,
+                        "y": 151
+                    },
+                    {
+                        "min_level": 160,
+                        "max_level": 319,
+                        "map_name": "Tarkan 1",
+                        "x": 130,
+                        "y": 120
+                    },
+                    {
+                        "min_level": 320,
+                        "max_level": 400,
+                        "map_name": "Aida 2",
+                        "x": 210,
+                        "y": 200
+                    }
+                ]
             }
         },
         "8": {
@@ -363,40 +405,40 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
-                "stages": [
-                    {
-                        "min_level": 1,
-                        "max_level": 39,
-                        "map_name": "Lorencia",
-                        "x": 70,
-                        "y": 147
-                    },
-                    {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
-                    },
-                    {
-                        "min_level": 60,
-                        "max_level": 159,
-                        "map_name": "Lost Tower 5",
-                        "x": 110,
-                        "y": 56
-                    },
-                    {
-                        "min_level": 160,
-                        "max_level": 399,
-                        "map_name": "Aida 1",
-                        "x": 135,
-                        "y": 150
-                    }
-                ],
                 "poll_interval": 0.55,
                 "reset_confirm_seconds": 1.5,
                 "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                "map_verify_unknown_timeout": 6.0,
+                "stages": [
+                    {
+                        "min_level": 1,
+                        "max_level": 79,
+                        "map_name": "Lorencia",
+                        "x": 13,
+                        "y": 123
+                    },
+                    {
+                        "min_level": 80,
+                        "max_level": 159,
+                        "map_name": "Atlans 1",
+                        "x": 20,
+                        "y": 20
+                    },
+                    {
+                        "min_level": 160,
+                        "max_level": 319,
+                        "map_name": "Lost Tower 3",
+                        "x": 85,
+                        "y": 165
+                    },
+                    {
+                        "min_level": 320,
+                        "max_level": 400,
+                        "map_name": "Arena",
+                        "x": 90,
+                        "y": 23
+                    }
+                ]
             }
         },
         "9": {
@@ -411,23 +453,20 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
+                "poll_interval": 0.55,
+                "reset_confirm_seconds": 1.5,
+                "map_command_retry_delay": 4.5,
+                "map_verify_unknown_timeout": 6.0,
                 "stages": [
                     {
                         "min_level": 1,
-                        "max_level": 39,
-                        "map_name": "Lorencia",
-                        "x": 70,
-                        "y": 147
+                        "max_level": 79,
+                        "map_name": "Elbeland",
+                        "x": 30,
+                        "y": 157
                     },
                     {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
-                    },
-                    {
-                        "min_level": 60,
+                        "min_level": 80,
                         "max_level": 159,
                         "map_name": "Lost Tower 5",
                         "x": 110,
@@ -435,16 +474,19 @@
                     },
                     {
                         "min_level": 160,
-                        "max_level": 399,
-                        "map_name": "Aida 1",
-                        "x": 135,
-                        "y": 150
+                        "max_level": 319,
+                        "map_name": "Atlans 3",
+                        "x": 70,
+                        "y": 160
+                    },
+                    {
+                        "min_level": 320,
+                        "max_level": 400,
+                        "map_name": "Icarus",
+                        "x": 15,
+                        "y": 13
                     }
-                ],
-                "poll_interval": 0.55,
-                "reset_confirm_seconds": 1.5,
-                "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                ]
             }
         },
         "10": {
@@ -459,40 +501,40 @@
                 "stuck_retry_delay": 3.5,
                 "helper_native_timeout": 4.0,
                 "helper_direct_fallback": true,
+                "poll_interval": 0.55,
+                "reset_confirm_seconds": 1.5,
+                "map_command_retry_delay": 4.5,
+                "map_verify_unknown_timeout": 6.0,
                 "stages": [
                     {
                         "min_level": 1,
-                        "max_level": 39,
+                        "max_level": 69,
                         "map_name": "Lorencia",
                         "x": 70,
                         "y": 147
                     },
                     {
-                        "min_level": 40,
-                        "max_level": 59,
-                        "map_name": "Dungeon 2",
-                        "x": 217,
-                        "y": 115
-                    },
-                    {
-                        "min_level": 60,
+                        "min_level": 70,
                         "max_level": 159,
-                        "map_name": "Lost Tower 5",
-                        "x": 110,
-                        "y": 56
+                        "map_name": "Devias 4",
+                        "x": 80,
+                        "y": 151
                     },
                     {
                         "min_level": 160,
-                        "max_level": 399,
-                        "map_name": "Aida 1",
-                        "x": 135,
-                        "y": 150
+                        "max_level": 319,
+                        "map_name": "Tarkan 2",
+                        "x": 166,
+                        "y": 200
+                    },
+                    {
+                        "min_level": 320,
+                        "max_level": 400,
+                        "map_name": "Arena",
+                        "x": 60,
+                        "y": 115
                     }
-                ],
-                "poll_interval": 0.55,
-                "reset_confirm_seconds": 1.5,
-                "map_command_retry_delay": 4.5,
-                "map_verify_unknown_timeout": 6.0
+                ]
             }
         }
     }

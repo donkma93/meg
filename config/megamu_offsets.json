@@ -59,5 +59,9 @@
     "get_window_handler": "0x10A9770",
     "npc_close_talk": "0x10B29F0",
     "ui_merchant_window": "0x198",
-    "item_storage_type_info": "0x54A2348"
+    "item_storage_type_info": "0x54A2348",
+    "mlogin_ui_type_info": "0x548c030",
+    "mlogin_submit": "0x1BF07B0",
+    "mlogin_token_login": "0x1BF3180",
+    "game_update": "0x10A2450"
 }

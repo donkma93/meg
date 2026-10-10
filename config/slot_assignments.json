@@ -6,16 +6,19 @@
       "profile": 1
     },
     "2": {
-      "profile": 1
+      "profile": 3
     },
     "3": {
-      "profile": 1
+      "profile": 2
     },
     "4": {
-      "profile": 1
+      "profile": 3
     },
     "5": {
       "profile": 1
+    },
+    "6": {
+      "profile": 3
     }
   }
 }

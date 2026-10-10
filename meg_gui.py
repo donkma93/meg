@@ -1428,13 +1428,13 @@ class SlotController:
             return True
         return False
 
-    def send_auto_login(self, server: int = 1, account: str = "", character: str = "") -> bool:
+    def send_auto_login(self, server: int = 1, account: str = "", character: str = "", password: str = "") -> bool:
         """Gửi lệnh AutoLogin native vào client MEGAMU được gán cho Slot này."""
         if not self.engine or not self.engine.is_ready:
             if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
                 self.attach_pid(self.assigned_pid)
         if self.engine and self.engine.is_ready:
-            res = self.engine.auto_login(server=server, account=account, character=character)
+            res = self.engine.auto_login(server=server, account=account, character=character, password=password)
             if res.get("ok"):
                 self.app.log_message(f"[Slot {self.slot_idx:02d}] Đã gửi AutoLogin thành công: Server {server}, Acc '{account}', NV '{character}'", "SUCCESS")
                 return True
@@ -2297,11 +2297,29 @@ class SlotController:
             return False
         if not eng.is_ready:
             eng.attach()
+
+        # Kiểm tra trước vé và cảnh báo nếu vé chỉ có ở ba lô mở rộng hoặc chỉ có mảnh ghép
+        try:
+            t_info = eng.get_mirror_ticket_info()
+            if t_info.get("hasOnlyExtended"):
+                ext_slots = ", ".join(str(s) for s in t_info.get("extSlots", []))
+                self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ LƯU Ý: Vé Mirror đang nằm ở Ba lô mở rộng (ô {ext_slots})! Nếu Game Server MEGAMU báo 'You don't have a Mirror of Dimensions', hãy chuyển vé vào 64 ô đầu của Hòm đồ chính."
+                )
+            elif t_info.get("hasOnlySign"):
+                signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
+                self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CHÚ Ý: Bạn chỉ có Mảnh vé Sign of Dimensions tại ô [{signs_str}], chưa ghép thành vé Mirror hoàn chỉnh!"
+                )
+        except Exception:
+            pass
+
         res = eng.enter_mirror()
         if res.get("success"):
             slot_used = res.get("slot", "?")
-            ext_tag = " (Ba lô phụ)" if isinstance(slot_used, int) and slot_used >= 76 else ""
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa Double Goer bằng vé ô {slot_used}{ext_tag} (Native 0xFF08D0).")
+            rel_slot = res.get("relSlot", "?")
+            ext_tag = " (Ba lô phụ)" if isinstance(slot_used, int) and slot_used >= 76 else " (Hòm chính)"
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa Double Goer bằng vé ô {slot_used}{ext_tag} [rel: {rel_slot}] (Native 0xFF08D0).")
             return True
         else:
             err = res.get("error", "Unknown")
@@ -4390,6 +4408,8 @@ class DashboardApp(ctk.CTk):
 
     def load_profile_into_editor(self, profile_idx: int):
         """Đọc Profile từ file JSON và điền vào form."""
+        self.current_editor_profile_idx = profile_idx
+        self.editor_profile_var.set(f"Config {profile_idx}")
         cfg = ConfigPersistenceManager.load_single_profile(profile_idx)
         self.editor_respawn_var.set(str(cfg.get("respawn_delay", 15)))
 
@@ -4411,17 +4431,20 @@ class DashboardApp(ctk.CTk):
 
     def on_editor_profile_change(self, val: str):
         try:
-            # Tự động lưu cấu hình hiện tại trước khi chuyển sang xem profile khác
-            self.save_editor_to_file(silent=True)
-            idx = int(val.replace("Config ", "").strip())
-            self.load_profile_into_editor(idx)
+            new_idx = int(val.replace("Config ", "").strip())
+            prev_idx = getattr(self, "current_editor_profile_idx", 1)
+            # Chỉ lưu cấu hình CŨ (prev_idx) trước khi chuyển sang xem profile mới
+            if prev_idx != new_idx:
+                self.save_editor_to_file(silent=True, target_idx=prev_idx)
+            # Nạp cấu hình MỚI vào form
+            self.load_profile_into_editor(new_idx)
         except Exception:
             pass
 
     def reload_editor_from_file(self):
         """Tải lại dữ liệu tươi mới từ file đĩa JSON."""
         try:
-            idx = int(self.editor_profile_var.get().replace("Config ", "").strip())
+            idx = getattr(self, "current_editor_profile_idx", 1)
             self.load_profile_into_editor(idx)
             self.log_message(f"Đã tải lại Config {idx} trực tiếp từ file autotrain_profiles.json.", "INFO")
         except Exception as e:
@@ -4433,7 +4456,7 @@ class DashboardApp(ctk.CTk):
             if target_idx is not None:
                 idx = int(target_idx)
             else:
-                idx = int(self.editor_profile_var.get().replace("Config ", "").strip())
+                idx = getattr(self, "current_editor_profile_idx", 1)
             # Đọc config gốc để giữ các trường mở rộng
             cfg = ConfigPersistenceManager.load_single_profile(idx)
             try:
@@ -7646,7 +7669,9 @@ class DashboardApp(ctk.CTk):
 
             # 3. Username
             u_name = acc.get("username", "")
-            u_lbl = ctk.CTkLabel(row, text=u_name, width=125, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f1f5f9")
+            has_pwd = bool(acc.get("password"))
+            u_title = f"{u_name} 🔑" if has_pwd else u_name
+            u_lbl = ctk.CTkLabel(row, text=u_title, width=125, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#38bdf8" if has_pwd else "#f1f5f9")
             u_lbl.pack(side="left", padx=4)
 
             # 4. Character Combobox
@@ -7740,6 +7765,21 @@ class DashboardApp(ctk.CTk):
             )
             btn_send.pack(side="left", padx=(0, 4))
 
+            def _make_edit_cmd(a_ref):
+                return lambda: self.open_edit_account_dialog(a_ref)
+            btn_edit = ctk.CTkButton(
+                act_box,
+                text="✏️",
+                width=30,
+                height=26,
+                corner_radius=5,
+                fg_color="#1e2433",
+                hover_color="#0284c7",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                command=_make_edit_cmd(acc)
+            )
+            btn_edit.pack(side="left", padx=(0, 4))
+
             def _make_del_cmd(u_str):
                 return lambda: self.delete_account_ui(u_str)
             btn_del = ctk.CTkButton(
@@ -7820,7 +7860,7 @@ class DashboardApp(ctk.CTk):
         """Hộp thoại thêm tài khoản MEGAMU mới."""
         dlg = ctk.CTkToplevel(self)
         dlg.title("Thêm Tài Khoản MEGAMU")
-        dlg.geometry("380x280")
+        dlg.geometry("400x330")
         dlg.resizable(False, False)
         dlg.transient(self)
         dlg.grab_set()
@@ -7831,34 +7871,91 @@ class DashboardApp(ctk.CTk):
         f.pack(fill="x", padx=20, pady=4)
 
         ctk.CTkLabel(f, text="Tên tài khoản:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=0, column=0, sticky="w", pady=6)
-        u_ent = ctk.CTkEntry(f, width=200, font=ctk.CTkFont(family="Segoe UI", size=11))
+        u_ent = ctk.CTkEntry(f, width=210, font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Ví dụ: myaccount")
         u_ent.grid(row=0, column=1, sticky="e", pady=6)
         u_ent.focus_set()
 
-        ctk.CTkLabel(f, text="Tên nhân vật:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=1, column=0, sticky="w", pady=6)
-        c_ent = ctk.CTkEntry(f, width=200, font=ctk.CTkFont(family="Segoe UI", size=11))
-        c_ent.grid(row=1, column=1, sticky="e", pady=6)
+        ctk.CTkLabel(f, text="Mật khẩu:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=1, column=0, sticky="w", pady=6)
+        p_ent = ctk.CTkEntry(f, width=210, show="*", font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Mật khẩu đăng nhập")
+        p_ent.grid(row=1, column=1, sticky="e", pady=6)
 
-        ctk.CTkLabel(f, text="Server:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=2, column=0, sticky="w", pady=6)
-        s_combo = ModernOptionMenu(f, values=[f"Server {s}" for s in range(1, 9)], width=200, font=ctk.CTkFont(family="Segoe UI", size=11))
-        s_combo.grid(row=2, column=1, sticky="e", pady=6)
+        ctk.CTkLabel(f, text="Tên nhân vật:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=2, column=0, sticky="w", pady=6)
+        c_ent = ctk.CTkEntry(f, width=210, font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Tên nhân vật muốn chọn")
+        c_ent.grid(row=2, column=1, sticky="e", pady=6)
+
+        ctk.CTkLabel(f, text="Server:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=3, column=0, sticky="w", pady=6)
+        s_combo = ModernOptionMenu(f, values=[f"Server {s}" for s in range(1, 9)], width=210, font=ctk.CTkFont(family="Segoe UI", size=11))
+        s_combo.grid(row=3, column=1, sticky="e", pady=6)
 
         def _save():
             u = u_ent.get().strip()
+            p = p_ent.get().strip()
             c = c_ent.get().strip()
             s = int(s_combo.get().replace("Server ", "").strip())
             if not u:
                 return
             if self.account_mgr:
-                self.account_mgr.add_account(username=u, character=c, server=s)
+                self.account_mgr.add_account(username=u, password=p, character=c, server=s)
             self.refresh_autologin_table()
-            self.append_autologin_log(f"➕ Đã thêm tài khoản '{u}' (Nhân vật '{c}', Server {s})")
+            pwd_info = " (Đã lưu mật khẩu)" if p else ""
+            self.append_autologin_log(f"➕ Đã thêm tài khoản '{u}'{pwd_info} (Nhân vật '{c}', Server {s})")
             dlg.destroy()
 
         btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
         btn_box.pack(pady=(16, 0))
-        ctk.CTkButton(btn_box, text="Lưu", width=90, fg_color="#7c3aed", hover_color="#6d28d9", command=_save).pack(side="left", padx=6)
-        ctk.CTkButton(btn_box, text="Hủy", width=90, fg_color="#334155", hover_color="#475569", command=dlg.destroy).pack(side="left", padx=6)
+        ctk.CTkButton(btn_box, text="Lưu", width=95, fg_color="#7c3aed", hover_color="#6d28d9", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), command=_save).pack(side="left", padx=6)
+        ctk.CTkButton(btn_box, text="Hủy", width=95, fg_color="#334155", hover_color="#475569", font=ctk.CTkFont(family="Segoe UI", size=11), command=dlg.destroy).pack(side="left", padx=6)
+
+    def open_edit_account_dialog(self, acc: Dict[str, Any]):
+        """Hộp thoại chỉnh sửa thông tin tài khoản MEGAMU (Mật khẩu, Nhân vật, Server)."""
+        dlg = ctk.CTkToplevel(self)
+        u_name = acc.get("username", "")
+        dlg.title(f"Sửa Tài Khoản: {u_name}")
+        dlg.geometry("400x330")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        ctk.CTkLabel(dlg, text=f"✏️ CẬP NHẬT TÀI KHOẢN: {u_name}", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"), text_color="#38bdf8").pack(pady=(14, 10))
+
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
+        f.pack(fill="x", padx=20, pady=4)
+
+        ctk.CTkLabel(f, text="Tên tài khoản:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=0, column=0, sticky="w", pady=6)
+        u_lbl = ctk.CTkLabel(f, text=u_name, font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f8fafc")
+        u_lbl.grid(row=0, column=1, sticky="w", padx=6, pady=6)
+
+        ctk.CTkLabel(f, text="Mật khẩu:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=1, column=0, sticky="w", pady=6)
+        p_ent = ctk.CTkEntry(f, width=210, show="*", font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Nhập mật khẩu")
+        p_ent.grid(row=1, column=1, sticky="e", pady=6)
+        if acc.get("password"):
+            p_ent.insert(0, acc["password"])
+
+        ctk.CTkLabel(f, text="Tên nhân vật:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=2, column=0, sticky="w", pady=6)
+        c_ent = ctk.CTkEntry(f, width=210, font=ctk.CTkFont(family="Segoe UI", size=11))
+        c_ent.grid(row=2, column=1, sticky="e", pady=6)
+        c_ent.insert(0, acc.get("character", ""))
+
+        ctk.CTkLabel(f, text="Server:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=3, column=0, sticky="w", pady=6)
+        cur_s = int(acc.get("server", 1))
+        s_combo = ModernOptionMenu(f, values=[f"Server {s}" for s in range(1, 9)], width=210, font=ctk.CTkFont(family="Segoe UI", size=11))
+        s_combo.set(f"Server {cur_s}")
+        s_combo.grid(row=3, column=1, sticky="e", pady=6)
+
+        def _save_edit():
+            p = p_ent.get().strip()
+            c = c_ent.get().strip()
+            s = int(s_combo.get().replace("Server ", "").strip())
+            if self.account_mgr:
+                self.account_mgr.update_account(username=u_name, password=p, character=c, server=s)
+            self.refresh_autologin_table()
+            self.append_autologin_log(f"✏️ Đã cập nhật tài khoản '{u_name}' (Nhân vật '{c}', Server {s})")
+            dlg.destroy()
+
+        btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
+        btn_box.pack(pady=(16, 0))
+        ctk.CTkButton(btn_box, text="Lưu Thay Đổi", width=110, fg_color="#0284c7", hover_color="#0369a1", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), command=_save_edit).pack(side="left", padx=6)
+        ctk.CTkButton(btn_box, text="Đóng", width=80, fg_color="#334155", hover_color="#475569", font=ctk.CTkFont(family="Segoe UI", size=11), command=dlg.destroy).pack(side="left", padx=6)
 
     def delete_account_ui(self, username: str):
         """Xóa tài khoản khỏi danh sách."""

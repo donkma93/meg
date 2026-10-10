@@ -8,41 +8,45 @@
   "stuck_retry_delay": 3.5,
   "helper_native_timeout": 4.0,
   "helper_direct_fallback": true,
+  "poll_interval": 0.55,
+  "reset_confirm_seconds": 1.5,
+  "map_command_retry_delay": 4.5,
+  "map_verify_unknown_timeout": 6.0,
   "stages": [
     {
       "min_level": 1,
       "max_level": 69,
       "map_name": "Lorencia",
-      "x": 13,
-      "y": 123
+      "x": 8,
+      "y": 134
     },
     {
       "min_level": 70,
-      "max_level": 1000,
+      "max_level": 79,
       "map_name": "Devias 4",
       "x": 80,
       "y": 151
     },
     {
-      "min_level": 400,
-      "max_level": 400,
-      "map_name": "Dungeon 3",
-      "x": 31,
-      "y": 60
+      "min_level": 80,
+      "max_level": 159,
+      "map_name": "Atlans 2",
+      "x": 236,
+      "y": 16
     },
     {
-      "min_level": 400,
-      "max_level": 400,
-      "map_name": "Dungeon 3",
-      "x": 33,
-      "y": 117
+      "min_level": 160,
+      "max_level": 319,
+      "map_name": "Tarkan 2",
+      "x": 166,
+      "y": 200
     },
     {
-      "min_level": 400,
-      "max_level": 400,
-      "map_name": "Kanturu 2",
-      "x": 144,
-      "y": 58
+      "min_level": 320,
+      "max_level": 399,
+      "map_name": "Aida 2",
+      "x": 210,
+      "y": 200
     },
     {
       "min_level": 400,
@@ -51,9 +55,5 @@
       "x": 90,
       "y": 23
     }
-  ],
-  "poll_interval": 0.55,
-  "reset_confirm_seconds": 1.5,
-  "map_command_retry_delay": 4.5,
-  "map_verify_unknown_timeout": 6.0
+  ]
 }
