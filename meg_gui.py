@@ -26,11 +26,15 @@ import threading
 from typing import Optional, List, Dict, Tuple, Any, Callable
 from pathlib import Path
 
-# Đảm bảo UTF-8
+# Đảm bảo UTF-8 và High-Resolution Timer (1.0ms) trên Windows
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding='utf-8')
         sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+    try:
+        ctypes.windll.winmm.timeBeginPeriod(1)
     except Exception:
         pass
 
@@ -1755,11 +1759,16 @@ class SlotController:
                         n_x = interact_res.get("x", 22)
                         n_y = interact_res.get("y", 225)
                         c_str = self.app.get_moss_cat_name(self.moss_category)
+                        # Chờ Server phản hồi gói C2:30 và hoàn tất nạp danh sách vật phẩm
+                        for _ in range(20):
+                            if eng and eng.is_moss_ready():
+                                break
+                            time.sleep(0.1)
                         self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, i=n_idx, x=n_x, y=n_y, cs=c_str: self.app.append_moss_log(
                             f"[Slot {s:02d} - {c}] 🎯 NPC {n} đã xuất hiện tại ({x},{y}, ID: {i})! Đã click vào NPC mở bảng Moss ({cs}) từ Server. Bắt đầu quay..."
                         ))
                         npc_ready = True
-                        time.sleep(0.5)
+                        time.sleep(0.3)
                         break
                     else:
                         self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
@@ -1829,6 +1838,16 @@ class SlotController:
                                     f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Divine / Rồng / Exc / Socket / Set / Ngọc / +8 trở lên). Tự động dừng quay an toàn!"
                                 ))
                                 break
+                    except Exception:
+                        pass
+
+                if eng and not eng.is_moss_open():
+                    try:
+                        eng.interact_moss_npc(self.moss_category)
+                        for _ in range(10):
+                            if eng.is_moss_open():
+                                break
+                            time.sleep(0.1)
                     except Exception:
                         pass
 
@@ -1968,12 +1987,16 @@ class SlotController:
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225)! Không thể quay thử.")
             return False
 
-        # Tương tác mở phiên với NPC Moss trước khi quay
-        try:
-            eng.interact_moss_npc(self.moss_category)
-            time.sleep(0.3)
-        except Exception:
-            pass
+        # Nếu chưa mở hoặc chưa nạp danh sách từ Server, kích hoạt tương tác NPC trước
+        if not eng.is_moss_open():
+            try:
+                eng.interact_moss_npc(self.moss_category)
+                for _ in range(10):
+                    time.sleep(0.1)
+                    if eng.is_moss_open():
+                        break
+            except Exception:
+                pass
         ok = eng.roll_moss(self.moss_category)
         if ok:
             self.moss_rolls_count += 1
@@ -2012,9 +2035,21 @@ class SlotController:
             n_idx = res.get("index", "?")
             n_x = res.get("x", 22)
             n_y = res.get("y", 225)
-            self.app.append_moss_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Đã click vào NPC {n_name} (ID: {n_idx}, Tọa độ: {n_x},{n_y}) -> Đã mở bảng Moss ({c_str}) hợp lệ với Server!"
-            )
+            # Chờ Server phản hồi và hoàn tất khởi tạo danh sách vật phẩm (tối đa 1.5 giây)
+            ready = False
+            for _ in range(15):
+                time.sleep(0.1)
+                if eng.is_moss_ready():
+                    ready = True
+                    break
+            if ready:
+                self.app.append_moss_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Đã click vào NPC {n_name} ({n_x},{n_y}) -> Bảng Moss ({c_str}) đã nạp thành công từ Server, sẵn sàng quay!"
+                )
+            else:
+                self.app.append_moss_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Đã click vào NPC {n_name} ({n_x},{n_y}) -> Đã gửi yêu cầu đối thoại lên Server."
+                )
             return True
         else:
             err = res.get("error", "Unknown") if res else "Failed"
@@ -2513,13 +2548,75 @@ class SlotController:
         self.mirror_sniping = True
         self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
         self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms)", text_color="#c084fc")
-        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO SNIPING CƯỚP CỔNG (Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)")
+
+        # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, chạy trực tiếp trong RAM Game)
+        native_started = False
+        if hasattr(eng, "start_native_mirror_turbo"):
+            def _on_native_event(payload):
+                p_type = payload.get("type")
+                if p_type == "mirror_turbo_entered":
+                    pkts = payload.get("packets", 0)
+                    dur_ms = payload.get("elapsed", 0)
+                    self.mirror_sniping = False
+                    self.app.after(0, lambda: self.app.append_mirror_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {pkts} packets (Native {dur_ms}ms)!"
+                    ))
+                    self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
+                    self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
+                    if not eng.is_helper_active():
+                        eng.start_helper()
+                elif p_type == "mirror_turbo_timeout":
+                    pkts = payload.get("packets", 0)
+                    self.mirror_sniping = False
+                    self.app.after(0, lambda: self.app.append_mirror_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {pkts} packets (Native)."
+                    ))
+                    self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
+            eng.on_mirror_turbo_event = _on_native_event
+
+            res_nat = eng.start_native_mirror_turbo(slot=cached_slot, interval_ms=interval_ms, max_duration_ms=int(max_duration_s * 1000))
+            if res_nat.get("success"):
+                native_started = True
+                self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU NATIVE TURBO SNIPING CƯỚP CỔNG (0ms IPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
+                )
+
+        if not native_started:
+            self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO SNIPING CƯỚP CỔNG (Fallback RPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
+            )
 
         def _sniper():
             start_t = time.time()
+            if native_started:
+                # Native In-Process đang tự bắn liên thanh 0ms IPC bên trong RAM game.
+                # Luồng Python chỉ giám sát mapId và kiểm tra sức khỏe tiến trình (Zero Python GIL contention)!
+                while self.mirror_sniping:
+                    time.sleep(0.12)
+                    now = time.time()
+                    if (now - start_t) > (max_duration_s + 0.5):
+                        break
+                    if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                        break
+                    if eng.is_mirror_event_map():
+                        self.mirror_sniping = False
+                        self.app.after(0, lambda: self.app.append_mirror_log(
+                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer ({time.time() - start_t:.2f}s)!"
+                        ))
+                        self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
+                        if not eng.is_helper_active():
+                            eng.start_helper()
+                        break
+                self.mirror_sniping = False
+                if hasattr(eng, "stop_native_mirror_turbo"):
+                    eng.stop_native_mirror_turbo()
+                self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
+                return
+
+            # Fallback Python High-Speed Loop (nếu native in-process chưa khả dụng)
             base_sleep = max(0.015, interval_ms / 1000.0)
             packets_sent = 0
-            check_interval = 3  # Tăng tần suất kiểm tra map lên mỗi 3 packet
+            check_interval = 4
             iter_cnt = 0
             fail_no_ticket_cnt = 0
             active_slot = cached_slot
@@ -2536,7 +2633,6 @@ class SlotController:
                 if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
                     break
 
-                # Bắn packet vào cửa native tốc độ cao (truyền slot trực tiếp để đạt tốc độ tối đa)
                 res = eng.enter_mirror(slot=active_slot if active_slot >= 0 else None)
                 packets_sent += 1
                 iter_cnt += 1
@@ -2557,7 +2653,6 @@ class SlotController:
                 if iter_cnt >= check_interval:
                     iter_cnt = 0
                     if eng.is_mirror_event_map():
-                        # Cướp cổng thành công trong tích tắc!
                         elapsed = time.time() - start_t
                         self.app.after(0, lambda: self.app.append_mirror_log(
                             f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {packets_sent} packets ({elapsed:.2f}s)!"
@@ -2567,9 +2662,7 @@ class SlotController:
                             eng.start_helper()
                         break
 
-                # Nhịp độ thích ứng: Giai đoạn đầu giật trước khởi động nhẹ 120-150ms chống server rate-limit; sau 1.5s xả hết tốc lực base_sleep
-                curr_sleep = base_sleep if (elapsed >= 1.5 or max_duration_s < 4.0) else max(0.12, base_sleep * 1.5)
-                time.sleep(curr_sleep)
+                time.sleep(base_sleep)
 
             self.mirror_sniping = False
             self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
@@ -2582,6 +2675,12 @@ class SlotController:
         """Dừng chế độ Turbo Sniping."""
         if self.mirror_sniping:
             self.mirror_sniping = False
+            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+            if eng and hasattr(eng, "stop_native_mirror_turbo"):
+                try:
+                    eng.stop_native_mirror_turbo()
+                except Exception:
+                    pass
             self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False)
             self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng")
             self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Turbo Sniping.")
@@ -6717,7 +6816,7 @@ class DashboardApp(ctk.CTk):
             border_color="#7c3aed",
             text_color="#f8fafc"
         )
-        self.mirror_snipe_delay_entry.insert(0, "80")
+        self.mirror_snipe_delay_entry.insert(0, "35")
         self.mirror_snipe_delay_entry.pack(side="left", padx=(0, 6))
 
         ctk.CTkLabel(
@@ -6885,9 +6984,9 @@ class DashboardApp(ctk.CTk):
 
     def get_mirror_snipe_delay(self) -> int:
         try:
-            return max(20, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
+            return max(15, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
         except Exception:
-            return 80
+            return 35
 
     def get_mirror_snipe_dur(self) -> float:
         try:
@@ -7438,6 +7537,16 @@ class DashboardApp(ctk.CTk):
                 poll_interval_ms = 500
             else:
                 poll_interval_ms = 1000
+
+            # 3.5. TỰ ĐỘNG PRE-CACHE Ô VÉ VÀO RAM (Tránh quét kho đồ làm trễ mili-giây giờ G)
+            if not is_in_gate_open_window and 10 <= diff_to_open <= 90:
+                gate_cache_key = next_gate_open.strftime("%Y%m%d_%H%M_precache")
+                if getattr(self, "_last_mirror_cache_key", None) != gate_cache_key:
+                    self._last_mirror_cache_key = gate_cache_key
+                    for ctrl in self.controllers:
+                        if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                            if getattr(ctrl, "cached_mirror_ticket_slot", -1) < 0:
+                                threading.Thread(target=ctrl.check_mirror_ticket, daemon=True).start()
 
             # 4. PRE-FIRE TURBO SNIPING: Giật thời gian đón đầu trước giờ mở cổng!
             # Nếu còn <= prefire_sec (mặc định 5s, bù trừ độ lệch 2-3s của server game):

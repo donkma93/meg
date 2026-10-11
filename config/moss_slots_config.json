@@ -2,37 +2,37 @@
   "slots": {
     "1": {
       "category": 2,
-      "delay_ms": 2000,
+      "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false
     },
     "2": {
       "category": 2,
-      "delay_ms": 2000,
+      "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false
     },
     "3": {
       "category": 2,
-      "delay_ms": 2000,
+      "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false
     },
     "4": {
-      "category": 1,
+      "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false
     },
     "5": {
-      "category": 1,
+      "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false
     },
     "6": {
       "category": 2,
-      "delay_ms": 2000,
+      "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false
     },
@@ -60,15 +60,5 @@
       "max_rolls": 0,
       "auto_clean": false
     }
-  },
-  "schedule": {
-    "auto_schedule": false,
-    "auto_move_before": false,
-    "times": [
-      "00:15",
-      "06:15",
-      "12:15",
-      "18:15"
-    ]
   }
 }
