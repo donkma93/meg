@@ -126,6 +126,7 @@ class LicenseApiController extends Controller
                 'expires_at' => $license->expires_at ? $license->expires_at->toDateTimeString() : null,
                 'is_lifetime' => $license->expires_at === null,
                 'days_left' => $daysLeft,
+                'modules' => $license->modules,
                 'signature' => $signature,
             ]
         ]);
@@ -197,6 +198,7 @@ class LicenseApiController extends Controller
             'expires_at' => $license->expires_at ? $license->expires_at->toDateTimeString() : null,
             'is_lifetime' => $license->expires_at === null,
             'days_left' => $daysLeft,
+            'modules' => $license->modules,
             'signature' => $this->generateSignature($license->license_key, $hwid, 'active'),
         ]);
     }

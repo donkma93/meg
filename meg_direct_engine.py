@@ -782,19 +782,30 @@ try {
 } catch (eHook) {}
 
 var pendingMossOpenCategory = null;
+var pendingMossRollCategory = null;
 
-function ensureMossRollButtonActive(mossWin, resetTimer) {
+function isGameObjectValid(goPtr) {
+    if (!goPtr || goPtr.isNull()) return false;
+    try {
+        var m_CachedPtr = goPtr.add(0x10).readPointer();
+        return !m_CachedPtr.isNull();
+    } catch (e) {
+        return false;
+    }
+}
+
+function ensureMossRollButtonActive(mossWin, resetTimer, force) {
     if (!mossWin || mossWin.isNull()) return false;
     try {
-        // 1. Ép TẮT LoadingImage (offset 0x60)
+        // 1. Ép TẮT LoadingImage (offset 0x60) nếu con trỏ hợp lệ
         var loadingImg = mossWin.add(0x60).readPointer();
-        if (!loadingImg.isNull() && nativeGameObjectSetActive !== null) {
+        if (isGameObjectValid(loadingImg) && nativeGameObjectSetActive !== null) {
             try {
                 nativeGameObjectSetActive(loadingImg, 0, ptr(0));
             } catch (eLI) {}
         }
 
-        // 2. ÉP BẬT RollButton.gameObject = true (offset 0x58)
+        // 2. ÉP BẬT RollButton.gameObject = true (offset 0x58) nếu con trỏ hợp lệ
         var rollBtn = mossWin.add(0x58).readPointer();
         if (!rollBtn.isNull()) {
             var btnObj = ptr(0);
@@ -809,7 +820,7 @@ function ensureMossRollButtonActive(mossWin, resetTimer) {
                     btnObj = rollBtn.add(0x10).readPointer();
                 } catch (eFB) {}
             }
-            if (!btnObj.isNull() && nativeGameObjectSetActive !== null) {
+            if (isGameObjectValid(btnObj) && nativeGameObjectSetActive !== null) {
                 try {
                     nativeGameObjectSetActive(btnObj, 1, ptr(0));
                 } catch (eAct) {}
@@ -1088,20 +1099,38 @@ try {
                             } catch (eMossUI) {}
                         }
 
-                        // Khi cửa sổ Moss đang hiển thị trên màn hình:
-                        // Nếu timer quay rảnh rỗi (0.0), đảm bảo RollButton luôn bật và LoadingImage tắt
-                        try {
-                            var mossWinCheck = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
-                            if (!mossWinCheck.isNull()) {
-                                var mWinObj = mossWinCheck.add(0x20).readPointer();
-                                if (!mWinObj.isNull() && mWinObj.add(0x48).readU8() === 1) {
-                                    var rTimer = mossWinCheck.add(0x98).readFloat();
-                                    if (rTimer === 0.0) {
-                                        ensureMossRollButtonActive(mossWinCheck, false);
+                        if (pendingMossRollCategory !== null) {
+                            try {
+                                var rCat = pendingMossRollCategory;
+                                pendingMossRollCategory = null;
+                                var rMossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                                if (!rMossWin.isNull()) {
+                                    rMossWin.add(0x78).writeS32(rCat);
+                                    if (nativeMossSelectCat !== null) {
+                                        try {
+                                            var catList = rMossWin.add(0x80).readPointer();
+                                            if (!catList.isNull()) {
+                                                var count = catList.add(0x18).readS32();
+                                                var items = catList.add(0x10).readPointer();
+                                                if (!items.isNull() && rCat < count && rCat >= 0) {
+                                                    var catObj = items.add(0x20 + rCat * 8).readPointer();
+                                                    if (!catObj.isNull()) {
+                                                        nativeMossSelectCat(rMossWin, catObj, ptr(0));
+                                                    }
+                                                }
+                                            }
+                                        } catch (eCat) {}
                                     }
+                                    if (nativeMossRollHandler !== null) {
+                                        try {
+                                            nativeMossRollHandler(rMossWin, ptr(0));
+                                        } catch (eRH) {}
+                                    }
+                                    rMossWin.add(0x98).writeFloat(0.001);
+                                    ensureMossRollButtonActive(rMossWin, false, true);
                                 }
-                            }
-                        } catch (eMossWatch) {}
+                            } catch (eMossRollMain) {}
+                        }
                     }
                     if (pendingCommand !== null) {
                         var cmd = pendingCommand;
@@ -1697,60 +1726,36 @@ rpc.exports = {
         try {
             ensureThreadAttached();
             var cat = parseInt(categoryId || 0);
+            // Xếp hàng lệnh vào Unity Main Thread để thực thi an toàn tuyệt đối và ngăn ngừa xung đột 2 luồng
+            pendingMossRollCategory = cat;
+            return true;
+        } catch (eMR) {
+            return false;
+        }
+    },
 
+    closeMoss: function() {
+        try {
+            ensureThreadAttached();
             if (nativeGetGameUI !== null) {
                 var gui = nativeGetGameUI();
                 if (!gui.isNull()) {
                     var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
                     if (!mossWin.isNull()) {
-                        // 1. Cập nhật Category ID (offset 0x78)
-                        mossWin.add(0x78).writeS32(cat);
-
-                        // 2. Kích hoạt chọn category nếu hàm khả dụng
-                        if (nativeMossSelectCat !== null) {
-                            try {
-                                var catList = mossWin.add(0x80).readPointer();
-                                if (!catList.isNull()) {
-                                    var count = catList.add(0x18).readS32();
-                                    var items = catList.add(0x10).readPointer();
-                                    if (!items.isNull() && cat < count && cat >= 0) {
-                                        var catObj = items.add(0x20 + cat * 8).readPointer();
-                                        if (!catObj.isNull()) {
-                                            nativeMossSelectCat(mossWin, catObj, ptr(0));
-                                        }
-                                    }
-                                }
-                            } catch (eCat) {}
+                        var win = mossWin.add(0x20).readPointer();
+                        if (!win.isNull()) {
+                            if (nativeWindowSetState !== null) {
+                                try {
+                                    nativeWindowSetState(win, 0, ptr(0));
+                                } catch (eWSS) {}
+                            }
+                            win.add(0x48).writeU8(0);
                         }
-
-                        // 3. Kích hoạt handler bấm nút Roll chuẩn của MEGAMU (NEOMFDBIIHM - RVA 0x26D1180)
-                        if (nativeMossRollHandler !== null) {
-                            try {
-                                nativeMossRollHandler(mossWin, ptr(0));
-                            } catch (eRH) {}
-                        }
-
-                        // 4. Ép timer AGFHDCHLLIB tại offset 0x98 thành 0.001f để kích hoạt gửi packet
-                        mossWin.add(0x98).writeFloat(0.001);
-
-                        // 5. Kích hoạt trực tiếp MMossMerchantWindow.Update (RVA 0x26D1580)
-                        // Mã máy MEGAMU tại 0x26D16F8-0x26D175B sẽ phát gói tin C1 05 70 10 [cat]
-                        if (nativeMossRoll !== null) {
-                            try {
-                                nativeMossRoll(mossWin, ptr(0));
-                            } catch (eRoll) {}
-                        }
-
-                        // 6. QUAN TRỌNG: PHỤC HỒI NGAY NÚT QUAY (RollButton.gameObject = true) VÀ TẮT LOADING
-                        // Khắc phục triệt để lỗi mất nút quay trên UI do NEOMFDBIIHM chủ động SetActive(false)
-                        ensureMossRollButtonActive(mossWin);
-
-                        return true;
                     }
                 }
             }
-            return false;
-        } catch (eMR) {
+            return true;
+        } catch (eCM) {
             return false;
         }
     },
@@ -3675,6 +3680,17 @@ class MegDirectEngine:
                     return True
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi open_moss: {e}")
+        return False
+
+    def close_moss(self) -> bool:
+        """Đóng giao diện Moss Merchant trên Game Client, ngắt render và giải phóng tài nguyên an toàn."""
+        if self.is_ready:
+            try:
+                res = self._call("closeMoss")
+                if res:
+                    return True
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi close_moss: {e}")
         return False
 
     def reset_moss_ui(self, category_id: int = 0) -> bool:

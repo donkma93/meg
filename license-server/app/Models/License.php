@@ -23,6 +23,7 @@ class License extends Model
         'machine_name',
         'activated_at',
         'expires_at',
+        'modules',
         'status',
         'notes',
     ];
@@ -31,7 +32,22 @@ class License extends Model
         'activated_at' => 'datetime',
         'expires_at' => 'datetime',
         'max_slots' => 'integer',
+        'modules' => 'array',
     ];
+
+    public function getModulesAttribute($value)
+    {
+        if ($value === null) {
+            return ['train', 'moss', 'mirror'];
+        }
+        $decoded = is_string($value) ? json_decode($value, true) : $value;
+        return is_array($decoded) ? $decoded : ['train', 'moss', 'mirror'];
+    }
+
+    public function hasModule(string $module): bool
+    {
+        return in_array(strtolower(trim($module)), $this->modules ?? ['train', 'moss', 'mirror']);
+    }
 
     public function product(): BelongsTo
     {

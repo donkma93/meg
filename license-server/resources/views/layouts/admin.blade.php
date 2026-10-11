@@ -67,13 +67,15 @@
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col bg-[#090c13] text-slate-100 antialiased">
+<body class="min-h-screen flex flex-col bg-[#090c13] text-slate-100 antialiased relative selection:bg-cyan-500/30 selection:text-cyan-200">
+    <!-- Ambient background mesh light -->
+    <div class="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_80%_60%_at_50%_-15%,rgba(14,165,233,0.12),rgba(9,12,19,0))] z-0"></div>
 
     <!-- Top Header -->
-    <header class="border-b border-dark-750 bg-dark-900/90 backdrop-blur sticky top-0 z-40">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <header class="border-b border-dark-750/80 bg-dark-900/90 backdrop-blur-md sticky top-0 z-40 relative">
+        <div class="w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-10 h-16 flex items-center justify-between">
             <!-- Brand Logo -->
-            <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-5">
                 <a href="{{ route('admin.licenses.index') }}" class="flex items-center space-x-3 group">
                     <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-teal-500/20 group-hover:scale-105 transition-transform">
                         <svg class="w-6 h-6 text-dark-950 font-bold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -129,7 +131,7 @@
     </header>
 
     <!-- Flash Notifications -->
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 w-full">
+    <div class="w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-10 mt-4 relative z-10">
         @if (session('success'))
             <div class="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm flex items-center justify-between shadow-lg">
                 <div class="flex items-center space-x-2.5">
@@ -163,19 +165,19 @@
     </div>
 
     <!-- Main Content -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <main class="flex-1 w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-10 py-6 relative z-10">
         @yield('content')
     </main>
 
     <!-- Footer -->
-    <footer class="border-t border-dark-750 bg-dark-900 py-4 mt-auto">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+    <footer class="border-t border-dark-750/80 bg-dark-900/90 backdrop-blur-sm py-4 mt-auto relative z-10">
+        <div class="w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-10 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
             <div>
                 © {{ date('Y') }} <span class="text-slate-300 font-semibold">MEGATEAM</span> • MEGAMU Auto Train Dashboard License System.
             </div>
             <div class="flex items-center space-x-4">
-                <span>API Endpoint: <code class="text-cyan-400 bg-dark-800 px-1.5 py-0.5 rounded">/api/v1/license/activate</code></span>
-                <span>SQLite DB: <span class="text-emerald-400">Online</span></span>
+                <span>API Endpoint: <code class="text-cyan-400 bg-dark-800 px-1.5 py-0.5 rounded border border-dark-700">/api/v1/license/activate</code></span>
+                <span>SQLite DB: <span class="text-emerald-400 font-semibold">Online</span></span>
             </div>
         </div>
     </footer>

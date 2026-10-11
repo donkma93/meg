@@ -1195,15 +1195,21 @@ class ConfigPersistenceManager:
                     sched = data.get("schedule", {})
                     return {
                         "auto_schedule": bool(sched.get("auto_schedule", True)),
-                        "auto_prep_before": bool(sched.get("auto_prep_before", True))
+                        "auto_prep_before": bool(sched.get("auto_prep_before", True)),
+                        "prefire_sec": float(sched.get("prefire_sec", 5.0))
                     }
                 except Exception:
                     pass
-            return {"auto_schedule": True, "auto_prep_before": True}
+            return {"auto_schedule": True, "auto_prep_before": True, "prefire_sec": 5.0}
 
     @classmethod
-    def save_mirror_schedule_config(cls, auto_schedule: bool = True, auto_prep_before: bool = True):
+    def save_mirror_schedule_config(cls, auto_schedule: Any = True, auto_prep_before: bool = True, prefire_sec: float = 5.0):
         """Lưu cấu hình Lịch Trình Auto Double Goer / Mirror."""
+        if isinstance(auto_schedule, dict):
+            cfg_dict = auto_schedule
+            auto_prep_before = cfg_dict.get("auto_prep_before", True)
+            prefire_sec = cfg_dict.get("prefire_sec", 5.0)
+            auto_schedule = cfg_dict.get("auto_schedule", True)
         with cls._lock:
             try:
                 store = {}
@@ -1215,6 +1221,7 @@ class ConfigPersistenceManager:
                 store["schedule"] = {
                     "auto_schedule": bool(auto_schedule),
                     "auto_prep_before": bool(auto_prep_before),
+                    "prefire_sec": float(prefire_sec),
                     "interval_hours": 2,
                     "prep_minutes_before": 5,
                     "times": [f"{h:02d}:15" for h in range(0, 24, 2)]
@@ -1472,6 +1479,11 @@ class SlotController:
             self.set_auto(False)
             return False
 
+        if license_client and not license_client.has_license_module("train"):
+            self.app.log_message(f"[Slot {self.slot_idx:02d}] Không thể chạy: Bản quyền chưa kích hoạt Module Train Auto!", "ERROR")
+            self.set_auto(False)
+            return False
+
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
             # Tự động thử kết nối lại nếu có game đang mở
             self.app.log_message(f"[Slot {self.slot_idx:02d}] Game đang mất kết nối. Đang tự động kết nối lại...", "INFO")
@@ -1682,6 +1694,11 @@ class SlotController:
         """Kích hoạt Auto Quay Moss cho riêng slot này theo cấu hình đã cài đặt."""
         if self.moss_running:
             return True
+
+        if license_client and not license_client.has_license_module("moss"):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Moss Merchant!")
+            return False
+
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game hoặc Game đã thoát!")
             return False
@@ -1894,6 +1911,11 @@ class SlotController:
                     slept += step
 
             self.moss_running = False
+            if eng and eng.is_ready:
+                try:
+                    eng.close_moss()
+                except Exception:
+                    pass
             self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
 
             # Khôi phục Auto Train nếu trước đó bị tạm dừng bởi sự kiện Moss
@@ -1909,11 +1931,17 @@ class SlotController:
         return True
 
     def stop_moss(self):
-        """Dừng Auto Quay Moss cho riêng slot này."""
+        """Dừng Auto Quay Moss cho riêng slot này và đóng cửa sổ giải phóng tài nguyên."""
         if self.moss_running:
             self.moss_running = False
+            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+            if eng and eng.is_ready:
+                try:
+                    eng.close_moss()
+                except Exception:
+                    pass
             self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False)
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Quay Moss.")
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Quay Moss và đóng giao diện an toàn.")
 
             # Khôi phục Auto Train nếu trước đó bị tạm dừng bởi sự kiện Moss
             if getattr(self, "moss_paused_worker", False):
@@ -2238,6 +2266,8 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
         info = eng.get_mirror_ticket_info()
+        if info.get("hasTicket") and info.get("slots"):
+            self.cached_mirror_ticket_slot = int(info["slots"][0])
         return info
 
     def prepare_mirror_event(self) -> bool:
@@ -2264,6 +2294,8 @@ class SlotController:
         time.sleep(1.2)
         t_info = eng.get_mirror_ticket_info()
         if t_info.get("hasTicket"):
+            if t_info.get("slots"):
+                self.cached_mirror_ticket_slot = int(t_info["slots"][0])
             details = t_info.get("details", [])
             main_slots = [d["slot"] for d in details if not d.get("isExtended")]
             ext_slots = [d["slot"] for d in details if d.get("isExtended")]
@@ -2367,6 +2399,10 @@ class SlotController:
 
     def start_mirror_auto(self) -> bool:
         """Bắt đầu chạy Auto Double Goer cho slot này."""
+        if license_client and not license_client.has_license_module("mirror"):
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Mirror of Dimensions!")
+            return False
+
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
             self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game! Không thể bật Auto Mirror.")
             return False
@@ -2427,6 +2463,9 @@ class SlotController:
 
     def start_mirror_turbo_sniping(self, interval_ms: int = 80, max_duration_s: float = 15.0) -> bool:
         """Kích hoạt chế độ Turbo Sniping (Spam Packet tốc độ cao) để cướp cổng Double Goer."""
+        if license_client and not license_client.has_license_module("mirror"):
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Mirror of Dimensions!")
+            return False
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
             self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game! Không thể Turbo Snipe.")
             return False
@@ -2436,20 +2475,22 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
-        # 1. Quét trước vé và phân biệt rõ Vé hoàn chỉnh vs Mảnh ghép Sign of Dimensions
-        cached_slot = -1
+        # 1. Kiểm tra cache vé trước: nếu slot đã cache từ trước thì dùng ngay lập tức (0ms delay)
+        cached_slot = getattr(self, "cached_mirror_ticket_slot", -1)
         t_info = {}
-        for _try in range(3):
-            try:
-                t_info = eng.get_mirror_ticket_info()
-                if t_info.get("hasTicket") and t_info.get("slots"):
-                    cached_slot = int(t_info["slots"][0])
-                    break
-                if t_info.get("hasOnlySign"):
-                    break
-            except Exception:
-                pass
-            time.sleep(0.1)
+        if cached_slot < 0:
+            for _try in range(2):
+                try:
+                    t_info = eng.get_mirror_ticket_info()
+                    if t_info.get("hasTicket") and t_info.get("slots"):
+                        cached_slot = int(t_info["slots"][0])
+                        self.cached_mirror_ticket_slot = cached_slot
+                        break
+                    if t_info.get("hasOnlySign"):
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.03)
 
         # Trường hợp 1: Người dùng chỉ có Mảnh Ghép Sign of Dimensions (chưa ghép thành vé Mirror hoàn chỉnh)
         if cached_slot < 0 and t_info.get("hasOnlySign"):
@@ -2476,16 +2517,17 @@ class SlotController:
 
         def _sniper():
             start_t = time.time()
-            sleep_sec = max(0.015, interval_ms / 1000.0)
+            base_sleep = max(0.015, interval_ms / 1000.0)
             packets_sent = 0
-            check_interval = 4  # Mỗi 4 packet kiểm tra map 1 lần để tối ưu CPU
+            check_interval = 3  # Tăng tần suất kiểm tra map lên mỗi 3 packet
             iter_cnt = 0
             fail_no_ticket_cnt = 0
             active_slot = cached_slot
 
             while self.mirror_sniping:
                 now = time.time()
-                if now - start_t > max_duration_s:
+                elapsed = now - start_t
+                if elapsed > max_duration_s:
                     self.app.after(0, lambda: self.app.append_mirror_log(
                         f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {packets_sent} packets."
                     ))
@@ -2525,7 +2567,9 @@ class SlotController:
                             eng.start_helper()
                         break
 
-                time.sleep(sleep_sec)
+                # Nhịp độ thích ứng: Giai đoạn đầu giật trước khởi động nhẹ 120-150ms chống server rate-limit; sau 1.5s xả hết tốc lực base_sleep
+                curr_sleep = base_sleep if (elapsed >= 1.5 or max_duration_s < 4.0) else max(0.12, base_sleep * 1.5)
+                time.sleep(curr_sleep)
 
             self.mirror_sniping = False
             self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
@@ -2617,7 +2661,18 @@ class DashboardApp(ctk.CTk):
 
         # Xây dựng giao diện hoàn chỉnh
         self.build_ui()
-        self.switch_tab("accounts")
+        self.update_modules_visibility()
+        initial_tab = "accounts"
+        if license_client:
+            if license_client.has_license_module("train"):
+                initial_tab = "accounts"
+            elif license_client.has_license_module("moss"):
+                initial_tab = "moss"
+            elif license_client.has_license_module("mirror"):
+                initial_tab = "mirror"
+            else:
+                initial_tab = "logs"
+        self.switch_tab(initial_tab)
         self.update_header_stats()
         self.log_message(f"Khởi động thành công {APP_NAME} {APP_VERSION} - Hệ thống sẵn sàng!", "INFO")
         self.log_message(f"Đã nạp {len(self.controllers)} tài khoản/slots hoạt động mặc định.", "INFO")
@@ -3796,6 +3851,7 @@ class DashboardApp(ctk.CTk):
                             text=f"Gói dịch vụ: {new_plan}   |   Hạn dùng: {new_exp}   |   Slot tối đa: {info.get('max_slots', 50)}"
                         )
                         self.update_header_stats()
+                        self.update_modules_visibility()
                     else:
                         msg_lbl.configure(text=f"✗ {msg}", text_color="#f87171")
                 dialog.after(0, _done)
@@ -3823,6 +3879,7 @@ class DashboardApp(ctk.CTk):
             status_lbl.configure(text="Trạng thái: CHƯA KÍCH HOẠT", text_color="#f87171")
             details_lbl.configure(text="Gói dịch vụ: Chưa kích hoạt   |   Hạn dùng: --   |   Slot tối đa: --")
             self.update_header_stats()
+            self.update_modules_visibility()
 
         deact_btn = ctk.CTkButton(
             btn_box,
@@ -4916,9 +4973,74 @@ class DashboardApp(ctk.CTk):
                 pass
 
     # ==========================================================================
-    # ĐIỀU HƯỚNG TAB
+    # QUẢN LÝ MODULE BẢN QUYỀN & ĐIỀU HƯỚNG TAB
     # ==========================================================================
+    def update_modules_visibility(self):
+        """Ẩn/hiện các tab module theo license đã kích hoạt."""
+        if not hasattr(self, "tab_accounts_btn"):
+            return
+
+        has_train = license_client.has_license_module("train") if license_client else True
+        has_moss = license_client.has_license_module("moss") if license_client else True
+        has_mirror = license_client.has_license_module("mirror") if license_client else True
+
+        # Unpack các nút tab tính năng
+        self.tab_accounts_btn.pack_forget()
+        self.tab_profiles_btn.pack_forget()
+        self.tab_ram_btn.pack_forget()
+        self.tab_moss_btn.pack_forget()
+        self.tab_mirror_btn.pack_forget()
+        self.tab_autologin_btn.pack_forget()
+
+        # Repack lại theo đúng thứ tự nếu module được cấp phép
+        if has_train:
+            self.tab_accounts_btn.pack(side="left", padx=(0, 6))
+            self.tab_profiles_btn.pack(side="left", padx=(0, 6))
+
+        self.tab_ram_btn.pack(side="left", padx=(0, 6))
+
+        if has_moss:
+            self.tab_moss_btn.pack(side="left", padx=(0, 6))
+
+        if has_mirror:
+            self.tab_mirror_btn.pack(side="left", padx=(0, 6))
+
+        if has_train:
+            self.tab_autologin_btn.pack(side="left", padx=(0, 6))
+
+        # Kiểm tra xem tab hiện tại có bị ẩn không, nếu có thì tự động đổi tab
+        cur_tab = getattr(self, "active_tab", "accounts")
+        if cur_tab in ("accounts", "profiles", "autologin") and not has_train:
+            if has_moss:
+                self.switch_tab("moss")
+            elif has_mirror:
+                self.switch_tab("mirror")
+            else:
+                self.switch_tab("logs")
+        elif cur_tab == "moss" and not has_moss:
+            if has_train:
+                self.switch_tab("accounts")
+            elif has_mirror:
+                self.switch_tab("mirror")
+            else:
+                self.switch_tab("logs")
+        elif cur_tab == "mirror" and not has_mirror:
+            if has_train:
+                self.switch_tab("accounts")
+            elif has_moss:
+                self.switch_tab("moss")
+            else:
+                self.switch_tab("logs")
+
     def switch_tab(self, tab_name: str):
+        # Chặn chuyển sang tab nếu module chưa được cấp phép
+        if license_client:
+            if tab_name in ("accounts", "profiles", "autologin") and not license_client.has_license_module("train"):
+                return
+            if tab_name == "moss" and not license_client.has_license_module("moss"):
+                return
+            if tab_name == "mirror" and not license_client.has_license_module("mirror"):
+                return
         # Tự động lưu cấu hình nếu đang ở tab profiles và chuyển sang tab khác
         if getattr(self, "active_tab", None) == "profiles" and tab_name != "profiles":
             try:
@@ -6617,6 +6739,33 @@ class DashboardApp(ctk.CTk):
         self.mirror_snipe_dur_entry.insert(0, "15")
         self.mirror_snipe_dur_entry.pack(side="left", padx=(0, 6))
 
+        ctk.CTkLabel(
+            mid_tb,
+            text="Giật trước (s):",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8"
+        ).pack(side="left", padx=(0, 3))
+
+        self.mirror_prefire_sec_entry = ctk.CTkEntry(
+            mid_tb,
+            width=45,
+            height=30,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color="#181c26",
+            border_color="#0284c7",
+            text_color="#f8fafc"
+        )
+        _init_prefire = 5.0
+        try:
+            _sched_cfg = ConfigPersistenceManager.load_mirror_schedule_config()
+            _init_prefire = float(_sched_cfg.get("prefire_sec", 5.0))
+        except Exception:
+            pass
+        self.mirror_prefire_sec_entry.insert(0, f"{_init_prefire:.1f}".rstrip('0').rstrip('.') if _init_prefire != int(_init_prefire) else str(int(_init_prefire)))
+        self.mirror_prefire_sec_entry.pack(side="left", padx=(0, 6))
+        self.mirror_prefire_sec_entry.bind("<FocusOut>", lambda e: self.on_toggle_mirror_auto_schedule())
+        self.mirror_prefire_sec_entry.bind("<Return>", lambda e: self.on_toggle_mirror_auto_schedule())
+
         self.btn_mirror_snipe_all = ctk.CTkButton(
             mid_tb,
             text="⚡ CƯỚP CỔNG (TẤT CẢ)",
@@ -6745,6 +6894,12 @@ class DashboardApp(ctk.CTk):
             return max(3.0, min(120.0, float(self.mirror_snipe_dur_entry.get().strip())))
         except Exception:
             return 15.0
+
+    def get_mirror_prefire_sec(self) -> float:
+        try:
+            return max(0.0, min(30.0, float(self.mirror_prefire_sec_entry.get().strip())))
+        except Exception:
+            return 5.0
 
     def create_mirror_slot_row(self, i: int):
         """Tạo 1 dòng điều khiển Double Goer cho Slot i."""
@@ -7016,20 +7171,34 @@ class DashboardApp(ctk.CTk):
             ctrl.start_mirror_auto()
 
     def start_all_mirror_turbo_sniping(self):
-        """Kích hoạt Turbo Sniping (Spam Cướp Cổng) cho toàn bộ tài khoản đang kết nối."""
+        """Kích hoạt Turbo Sniping (Spam Cướp Cổng) đồng loạt song song (0ms trễ) cho toàn bộ tài khoản đang kết nối."""
         delay_ms = self.get_mirror_snipe_delay()
         dur_s = self.get_mirror_snipe_dur()
 
         def _runner():
-            started = 0
-            for ctrl in self.controllers:
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
-                    ok = ctrl.start_mirror_turbo_sniping(interval_ms=delay_ms, max_duration_s=dur_s)
+            threads = []
+            results = []
+            res_lock = threading.Lock()
+
+            def _start_ctrl(c):
+                if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                    ok = c.start_mirror_turbo_sniping(interval_ms=delay_ms, max_duration_s=dur_s)
                     if ok:
-                        started += 1
+                        with res_lock:
+                            results.append(c.slot_idx)
+
+            for ctrl in self.controllers:
+                t = threading.Thread(target=_start_ctrl, args=(ctrl,), daemon=True)
+                threads.append(t)
+                t.start()
+
+            for t in threads:
+                t.join(timeout=3.0)
+
+            started = len(results)
             if started > 0:
                 self.after(0, lambda: self.append_mirror_log(
-                    f"⚡ ĐÃ KÍCH HOẠT TURBO SNIPING CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms, tối đa {dur_s:.0f}s)!"
+                    f"⚡ ĐÃ ĐỒNG LOẠT KÍCH HOẠT TURBO CHO {started} TÀI KHOẢN (Song song 0ms, Chu kỳ {delay_ms}ms, Tối đa {dur_s:.0f}s)!"
                 ))
             else:
                 self.after(0, lambda: self.append_mirror_log("⚠️ Không có tài khoản nào đang kết nối để kích hoạt Turbo Sniping!"))
@@ -7108,18 +7277,21 @@ class DashboardApp(ctk.CTk):
         """Lấy cấu hình lập lịch Mirror hiện tại từ UI."""
         is_auto = bool(self.cb_mirror_auto_schedule.get()) if hasattr(self, "cb_mirror_auto_schedule") else True
         is_prep = bool(self.cb_mirror_auto_prep_before.get()) if hasattr(self, "cb_mirror_auto_prep_before") else True
+        prefire = self.get_mirror_prefire_sec() if hasattr(self, "mirror_prefire_sec_entry") else 5.0
         return {
             "auto_schedule": is_auto,
-            "auto_prep_before": is_prep
+            "auto_prep_before": is_prep,
+            "prefire_sec": prefire
         }
 
     def on_toggle_mirror_auto_schedule(self):
-        """Xử lý khi người dùng bật/tắt checkbox Auto Schedule hoặc Auto Prep."""
+        """Xử lý khi người dùng bật/tắt checkbox Auto Schedule hoặc đổi thời gian giật trước."""
         cfg = self.get_mirror_schedule_config()
         ConfigPersistenceManager.save_mirror_schedule_config(cfg)
         status_txt = "BẬT" if cfg.get("auto_schedule") else "TẮT"
         prep_txt = "Có (trước 5p)" if cfg.get("auto_prep_before") else "Không"
-        self.append_mirror_log(f"⏰ [Cấu Hình Lịch Trình] Tự động vào: {status_txt} | Chuẩn bị trước 5p: {prep_txt}")
+        prefire_val = cfg.get("prefire_sec", 5.0)
+        self.append_mirror_log(f"⏰ [Cấu Hình Lịch Trình] Tự động: {status_txt} | Chuẩn bị trước 5p: {prep_txt} | Giật trước: {prefire_val:.1f}s")
 
     def check_mirror_slot_ticket(self, slot_idx: int):
         """Kiểm tra vé Mirror của slot cụ thể."""
@@ -7250,14 +7422,16 @@ class DashboardApp(ctk.CTk):
                 next_gate_open = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
                 next_event_start = tomorrow.replace(hour=0, minute=15, second=0, microsecond=0)
 
-            is_auto = hasattr(self, "cb_mirror_auto_schedule") and (self.cb_mirror_auto_schedule.get() == 1)
-            is_prep_enabled = hasattr(self, "cb_mirror_auto_prep_before") and (self.cb_mirror_auto_prep_before.get() == 1)
+            has_mirror_mod = license_client.has_license_module("mirror") if license_client else True
+            is_auto = has_mirror_mod and hasattr(self, "cb_mirror_auto_schedule") and (self.cb_mirror_auto_schedule.get() == 1)
+            is_prep_enabled = has_mirror_mod and hasattr(self, "cb_mirror_auto_prep_before") and (self.cb_mirror_auto_prep_before.get() == 1)
 
             diff_to_open = int((next_gate_open - now).total_seconds())
+            prefire_sec = self.get_mirror_prefire_sec() if hasattr(self, "get_mirror_prefire_sec") else 5.0
 
             # 3. ĐIỀU CHỈNH ĐỘ PHÂN GIẢI CLOCK (POLLING INTERVAL):
-            if not is_in_gate_open_window and diff_to_open <= 15:
-                # Dưới 15 giây trước giờ mở cổng: Chuyển sang nhịp 100ms để bắt chuẩn xác từng mili-giây
+            if not is_in_gate_open_window and diff_to_open <= max(15, int(prefire_sec) + 5):
+                # Dưới ngưỡng trước giờ mở cổng: Chuyển sang nhịp 100ms để bắt chuẩn xác từng mili-giây
                 poll_interval_ms = 100
             elif is_in_gate_open_window:
                 # Khi cổng đang mở: Polling 500ms để theo dõi sát sao
@@ -7265,16 +7439,16 @@ class DashboardApp(ctk.CTk):
             else:
                 poll_interval_ms = 1000
 
-            # 4. PRE-FIRE TURBO SNIPING: Giật thời gian trong tích tắc!
-            # Nếu còn <= 2 giây trước giờ mở cổng (:09:58 - :09:59):
+            # 4. PRE-FIRE TURBO SNIPING: Giật thời gian đón đầu trước giờ mở cổng!
+            # Nếu còn <= prefire_sec (mặc định 5s, bù trừ độ lệch 2-3s của server game):
             # Kích hoạt Turbo Sniping ngay lập tức để thread ấm máy, packet bắn đón đầu microsecond đầu tiên khi server mở :10:00!
             gate_prefire_key = next_gate_open.strftime("%Y%m%d_%H%M_prefire")
-            if not is_in_gate_open_window and diff_to_open <= 2:
+            if not is_in_gate_open_window and diff_to_open <= prefire_sec:
                 if getattr(self, "_last_mirror_prefire_key", None) != gate_prefire_key:
                     self._last_mirror_prefire_key = gate_prefire_key
                     if is_auto:
                         self.append_mirror_log(
-                            f"⚡ [PRE-FIRE TURBO SNIPING] Còn {diff_to_open}s tới giờ mở cổng ({next_gate_open.strftime('%H:%M')})! Kích hoạt Turbo Sniping đón đầu để cướp cổng trong tích tắc!"
+                            f"⚡ [PRE-FIRE TURBO SNIPING] Còn {diff_to_open}s tới giờ mở cổng ({next_gate_open.strftime('%H:%M')})! Kích hoạt đón đầu {prefire_sec:.1f}s để cướp cổng trong tích tắc!"
                         )
                         self.start_all_mirror_turbo_sniping()
 
@@ -8782,6 +8956,7 @@ class DashboardApp(ctk.CTk):
         if getattr(self, "_last_applied_lock_state", None) == state_val:
             return
         self._last_applied_lock_state = state_val
+        self.update_modules_visibility()
 
         # 0. Nếu không có bản quyền hợp lệ, lập tức dừng mọi worker đang auto train
         if not is_valid:

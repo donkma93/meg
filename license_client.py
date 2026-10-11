@@ -26,8 +26,22 @@ else:
 
 CONFIG_DIR = BASE_DIR / "config"
 LICENSE_FILE = CONFIG_DIR / "license.json"
+SETTINGS_FILE = CONFIG_DIR / "license_settings.json"
 
 DEFAULT_SERVER_URL = "https://megamuoffical.com"
+LOCAL_SERVER_URL = "http://127.0.0.1:8000"
+
+def get_default_server_url() -> str:
+    """Lấy Server URL từ config/license_settings.json nếu có, nếu không dùng DEFAULT_SERVER_URL."""
+    try:
+        if SETTINGS_FILE.is_file():
+            cfg = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+            u = str(cfg.get("server_url", "")).strip()
+            if u:
+                return u
+    except Exception:
+        pass
+    return DEFAULT_SERVER_URL
 
 def find_bridge_dll_path() -> Optional[Path]:
     """Tìm đường dẫn tệp meg_license_bridge.dll một cách linh hoạt theo thời gian thực."""
@@ -184,6 +198,12 @@ def load_license_data() -> Dict[str, Any]:
     global _cached_license_data
     with _license_lock:
         if not LICENSE_FILE.exists():
+            _cached_license_data = {
+                "license_key": "",
+                "valid": False,
+                "status": "unregistered",
+                "modules": []
+            }
             return _cached_license_data
         for _ in range(3):
             try:
@@ -214,22 +234,16 @@ def save_license_data(data: Dict[str, Any]):
             except Exception:
                 pass
 
-def activate_license(license_key: str, server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dict[str, Any]]:
-    """
-    Gửi yêu cầu kích hoạt bản quyền tới Laravel License Server.
-    BẮT BUỘC thực hiện qua C++ Native Bridge (meg_license_bridge.dll).
-    """
-    cleaned_key = license_key.strip()
-    if not cleaned_key:
-        return False, "Vui lòng nhập mã key.", {}
+LOCAL_SERVER_URL = "http://127.0.0.1:8000"
 
+def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any]]:
     bridge = _get_native_bridge()
     if not bridge:
         return False, "Không tìm thấy thư viện meg_license_bridge.dll! Bắt buộc phải có file .dll này.", {}
 
     try:
         out_buf = ctypes.create_string_buffer(8192)
-        srv_bytes = server_url.encode("utf-8")
+        srv_bytes = srv.encode("utf-8")
         key_bytes = cleaned_key.encode("utf-8")
         prod_bytes = b"megamu-navigator"
         ver_bytes = b"v1.5.2"
@@ -239,13 +253,42 @@ def activate_license(license_key: str, server_url: str = DEFAULT_SERVER_URL) -> 
             data = json.loads(res_str)
             if data.get("success"):
                 lic_info = data.get("data", {})
-                lic_info["server_url"] = server_url
+                lic_info["server_url"] = srv
                 save_license_data(lic_info)
                 return True, data.get("message", "Kích hoạt thành công!"), lic_info
             return False, data.get("message", "Kích hoạt thất bại."), {}
         return False, "Thư viện C++ không trả về phản hồi hợp lệ.", {}
     except Exception as e:
         return False, f"Lỗi gọi C++ Bridge ({e})", {}
+
+def activate_license(license_key: str, server_url: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Gửi yêu cầu kích hoạt bản quyền tới Laravel License Server.
+    Ưu tiên kết nối Server cấu hình (hoặc megamuoffical.com).
+    Nếu server chính thức chưa online hoặc đang deploy, tự động fallback sang
+    Local Dev Server (127.0.0.1:8000) để đảm bảo không bị gián đoạn khi test.
+    """
+    cleaned_key = license_key.strip()
+    if not cleaned_key:
+        return False, "Vui lòng nhập mã key.", {}
+
+    target_url = server_url or get_default_server_url()
+
+    # 1. Thử server chỉ định (hoặc từ config)
+    success, msg, data = _exec_activate(cleaned_key, target_url)
+    if success:
+        return True, msg, data
+
+    # 2. Nếu server chính thất bại do lỗi mạng/timeout và đang có Localhost chạy
+    if server_url != LOCAL_SERVER_URL and ("máy chủ" in msg.lower() or "mạng" in msg.lower() or not data):
+        try:
+            fb_ok, fb_msg, fb_data = _exec_activate(cleaned_key, LOCAL_SERVER_URL)
+            if fb_ok:
+                return True, fb_msg, fb_data
+        except Exception:
+            pass
+
+    return False, msg, data
 
 def verify_offline_signature(license_key: str, signature: str) -> bool:
     """Xác thực chữ ký số offline HMAC-SHA256 theo HWID thông qua C++ Bridge."""
@@ -259,7 +302,38 @@ def verify_offline_signature(license_key: str, signature: str) -> bool:
             pass
     return False
 
-def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dict[str, Any]]:
+def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+    bridge = _get_native_bridge()
+    if not bridge:
+        return False, "Không tìm thấy thư viện meg_license_bridge.dll!", {}
+
+    out_buf = ctypes.create_string_buffer(8192)
+    srv_bytes = srv.encode("utf-8")
+    key_bytes = str(key).encode("utf-8")
+    ver_bytes = b"v1.5.2"
+    ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
+    res_str = out_buf.value.decode("utf-8")
+    if res_str:
+        data = json.loads(res_str)
+        if data.get("valid"):
+            lic_data.update(data)
+            lic_data["valid"] = True
+            lic_data["server_url"] = srv
+            lic_data["last_verified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            save_license_data(lic_data)
+            return True, "Bản quyền hợp lệ.", lic_data
+        else:
+            st = data.get("status", "")
+            if st in ("revoked", "banned", "expired", "hwid_mismatch"):
+                lic_data["valid"] = False
+                lic_data["status"] = st
+                save_license_data(lic_data)
+                return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
+            else:
+                return True, "Duy trì phiên bản quyền hiện tại (máy chủ bận).", lic_data
+    return False, "Không nhận được phản hồi từ C++ Bridge.", lic_data
+
+def verify_license(server_url: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
     """
     Xác thực định kỳ (verify / heartbeat) với Server.
     Ưu tiên thực hiện bằng WinHTTP trong C++ Native Bridge.
@@ -270,43 +344,25 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
     if not key:
         return False, "Chưa nhập key bản quyền.", {}
 
-    srv = lic_data.get("server_url", server_url) or server_url
-    if "127.0.0.1" in srv or "localhost" in srv:
-        srv = DEFAULT_SERVER_URL
-
-    bridge = _get_native_bridge()
-    if not bridge:
-        return False, "Không tìm thấy thư viện meg_license_bridge.dll!", {}
+    default_srv = server_url or get_default_server_url()
+    saved_srv = lic_data.get("server_url")
+    srv = saved_srv if saved_srv else default_srv
 
     try:
-        out_buf = ctypes.create_string_buffer(8192)
-        srv_bytes = srv.encode("utf-8")
-        key_bytes = str(key).encode("utf-8")
-        ver_bytes = b"v1.5.2"
-        ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
-        res_str = out_buf.value.decode("utf-8")
-        if res_str:
-            data = json.loads(res_str)
-            if data.get("valid"):
-                lic_data.update(data)
-                lic_data["valid"] = True
-                lic_data["server_url"] = srv
-                lic_data["last_verified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                save_license_data(lic_data)
-                return True, "Bản quyền hợp lệ.", lic_data
-            else:
-                # CHỈ ĐÁNH DẤU INVALID NẾU MÁY CHỦ BÁO RÕ LÀ ĐÃ BỊ THU HỒI / BAN
-                st = data.get("status", "")
-                if st in ("revoked", "banned", "expired", "hwid_mismatch"):
-                    lic_data["valid"] = False
-                    lic_data["status"] = st
-                    save_license_data(lic_data)
-                    return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
-                else:
-                    # Lỗi tạm thời (HTTP 429, Cloudflare, server bảo trì) -> Giữ nguyên phiên bản quyền hiện tại
-                    return True, "Duy trì phiên bản quyền hiện tại (máy chủ bận).", lic_data
+        ok, msg, res_data = _exec_verify(key, srv, lic_data)
+        if ok or lic_data.get("status") in ("revoked", "banned", "expired", "hwid_mismatch"):
+            return ok, msg, res_data
 
-        # C++ Bridge không phản hồi (mất mạng / timeout) -> Duy trì offline grace period
+        # Nếu srv thất bại do mất mạng / chưa deploy, thử server fallback
+        alt_srv = LOCAL_SERVER_URL if srv != LOCAL_SERVER_URL else DEFAULT_SERVER_URL
+        try:
+            alt_ok, alt_msg, alt_data = _exec_verify(key, alt_srv, lic_data)
+            if alt_ok:
+                return True, alt_msg, alt_data
+        except Exception:
+            pass
+
+        # Cả hai đều không phản hồi (mất mạng / timeout) -> Duy trì offline grace period
         exp = lic_data.get("expires_at")
         return True, f"Chế độ ngoại tuyến (hạn dùng: {exp}).", lic_data
     except Exception as e:
@@ -317,12 +373,19 @@ def verify_license(server_url: str = DEFAULT_SERVER_URL) -> Tuple[bool, str, Dic
 
 def deactivate_license() -> bool:
     """Xóa bỏ thông tin bản quyền trên máy và chuyển sang trạng thái chưa kích hoạt."""
-    try:
-        if LICENSE_FILE.exists():
-            LICENSE_FILE.unlink()
-        return True
-    except Exception:
-        save_license_data({"license_key": "", "valid": False, "status": "unregistered"})
+    global _cached_license_data
+    with _license_lock:
+        _cached_license_data = {
+            "license_key": "",
+            "valid": False,
+            "status": "unregistered",
+            "modules": []
+        }
+        try:
+            if LICENSE_FILE.exists():
+                LICENSE_FILE.unlink()
+        except Exception:
+            pass
         return True
 
 def is_license_valid() -> bool:
@@ -431,4 +494,32 @@ def get_secure_game_offsets() -> Dict[str, Any]:
         print(f"[LicenseClient] Lỗi trích xuất Native Offsets: {e}", flush=True)
 
     return {}
+
+def get_licensed_modules() -> list[str]:
+    """
+    Lấy danh sách các module được cấp phép cho key hiện tại.
+    Hỗ trợ tương thích ngược:
+    Nếu key chưa có trường 'modules' trong license.json (key cũ) hoặc modules=None,
+    mặc định cấp toàn quyền: ['train', 'moss', 'mirror'].
+    """
+    data = load_license_data()
+    if not data or not data.get("license_key") or not is_license_valid():
+        return []
+
+    mods = data.get("modules")
+    if mods is None:
+        return ["train", "moss", "mirror"]
+    if isinstance(mods, list):
+        return [str(m).strip().lower() for m in mods]
+    return []
+
+def has_license_module(module_name: str) -> bool:
+    """
+    Kiểm tra xem module cụ thể ('train', 'moss', 'mirror') có được cấp phép hay không.
+    Nếu bản quyền tổng thể không hợp lệ thì trả về False.
+    """
+    if not is_license_valid():
+        return False
+    mods = get_licensed_modules()
+    return module_name.strip().lower() in mods
 

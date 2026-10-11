@@ -76,6 +76,7 @@ class LicenseController extends Controller
             'max_slots' => 'required|integer|min:1|max:500',
             'duration_type' => 'required|string', // 1d, 2d, 3d, 7d, 30d, 90d, 1y, lifetime, custom
             'custom_days' => 'nullable|integer|min:1',
+            'modules' => 'nullable|array',
             'notes' => 'nullable|string',
         ]);
 
@@ -121,6 +122,13 @@ class LicenseController extends Controller
                 break;
         }
 
+        $modules = $request->input('modules', ['train', 'moss', 'mirror']);
+        if (!is_array($modules) || empty($modules)) {
+            $modules = ['train', 'moss', 'mirror'];
+        }
+        $validModules = ['train', 'moss', 'mirror'];
+        $filteredModules = array_values(array_intersect($validModules, $modules));
+
         $license = License::create([
             'product_id' => $request->product_id,
             'license_key' => $key,
@@ -131,6 +139,7 @@ class LicenseController extends Controller
             'hwid' => null,
             'expires_at' => $expiresAt,
             'status' => 'active',
+            'modules' => $filteredModules,
             'notes' => $request->notes,
         ]);
 
@@ -139,12 +148,12 @@ class LicenseController extends Controller
             'action' => 'create',
             'ip_address' => $request->ip(),
             'status' => 'success',
-            'message' => "Tạo mới key {$key} cho {$license->customer_name} ({$request->plan_type})",
+            'message' => "Tạo mới key {$key} cho {$license->customer_name} ({$request->plan_type}) - Modules: [" . implode(', ', $filteredModules) . "]",
             'created_at' => now(),
         ]);
 
         return redirect()->route('admin.licenses.index')
-            ->with('success', "Đã tạo thành công Key: {$key}");
+            ->with('success', "Đã tạo thành công Key: {$key} với modules: [" . implode(', ', $filteredModules) . "]");
     }
 
     /**
@@ -237,6 +246,34 @@ class LicenseController extends Controller
 
         return redirect()->route('admin.licenses.index')
             ->with('success', "Đã gia hạn thêm {$days} ngày cho key {$license->license_key}. Hạn mới: {$license->expires_at->format('d/m/Y')}");
+    }
+
+    /**
+     * Cập nhật danh sách Modules tính năng được cấp phép cho Key.
+     */
+    public function updateModules(License $license, Request $request): RedirectResponse
+    {
+        $modules = $request->input('modules', []);
+        if (!is_array($modules)) {
+            $modules = [];
+        }
+        $validModules = ['train', 'moss', 'mirror'];
+        $filtered = array_values(array_intersect($validModules, $modules));
+
+        $license->modules = $filtered;
+        $license->save();
+
+        LicenseLog::create([
+            'license_id' => $license->id,
+            'action' => 'update_modules',
+            'ip_address' => $request->ip(),
+            'status' => 'success',
+            'message' => "Admin cập nhật modules: [" . implode(', ', $filtered) . "]",
+            'created_at' => now(),
+        ]);
+
+        return redirect()->route('admin.licenses.index')
+            ->with('success', "Đã cập nhật modules cho key {$license->license_key}: [" . implode(', ', $filtered) . "]");
     }
 
     /**

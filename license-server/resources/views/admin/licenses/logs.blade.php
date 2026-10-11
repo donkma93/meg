@@ -49,23 +49,23 @@
     </div>
 
     <!-- Logs Table -->
-    <div class="rounded-2xl bg-dark-900 border border-dark-750 overflow-hidden shadow-xl">
+    <div class="rounded-2xl bg-dark-900/90 border border-dark-750/90 shadow-2xl backdrop-blur-md overflow-hidden">
         <div class="overflow-x-auto">
             <table class="w-full text-left text-sm text-slate-300">
-                <thead class="bg-dark-850/80 text-[11px] uppercase tracking-wider text-slate-400 border-b border-dark-750">
+                <thead class="bg-dark-850/90 text-xs font-bold uppercase tracking-wider text-slate-400 border-b border-dark-750/90">
                     <tr>
-                        <th class="px-4 py-3.5 font-bold">Thời gian</th>
-                        <th class="px-4 py-3.5 font-bold">Hành động</th>
-                        <th class="px-4 py-3.5 font-bold">Key Bản quyền</th>
-                        <th class="px-4 py-3.5 font-bold">HWID / IP</th>
-                        <th class="px-4 py-3.5 font-bold">Kết quả</th>
-                        <th class="px-4 py-3.5 font-bold">Thông điệp chi tiết</th>
+                        <th class="px-6 py-4.5 font-bold">Thời gian</th>
+                        <th class="px-6 py-4.5 font-bold">Hành động</th>
+                        <th class="px-6 py-4.5 font-bold">Key Bản quyền</th>
+                        <th class="px-6 py-4.5 font-bold">HWID / IP</th>
+                        <th class="px-6 py-4.5 font-bold">Kết quả</th>
+                        <th class="px-6 py-4.5 font-bold">Thông điệp chi tiết</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-dark-800">
+                <tbody class="divide-y divide-dark-800/80">
                     @forelse ($logs as $log)
-                        <tr class="hover:bg-dark-800/40 transition-colors">
-                            <td class="px-4 py-3 whitespace-nowrap text-xs text-slate-400">
+                        <tr class="hover:bg-dark-800/50 transition-colors">
+                            <td class="px-6 py-4 whitespace-nowrap text-xs text-slate-400 font-mono">
                                 {{ $log->created_at->format('d/m/Y H:i:s') }}
                             </td>
                             <td class="px-4 py-3 whitespace-nowrap">

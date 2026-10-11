@@ -21,6 +21,7 @@ Route::prefix('admin')->middleware('auth')->group(function () {
     Route::post('/licenses/{license}/reset-hwid', [LicenseController::class, 'resetHwid'])->name('admin.licenses.reset-hwid');
     Route::post('/licenses/{license}/status', [LicenseController::class, 'toggleStatus'])->name('admin.licenses.status');
     Route::post('/licenses/{license}/extend', [LicenseController::class, 'extend'])->name('admin.licenses.extend');
+    Route::post('/licenses/{license}/modules', [LicenseController::class, 'updateModules'])->name('admin.licenses.modules');
     Route::delete('/licenses/{license}', [LicenseController::class, 'destroy'])->name('admin.licenses.destroy');
     Route::get('/logs', [LicenseController::class, 'logs'])->name('admin.licenses.logs');
 });
