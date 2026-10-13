@@ -1883,9 +1883,10 @@ class SlotController:
                                     consecutive_fails = 0
                                     handled = True
 
-                            if (free_slots < 4 or not handled) and moss_plus > 0:
-                                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, m=moss_plus: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {c}] 🛒 Hòm bị đầy ({m} món đồ Moss +5..+7). Đang ra NPC Rhea (29, 235) bán đồ..."
+                            if (free_slots < 4 or not handled) and (moss_plus > 0 or junk_count > 0):
+                                total_sell_cand = moss_plus if moss_plus > 0 else junk_count
+                                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, m=total_sell_cand: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {c}] 🛒 Hòm bị đầy ({m} món đồ rác không thể vứt ra đất). Đang ra NPC Rhea (29, 235) bán đồ..."
                                 ))
                                 self.sell_moss_items_at_merchant(eng)
                                 consecutive_fails = 0
@@ -2322,12 +2323,16 @@ class SlotController:
         except Exception:
             pass
 
-        # 2. Dịch chuyển về Event Map (Gate 507 / /event)
+        # 2. Dịch chuyển về Event Map (Nếu đã ở trong map rồi thì tự động bỏ qua không di chuyển)
         self.move_to_event_map()
 
-        # 3. Chờ client ổn định sau chuyển map rồi kiểm tra vé trong túi đồ
-        time.sleep(1.2)
-        t_info = eng.get_mirror_ticket_info()
+        # 3. Chờ client ổn định sau chuyển map rồi kiểm tra vé trong túi đồ (poll tối đa 3.5s)
+        t_info = {}
+        for _ in range(7):
+            time.sleep(0.5)
+            t_info = eng.get_mirror_ticket_info()
+            if t_info.get("hasTicket") or t_info.get("hasOnlySign"):
+                break
         if t_info.get("hasTicket"):
             if t_info.get("slots"):
                 self.cached_mirror_ticket_slot = int(t_info["slots"][0])
@@ -2381,12 +2386,18 @@ class SlotController:
         except Exception:
             pass
 
+        try:
+            eng.click_mirror_npc()
+            time.sleep(0.04)
+        except Exception:
+            pass
+
         res = eng.enter_mirror()
         if res.get("success"):
             slot_used = res.get("slot", "?")
             rel_slot = res.get("relSlot", "?")
             ext_tag = " (Ba lô phụ)" if isinstance(slot_used, int) and slot_used >= 76 else " (Hòm chính)"
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa Double Goer bằng vé ô {slot_used}{ext_tag} [rel: {rel_slot}] (Native 0xFF08D0).")
+            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa Double Goer bằng vé ô {slot_used}{ext_tag} [rel: {rel_slot}] (Native 0x106EF40).")
             return True
         else:
             err = res.get("error", "Unknown")
@@ -2413,7 +2424,7 @@ class SlotController:
         return False
 
     def move_to_event_map(self) -> bool:
-        """Tự động chuyển sang Bản đồ Sự Kiện (Event Map) qua lệnh /event và Gate 507."""
+        """Tự động chuyển sang Bản đồ Sự Kiện (Event Square qua /move ev). Nếu đã ở trong map rồi thì giữ nguyên không chuyển."""
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
             self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
             return False
@@ -2423,11 +2434,26 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
-        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển sang Bản đồ Sự Kiện (Event Map)...")
-        # 1. Gọi lệnh teleport native Gate 507
+        # 1. KIỂM TRA ĐẦU TIÊN: Nếu nhân vật ĐÃ Ở TRONG MAP Sự Kiện (Event Square 53 hoặc Double Goer 65-68) -> KHÔNG MOVE NỮA!
+        try:
+            curr_map = -1
+            info = eng.get_player_info()
+            if info and "mapId" in info and info["mapId"] >= 0:
+                curr_map = info["mapId"]
+            if curr_map < 0:
+                tele = eng.get_latest_telemetry() if hasattr(eng, "get_latest_telemetry") else None
+                if tele and "mapId" in tele and tele["mapId"] >= 0:
+                    curr_map = tele["mapId"]
+            if curr_map in [53, 65, 66, 67, 68] or (hasattr(eng, "is_mirror_event_map") and eng.is_mirror_event_map()):
+                self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đã ở trong Map Sự Kiện (Map ID {curr_map}), giữ nguyên vị trí, không cần di chuyển.")
+                return True
+        except Exception:
+            pass
+
+        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển sang Bản đồ Sự Kiện (/move ev & Gate 507)...")
+        # 2. Gọi lệnh teleport native Gate 507 và gửi lệnh chat /move ev chuẩn MEGAMU
         eng.teleport_to_event_map()
-        # 2. Gửi lệnh chat /event dự phòng
-        eng.send_chat("/event")
+        eng.send_chat("/move ev")
         return True
 
     move_to_lugard_elbeland = move_to_event_map
@@ -2468,6 +2494,11 @@ class SlotController:
 
                 # 2. Nếu đang ở ngoài làng, thử vào cửa
                 self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⏳ Đang thử vào cửa"))
+                try:
+                    eng.click_mirror_npc()
+                    time.sleep(0.04)
+                except Exception:
+                    pass
                 res = eng.enter_mirror()
                 if res.get("success"):
                     self.app.after(0, lambda s=res.get("slot", "?"): self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa (vé ô {s})."))
@@ -2548,6 +2579,12 @@ class SlotController:
         self.mirror_sniping = True
         self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
         self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms)", text_color="#c084fc")
+
+        try:
+            eng.click_mirror_npc()
+            time.sleep(0.03)
+        except Exception:
+            pass
 
         # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, chạy trực tiếp trong RAM Game)
         native_started = False

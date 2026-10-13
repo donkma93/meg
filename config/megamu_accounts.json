@@ -37,16 +37,15 @@
       "source": "registry"
     },
     {
-      "username": "anhdontb3",
-      "nickname": "anhdontb3",
-      "character": "laclac24",
+      "username": "cravr",
+      "nickname": "cravr",
+      "character": "Diradira",
       "characters_list": [
-        "laclac24"
+        "Diradira"
       ],
       "server": 1,
       "enabled": true,
-      "source": "manual",
-      "password": "Nammothai3"
+      "source": "registry"
     }
   ]
 }

@@ -32,6 +32,10 @@
     "58": "Raklion Boss",
     "63": "Vulcanus",
     "64": "Duel Arena",
+    "65": "Double Goer 1",
+    "66": "Double Goer 2",
+    "67": "Double Goer 3",
+    "68": "Double Goer 4",
     "79": "Loren Market",
     "80": "Karutan 1",
     "81": "Karutan 2",
@@ -86,8 +90,8 @@
     "kanturu": "kanturu",
     "nixies lake": "nixies",
     "swamp of darkness": "swamp",
-    "deep dungeon": "deepdungeon",
-    "deep dungeon 1": "deepdungeon",
+    "deep dungeon": "deepdungeon1",
+    "deep dungeon 1": "deepdungeon1",
     "kubera mine": "kuberamine"
   }
 }
