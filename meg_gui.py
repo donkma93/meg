@@ -26,6 +26,10 @@ import threading
 from typing import Optional, List, Dict, Tuple, Any, Callable
 from pathlib import Path
 
+# Đảm bảo nhận diện môi trường binary khi biên dịch bằng Nuitka hoặc PyInstaller
+if "__compiled__" in globals():
+    sys.frozen = True
+
 # Đảm bảo UTF-8 và High-Resolution Timer (1.0ms) trên Windows
 if sys.platform == "win32":
     try:
@@ -93,17 +97,49 @@ MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
 
 def app_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+    # 1. Nuitka compiled binary: __compiled__.containing_dir trỏ chính xác vào thư mục chứa file .exe gốc
+    try:
+        compiled_info = globals().get("__compiled__") or getattr(sys.modules.get("__main__"), "__compiled__", None)
+        if compiled_info and hasattr(compiled_info, "containing_dir") and compiled_info.containing_dir:
+            c_dir = Path(compiled_info.containing_dir).resolve()
+            if c_dir.is_dir():
+                return c_dir
+    except Exception:
+        pass
+    # 2. Nuitka onefile đặt đường dẫn thư mục chứa file .exe gốc tại NUITKA_ONEFILE_DIRECTORY
+    onefile_dir = os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+    if onefile_dir and Path(onefile_dir).is_dir():
+        return Path(onefile_dir).resolve()
+    # 3. Hoặc lấy qua sys.argv[0] nếu không nằm trong thư mục Temp
+    if sys.argv and sys.argv[0]:
+        try:
+            cand = Path(sys.argv[0]).resolve().parent
+            if cand.is_dir() and "temp" not in str(cand).lower():
+                return cand
+        except Exception:
+            pass
+    # 4. Fallback
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        cand = Path(sys.executable).resolve().parent
+        if "temp" not in str(cand).lower():
+            return cand
     return Path(__file__).resolve().parent
 
 def resource_path(name: str) -> Path:
-    if getattr(sys, "frozen", False):
-        base = Path(getattr(sys, "_MEIPASS", sys.executable)).resolve()
-        p = base / name
+    # 1. Thư mục thật của app (nơi đặt file .exe)
+    p = BASE_DIR / name
+    if p.exists():
+        return p
+    # 2. Thư mục giải nén tạm của Nuitka Onefile
+    p = Path(sys.executable).resolve().parent / name
+    if p.exists():
+        return p
+    # 3. Pyinstaller _MEIPASS
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        p = Path(meipass) / name
         if p.exists():
             return p
-        return Path(sys.executable).resolve().parent / name
     return Path(__file__).resolve().parent / name
 
 BASE_DIR = app_dir()
@@ -156,27 +192,48 @@ def record_auto_stop_log(
 
 def extract_bundled_resources():
     """Tự động trích xuất các tài nguyên nhúng (C++ DLL, config mẫu, icons) nếu chưa có bên ngoài."""
-    if not getattr(sys, "frozen", False):
-        return
+    bundle_candidates = [
+        Path(sys.executable).resolve().parent,
+        Path(__file__).resolve().parent,
+    ]
     meipass = getattr(sys, "_MEIPASS", None)
-    if not meipass:
+    if meipass:
+        bundle_candidates.insert(0, Path(meipass))
+
+    base_bundle = None
+    for cand in bundle_candidates:
+        if cand and cand.is_dir() and (cand / "meg_license_bridge.dll").exists():
+            base_bundle = cand
+            break
+    if not base_bundle:
+        for cand in bundle_candidates:
+            if cand and cand.is_dir():
+                base_bundle = cand
+                break
+    if not base_bundle:
         return
-    base_meipass = Path(meipass)
-    
-    # 1. Trích xuất meg_license_bridge.dll ra thư mục chạy nếu chưa có
+
+    # 1. Trích xuất meg_license_bridge.dll ra thư mục chạy thật nếu chưa có
     target_dll = BASE_DIR / "meg_license_bridge.dll"
-    source_dll = base_meipass / "meg_license_bridge.dll"
-    if not target_dll.exists() and source_dll.exists():
+    if not target_dll.exists():
         try:
-            import shutil
-            shutil.copy2(str(source_dll), str(target_dll))
+            import _embedded_bridge
+            _embedded_bridge.extract_to(target_dll)
         except Exception:
             pass
+    if base_bundle:
+        source_dll = base_bundle / "meg_license_bridge.dll"
+        if not target_dll.exists() and source_dll.exists():
+            try:
+                import shutil
+                shutil.copy2(str(source_dll), str(target_dll))
+            except Exception:
+                pass
 
-    # 2. Trích xuất icon và logo
-    for asset in ["megamu_dashboard_icon.ico", "megamu_dashboard_logo.png"]:
+    # 2. Trích xuất icon, logo và map commands
+    for asset in ["megamu_dashboard_icon.ico", "megamu_dashboard_logo.png", "map_commands.json"]:
         t_asset = BASE_DIR / asset
-        s_asset = base_meipass / asset
+        s_asset = base_bundle / asset
         if not t_asset.exists() and s_asset.exists():
             try:
                 import shutil
@@ -185,11 +242,16 @@ def extract_bundled_resources():
                 pass
 
     # 3. Trích xuất các config mẫu nếu chưa có
-    for cfg in ["autotrain_profiles.json", "autotrain_megamu_config.json", "slot_assignments.json", "ui_settings.json", "map_commands.json"]:
+    for cfg in [
+        "autotrain_profiles.json", "autotrain_megamu_config.json",
+        "slot_assignments.json", "ui_settings.json",
+        "moss_slots_config.json", "mirror_schedule_config.json",
+        "maps.ini", "map_commands.json", "license_settings.json"
+    ]:
         t_cfg = CONFIG_DIR / cfg
-        s_cfg = base_meipass / "config" / cfg
+        s_cfg = base_bundle / "config" / cfg
         if not s_cfg.exists():
-            s_cfg = base_meipass / cfg
+            s_cfg = base_bundle / cfg
         if not t_cfg.exists() and s_cfg.exists():
             try:
                 import shutil
@@ -2831,6 +2893,7 @@ class DashboardApp(ctk.CTk):
         self.after(1000, self._periodic_license_monitor)
         self.after(1000, self._periodic_moss_scheduler)
         self.after(1000, self._periodic_mirror_scheduler)
+        self.after(1200, self._check_initial_license)
         threading.Thread(target=self._verify_license_async, daemon=True).start()
         threading.Thread(target=self._check_update_async, kwargs={"manual": False}, daemon=True).start()
 
@@ -3735,33 +3798,27 @@ class DashboardApp(ctk.CTk):
             pass
 
     def _verify_license_async(self):
-        """Kiểm tra xác thực bản quyền định kỳ ngầm với Server (1 lần mỗi ngày / 24h)."""
+        """Kiểm tra và tự động đồng bộ tính năng/bản quyền mới từ Server ngầm."""
         if not getattr(self, "running", True) or not license_client:
             return
         try:
             lic_data = license_client.load_license_data() if license_client else {}
-            last_v = lic_data.get("last_verified_at", "")
-            should_verify = True
-            if last_v:
-                try:
-                    from datetime import datetime
-                    dt_last = datetime.strptime(last_v.split(".")[0], "%Y-%m-%d %H:%M:%S")
-                    diff_hours = (datetime.now() - dt_last).total_seconds() / 3600.0
-                    if diff_hours < 24.0:
-                        should_verify = False
-                except Exception:
-                    should_verify = True
-
-            if should_verify:
+            if lic_data and lic_data.get("license_key"):
                 license_client.verify_license()
             self.after(0, self.update_header_stats)
+            self.after(0, self.update_modules_visibility)
         except Exception:
             pass
         try:
-            # Kiểm tra lại sau mỗi 1 giờ (3.600.000 ms) để xem đã đủ 24 giờ hay chưa
-            self.after(3600000, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
+            # Tự động đồng bộ lại sau mỗi 30 phút (1.800.000 ms)
+            self.after(1800000, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
         except Exception:
             pass
+
+    def _check_initial_license(self):
+        """Khởi động: Nếu chưa có bản quyền hợp lệ cho máy này, mở ngay hộp thoại kích hoạt."""
+        if license_client and not license_client.is_license_valid():
+            self.open_license_dialog()
 
     def open_license_dialog(self):
         """Mở cửa sổ quản lý và kích hoạt bản quyền MEGAMU Auto Train Dashboard."""
@@ -4006,6 +4063,46 @@ class DashboardApp(ctk.CTk):
             command=do_activate
         )
         act_btn.pack(side="left")
+
+        def do_sync():
+            act_btn.configure(state="disabled")
+            sync_btn.configure(state="disabled", text="Đang đồng bộ...")
+            msg_lbl.configure(text="Đang đồng bộ gói dịch vụ và tính năng mới từ máy chủ...", text_color="#94a3b8")
+            dialog.update_idletasks()
+
+            def _run_sync():
+                ok, msg, info = license_client.verify_license()
+                def _done_sync():
+                    act_btn.configure(state="normal")
+                    sync_btn.configure(state="normal", text="🔄 Đồng Bộ")
+                    if ok:
+                        msg_lbl.configure(text=f"✓ Đã đồng bộ thành công tính năng mới!", text_color="#4ade80")
+                        status_lbl.configure(text="Trạng thái: ĐÃ KÍCH HOẠT", text_color="#4ade80")
+                        new_plan = info.get("plan_type", "Pro")
+                        new_exp = str(info.get("expires_at", "--")).split(" ")[0]
+                        details_lbl.configure(
+                            text=f"Gói dịch vụ: {new_plan}   |   Hạn dùng: {new_exp}   |   Slot tối đa: {info.get('max_slots', 50)}"
+                        )
+                        self.update_header_stats()
+                        self.update_modules_visibility()
+                    else:
+                        msg_lbl.configure(text=f"✗ {msg}", text_color="#f87171")
+                dialog.after(0, _done_sync)
+
+            threading.Thread(target=_run_sync, daemon=True).start()
+
+        sync_btn = ctk.CTkButton(
+            btn_box,
+            text="🔄 Đồng Bộ",
+            width=100,
+            height=30,
+            corner_radius=6,
+            fg_color="#0f766e",
+            hover_color="#115e59",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=do_sync
+        )
+        sync_btn.pack(side="left", padx=(8, 0))
 
         def do_deactivate():
             if license_client:

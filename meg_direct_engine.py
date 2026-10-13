@@ -3395,7 +3395,7 @@ class MegDirectEngine:
             os.path.join(base_dir, "config", "megamu_offsets.json"),
             os.path.join(base_dir, "megamu_offsets.json"),
         ]
-        meipass = getattr(sys, "_MEIPASS", None)
+        meipass = os.environ.get("NUITKA_ONEFILE_DIRECTORY") or getattr(sys, "_MEIPASS", None)
         if meipass:
             candidate_paths.append(os.path.join(meipass, "config", "megamu_offsets.json"))
             candidate_paths.append(os.path.join(meipass, "megamu_offsets.json"))

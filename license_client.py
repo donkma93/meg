@@ -19,10 +19,42 @@ try:
     import urllib.error
 except ImportError:
     pass
-if getattr(sys, "frozen", False):
-    BASE_DIR = Path(sys.executable).resolve().parent
-else:
-    BASE_DIR = Path(__file__).resolve().parent
+
+try:
+    import _embedded_bridge
+except ImportError:
+    _embedded_bridge = None
+
+def get_real_app_dir() -> Path:
+    # 1. Nuitka onefile / standalone binary: __compiled__.containing_dir trỏ chính xác vào thư mục chứa file .exe gốc
+    try:
+        c_obj = globals().get("__compiled__") or getattr(sys.modules.get("__main__"), "__compiled__", None)
+        if c_obj and hasattr(c_obj, "containing_dir") and c_obj.containing_dir:
+            c_dir = Path(c_obj.containing_dir).resolve()
+            if c_dir.is_dir():
+                return c_dir
+    except Exception:
+        pass
+    # 2. Nuitka NUITKA_ONEFILE_DIRECTORY
+    onefile_dir = os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+    if onefile_dir and Path(onefile_dir).is_dir():
+        return Path(onefile_dir).resolve()
+    # 3. sys.argv[0] nếu không nằm trong Temp
+    if sys.argv and sys.argv[0]:
+        try:
+            cand = Path(sys.argv[0]).resolve().parent
+            if cand.is_dir() and "temp" not in str(cand).lower():
+                return cand
+        except Exception:
+            pass
+    # 4. Fallback
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+        cand = Path(sys.executable).resolve().parent
+        if "temp" not in str(cand).lower():
+            return cand
+    return Path(__file__).resolve().parent
+
+BASE_DIR = get_real_app_dir()
 
 CONFIG_DIR = BASE_DIR / "config"
 LICENSE_FILE = CONFIG_DIR / "license.json"
@@ -44,22 +76,53 @@ def get_default_server_url() -> str:
     return DEFAULT_SERVER_URL
 
 def find_bridge_dll_path() -> Optional[Path]:
-    """Tìm đường dẫn tệp meg_license_bridge.dll một cách linh hoạt theo thời gian thực."""
+    """
+    Tìm đường dẫn tệp meg_license_bridge.dll một cách linh hoạt theo thời gian thực.
+    Nếu chưa có trên đĩa, tự động trích xuất từ payload nhúng (Embedded) ra ổ đĩa.
+    """
     candidates = [
+        # 1. Thư mục thật của app (nơi đặt file .exe)
         BASE_DIR / "meg_license_bridge.dll",
         BASE_DIR / "_internal" / "meg_license_bridge.dll",
+        # 2. Thư mục giải nén nội bộ của Nuitka Onefile (nơi chứa DLL nhúng trong .exe)
+        Path(sys.executable).resolve().parent / "meg_license_bridge.dll",
+        Path(sys.executable).resolve().parent / "native_bin" / "meg_license_bridge.dll",
+        # 3. Thư mục mã nguồn / module
+        Path(__file__).resolve().parent / "meg_license_bridge.dll",
+        # 4. Thư mục làm việc hiện tại
         Path.cwd() / "meg_license_bridge.dll",
+        # 5. Thư mục Temp hệ thống
+        Path(os.environ.get("TEMP", os.environ.get("TMP", ""))) / "meg_license_bridge.dll",
     ]
-    _meipass = getattr(sys, "_MEIPASS", None)
-    if _meipass:
-        candidates.insert(0, Path(_meipass) / "meg_license_bridge.dll")
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.insert(0, Path(meipass) / "meg_license_bridge.dll")
 
     for p in candidates:
         try:
-            if p.is_file():
+            if p.is_file() and p.stat().st_size > 10000:
                 return p
         except Exception:
             pass
+
+    # TỰ ĐỘNG TRÍCH XUẤT TỪ BẢN NHÚNG NẾU CHƯA CÓ TRÊN ĐĨA
+    if _embedded_bridge:
+        try:
+            # 1. Ưu tiên ghi ra bên cạnh file .exe
+            target = BASE_DIR / "meg_license_bridge.dll"
+            if _embedded_bridge.extract_to(target) and target.is_file():
+                return target
+        except Exception:
+            pass
+        try:
+            # 2. Dự phòng ghi ra Temp nếu BASE_DIR bị cấm ghi
+            temp_dir = Path(os.environ.get("TEMP", os.environ.get("TMP", ".")))
+            target_temp = temp_dir / "meg_license_bridge.dll"
+            if _embedded_bridge.extract_to(target_temp) and target_temp.is_file():
+                return target_temp
+        except Exception:
+            pass
+
     return None
 
 BRIDGE_DLL_FILE = find_bridge_dll_path() or (BASE_DIR / "meg_license_bridge.dll")
@@ -79,8 +142,7 @@ _native_bridge = None
 def _get_native_bridge(force_reload: bool = False):
     """
     Tải thư viện Native C++ Bridge DLL (meg_license_bridge.dll).
-    Nếu ban đầu khởi động chưa có file, nhưng sau đó người dùng copy file vào,
-    hàm sẽ tự động phát hiện và nạp DLL ngay lập tức mà không cần khởi động lại app.
+    Nếu ban đầu khởi động chưa có file, hàm tự động trích xuất và nạp DLL ngay lập tức.
     """
     global _native_bridge, BRIDGE_DLL_FILE
     if not force_reload and _native_bridge is not None:
@@ -90,6 +152,10 @@ def _get_native_bridge(force_reload: bool = False):
     if dll_path:
         BRIDGE_DLL_FILE = dll_path
         try:
+            try:
+                os.add_dll_directory(str(dll_path.parent))
+            except Exception:
+                pass
             dll = ctypes.CDLL(str(dll_path))
             dll.Bridge_GetVersion.restype = ctypes.c_int
             dll.Bridge_GetHwid.argtypes = [ctypes.c_char_p, ctypes.c_int]
@@ -403,7 +469,17 @@ def is_license_valid() -> bool:
     if not data or not data.get("license_key"):
         return False
 
-    # 1. Kiểm tra ngày hết hạn
+    # 1. Bắt buộc kiểm tra HWID của máy tính hiện tại
+    cur_hwid = get_machine_hwid()
+    if not cur_hwid or cur_hwid.startswith("THIẾU_"):
+        return False
+
+    saved_hwid = str(data.get("hwid", "")).strip().upper()
+    if saved_hwid and saved_hwid != cur_hwid.strip().upper():
+        # Khác mã phần cứng (HWID Mismatch) -> Khóa ngay lập tức!
+        return False
+
+    # 2. Kiểm tra ngày hết hạn
     if not data.get("is_lifetime"):
         exp = data.get("expires_at")
         if not exp:
@@ -416,25 +492,27 @@ def is_license_valid() -> bool:
             else:
                 dt = datetime.strptime(exp_clean, "%Y-%m-%d")
             if dt <= datetime.now():
-                # Thực sự đã quá hạn
+                # Quá hạn sử dụng
                 return False
         except Exception:
-            pass
+            return False
 
-    # 2. Nếu trạng thái bị server thu hồi dứt điểm (banned / revoked)
+    # 3. Kiểm tra trạng thái bị thu hồi / cấm
     status = data.get("status", "active")
-    if status in ("revoked", "banned", "suspended"):
+    if status in ("revoked", "banned", "suspended", "expired", "hwid_mismatch"):
         return False
 
-    # 3. Xác thực chữ ký số Offline (HMAC-SHA256 theo HWID máy)
-    sig = data.get("signature", "")
-    key = data.get("license_key", "")
-    if sig and key:
-        if verify_offline_signature(key, sig):
-            return True
+    # 4. BẮT BUỘC xác thực chữ ký số HMAC-SHA256 qua C++ Native Bridge
+    sig = str(data.get("signature", "")).strip()
+    key = str(data.get("license_key", "")).strip()
+    if not sig or not key:
+        return False
 
-    # 4. Kiểm tra cờ valid
-    return data.get("valid", True) is not False
+    if not verify_offline_signature(key, sig):
+        # Chữ ký số không khớp với HWID máy này hoặc phát hiện Debugger -> KHÓA!
+        return False
+
+    return True
 
 def get_license_display_text() -> str:
     """
