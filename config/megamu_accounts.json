@@ -46,6 +46,41 @@
       "server": 1,
       "enabled": true,
       "source": "registry"
+    },
+    {
+      "username": "pvdon",
+      "nickname": "pvdon",
+      "character": "DGptPlus",
+      "characters_list": [
+        "DGptPlus",
+        "DGeminiP"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "caube124",
+      "nickname": "caube124",
+      "character": "Goobin",
+      "characters_list": [
+        "Goobin"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "donnguyen",
+      "nickname": "donnguyen",
+      "character": "HiRW",
+      "characters_list": [
+        "HiRW",
+        "SpeedMoss"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
     }
   ]
 }

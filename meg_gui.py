@@ -436,8 +436,9 @@ class ModernOptionMenu(ctk.CTkFrame):
             width=width,
             height=height,
             fg_color=fg_color,
-            border_width=0,
-            corner_radius=6,
+            border_width=1,
+            border_color="#242b3a",
+            corner_radius=0,
             **kwargs
         )
         self.pack_propagate(False)
@@ -539,14 +540,15 @@ class ModernOptionMenu(ctk.CTkFrame):
         outer = ctk.CTkFrame(
             self._popup,
             fg_color="#141722",
-            border_width=0,
-            corner_radius=6
+            border_width=1,
+            border_color="#242b3a",
+            corner_radius=0
         )
         outer.pack(fill="both", expand=True)
 
         container = outer
         if num_items > 7:
-            container = ctk.CTkScrollableFrame(outer, fg_color="transparent", height=h - 8)
+            container = ctk.CTkScrollableFrame(outer, fg_color="transparent", height=h - 8, corner_radius=0)
             container.pack(fill="both", expand=True, padx=2, pady=2)
 
         cur_val = self.variable.get()
@@ -557,7 +559,7 @@ class ModernOptionMenu(ctk.CTkFrame):
                 text=f"  {val}",
                 anchor="w",
                 height=item_h - 2,
-                corner_radius=4,
+                corner_radius=0,
                 font=self._font,
                 fg_color="#1c2436" if is_active else "transparent",
                 hover_color="#222838",
@@ -2801,6 +2803,16 @@ class DashboardApp(ctk.CTk):
         self.minsize(1050, 600)
         self.configure(fg_color="#0e1117")
 
+        # Thiết lập chủ đề Classic Base phẳng tối giản (Flat Minimalist) để loại bỏ mọi animation/canvas bo góc nặng nề
+        for w_type in ("CTkFrame", "CTkButton", "CTkEntry", "CTkScrollableFrame", "CTkProgressBar", "CTkCheckBox"):
+            if w_type in ctk.ThemeManager.theme and "corner_radius" in ctk.ThemeManager.theme[w_type]:
+                ctk.ThemeManager.theme[w_type]["corner_radius"] = 0
+
+        # Debounce co giãn cửa sổ / Zoom in / Zoom out để tránh tính toán dồn dập
+        self._resize_timer = None
+        self._is_resizing = False
+        self.bind("<Configure>", self._on_window_configure)
+
         # Đặt App ID cho Windows để hiển thị icon DAuto trên Taskbar thay vì icon Python
         try:
             import ctypes
@@ -3009,7 +3021,7 @@ class DashboardApp(ctk.CTk):
             right_box,
             width=78,
             height=34,
-            corner_radius=10,
+            corner_radius=0,
             fg_color="#12151e",
             border_width=1.5,
             border_color="#14b8a6"
@@ -3040,7 +3052,7 @@ class DashboardApp(ctk.CTk):
             text="?",
             width=28,
             height=28,
-            corner_radius=14,
+            corner_radius=0,
             fg_color="#181c26",
             hover_color="#242b3a",
             border_width=1,
@@ -3057,7 +3069,7 @@ class DashboardApp(ctk.CTk):
             text="🔑 License",
             width=80,
             height=28,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#181c26",
             hover_color="#242b3a",
             border_width=1,
@@ -3074,7 +3086,7 @@ class DashboardApp(ctk.CTk):
             text="🔄 Cập nhật",
             width=85,
             height=28,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#181c26",
             hover_color="#242b3a",
             border_width=1,
@@ -3091,7 +3103,7 @@ class DashboardApp(ctk.CTk):
             text="📋 Nhật ký",
             width=85,
             height=28,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#181c26",
             hover_color="#242b3a",
             border_width=1,
@@ -3135,7 +3147,8 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text=f" {tr('characters')} ({len(self.controllers)})",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
+            hover=False,
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("accounts")
         )
@@ -3147,7 +3160,8 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text=f" {tr('configuration')}",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
+            hover=False,
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("profiles")
         )
@@ -3159,11 +3173,12 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text=f" {tr('ram_optimizer')}",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
+            hover=False,
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("ram")
         )
-        self.tab_ram_btn.pack(side="left", padx=(0, 6))
+        # self.tab_ram_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
 
         self.tab_moss_btn = ctk.CTkButton(
             tab_left,
@@ -3171,7 +3186,8 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text=f" {tr('moss_merchant')}",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
+            hover=False,
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("moss")
         )
@@ -3183,7 +3199,8 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text=f" {tr('mirror_event')}",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
+            hover=False,
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("mirror")
         )
@@ -3195,11 +3212,12 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text=" 🚀 Auto Login",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
+            hover=False,
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("autologin")
         )
-        self.tab_autologin_btn.pack(side="left", padx=(0, 6))
+        # self.tab_autologin_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
 
         tab_right = ctk.CTkFrame(tab_bar_inner, fg_color="transparent")
         tab_right.pack(side="right", fill="y")
@@ -3225,20 +3243,30 @@ class DashboardApp(ctk.CTk):
         ).pack(side="left")
 
         # ----------------------------------------------------------------------
-        # 3. CONTENT CONTAINER (Cố định, không bị xáo trộn layout khi đổi tab)
+        # 3. CONTENT CONTAINER (Pure Dark Base Frame - Triệt tiêu chớp trắng và lag)
         # ----------------------------------------------------------------------
-        self.content_container = ctk.CTkFrame(self, fg_color="#0e1117")
+        self.content_container = ctk.CTkFrame(self, fg_color="#0e1117", corner_radius=0, border_width=0)
         self.content_container.pack(fill="both", expand=True, padx=20, pady=(6, 6))
 
-        # 7 Panels cho các Tab
-        self.panel_accounts = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
-        self.panel_accounts.pack(fill="both", expand=True)
-        self.panel_profiles = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
-        self.panel_logs = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
-        self.panel_ram = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
-        self.panel_moss = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
-        self.panel_mirror = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
-        self.panel_autologin = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=8)
+        # 7 Panels cho các Tab (Quản lý trực tiếp bên trong content_container)
+        self.panel_accounts = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
+        self.panel_profiles = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
+        self.panel_logs = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
+        self.panel_ram = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
+        self.panel_moss = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
+        self.panel_mirror = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
+        self.panel_autologin = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
+
+        self._tab_panels = {
+            "accounts": self.panel_accounts,
+            "profiles": self.panel_profiles,
+            "logs": self.panel_logs,
+            "ram": self.panel_ram,
+            "moss": self.panel_moss,
+            "mirror": self.panel_mirror,
+            "autologin": self.panel_autologin,
+        }
+        self._active_panel = None
 
         # ----------------------------------------------------------------------
         # 4. ACTION TOOLBAR (Nằm gọn bên trong panel_accounts, chống giật lag)
@@ -3253,7 +3281,7 @@ class DashboardApp(ctk.CTk):
             "border_width": 1,
             "border_color": "#2c3345",
             "text_color": "#f1f5f9",
-            "corner_radius": 6,
+            "corner_radius": 0,
             "height": 32
         }
 
@@ -3325,7 +3353,7 @@ class DashboardApp(ctk.CTk):
             command=self.quick_trim_ram,
             **btn_bar_style
         )
-        self.btn_trim_ram.pack(side="left", padx=(6, 0))
+        # self.btn_trim_ram.pack(side="left", padx=(6, 0)) # Tạm ẩn theo yêu cầu
 
         self.btn_quick_autologin = ctk.CTkButton(
             t_left,
@@ -3336,7 +3364,7 @@ class DashboardApp(ctk.CTk):
             command=lambda: self.switch_tab("autologin"),
             **btn_bar_style
         )
-        self.btn_quick_autologin.pack(side="left", padx=(6, 0))
+        # self.btn_quick_autologin.pack(side="left", padx=(6, 0)) # Tạm ẩn theo yêu cầu
 
         self.build_accounts_view()
         self.build_profiles_view()
@@ -3422,7 +3450,7 @@ class DashboardApp(ctk.CTk):
     def create_slot_row(self, i: int):
         """Tạo 1 dòng giao diện cho Slot thứ i theo đúng ảnh thiết kế."""
         ctrl = self.controllers[i - 1]
-        row_frame = ctk.CTkFrame(self.accounts_scroll_frame, fg_color="#141722", height=54, corner_radius=6)
+        row_frame = ctk.CTkFrame(self.accounts_scroll_frame, fg_color="#141722", height=54, corner_radius=0)
         row_frame.pack(fill="x", padx=4, pady=3)
 
         # Cột 1: No. (01, 02...)
@@ -3513,7 +3541,7 @@ class DashboardApp(ctk.CTk):
             route_box,
             width=210,
             height=5,
-            corner_radius=2,
+            corner_radius=0,
             fg_color="#232836",
             progress_color="#38bdf8"
         )
@@ -3534,7 +3562,7 @@ class DashboardApp(ctk.CTk):
             row_frame,
             fg_color="#181c26",
             border_width=0,
-            corner_radius=6,
+            corner_radius=0,
             width=140,
             height=30
         )
@@ -3590,7 +3618,7 @@ class DashboardApp(ctk.CTk):
         act_btn_style = {
             "width": 28,
             "height": 28,
-            "corner_radius": 5,
+            "corner_radius": 0,
             "fg_color": "#181c26",
             "hover_color": "#242b3a",
             "border_width": 1,
@@ -3891,7 +3919,7 @@ class DashboardApp(ctk.CTk):
         ).pack(anchor="w", pady=(1, 0))
 
         # HWID Card
-        hwid_card = ctk.CTkFrame(pad, fg_color="#161b26", corner_radius=8, border_width=1, border_color="#232936")
+        hwid_card = ctk.CTkFrame(pad, fg_color="#161b26", corner_radius=0, border_width=1, border_color="#232936")
         hwid_card.pack(fill="x", pady=(0, 10))
 
         hwid_inner = ctk.CTkFrame(hwid_card, fg_color="transparent")
@@ -3933,7 +3961,7 @@ class DashboardApp(ctk.CTk):
             text="Sao chép",
             width=70,
             height=24,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#242b3a",
             hover_color="#333c52",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
@@ -3961,7 +3989,7 @@ class DashboardApp(ctk.CTk):
 
         # Current Status Card
         lic_data = license_client.load_license_data() if license_client else {}
-        status_card = ctk.CTkFrame(pad, fg_color="#161b26", corner_radius=8, border_width=1, border_color="#232936")
+        status_card = ctk.CTkFrame(pad, fg_color="#161b26", corner_radius=0, border_width=1, border_color="#232936")
         status_card.pack(fill="x", pady=(0, 12))
 
         status_inner = ctk.CTkFrame(status_card, fg_color="transparent")
@@ -4004,7 +4032,7 @@ class DashboardApp(ctk.CTk):
             pad,
             placeholder_text="Ví dụ: MEG-MEGATEAM-2026-VIP1",
             height=34,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#181c26",
             border_color="#2c3345",
             font=ctk.CTkFont(family="Consolas", size=12),
@@ -4056,7 +4084,7 @@ class DashboardApp(ctk.CTk):
             text="Kích Hoạt",
             width=100,
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#0284c7",
             hover_color="#0369a1",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
@@ -4096,7 +4124,7 @@ class DashboardApp(ctk.CTk):
             text="🔄 Đồng Bộ",
             width=100,
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#0f766e",
             hover_color="#115e59",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
@@ -4119,7 +4147,7 @@ class DashboardApp(ctk.CTk):
             text="Bỏ Kích Hoạt",
             width=105,
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#7f1d1d",
             hover_color="#991b1b",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
@@ -4133,7 +4161,7 @@ class DashboardApp(ctk.CTk):
             text="Đóng",
             width=70,
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e2430",
             hover_color="#283142",
             font=ctk.CTkFont(family="Segoe UI", size=11),
@@ -4143,7 +4171,7 @@ class DashboardApp(ctk.CTk):
         close_btn.pack(side="right")
 
         # Thẻ thông tin liên hệ bản quyền & hỗ trợ kỹ thuật
-        contact_card = ctk.CTkFrame(pad, fg_color="#141824", corner_radius=8, border_width=1, border_color="#232a3b")
+        contact_card = ctk.CTkFrame(pad, fg_color="#141824", corner_radius=0, border_width=1, border_color="#232a3b")
         contact_card.pack(fill="x", pady=(12, 0))
 
         contact_inner = ctk.CTkFrame(contact_card, fg_color="transparent")
@@ -4194,7 +4222,7 @@ class DashboardApp(ctk.CTk):
             text="Sao chép SĐT",
             width=100,
             height=24,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e2430",
             hover_color="#2b3548",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
@@ -4208,7 +4236,7 @@ class DashboardApp(ctk.CTk):
             text="Sao chép Zalo",
             width=105,
             height=24,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e2430",
             hover_color="#2b3548",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
@@ -4391,7 +4419,7 @@ class DashboardApp(ctk.CTk):
         body.pack(fill="both", expand=True, padx=20, pady=14)
 
         # Version Badge Row
-        ver_card = ctk.CTkFrame(body, fg_color="#141822", border_width=1, border_color="#242b3a", corner_radius=8)
+        ver_card = ctk.CTkFrame(body, fg_color="#141822", border_width=1, border_color="#242b3a", corner_radius=0)
         ver_card.pack(fill="x", pady=(0, 10))
 
         ver_inner = ctk.CTkFrame(ver_card, fg_color="transparent")
@@ -4431,7 +4459,7 @@ class DashboardApp(ctk.CTk):
         notes_box.configure(state="disabled")
 
         # Progress / Status Frame
-        status_frame = ctk.CTkFrame(body, fg_color="#141822", border_width=1, border_color="#242b3a", corner_radius=8)
+        status_frame = ctk.CTkFrame(body, fg_color="#141822", border_width=1, border_color="#242b3a", corner_radius=0)
         status_frame.pack(fill="x", pady=(0, 10))
 
         status_inner = ctk.CTkFrame(status_frame, fg_color="transparent")
@@ -4445,7 +4473,7 @@ class DashboardApp(ctk.CTk):
         )
         lbl_status.pack(anchor="w")
 
-        pbar = ctk.CTkProgressBar(status_inner, height=8, corner_radius=4)
+        pbar = ctk.CTkProgressBar(status_inner, height=8, corner_radius=0)
         pbar.pack(fill="x", pady=(6, 4))
         pbar.set(0.0)
 
@@ -4813,7 +4841,7 @@ class DashboardApp(ctk.CTk):
     # ==========================================================================
     def build_logs_view(self):
         # 1. Thẻ thông tin Bản quyền & Cập nhật Hệ thống (System License & Update Card)
-        lic_card = ctk.CTkFrame(self.panel_logs, fg_color="#181c26", corner_radius=8, border_width=1, border_color="#2b3244")
+        lic_card = ctk.CTkFrame(self.panel_logs, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
         lic_card.pack(fill="x", padx=10, pady=(10, 6))
 
         inner_card = ctk.CTkFrame(lic_card, fg_color="transparent")
@@ -4865,7 +4893,7 @@ class DashboardApp(ctk.CTk):
             text="Sao chép HWID",
             width=100,
             height=24,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#242b3a",
             hover_color="#333c52",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
@@ -4879,7 +4907,7 @@ class DashboardApp(ctk.CTk):
             text="🔑 Kích hoạt / Đổi Key",
             width=135,
             height=24,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#0284c7",
             hover_color="#0369a1",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
@@ -4904,7 +4932,7 @@ class DashboardApp(ctk.CTk):
             text="🔄 Kiểm tra cập nhật",
             width=135,
             height=26,
-            corner_radius=5,
+            corner_radius=0,
             fg_color="#059669",
             hover_color="#047857",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
@@ -4971,7 +4999,7 @@ class DashboardApp(ctk.CTk):
             fg_color="#121214",
             text_color="#f3f4f6",
             font=ctk.CTkFont(family="Consolas", size=11),
-            corner_radius=6,
+            corner_radius=0,
             wrap="word"
         )
         self.log_textbox.pack(fill="both", expand=True, padx=10, pady=(0, 8))
@@ -5131,7 +5159,7 @@ class DashboardApp(ctk.CTk):
             fg_color="#121214",
             text_color="#f3f4f6",
             font=ctk.CTkFont(family="Consolas", size=11),
-            corner_radius=6,
+            corner_radius=0,
             wrap="word"
         )
         self.log_textbox.pack(fill="both", expand=True, padx=12, pady=10)
@@ -5230,7 +5258,7 @@ class DashboardApp(ctk.CTk):
             self.tab_accounts_btn.pack(side="left", padx=(0, 6))
             self.tab_profiles_btn.pack(side="left", padx=(0, 6))
 
-        self.tab_ram_btn.pack(side="left", padx=(0, 6))
+        # self.tab_ram_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
 
         if has_moss:
             self.tab_moss_btn.pack(side="left", padx=(0, 6))
@@ -5238,12 +5266,14 @@ class DashboardApp(ctk.CTk):
         if has_mirror:
             self.tab_mirror_btn.pack(side="left", padx=(0, 6))
 
-        if has_train:
-            self.tab_autologin_btn.pack(side="left", padx=(0, 6))
+        # if has_train:
+        #     self.tab_autologin_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
 
         # Kiểm tra xem tab hiện tại có bị ẩn không, nếu có thì tự động đổi tab
         cur_tab = getattr(self, "active_tab", "accounts")
-        if cur_tab in ("accounts", "profiles", "autologin") and not has_train:
+        if cur_tab in ("ram", "autologin"):
+            self.switch_tab("accounts")
+        elif cur_tab in ("accounts", "profiles") and not has_train:
             if has_moss:
                 self.switch_tab("moss")
             elif has_mirror:
@@ -5274,15 +5304,17 @@ class DashboardApp(ctk.CTk):
                 return
             if tab_name == "mirror" and not license_client.has_license_module("mirror"):
                 return
-        # Tự động lưu cấu hình nếu đang ở tab profiles và chuyển sang tab khác
-        if getattr(self, "active_tab", None) == "profiles" and tab_name != "profiles":
+
+        prev_tab = getattr(self, "active_tab", None)
+        if prev_tab == tab_name:
+            return
+
+        # Tự động lưu cấu hình bất đồng bộ nếu đang rời khỏi tab profiles (tránh lag main thread)
+        if prev_tab == "profiles" and tab_name != "profiles":
             try:
-                self.save_editor_to_file(silent=True)
+                threading.Thread(target=lambda: self.save_editor_to_file(silent=True), daemon=True).start()
             except Exception:
                 pass
-
-        if getattr(self, "active_tab", None) == tab_name:
-            return
 
         self.active_tab = tab_name
 
@@ -5310,80 +5342,63 @@ class DashboardApp(ctk.CTk):
                     UiIconFactory.get(icon, color="#94a3b8", size=(14, 14))
                 )
 
-        # Cập nhật style nút tức thì từ cache
-        for name, btn, _ in tabs:
-            if btn is None:
-                continue
-            is_act = (tab_name == name)
-            cached_img = self._tab_icons_cache[name][0 if is_act else 1]
-            btn.configure(
-                fg_color=act_bg if is_act else "transparent",
-                text_color=act_text if is_act else inact_text,
-                border_width=1 if is_act else 0,
-                border_color=act_border if is_act else "#1e293b",
-                image=cached_img
+        btn_dict = {name: btn for name, btn, _ in tabs if btn is not None}
+
+        # Cập nhật style nút: Tối ưu chỉ đổi 2 nút (cũ và mới) thay vì cập nhật cả 7 nút
+        if prev_tab and prev_tab in btn_dict and prev_tab != tab_name:
+            old_btn = btn_dict[prev_tab]
+            old_icon = self._tab_icons_cache[prev_tab][1]
+            old_btn.configure(
+                fg_color="transparent",
+                text_color=inact_text,
+                border_width=0,
+                border_color="#1e293b",
+                image=old_icon
+            )
+        elif not prev_tab:
+            for name, btn in btn_dict.items():
+                if name != tab_name:
+                    btn.configure(
+                        fg_color="transparent",
+                        text_color=inact_text,
+                        border_width=0,
+                        border_color="#1e293b",
+                        image=self._tab_icons_cache[name][1]
+                    )
+
+        if tab_name in btn_dict:
+            new_btn = btn_dict[tab_name]
+            new_icon = self._tab_icons_cache[tab_name][0]
+            new_btn.configure(
+                fg_color=act_bg,
+                text_color=act_text,
+                border_width=1,
+                border_color=act_border,
+                image=new_icon
             )
 
-        # Ẩn tất cả panels con bên trong content_container (không đụng chạm layout ngoài)
-        panels = [
-            getattr(self, "panel_accounts", None),
-            getattr(self, "panel_profiles", None),
-            getattr(self, "panel_logs", None),
-            getattr(self, "panel_ram", None),
-            getattr(self, "panel_moss", None),
-            getattr(self, "panel_mirror", None),
-            getattr(self, "panel_autologin", None),
-        ]
-        for p in panels:
-            if p:
-                p.pack_forget()
+        # Chuyển tab lập tức - Flat Base 0ms - Tuyệt đối không giật khựng, không chớp trắng
+        target_panel = getattr(self, f"panel_{tab_name}", None)
+        prev_panel = getattr(self, "_active_panel", None)
+        if target_panel and target_panel != prev_panel:
+            target_panel.place(x=0, y=0, relwidth=1, relheight=1)
+            target_panel.lift()
+            if prev_panel:
+                prev_panel.place_forget()
+            self._active_panel = target_panel
 
-        # Hiển thị panel tương ứng ngay lập tức và nạp dữ liệu mượt mà qua after
-        if tab_name == "accounts":
-            self.panel_accounts.pack(fill="both", expand=True)
-        elif tab_name == "profiles":
-            self.panel_profiles.pack(fill="both", expand=True)
-            def _load_prof():
-                try:
-                    cur_cfg = int(self.editor_profile_var.get().replace("Config ", "").strip())
-                    self.load_profile_into_editor(cur_cfg)
-                except Exception:
-                    pass
-            self.after(20, _load_prof)
-        elif tab_name == "logs":
-            self.panel_logs.pack(fill="both", expand=True)
-            self.after(20, self.refresh_license_and_logs_tab)
+        # Cập nhật dữ liệu tức thì cho tab logs và ram (không dùng delay after để triệt tiêu khựng giật)
+        if tab_name == "logs":
+            self.refresh_license_and_logs_tab()
         elif tab_name == "ram":
-            if hasattr(self, "panel_ram"):
-                self.panel_ram.pack(fill="both", expand=True)
-                self.after(20, self.refresh_ram_tab_stats)
-        elif tab_name == "moss":
-            if hasattr(self, "panel_moss"):
-                self.panel_moss.pack(fill="both", expand=True)
-                def _sync_moss():
-                    for ctrl in self.controllers:
-                        if hasattr(self, "update_moss_slot_telemetry"):
-                            self.update_moss_slot_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.assigned_pid)
-                self.after(20, _sync_moss)
-        elif tab_name == "mirror":
-            if hasattr(self, "panel_mirror"):
-                self.panel_mirror.pack(fill="both", expand=True)
-                def _sync_mirror():
-                    for ctrl in self.controllers:
-                        if hasattr(self, "update_mirror_slot_telemetry"):
-                            self.update_mirror_slot_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.assigned_pid, ctrl.coords)
-                self.after(20, _sync_mirror)
-        elif tab_name == "autologin":
-            if hasattr(self, "panel_autologin"):
-                self.panel_autologin.pack(fill="both", expand=True)
-                self.after(20, self.refresh_autologin_table)
+            self.refresh_ram_tab_stats()
 
     # ==========================================================================
     # TAB 4: TỐI ƯU HÓA BỘ NHỚ RAM (RAM OPTIMIZER TAB)
     # ==========================================================================
     def build_ram_view(self):
         """Xây dựng giao diện Tab Tối ưu hóa RAM tích hợp."""
-        header_card = ctk.CTkFrame(self.panel_ram, fg_color="#181c26", corner_radius=8, border_width=1, border_color="#2b3244")
+        header_card = ctk.CTkFrame(self.panel_ram, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
         header_card.pack(fill="x", padx=14, pady=(12, 6))
 
         inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
@@ -5476,7 +5491,7 @@ class DashboardApp(ctk.CTk):
             compound="left",
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             height=38,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#0284c7",
             hover_color="#0369a1",
             command=self.trim_ram_now_ui
@@ -5490,7 +5505,7 @@ class DashboardApp(ctk.CTk):
             compound="left",
             width=130,
             height=38,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#181c26",
             hover_color="#242b3a",
             border_width=1,
@@ -5503,10 +5518,10 @@ class DashboardApp(ctk.CTk):
         body_split = ctk.CTkFrame(self.panel_ram, fg_color="transparent")
         body_split.pack(fill="both", expand=True, padx=14, pady=(4, 12))
 
-        left_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=6, border_width=1, border_color="#202430")
+        left_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
         left_body.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
-        c_hdr = ctk.CTkFrame(left_body, fg_color="#181c26", height=28, corner_radius=6)
+        c_hdr = ctk.CTkFrame(left_body, fg_color="#181c26", height=28, corner_radius=0)
         c_hdr.pack(fill="x", padx=4, pady=(4, 2))
 
         ctk.CTkLabel(c_hdr, text="PID", width=70, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(10, 4))
@@ -5517,11 +5532,11 @@ class DashboardApp(ctk.CTk):
         self.ram_clients_scroll = ctk.CTkScrollableFrame(left_body, fg_color="transparent")
         self.ram_clients_scroll.pack(fill="both", expand=True, padx=2, pady=2)
 
-        right_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=6, border_width=1, border_color="#202430", width=380)
+        right_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430", width=380)
         right_body.pack(side="right", fill="both", padx=(6, 0))
         right_body.pack_propagate(False)
 
-        log_hdr = ctk.CTkFrame(right_body, fg_color="#181c26", height=28, corner_radius=6)
+        log_hdr = ctk.CTkFrame(right_body, fg_color="#181c26", height=28, corner_radius=0)
         log_hdr.pack(fill="x", padx=4, pady=(4, 2))
 
         ctk.CTkLabel(log_hdr, text="📝 Nhật Ký Hoạt Động RAM", anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#38bdf8").pack(side="left", padx=10)
@@ -5536,7 +5551,7 @@ class DashboardApp(ctk.CTk):
         self.append_ram_log("🟢 RAM Optimizer đã tích hợp sẵn sàng.")
 
     def _create_ram_kpi_card(self, parent, title, initial_val, color):
-        card = ctk.CTkFrame(parent, corner_radius=6, fg_color="#181c26", border_width=1, border_color="#2b3244")
+        card = ctk.CTkFrame(parent, corner_radius=0, fg_color="#181c26", border_width=1, border_color="#2b3244")
         lbl_t = ctk.CTkLabel(card, text=title, font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#94a3b8")
         lbl_t.pack(anchor="w", padx=12, pady=(6, 0))
         lbl_v = ctk.CTkLabel(card, text=initial_val, font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color=color)
@@ -5545,11 +5560,41 @@ class DashboardApp(ctk.CTk):
         return card
 
     def refresh_ram_tab_stats(self):
-        """Làm mới danh sách tiến trình MEGAMU và số liệu RAM trên giao diện không gây nhấp nháy (Zero-Flicker in-place update)."""
+        """Làm mới danh sách tiến trình MEGAMU và số liệu RAM ngầm qua thread, không gây block giao diện."""
         if not hasattr(self, "ram_clients_scroll") or getattr(self, "active_tab", "") != "ram":
             return
 
-        clients = get_megamu_processes(self.detected_games) if get_megamu_processes else []
+        if getattr(self, "_refreshing_ram_stats", False):
+            return
+        self._refreshing_ram_stats = True
+
+        def _worker():
+            try:
+                clients = get_megamu_processes(self.detected_games) if get_megamu_processes else []
+            except Exception:
+                clients = []
+
+            def _apply():
+                self._refreshing_ram_stats = False
+                if getattr(self, "active_tab", "") != "ram":
+                    return
+                self._apply_ram_tab_stats_ui(clients)
+
+            try:
+                if getattr(self, "running", True) and self.winfo_exists():
+                    self.after(0, _apply)
+                else:
+                    self._refreshing_ram_stats = False
+            except Exception:
+                self._refreshing_ram_stats = False
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _apply_ram_tab_stats_ui(self, clients: List[Dict[str, Any]]):
+        """Cập nhật dữ liệu RAM lên giao diện không nhấp nháy (Zero-Flicker in-place update)."""
+        if not hasattr(self, "ram_clients_scroll") or getattr(self, "active_tab", "") != "ram":
+            return
+
         total_rss = sum(c["mem_bytes"] for c in clients)
         total_mb = total_rss / 1048576
         total_str = f"{total_mb / 1024:.2f} GB" if total_mb >= 1024 else f"{int(total_mb)} MB"
@@ -5610,7 +5655,7 @@ class DashboardApp(ctk.CTk):
                 if r_dict.get("mem_lbl") and r_dict["mem_lbl"].cget("text") != mem_str:
                     r_dict["mem_lbl"].configure(text=mem_str)
             else:
-                row = ctk.CTkFrame(self.ram_clients_scroll, fg_color="#181c26", height=36, corner_radius=4)
+                row = ctk.CTkFrame(self.ram_clients_scroll, fg_color="#181c26", height=36, corner_radius=0)
                 row.pack(fill="x", pady=2)
 
                 pid_lbl = ctk.CTkLabel(row, text=str(pid), width=70, anchor="w", font=ctk.CTkFont(family="Consolas", size=11, weight="bold"), text_color="#cbd5e1")
@@ -5627,7 +5672,7 @@ class DashboardApp(ctk.CTk):
                     text="Trim RAM",
                     width=85,
                     height=24,
-                    corner_radius=4,
+                    corner_radius=0,
                     fg_color="#0369a1",
                     hover_color="#0284c7",
                     font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
@@ -5873,7 +5918,7 @@ class DashboardApp(ctk.CTk):
 
     def build_moss_view(self):
         """Xây dựng giao diện Tab Auto Moss Merchant đa tài khoản đồng bộ 100%."""
-        header_card = ctk.CTkFrame(self.panel_moss, fg_color="#181c26", corner_radius=8, border_width=1, border_color="#2b3244")
+        header_card = ctk.CTkFrame(self.panel_moss, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
         header_card.pack(fill="x", padx=14, pady=(10, 6))
 
         inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
@@ -5899,7 +5944,7 @@ class DashboardApp(ctk.CTk):
         sub_lbl.pack(anchor="w", pady=(2, 0))
 
         # CỤM PHẢI: LỊCH TRÌNH VÀ ĐỒNG HỒ ĐẾM NGƯỢC THỜI GIAN THỰC (00:15, 06:15, 12:15, 18:15)
-        sched_card = ctk.CTkFrame(inner_h, fg_color="#121622", corner_radius=8, border_width=1, border_color="#2b3244")
+        sched_card = ctk.CTkFrame(inner_h, fg_color="#121622", corner_radius=0, border_width=1, border_color="#2b3244")
         sched_card.pack(side="right", fill="y", padx=(10, 0))
 
         sched_inner = ctk.CTkFrame(sched_card, fg_color="transparent")
@@ -5981,7 +6026,7 @@ class DashboardApp(ctk.CTk):
             self.cb_moss_auto_move_before.select()
 
         # ACTION TOOLBAR
-        toolbar_card = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        toolbar_card = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
         toolbar_card.pack(fill="x", padx=14, pady=(2, 6))
 
         inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
@@ -6012,7 +6057,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="📋 Áp dụng tất cả Slot",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6027,7 +6072,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="🔄 Đọc từ Game",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6061,7 +6106,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="⏱ Đặt delay",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6092,7 +6137,7 @@ class DashboardApp(ctk.CTk):
             right_tb,
             text="🧹 Dọn Rác Tất Cả",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6107,7 +6152,7 @@ class DashboardApp(ctk.CTk):
             right_tb,
             text="🚶 Tới NPC Moss Tất Cả",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6122,7 +6167,7 @@ class DashboardApp(ctk.CTk):
             right_tb,
             text="🚪 Mở NPC Tất Cả",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6137,7 +6182,7 @@ class DashboardApp(ctk.CTk):
             right_tb,
             text="▶️ QUAY TẤT CẢ THEO CONFIG",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#059669",
             hover_color="#047857",
             text_color="#ffffff",
@@ -6150,7 +6195,7 @@ class DashboardApp(ctk.CTk):
             right_tb,
             text="⏹️ DỪNG TẤT CẢ",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#dc2626",
             hover_color="#b91c1c",
             text_color="#ffffff",
@@ -6160,7 +6205,7 @@ class DashboardApp(ctk.CTk):
         self.btn_moss_stop_all.pack(side="left")
 
         # BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
-        table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
         table_container.pack(fill="both", expand=True, padx=14, pady=(2, 6))
 
         # Header bảng
@@ -6197,7 +6242,7 @@ class DashboardApp(ctk.CTk):
             self.create_moss_slot_row(ctrl.slot_idx)
 
         # KHUNG NHẬT KÝ QUAY MOSS TRỰC TIẾP (LIVE CONSOLE LOG)
-        log_frame = ctk.CTkFrame(self.panel_moss, fg_color="#141722", height=140, corner_radius=8, border_width=1, border_color="#202430")
+        log_frame = ctk.CTkFrame(self.panel_moss, fg_color="#141722", height=140, corner_radius=0, border_width=1, border_color="#202430")
         log_frame.pack(fill="x", padx=14, pady=(0, 10))
         log_frame.pack_propagate(False)
 
@@ -6216,7 +6261,7 @@ class DashboardApp(ctk.CTk):
             text="Xóa nhật ký",
             width=75,
             height=22,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             text_color="#94a3b8",
@@ -6237,7 +6282,7 @@ class DashboardApp(ctk.CTk):
     def create_moss_slot_row(self, i: int):
         """Tạo 1 dòng cấu hình và điều khiển Moss cho Slot i."""
         ctrl = self.controllers[i - 1]
-        row_frame = ctk.CTkFrame(self.moss_scroll_frame, fg_color="#141722", height=44, corner_radius=6)
+        row_frame = ctk.CTkFrame(self.moss_scroll_frame, fg_color="#141722", height=44, corner_radius=0)
         row_frame.pack(fill="x", padx=2, pady=2)
 
         # Cột 1: No.
@@ -6323,7 +6368,7 @@ class DashboardApp(ctk.CTk):
             text="▶️ Auto",
             width=58,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#059669",
             hover_color="#047857",
             text_color="#ffffff",
@@ -6337,7 +6382,7 @@ class DashboardApp(ctk.CTk):
             text="🚶 Tới",
             width=46,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6353,7 +6398,7 @@ class DashboardApp(ctk.CTk):
             text="🚪 Mở",
             width=46,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6369,7 +6414,7 @@ class DashboardApp(ctk.CTk):
             text="🎲 1 Lần",
             width=52,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6385,7 +6430,7 @@ class DashboardApp(ctk.CTk):
             text="🧹 Dọn",
             width=46,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6401,7 +6446,7 @@ class DashboardApp(ctk.CTk):
             text="🛒 Bán",
             width=46,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6737,7 +6782,7 @@ class DashboardApp(ctk.CTk):
     # ==========================================================================
     def build_mirror_view(self):
         """Xây dựng giao diện Tab Auto Double Goer (Mirror of Dimensions) đa tài khoản."""
-        header_card = ctk.CTkFrame(self.panel_mirror, fg_color="#181c26", corner_radius=8, border_width=1, border_color="#2b3244")
+        header_card = ctk.CTkFrame(self.panel_mirror, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
         header_card.pack(fill="x", padx=14, pady=(10, 6))
 
         inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
@@ -6763,7 +6808,7 @@ class DashboardApp(ctk.CTk):
         sub_lbl.pack(anchor="w", pady=(2, 0))
 
         # CỤM PHẢI: LỊCH TRÌNH VÀ ĐỒNG HỒ ĐẾM NGƯỢC THỜI GIAN THỰC (Mỗi 2 tiếng: 00:15, 02:15, ..., chuẩn bị trước 5 phút)
-        sched_card = ctk.CTkFrame(inner_h, fg_color="#121622", corner_radius=8, border_width=1, border_color="#2b3244")
+        sched_card = ctk.CTkFrame(inner_h, fg_color="#121622", corner_radius=0, border_width=1, border_color="#2b3244")
         sched_card.pack(side="right", fill="y", padx=(10, 0))
 
         sched_inner = ctk.CTkFrame(sched_card, fg_color="transparent")
@@ -6845,7 +6890,7 @@ class DashboardApp(ctk.CTk):
             self.cb_mirror_auto_prep_before.select()
 
         # ACTION TOOLBAR
-        toolbar_card = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        toolbar_card = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
         toolbar_card.pack(fill="x", padx=14, pady=(2, 6))
 
         inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
@@ -6859,7 +6904,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="🚶 Chuẩn Bị (Trước 5p)",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6874,7 +6919,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="🔍 Check Vé (Tất Cả)",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6889,7 +6934,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="🚶 Tới Event Map",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6904,7 +6949,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="💬 Click Lugard",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -6919,7 +6964,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="🚪 Vào Cửa",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -7003,7 +7048,7 @@ class DashboardApp(ctk.CTk):
             mid_tb,
             text="⚡ CƯỚP CỔNG (TẤT CẢ)",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#7c3aed",
             hover_color="#6d28d9",
             text_color="#ffffff",
@@ -7020,7 +7065,7 @@ class DashboardApp(ctk.CTk):
             right_tb,
             text="▶️ Auto Thường",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#059669",
             hover_color="#047857",
             text_color="#ffffff",
@@ -7033,7 +7078,7 @@ class DashboardApp(ctk.CTk):
             right_tb,
             text="⏹️ DỪNG TẤT CẢ",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#dc2626",
             hover_color="#b91c1c",
             text_color="#ffffff",
@@ -7043,7 +7088,7 @@ class DashboardApp(ctk.CTk):
         self.btn_mirror_stop_all.pack(side="left")
 
         # BẢNG CÁC TÀI KHOẢN (MIRROR SLOT TABLE)
-        table_container = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        table_container = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
         table_container.pack(fill="both", expand=True, padx=14, pady=(2, 6))
 
         # Header bảng
@@ -7079,7 +7124,7 @@ class DashboardApp(ctk.CTk):
             self.create_mirror_slot_row(ctrl.slot_idx)
 
         # KHUNG NHẬT KÝ DOUBLE GOER (MIRROR)
-        log_frame = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", height=140, corner_radius=8, border_width=1, border_color="#202430")
+        log_frame = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", height=140, corner_radius=0, border_width=1, border_color="#202430")
         log_frame.pack(fill="x", padx=14, pady=(0, 10))
         log_frame.pack_propagate(False)
 
@@ -7098,7 +7143,7 @@ class DashboardApp(ctk.CTk):
             text="Xóa nhật ký",
             width=75,
             height=22,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             text_color="#94a3b8",
@@ -7137,7 +7182,7 @@ class DashboardApp(ctk.CTk):
     def create_mirror_slot_row(self, i: int):
         """Tạo 1 dòng điều khiển Double Goer cho Slot i."""
         ctrl = self.controllers[i - 1]
-        row_frame = ctk.CTkFrame(self.mirror_scroll_frame, fg_color="#141722", height=44, corner_radius=6)
+        row_frame = ctk.CTkFrame(self.mirror_scroll_frame, fg_color="#141722", height=44, corner_radius=0)
         row_frame.pack(fill="x", padx=2, pady=2)
 
         # Cột 1: No.
@@ -7207,7 +7252,7 @@ class DashboardApp(ctk.CTk):
             text="🎟️ Vé",
             width=42,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -7223,7 +7268,7 @@ class DashboardApp(ctk.CTk):
             text="🚪 Vào",
             width=50,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -7239,7 +7284,7 @@ class DashboardApp(ctk.CTk):
             text="🚶 Event",
             width=58,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
@@ -7255,7 +7300,7 @@ class DashboardApp(ctk.CTk):
             text="⚡ Snipe",
             width=56,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#6d28d9",
             hover_color="#5b21b6",
             text_color="#ffffff",
@@ -7271,7 +7316,7 @@ class DashboardApp(ctk.CTk):
             text="▶️ Auto",
             width=56,
             height=26,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#059669",
             hover_color="#047857",
             text_color="#ffffff",
@@ -7827,7 +7872,7 @@ class DashboardApp(ctk.CTk):
     # ==========================================================================
     def build_autologin_view(self):
         """Xây dựng giao diện Tab Quản lý tài khoản & AutoLogin thẳng vào game."""
-        header_card = ctk.CTkFrame(self.panel_autologin, fg_color="#181c26", corner_radius=8, border_width=1, border_color="#2b3244")
+        header_card = ctk.CTkFrame(self.panel_autologin, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
         header_card.pack(fill="x", padx=14, pady=(10, 6))
 
         inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
@@ -7868,7 +7913,7 @@ class DashboardApp(ctk.CTk):
             text="📁 Đổi Exe",
             width=75,
             height=28,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#272f3d",
             hover_color="#334155",
             font=ctk.CTkFont(family="Segoe UI", size=11),
@@ -7876,7 +7921,7 @@ class DashboardApp(ctk.CTk):
         ).pack(side="left")
 
         # ACTION TOOLBAR
-        toolbar_card = ctk.CTkFrame(self.panel_autologin, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
+        toolbar_card = ctk.CTkFrame(self.panel_autologin, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
         toolbar_card.pack(fill="x", padx=14, pady=(2, 6))
 
         inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
@@ -7891,7 +7936,7 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text="🚀 MỞ & LOGIN TẤT CẢ",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#7c3aed",
             hover_color="#6d28d9",
             border_width=1,
@@ -7907,7 +7952,7 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text="🔄 Đọc từ Registry",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#0f172a",
             hover_color="#1e293b",
             border_width=1,
@@ -7922,7 +7967,7 @@ class DashboardApp(ctk.CTk):
             compound="left",
             text="➕ Thêm Tài Khoản",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#0f172a",
             hover_color="#1e293b",
             border_width=1,
@@ -7935,7 +7980,7 @@ class DashboardApp(ctk.CTk):
             left_tb,
             text="☑️ Chọn/Bỏ Tất Cả",
             height=30,
-            corner_radius=6,
+            corner_radius=0,
             fg_color="#1e2433",
             hover_color="#2b3244",
             font=ctk.CTkFont(family="Segoe UI", size=11),
@@ -7957,7 +8002,7 @@ class DashboardApp(ctk.CTk):
             textvariable=self.autologin_delay_var,
             width=45,
             height=28,
-            corner_radius=6,
+            corner_radius=0,
             font=ctk.CTkFont(family="Segoe UI", size=11),
             justify="center"
         ).pack(side="left", padx=(0, 4))
@@ -7982,7 +8027,7 @@ class DashboardApp(ctk.CTk):
         body_box.pack(fill="both", expand=True, padx=14, pady=(0, 8))
 
         # TABLE CONTAINER
-        table_container = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=8, border_width=1, border_color="#202430")
+        table_container = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430")
         table_container.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
         tbl_hdr = ctk.CTkFrame(table_container, fg_color="#171b26", height=32, corner_radius=0)
@@ -8001,7 +8046,7 @@ class DashboardApp(ctk.CTk):
         self.autologin_scroll.pack(fill="both", expand=True, padx=4, pady=4)
 
         # LOG CONTAINER (BÊN PHẢI)
-        log_box = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=8, border_width=1, border_color="#202430", width=340)
+        log_box = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430", width=340)
         log_box.pack(side="right", fill="y", padx=(6, 0))
         log_box.pack_propagate(False)
 
@@ -8021,7 +8066,7 @@ class DashboardApp(ctk.CTk):
             text="Xóa",
             width=45,
             height=22,
-            corner_radius=4,
+            corner_radius=0,
             fg_color="#1e2433",
             hover_color="#2b3244",
             font=ctk.CTkFont(family="Segoe UI", size=10),
@@ -8038,6 +8083,7 @@ class DashboardApp(ctk.CTk):
         self.autologin_log_txt.pack(fill="both", expand=True, padx=4, pady=4)
 
         self.refresh_autologin_table()
+        self._autologin_table_initialized = True
 
     def refresh_autologin_table(self):
         """Vẽ lại toàn bộ danh sách tài khoản trong Tab AutoLogin."""
@@ -8060,7 +8106,7 @@ class DashboardApp(ctk.CTk):
             return
 
         for idx, acc in enumerate(self.account_mgr.accounts):
-            row = ctk.CTkFrame(self.autologin_scroll, fg_color="#151924", height=42, corner_radius=6, border_width=1, border_color="#1f2535")
+            row = ctk.CTkFrame(self.autologin_scroll, fg_color="#151924", height=42, corner_radius=0, border_width=1, border_color="#1f2535")
             row.pack(fill="x", pady=2)
             row.pack_propagate(False)
 
@@ -8075,7 +8121,7 @@ class DashboardApp(ctk.CTk):
                 width=24,
                 checkbox_width=18,
                 checkbox_height=18,
-                corner_radius=4,
+                corner_radius=0,
                 command=_make_cb_cmd(acc, cb_var)
             )
             cb.pack(side="left", padx=(10, 2))
@@ -8156,7 +8202,7 @@ class DashboardApp(ctk.CTk):
                 text="🚀 Mở & Login",
                 width=90,
                 height=26,
-                corner_radius=5,
+                corner_radius=0,
                 fg_color="#6366f1",
                 hover_color="#4f46e5",
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
@@ -8171,7 +8217,7 @@ class DashboardApp(ctk.CTk):
                 text="⚡ Gửi Login",
                 width=80,
                 height=26,
-                corner_radius=5,
+                corner_radius=0,
                 fg_color="#0f172a",
                 hover_color="#1e293b",
                 border_width=1,
@@ -8189,7 +8235,7 @@ class DashboardApp(ctk.CTk):
                 text="✏️",
                 width=30,
                 height=26,
-                corner_radius=5,
+                corner_radius=0,
                 fg_color="#1e2433",
                 hover_color="#0284c7",
                 font=ctk.CTkFont(family="Segoe UI", size=11),
@@ -8204,7 +8250,7 @@ class DashboardApp(ctk.CTk):
                 text="🗑️",
                 width=30,
                 height=26,
-                corner_radius=5,
+                corner_radius=0,
                 fg_color="#1e2433",
                 hover_color="#ef4444",
                 font=ctk.CTkFont(family="Segoe UI", size=11),
@@ -9050,8 +9096,20 @@ class DashboardApp(ctk.CTk):
             pass
         self.after(2500, self._periodic_game_scan)
 
+    def _on_window_configure(self, event):
+        if event.widget == self:
+            self._is_resizing = True
+            if self._resize_timer:
+                self.after_cancel(self._resize_timer)
+            self._resize_timer = self.after(120, self._on_resize_end)
+
+    def _on_resize_end(self):
+        self._is_resizing = False
+        self._resize_timer = None
+
     def _periodic_telemetry(self):
-        if not self.running:
+        if not self.running or getattr(self, "_is_resizing", False):
+            self.after(500, self._periodic_telemetry)
             return
         try:
             for ctrl in self.controllers:
@@ -9059,7 +9117,7 @@ class DashboardApp(ctk.CTk):
                     ctrl.sync_telemetry()
         except Exception:
             pass
-        self.after(200, self._periodic_telemetry)
+        self.after(500, self._periodic_telemetry)
 
     def _periodic_license_monitor(self):
         """Giám sát liên tục sự tồn tại của file .dll và trạng thái bản quyền theo thời gian thực (1 giây/lần)."""
@@ -9148,7 +9206,7 @@ class DashboardApp(ctk.CTk):
                     fg_color="#450a0a",
                     border_width=1,
                     border_color="#ef4444",
-                    corner_radius=6,
+                    corner_radius=0,
                     height=32
                 )
                 self.license_lock_banner.pack(side="right", padx=(0, 6))
@@ -9166,7 +9224,7 @@ class DashboardApp(ctk.CTk):
                     text="Cập Nhật",
                     width=75,
                     height=22,
-                    corner_radius=4,
+                    corner_radius=0,
                     fg_color="#dc2626",
                     hover_color="#b91c1c",
                     font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
@@ -9247,7 +9305,7 @@ class DashboardApp(ctk.CTk):
                     fg_color="#3b1219",
                     border_width=1,
                     border_color="#ef4444",
-                    corner_radius=6,
+                    corner_radius=0,
                     height=32
                 )
                 self.license_lock_banner.pack(side="right", padx=(0, 6))
@@ -9265,7 +9323,7 @@ class DashboardApp(ctk.CTk):
                     text="Kích Hoạt",
                     width=75,
                     height=22,
-                    corner_radius=4,
+                    corner_radius=0,
                     fg_color="#dc2626",
                     hover_color="#b91c1c",
                     font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
