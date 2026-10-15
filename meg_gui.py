@@ -1613,7 +1613,7 @@ class SlotController:
                 worker.stop(reason=reason)
             except Exception:
                 pass
-        elif self.engine and self.engine.is_ready:
+        if self.engine and self.engine.is_ready:
             try:
                 self.engine.stop_helper()
                 self.engine.cancel_move()
@@ -1687,7 +1687,7 @@ class SlotController:
         p_info = None
         if self.engine:
             try:
-                p_info = self.engine.get_player_info()
+                p_info = self.engine.get_player_info(max_age=1.5, allow_blocking=False)
             except Exception:
                 pass
 
@@ -2848,6 +2848,7 @@ class DashboardApp(ctk.CTk):
         self.detected_games: Dict[int, str] = {}
         self.active_tab = None
         self.logs_data: List[Tuple[str, str, str]] = [] # [(time, slot, text)]
+        self._render_logs_scheduled = False
 
         # Quản lý RAM Optimizer
         self.ram_manager = RamOptimizerManager.get_instance() if RamOptimizerManager else None
@@ -5176,7 +5177,7 @@ class DashboardApp(ctk.CTk):
         self.render_logs()
 
     def log_message(self, msg: str, level: str = "INFO"):
-        """Ghi nhận log hệ thống và hiển thị lên giao diện."""
+        """Ghi nhận log hệ thống và hiển thị lên giao diện một cách an toàn đa luồng."""
         t_str = time.strftime("%H:%M:%S")
         # Phân loại slot nếu có [Slot XX]
         slot_tag = "ALL"
@@ -5190,13 +5191,18 @@ class DashboardApp(ctk.CTk):
         if len(self.logs_data) > 1500:
             self.logs_data.pop(0)
 
-        # Cập nhật nếu cửa sổ logs hoặc tab logs đang mở
-        if hasattr(self, "log_textbox") and self.log_textbox:
+        # Trì hoãn và gom nhóm việc render lên GUI Main Thread (Debounce 100ms)
+        # TUYỆT ĐỐI không gọi widget Tkinter trực tiếp từ luồng nền worker
+        if not getattr(self, "_render_logs_scheduled", False):
+            self._render_logs_scheduled = True
             try:
-                if self.log_textbox.winfo_exists():
-                    self.render_logs()
+                self.after(100, self._async_render_logs)
             except Exception:
-                pass
+                self._render_logs_scheduled = False
+
+    def _async_render_logs(self):
+        self._render_logs_scheduled = False
+        self.render_logs()
 
     def render_logs(self):
         if not hasattr(self, "log_textbox") or not self.log_textbox:
@@ -5204,18 +5210,18 @@ class DashboardApp(ctk.CTk):
         try:
             if not self.log_textbox.winfo_exists():
                 return
-            self.log_textbox.configure(state="normal")
-            self.log_textbox.delete("1.0", "end")
             selected_filter = self.log_filter_var.get() if hasattr(self, "log_filter_var") else tr("all")
 
             lines = []
-            for t_str, s_tag, content in self.logs_data:
+            for t_str, s_tag, content in list(self.logs_data):
                 if selected_filter == tr("all") or selected_filter == s_tag:
                     lines.append(f"[{t_str}] {content}")
 
             if not lines:
                 lines.append(f"[{time.strftime('%H:%M:%S')}] [INFO] Nhật ký hệ thống sẵn sàng. Đang chờ các hoạt động từ các Slot...")
 
+            self.log_textbox.configure(state="normal")
+            self.log_textbox.delete("1.0", "end")
             self.log_textbox.insert("end", "\n".join(lines) + "\n")
             self.log_textbox.see("end")
             self.log_textbox.configure(state="disabled")

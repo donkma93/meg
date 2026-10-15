@@ -67,9 +67,10 @@ DEFAULT_OFFSETS = {
     "command_mgr_process": "0xFA0A60",
     "chat_update": "0x13BD830",
     "game_ui_update": "0x1415C00",
-    "helper_start": "0x289BD70",
-    "helper_stop": "0x289C150",
-    "helper_toggle": "0x289B750",
+    "helper_start": "0x289FD90",
+    "helper_stop": "0x28ACCC0",
+    "helper_action": "0x289B300",
+    "helper_toggle": "0x289B300",
     "player_name": "0x28",
     "player_level": "0x30",
     "player_class": "0x34",
@@ -193,13 +194,32 @@ var il2cpp_string_new = new NativeFunction(
     'pointer',
     ['pointer']
 );
-var nativeStartHelper = new NativeFunction(baseAddr.add(off('__HELPER_START__')), 'void', ['pointer', 'pointer']);
-var nativeStopHelper = new NativeFunction(baseAddr.add(off('__HELPER_STOP__')), 'void', ['pointer', 'pointer']);
+var nativeStartHelper = null;
+var nativeStopHelper = null;
+var nativeSendHelperAction = null;
 var nativeHelperToggle = null;
+try {
+    var shOff = off('__HELPER_START__');
+    if (!shOff.isNull()) {
+        nativeStartHelper = new NativeFunction(baseAddr.add(shOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eSH) {}
+try {
+    var sthOff = off('__HELPER_STOP__');
+    if (!sthOff.isNull()) {
+        nativeStopHelper = new NativeFunction(baseAddr.add(sthOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eSTH) {}
+try {
+    var haOff = off('__HELPER_ACTION__');
+    if (!haOff.isNull()) {
+        nativeSendHelperAction = new NativeFunction(baseAddr.add(haOff), 'void', ['int', 'pointer']);
+    }
+} catch (eHA) {}
 try {
     var htOff = off('__HELPER_TOGGLE__');
     if (!htOff.isNull()) {
-        nativeHelperToggle = new NativeFunction(baseAddr.add(htOff), 'void', []);
+        nativeHelperToggle = new NativeFunction(baseAddr.add(htOff), 'void', ['int', 'pointer']);
     }
 } catch (eHT) {}
 var nativeStartAutoMove = new NativeFunction(baseAddr.add(off('__START_AUTO_MOVE__')), 'void', ['pointer', 'pointer', 'int', 'bool', 'pointer']);
@@ -833,42 +853,68 @@ function dispatchChatMessage(cmdText) {
 }
 
 var pendingHelperAction = null;
-var pendingHelperTargetX = 0;
-var pendingHelperTargetY = 0;
 
-function dispatchHelperAction(act, targetX, targetY) {
+function dispatchHelperAction(act) {
     if (!act) return false;
     try {
         var p = getPlayerPtr();
-        if (p.isNull()) return false;
-        var h = p.add(off('__PLAYER_HELPER__')).readPointer();
-        if (h.isNull()) return false;
+        var h = ptr(0);
+        if (!p.isNull()) {
+            try { h = p.add(off('__PLAYER_HELPER__')).readPointer(); } catch (eH0) {}
+        }
+
+        var isAct = 0;
+        if (!h.isNull()) {
+            try { isAct = h.add(off('__HELPER_STATE__')).readU8(); } catch (eA) {}
+        }
 
         if (act === 'start') {
-            nativeStartHelper(h, ptr(0));
-            h.add(off('__HELPER_STATE__')).writeU8(1);
-
-            // Ghim chặt tọa độ gốc của MuHelper (CBJJBLONOFF tại +0x50) về đúng tọa độ đích (targetX, targetY)
-            var tx = parseInt(targetX || 0);
-            var ty = parseInt(targetY || 0);
-            if (tx > 0 && ty > 0) {
-                try {
-                    var coordObj = h.add(0x50).readPointer();
-                    if (!coordObj.isNull()) {
-                        coordObj.add(0x10).writeS32(tx);
-                        coordObj.add(0x14).writeS32(ty);
-                    }
-                } catch (eCoord) {}
+            if (isAct === 0) {
+                if (!h.isNull() && nativeStartHelper !== null) {
+                    try { nativeStartHelper(h, ptr(0)); } catch (eS1) {}
+                }
+                if (nativeSendHelperAction !== null) {
+                    try { nativeSendHelperAction(0, ptr(0)); } catch (eS2) {}
+                } else if (nativeHelperToggle !== null) {
+                    try { nativeHelperToggle(0, ptr(0)); } catch (eS3) {}
+                }
             }
             return true;
         } else if (act === 'stop') {
-            nativeStopHelper(h, ptr(0));
-            h.add(off('__HELPER_STATE__')).writeU8(0);
+            if (isAct === 1) {
+                if (!h.isNull() && nativeStopHelper !== null) {
+                    try { nativeStopHelper(h, ptr(0)); } catch (eSt1) {}
+                }
+                if (nativeSendHelperAction !== null) {
+                    try { nativeSendHelperAction(1, ptr(0)); } catch (eSt2) {}
+                } else if (nativeHelperToggle !== null) {
+                    try { nativeHelperToggle(1, ptr(0)); } catch (eSt3) {}
+                }
+            }
+            return true;
+        } else if (act === 'toggle') {
+            if (isAct === 1) {
+                if (!h.isNull() && nativeStopHelper !== null) {
+                    try { nativeStopHelper(h, ptr(0)); } catch (eT1) {}
+                }
+                if (nativeSendHelperAction !== null) {
+                    try { nativeSendHelperAction(1, ptr(0)); } catch (eT2) {}
+                }
+            } else {
+                if (!h.isNull() && nativeStartHelper !== null) {
+                    try { nativeStartHelper(h, ptr(0)); } catch (eT3) {}
+                }
+                if (nativeSendHelperAction !== null) {
+                    try { nativeSendHelperAction(0, ptr(0)); } catch (eT4) {}
+                }
+            }
             return true;
         }
     } catch (eH) {}
     return false;
 }
+
+var pendingMoveTarget = null;
 
 try {
     var cuOff = off('__CHAT_UPDATE__');
@@ -885,12 +931,55 @@ try {
                     }
                     if (pendingHelperAction !== null) {
                         var hAct = pendingHelperAction;
-                        var hTx = pendingHelperTargetX;
-                        var hTy = pendingHelperTargetY;
                         pendingHelperAction = null;
-                        pendingHelperTargetX = 0;
-                        pendingHelperTargetY = 0;
-                        dispatchHelperAction(hAct, hTx, hTy);
+                        try { dispatchHelperAction(hAct); } catch (eH1) {}
+                    }
+                    if (pendingMoveTarget !== null) {
+                        var target = pendingMoveTarget;
+                        pendingMoveTarget = null;
+                        try {
+                            var pMove = getPlayerPtr();
+                            if (!pMove.isNull()) {
+                                var destC = ptr(0);
+                                try {
+                                    var existingC = pMove.add(off('__AUTO_MOVE_DEST__')).readPointer();
+                                    if (!existingC.isNull()) destC = existingC;
+                                } catch (eD) {}
+                                if (!destC.isNull()) {
+                                    destC.add(0x10).writeS32(parseInt(target.x));
+                                    destC.add(0x14).writeS32(parseInt(target.y));
+                                    pMove.add(off('__AUTO_MOVE_DEST__')).writePointer(destC);
+                                    pMove.add(off('__AUTO_MOVE_TYPE__')).writeS32(0);
+                                    pMove.add(off('__AUTO_MOVE_HELPER__')).writeU8(target.helper ? 1 : 0);
+                                    pMove.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
+                                    try {
+                                        moveToNative(pMove, destC, 0.0, ptr(0), 0, 1, ptr(0));
+                                    } catch (eM) {}
+                                } else {
+                                    var curC = pMove.add(off('__PLAYER_COORD__')).readPointer();
+                                    var k = ptr(0);
+                                    try { if (!curC.isNull()) k = curC.readPointer(); } catch (eK1) {}
+                                    if (k.isNull()) {
+                                        try {
+                                            var lastC = pMove.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                                            if (!lastC.isNull()) k = lastC.readPointer();
+                                        } catch (eK2) {}
+                                    }
+                                    if (k.isNull() && cachedCoordKlass && !cachedCoordKlass.isNull()) {
+                                        k = cachedCoordKlass;
+                                    }
+                                    if (!k.isNull()) {
+                                        coordBuf.writePointer(k);
+                                        coordBuf.add(0x08).writePointer(ptr(0));
+                                        coordBuf.add(0x10).writeS32(parseInt(target.x));
+                                        coordBuf.add(0x14).writeS32(parseInt(target.y));
+                                        try {
+                                            moveToNative(pMove, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
+                                        } catch (eM2) {}
+                                    }
+                                }
+                            }
+                        } catch (eQueueMove) {}
                     }
                 } catch (eEnter) {}
             }
@@ -1316,12 +1405,8 @@ try {
                     }
                     if (pendingHelperAction !== null) {
                         var hAct = pendingHelperAction;
-                        var hTx = pendingHelperTargetX;
-                        var hTy = pendingHelperTargetY;
                         pendingHelperAction = null;
-                        pendingHelperTargetX = 0;
-                        pendingHelperTargetY = 0;
-                        dispatchHelperAction(hAct, hTx, hTy);
+                        try { dispatchHelperAction(hAct); } catch (eH2) {}
                     }
                 } catch (eGUIEnter) {}
             }
@@ -1339,6 +1424,20 @@ try {
         gameUpdateHook = Interceptor.attach(baseAddr.add(guOff), {
             onEnter: function(args) {
                 if (shuttingDown) return;
+
+                // 1. Luôn ưu tiên xử lý lệnh Helper Toggle & Chat trên vòng lặp Game.Update chính
+                // Đảm bảo chạy 60 FPS liên tục kể cả khi game đang chạy ngầm, không cần user phải click chuột vào game!
+                if (pendingHelperAction !== null) {
+                    var hAct = pendingHelperAction;
+                    pendingHelperAction = null;
+                    try { dispatchHelperAction(hAct); } catch (eHGU) {}
+                }
+                if (pendingCommand !== null) {
+                    var cmd = pendingCommand;
+                    pendingCommand = null;
+                    try { dispatchChatMessage(cmd); } catch (eCGU) {}
+                }
+
                 if (pendingAutoLogin === null) return;
                 try {
                     var pal = pendingAutoLogin;
@@ -1595,62 +1694,8 @@ rpc.exports = {
     moveTo: function(targetX, targetY) {
         try {
             ensureThreadAttached();
-            var p = getPlayerPtr();
-            if (p.isNull()) return false;
-
-            var destCoord = ptr(0);
-            try {
-                var existing = p.add(off('__AUTO_MOVE_DEST__')).readPointer();
-                if (!existing.isNull()) destCoord = existing;
-            } catch (eD) {}
-
-            if (!destCoord.isNull()) {
-                destCoord.add(0x10).writeS32(parseInt(targetX));
-                destCoord.add(0x14).writeS32(parseInt(targetY));
-                var ok = moveToNative(p, destCoord, 0.0, ptr(0), 0, 1, ptr(0));
-                return Boolean(ok);
-            }
-
-            var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
-            var klass = ptr(0);
-            try { if (!curCoord.isNull()) klass = curCoord.readPointer(); } catch (e1) {}
-            if (klass.isNull()) {
-                try {
-                    var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
-                    if (!lastCoord.isNull()) klass = lastCoord.readPointer();
-                } catch (e2) {}
-            }
-            if (klass.isNull()) {
-                try {
-                    var tCoord = p.add(ptr('0x18')).readPointer();
-                    if (!tCoord.isNull()) klass = tCoord.readPointer();
-                } catch (e4) {}
-            }
-            if (!klass.isNull()) {
-                cachedCoordKlass = klass;
-            } else if (!cachedCoordKlass.isNull()) {
-                klass = cachedCoordKlass;
-            }
-
-            if (!klass.isNull()) {
-                if (il2cpp_object_new !== null) {
-                    try {
-                        var managedCoord = il2cpp_object_new(klass);
-                        if (!managedCoord.isNull()) {
-                            managedCoord.add(0x10).writeS32(parseInt(targetX));
-                            managedCoord.add(0x14).writeS32(parseInt(targetY));
-                            var okM = moveToNative(p, managedCoord, 0.0, ptr(0), 0, 1, ptr(0));
-                            return Boolean(okM);
-                        }
-                    } catch (eNM) {}
-                }
-                coordBuf.writePointer(klass);
-                coordBuf.add(0x08).writePointer(ptr(0));
-                coordBuf.add(0x10).writeS32(parseInt(targetX));
-                coordBuf.add(0x14).writeS32(parseInt(targetY));
-                var ok = moveToNative(p, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
-                return Boolean(ok);
-            }
+            pendingMoveTarget = { x: parseInt(targetX), y: parseInt(targetY), helper: false };
+            return true;
         } catch (eM) {}
         return false;
     },
@@ -1724,78 +1769,54 @@ rpc.exports = {
         return this.sendChatNative(cmd);
     },
 
-    startHelper: function(targetX, targetY) {
-        var tx = parseInt(targetX || 0);
-        var ty = parseInt(targetY || 0);
+    startHelper: function() {
         try {
             ensureThreadAttached();
-            pendingHelperAction = 'start';
-            pendingHelperTargetX = tx;
-            pendingHelperTargetY = ty;
-            var ok = dispatchHelperAction('start', tx, ty);
-            if (ok) {
-                pendingHelperAction = null;
-                return true;
-            }
-        } catch (eH) {}
-        try {
-            if (nativeHelperToggle !== null) {
-                var p2 = getPlayerPtr();
-                if (!p2.isNull()) {
-                    var h2 = p2.add(off('__PLAYER_HELPER__')).readPointer();
-                    if (!h2.isNull() && h2.add(off('__HELPER_STATE__')).readU8() === 0) {
-                        nativeHelperToggle();
-                        if (tx > 0 && ty > 0) {
-                            try {
-                                var coordObj2 = h2.add(0x50).readPointer();
-                                if (!coordObj2.isNull()) {
-                                    coordObj2.add(0x10).writeS32(tx);
-                                    coordObj2.add(0x14).writeS32(ty);
-                                }
-                            } catch (eC2) {}
-                        }
+            var p = getPlayerPtr();
+            if (!p.isNull()) {
+                var h = p.add(off('__PLAYER_HELPER__')).readPointer();
+                if (!h.isNull()) {
+                    var isAct = 0;
+                    try { isAct = h.add(off('__HELPER_STATE__')).readU8(); } catch (eA) {}
+                    if (isAct === 1) {
                         return true;
                     }
                 }
             }
-        } catch (eHT) {}
-        return true;
+            pendingHelperAction = 'start';
+            try { dispatchHelperAction('start'); } catch (eD1) {}
+            return true;
+        } catch (eH) {}
+        return false;
     },
 
     stopHelper: function() {
         try {
             ensureThreadAttached();
-            pendingHelperAction = 'stop';
-            pendingHelperTargetX = 0;
-            pendingHelperTargetY = 0;
-            var ok = dispatchHelperAction('stop', 0, 0);
-            if (ok) {
-                pendingHelperAction = null;
-                return true;
-            }
-        } catch (eH) {}
-        try {
-            if (nativeHelperToggle !== null) {
-                var p2 = getPlayerPtr();
-                if (!p2.isNull()) {
-                    var h2 = p2.add(off('__PLAYER_HELPER__')).readPointer();
-                    if (!h2.isNull() && h2.add(off('__HELPER_STATE__')).readU8() !== 0) {
-                        nativeHelperToggle();
+            var p = getPlayerPtr();
+            if (!p.isNull()) {
+                var h = p.add(off('__PLAYER_HELPER__')).readPointer();
+                if (!h.isNull()) {
+                    var isAct = 0;
+                    try { isAct = h.add(off('__HELPER_STATE__')).readU8(); } catch (eA) {}
+                    if (isAct === 0) {
                         return true;
                     }
                 }
             }
-        } catch (eHT) {}
-        return true;
+            pendingHelperAction = 'stop';
+            try { dispatchHelperAction('stop'); } catch (eD2) {}
+            return true;
+        } catch (eH) {}
+        return false;
     },
 
     toggleHelper: function() {
         try {
             ensureThreadAttached();
-            if (nativeHelperToggle !== null) {
-                nativeHelperToggle();
-                return true;
-            }
+            pendingHelperAction = 'toggle';
+            try { dispatchHelperAction('toggle'); } catch (eD3) {}
+            return true;
         } catch (eT) {}
         return false;
     },
@@ -1860,25 +1881,12 @@ rpc.exports = {
                 p.add(off('__AUTO_MOVE_HELPER__')).writeU8(helper ? 1 : 0);
                 p.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
 
-                // Kích hoạt trực tiếp bước di chuyển khởi hành qua moveToNative
-                try {
-                    moveToNative(p, destCoord, 0.0, ptr(0), 0, 1, ptr(0));
-                } catch (eMove) {}
-
+                // Đưa bước di chuyển khởi hành vào hàng đợi Unity Main Thread Hook để thực thi an toàn tuyệt đối, tránh crash
+                pendingMoveTarget = { x: parseInt(x), y: parseInt(y), helper: Boolean(helper) };
                 return true;
             } else {
-                // TUYỆT ĐỐI KHÔNG ghi Memory.alloc vào __AUTO_MOVE_DEST__ (0x4A8)!
-                // Vì con trỏ ngoài Managed Heap sẽ làm sập Boehm GC 0xC0000005 khi quét dọn rác.
-                if (!klass.isNull()) {
-                    coordBuf.writePointer(klass);
-                    coordBuf.add(0x08).writePointer(ptr(0));
-                    coordBuf.add(0x10).writeS32(parseInt(x));
-                    coordBuf.add(0x14).writeS32(parseInt(y));
-                    try {
-                        moveToNative(p, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
-                    } catch (eM2) {}
-                    return true;
-                }
+                pendingMoveTarget = { x: parseInt(x), y: parseInt(y), helper: Boolean(helper) };
+                return true;
             }
         } catch (eAM) {}
         return false;
@@ -3448,15 +3456,16 @@ class MegDirectEngine:
             "__COMMAND_MGR_PROCESS__": self.offsets.get("command_mgr_process") or DEFAULT_OFFSETS.get("command_mgr_process", "0xFA0A60"),
             "__CHAT_UPDATE__": self.offsets.get("chat_update") or DEFAULT_OFFSETS.get("chat_update", "0x13BD830"),
             "__GAME_UI_UPDATE__": self.offsets.get("game_ui_update") or DEFAULT_OFFSETS.get("game_ui_update", "0x1415C00"),
-            "__HELPER_START__": self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x289BD70"),
-            "__HELPER_STOP__": self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x289C150"),
-            "__HELPER_TOGGLE__": self.offsets.get("helper_toggle") or DEFAULT_OFFSETS.get("helper_toggle", "0x289B750"),
+            "__HELPER_START__": self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x289FD90"),
+            "__HELPER_STOP__": self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x28ACCC0"),
+            "__HELPER_ACTION__": self.offsets.get("helper_action") or DEFAULT_OFFSETS.get("helper_action", "0x289B300"),
+            "__HELPER_TOGGLE__": self.offsets.get("helper_toggle") or DEFAULT_OFFSETS.get("helper_toggle", "0x289B300"),
             "__PLAYER_NAME__": self.offsets.get("player_name") or DEFAULT_OFFSETS.get("player_name", "0x28"),
             "__PLAYER_LEVEL__": self.offsets.get("player_level") or DEFAULT_OFFSETS.get("player_level", "0x30"),
             "__PLAYER_CLASS__": self.offsets.get("player_class") or DEFAULT_OFFSETS.get("player_class", "0x34"),
             "__PLAYER_COORD__": self.offsets.get("player_coord") or DEFAULT_OFFSETS.get("player_coord", "0x68"),
             "__PLAYER_MOVE__": self.offsets.get("player_move") or DEFAULT_OFFSETS.get("player_move", "0xF0"),
-            "__PLAYER_HELPER__": self.offsets.get("player_helper") or DEFAULT_OFFSETS.get("player_helper", "0x1E8"),
+            "__PLAYER_HELPER__": self.offsets.get("player_helper") or DEFAULT_OFFSETS.get("player_helper", "0x1E0"),
             "__PLAYER_LAST_COORD__": self.offsets.get("player_last_coord") or DEFAULT_OFFSETS.get("player_last_coord", "0x4E0"),
             "__MOVE_FLAG__": self.offsets.get("move_flag") or DEFAULT_OFFSETS.get("move_flag", "0x3C"),
             "__HELPER_STATE__": self.offsets.get("helper_state") or DEFAULT_OFFSETS.get("helper_state", "0x20"),
@@ -3685,10 +3694,14 @@ class MegDirectEngine:
         except Exception:
             return None
 
-    def get_player_info(self, max_age: float = 0.55) -> Optional[Dict[str, Any]]:
+    def get_player_info(self, max_age: float = 0.55, allow_blocking: bool = True) -> Optional[Dict[str, Any]]:
         """Lấy thông tin nhân vật từ Fast Telemetry nếu còn mới, fallback gọi RPC hoặc đọc RAM trực tiếp."""
         now = time.time()
         if self.last_fast_state and (now - self.last_fast_state_time) <= max_age:
+            return self.last_fast_state
+
+        if not allow_blocking:
+            # Chế độ không khóa luồng dành riêng cho giao diện UI: trả về state mới nhất ngay lập tức
             return self.last_fast_state
 
         if self.is_ready:
@@ -4083,13 +4096,13 @@ class MegDirectEngine:
         return False
 
     def start_helper(self, target_x: Optional[int] = None, target_y: Optional[int] = None, force_restart: bool = False) -> bool:
-        """Kích hoạt bật MuHelper (Ưu tiên Native Memory Hook trên Unity Main Thread, an toàn tuyệt đối)."""
+        """Kích hoạt bật MuHelper chuẩn giao diện game (Đồng bộ GUI Play->Stop và gửi gói tin máy chủ)."""
         self.last_fast_state = None
 
         # Nếu cần force_restart (để ghim lại tọa độ gốc cắm bãi): tắt helper cũ trước
         if force_restart and self.is_helper_active(force_refresh=True):
             self.stop_helper()
-            time.sleep(0.2)
+            time.sleep(0.15)
 
         # Nếu helper ĐÃ BẬT và không yêu cầu force_restart, return True ngay lập tức!
         if not force_restart and self.is_helper_active(force_refresh=True):
@@ -4098,74 +4111,57 @@ class MegDirectEngine:
         tx = int(target_x) if target_x is not None else 0
         ty = int(target_y) if target_y is not None else 0
 
-        # Kênh 1: Frida Native Hook (chạy trên Unity Main Thread qua Update Hook)
+        # Kênh 1: Native Helper Toggle trên Unity Main Thread (Game.Update) qua Frida
         if self.is_ready:
             try:
-                self._call("startHelper", tx, ty)
+                self._call("startHelper")
             except Exception:
                 pass
-            for _ in range(6):
+            for _ in range(12):
                 time.sleep(0.04)
                 if self.is_helper_active(force_refresh=True):
                     return True
 
-        # Kênh 2: Chỉ khi Frida chưa bật được VÀ helper VẪN ĐANG TẮT, mới gửi phím Home
+        # Kênh 2: Gửi phím Home (VK_HOME = 0x24) chuẩn xác vào cửa sổ game (tương đương nhấn Play trên giao diện)
         if not self.is_helper_active(force_refresh=True):
             hwnd = self.get_hwnd()
             if hwnd and sys.platform == "win32":
-                self.send_background_key(hwnd, 0x24, 0.04) # Phím Home
-                for _ in range(5):
+                self.send_background_key(hwnd, 0x24, 0.05) # Phím Home
+                for _ in range(10):
                     time.sleep(0.04)
                     if self.is_helper_active(force_refresh=True):
                         return True
 
-                # Kênh 3: Gửi phím Z ngầm (nếu Home chưa nhận)
-                if not self.is_helper_active(force_refresh=True):
-                    self.send_background_key(hwnd, 0x5A, 0.04) # Phím Z
-                    for _ in range(4):
-                        time.sleep(0.04)
-                        if self.is_helper_active(force_refresh=True):
-                            return True
-
         return self.is_helper_active(force_refresh=True)
 
     def stop_helper(self) -> bool:
-        """Kích hoạt tắt MuHelper (An toàn tuyệt đối, không gửi phím Home bừa bãi khi đã tắt)."""
+        """Kích hoạt tắt MuHelper chuẩn giao diện game (Đồng bộ GUI Stop->Play và gửi gói tin máy chủ)."""
         self.last_fast_state = None
 
         # BƯỚC 0: Nếu helper ĐÃ TẮT rồi, không cần làm gì nữa, return True ngay lập tức!
         if not self.is_helper_active(force_refresh=True):
             return True
 
-        # Kênh 1: Frida Native Hook trực tiếp trên Unity Main Thread
+        # Kênh 1: Native Helper Toggle trên Unity Main Thread (Game.Update) qua Frida
         if self.is_ready:
             try:
                 self._call("stopHelper")
             except Exception:
                 pass
-            for _ in range(6):
+            for _ in range(12):
                 time.sleep(0.04)
                 if not self.is_helper_active(force_refresh=True):
                     return True
 
-        # Kênh 2: Chỉ khi Frida chưa tắt được VÀ helper VẪN ĐANG BẬT, mới gửi phím Home
+        # Kênh 2: Gửi phím Home (VK_HOME = 0x24) chuẩn xác vào cửa sổ game
         if self.is_helper_active(force_refresh=True):
             hwnd = self.get_hwnd()
             if hwnd and sys.platform == "win32":
-                self.send_background_key(hwnd, 0x24, 0.04) # Phím Home (Toggle)
-                for _ in range(5):
+                self.send_background_key(hwnd, 0x24, 0.05) # Phím Home (Toggle)
+                for _ in range(10):
                     time.sleep(0.04)
                     if not self.is_helper_active(force_refresh=True):
                         return True
-
-        # Kênh 3: Fallback trực tiếp bộ nhớ nếu vẫn chưa tắt
-        if self.is_ready and self.is_helper_active(force_refresh=True):
-            try:
-                self._call("setHelperStateDirect", 0)
-                self._call("stopHelper")
-            except Exception:
-                pass
-            time.sleep(0.05)
 
         return not self.is_helper_active(force_refresh=True)
 

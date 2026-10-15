@@ -1746,67 +1746,41 @@ class MegNavigator:
             else:
                 print(msg, flush=True)
 
-        time.sleep(0.35)  # Cho nhân vật dừng hẳn động tác di chuyển
+        time.sleep(0.15)  # Cho nhân vật dừng hẳn động tác di chuyển
 
         state = self.get_helper_state()
         if state and state[0]:
             _log("[⚔️ AUTO ATTACK] Tự động đánh (MuHelper) đã đang BẬT sẵn từ trước.")
             return True
 
-        _log(f"[⚔️ AUTO ATTACK] Đang gửi click bật Auto Đánh ngầm vào nút Play trên HUD (341, 88)...")
-        
-        # 1. Click vị trí chuẩn xác trên thanh HUD (341, 88) bằng hook hoặc pure background
+        _log(f"[⚔️ AUTO ATTACK] Đang gửi phím Home (VK_HOME) bật Auto Đánh chuẩn GUI...")
+        BackgroundInputSimulator.send_key(self.hwnd, 0x24, 0.05)
+
+        # Chờ RAM cập nhật is_active == 1
+        start_t = time.time()
+        while time.time() - start_t < 1.0:
+            time.sleep(0.08)
+            st = self.get_helper_state()
+            if st and st[0]:
+                _log(f"[⚔️ AUTO ATTACK] ✔ Đã bật Tự Động Đánh (MuHelper) thành công! RAM is_active=1.")
+                return True
+
+        # Fallback: Click nút Play trên HUD nếu phím Home chưa nhận
+        _log(f"[⚔️ AUTO ATTACK] Thử lại click nút Play trên HUD...")
         if self.hook and self.hook.is_ready:
             self.hook.send_click(self.hwnd, 341, 88, duration_ms=50)
         else:
             BackgroundInputSimulator.pure_background_click(self.hwnd, 341, 88, duration_ms=50)
 
-        # Chờ RAM cập nhật is_active == 1
         start_t = time.time()
         while time.time() - start_t < 1.0:
-            time.sleep(0.12)
+            time.sleep(0.1)
             st = self.get_helper_state()
             if st and st[0]:
                 _log(f"[⚔️ AUTO ATTACK] ✔ Đã bật Tự Động Đánh (MuHelper) thành công! RAM is_active=1.")
                 return True
 
-        # 2. Thử vị trí tâm biểu tượng (346, 88)
-        _log(f"[⚔️ AUTO ATTACK] Đang thử lại click tại tâm nút (346, 88)...")
-        if self.hook and self.hook.is_ready:
-            self.hook.send_click(self.hwnd, 346, 88, duration_ms=60)
-        else:
-            BackgroundInputSimulator.pure_background_click(self.hwnd, 346, 88, duration_ms=60)
 
-        start_t = time.time()
-        while time.time() - start_t < 1.0:
-            time.sleep(0.12)
-            st = self.get_helper_state()
-            if st and st[0]:
-                _log(f"[⚔️ AUTO ATTACK] ✔ Đã bật Tự Động Đánh (MuHelper) thành công! RAM is_active=1.")
-                return True
-
-        # 3. Fallback pure background click trực tiếp
-        _log(f"[⚔️ AUTO ATTACK] Thử dự phòng Pure Background click (341, 88)...")
-        BackgroundInputSimulator.pure_background_click(self.hwnd, 341, 88, duration_ms=60)
-
-        start_t = time.time()
-        while time.time() - start_t < 1.0:
-            time.sleep(0.12)
-            st = self.get_helper_state()
-            if st and st[0]:
-                _log(f"[⚔️ AUTO ATTACK] ✔ Đã bật Tự Động Đánh (MuHelper) thành công! RAM is_active=1.")
-                return True
-
-        # 4. Fallback gửi phím Home (VK_HOME = 0x24)
-        _log(f"[⚔️ AUTO ATTACK] Thử dự phòng phím Home (VK_HOME)...")
-        BackgroundInputSimulator.send_key(self.hwnd, 0x24, 0.05)
-        start_t = time.time()
-        while time.time() - start_t < 1.0:
-            time.sleep(0.12)
-            st = self.get_helper_state()
-            if st and st[0]:
-                _log(f"[⚔️ AUTO ATTACK] ✔ Đã bật Tự Động Đánh (MuHelper) thành công! RAM is_active=1.")
-                return True
 
         _log(f"[!] Chưa nhận được phản hồi bật Auto Đánh từ RAM (Vui lòng kiểm tra đã cài đặt MuHelper trong game chưa).")
         return False
@@ -1822,16 +1796,28 @@ class MegNavigator:
         state = self.get_helper_state()
         cur_active = state[0] if state else False
         target_str = "TẮT" if cur_active else "BẬT"
-        _log(f"[⚔️ AUTO ATTACK] Đang gửi click chuyển đổi trạng thái Auto Đánh -> {target_str}...")
+        _log(f"[⚔️ AUTO ATTACK] Đang gửi phím Home chuyển đổi trạng thái Auto Đánh -> {target_str}...")
 
+        BackgroundInputSimulator.send_key(self.hwnd, 0x24, 0.05)
+
+        start_t = time.time()
+        while time.time() - start_t < 1.5:
+            time.sleep(0.1)
+            st = self.get_helper_state()
+            if st and st[0] != cur_active:
+                new_str = "BẬT" if st[0] else "TẮT"
+                _log(f"[⚔️ AUTO ATTACK] ✔ Đã chuyển trạng thái Auto Đánh thành công: {new_str}!")
+                return True
+
+        # Fallback click
         if self.hook and self.hook.is_ready:
             self.hook.send_click(self.hwnd, 341, 88, duration_ms=50)
         else:
             BackgroundInputSimulator.pure_background_click(self.hwnd, 341, 88, duration_ms=50)
 
         start_t = time.time()
-        while time.time() - start_t < 2.0:
-            time.sleep(0.15)
+        while time.time() - start_t < 1.0:
+            time.sleep(0.1)
             st = self.get_helper_state()
             if st and st[0] != cur_active:
                 new_str = "BẬT" if st[0] else "TẮT"

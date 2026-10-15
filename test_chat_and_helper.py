@@ -18,9 +18,10 @@ expected = {
     "chat_frame_send": "0x13C0C70",
     "static_chat_send": "0xF95530",
     "command_mgr_process": "0xFA0A60",
-    "helper_toggle": "0x289B750",
-    "helper_start": "0x289BD70",
-    "helper_stop": "0x289C150",
+    "helper_toggle": "0x289B300",
+    "helper_action": "0x289B300",
+    "helper_start": "0x289FD90",
+    "helper_stop": "0x28ACCC0",
 }
 
 for k, exp_val in expected.items():
@@ -37,18 +38,25 @@ dll_path = r'C:\Users\donpv\AppData\Local\Programs\MEGAMU\bin\GameAssembly.dll'
 pe = pefile.PE(dll_path, fast_load=True)
 md = Cs(CS_ARCH_X86, CS_MODE_64)
 
-# 2.1 Kiểm tra UserHelper.LAHCLHAJECG (0x289B750): gửi packet EC:51
-offset_toggle = pe.get_offset_from_rva(0x289B750)
+# 2.1 Kiểm tra UserHelper.StartHelper (0x289FD90) & UserHelper.StopHelper (0x28ACCC0)
+offset_start = pe.get_offset_from_rva(0x289FD90)
 with open(dll_path, 'rb') as f:
-    f.seek(offset_toggle)
-    code_toggle = f.read(300)
+    f.seek(offset_start)
+    code_start = f.read(150)
 
-has_ec51 = False
-for ins in md.disasm(code_toggle, 0x289B750):
-    if ins.mnemonic == 'mov' and '0x51' in ins.op_str:
-        has_ec51 = True
-assert has_ec51, "UserHelper.LAHCLHAJECG không chứa packet 0x51!"
-print("  [PASS] UserHelper.LAHCLHAJECG (0x289B750): Xác thực chứa mã mạng EC:51 gửi Server toggle!")
+calls_b300 = any('289b300' in ins.op_str.lower() for ins in md.disasm(code_start, 0x289FD90))
+assert calls_b300, "UserHelper.StartHelper (0x289FD90) không gọi SendHelperAction (0x289B300)!"
+print("  [PASS] UserHelper.StartHelper (0x289FD90): Xác thực gọi SendHelperAction (0x289B300) với action=0!")
+
+# 2.2 Kiểm tra UserHelper.SendHelperAction (0x289B300): gửi packet BF:51
+offset_action = pe.get_offset_from_rva(0x289B300)
+with open(dll_path, 'rb') as f:
+    f.seek(offset_action)
+    code_action = f.read(300)
+
+has_bf51 = any('0xbf' in ins.op_str.lower() for ins in md.disasm(code_action, 0x289B300))
+assert has_bf51, "UserHelper.SendHelperAction (0x289B300) không chứa packet 0xBF!"
+print("  [PASS] UserHelper.SendHelperAction (0x289B300): Xác thực chứa mã mạng BF:51 gửi Server toggle!")
 
 # 2.2 Kiểm tra Mega.Chat.FCIBNHIHDHO (0xF95530): hàm static gửi chat lên Server
 offset_chat = pe.get_offset_from_rva(0xF95530)
