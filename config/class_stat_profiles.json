@@ -1,0 +1,194 @@
+{
+  "DW": {
+    "name": "Dark Wizard (Phù Thủy)",
+    "class_id": 0,
+    "stat_ratio": {
+      "str": 0.1,
+      "agi": 0.3,
+      "vit": 0.1,
+      "ene": 0.5,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Năng Lượng (Ene) và Nhanh Nhẹn (Agi)"
+  },
+  "DK": {
+    "name": "Dark Knight (Chiến Binh)",
+    "class_id": 1,
+    "stat_ratio": {
+      "str": 0.5,
+      "agi": 0.4,
+      "vit": 0.1,
+      "ene": 0.0,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Sức Mạnh (Str) và Nhanh Nhẹn (Agi)"
+  },
+  "FE": {
+    "name": "Fairy Elf (Tiên Nữ)",
+    "class_id": 2,
+    "stat_ratio": {
+      "str": 0.15,
+      "agi": 0.75,
+      "vit": 0.1,
+      "ene": 0.0,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Nhanh Nhẹn (Agi - Elf Cung/Chiến)"
+  },
+  "MG": {
+    "name": "Magic Gladiator (Đấu Sĩ)",
+    "class_id": 3,
+    "stat_ratio": {
+      "str": 0.45,
+      "agi": 0.35,
+      "vit": 0.0,
+      "ene": 0.2,
+      "cmd": 0.0
+    },
+    "description": "Cân bằng Sức Mạnh (Str), Nhanh Nhẹn (Agi) & Ene"
+  },
+  "DL": {
+    "name": "Dark Lord (Chúa Tể)",
+    "class_id": 4,
+    "stat_ratio": {
+      "str": 0.3,
+      "agi": 0.3,
+      "vit": 0.0,
+      "ene": 0.1,
+      "cmd": 0.3
+    },
+    "description": "Tập trung Mệnh Lệnh (Cmd), Str và Agi"
+  },
+  "SU": {
+    "name": "Summoner (Thuật Sĩ)",
+    "class_id": 5,
+    "stat_ratio": {
+      "str": 0.1,
+      "agi": 0.3,
+      "vit": 0.1,
+      "ene": 0.5,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Năng Lượng (Ene) và Nhanh Nhẹn (Agi)"
+  },
+  "RF": {
+    "name": "Rage Fighter (Thiết Binh)",
+    "class_id": 6,
+    "stat_ratio": {
+      "str": 0.5,
+      "agi": 0.2,
+      "vit": 0.3,
+      "ene": 0.0,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Sức Mạnh (Str) và Máu Thể Lực (Vit)"
+  },
+  "GL": {
+    "name": "Grow Lancer (Thương Thủ)",
+    "class_id": 7,
+    "stat_ratio": {
+      "str": 0.55,
+      "agi": 0.35,
+      "vit": 0.1,
+      "ene": 0.0,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Sức Mạnh (Str) và Nhanh Nhẹn (Agi)"
+  },
+  "RW": {
+    "name": "Rune Wizard (Phù Thủy Rune)",
+    "class_id": 8,
+    "stat_ratio": {
+      "str": 0.1,
+      "agi": 0.3,
+      "vit": 0.0,
+      "ene": 0.6,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Năng Lượng (Ene) và Nhanh Nhẹn (Agi)"
+  },
+  "SL": {
+    "name": "Slayer (Sát Thủ)",
+    "class_id": 9,
+    "stat_ratio": {
+      "str": 0.5,
+      "agi": 0.4,
+      "vit": 0.1,
+      "ene": 0.0,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Sức Mạnh (Str) và Nhanh Nhẹn (Agi)"
+  },
+  "GC": {
+    "name": "Gun Crusher (Pháo Thủ)",
+    "class_id": 10,
+    "stat_ratio": {
+      "str": 0.1,
+      "agi": 0.5,
+      "vit": 0.1,
+      "ene": 0.3,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Nhanh Nhẹn (Agi) và Năng Lượng (Ene)"
+  },
+  "KM": {
+    "name": "Kundun Mephis",
+    "class_id": 11,
+    "stat_ratio": {
+      "str": 0.1,
+      "agi": 0.3,
+      "vit": 0.1,
+      "ene": 0.5,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Năng Lượng (Ene)"
+  },
+  "LM": {
+    "name": "Lemuria",
+    "class_id": 12,
+    "stat_ratio": {
+      "str": 0.1,
+      "agi": 0.3,
+      "vit": 0.1,
+      "ene": 0.5,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Năng Lượng (Ene)"
+  },
+  "IK": {
+    "name": "Illusion Knight (Huyễn Ảnh)",
+    "class_id": 13,
+    "stat_ratio": {
+      "str": 0.4,
+      "agi": 0.5,
+      "vit": 0.1,
+      "ene": 0.0,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Nhanh Nhẹn (Agi) và Sức Mạnh (Str)"
+  },
+  "AL": {
+    "name": "Alchemist (Giả Kim)",
+    "class_id": 14,
+    "stat_ratio": {
+      "str": 0.1,
+      "agi": 0.3,
+      "vit": 0.1,
+      "ene": 0.5,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Năng Lượng (Ene)"
+  },
+  "CR": {
+    "name": "Crusher",
+    "class_id": 15,
+    "stat_ratio": {
+      "str": 0.5,
+      "agi": 0.4,
+      "vit": 0.1,
+      "ene": 0.0,
+      "cmd": 0.0
+    },
+    "description": "Tập trung Sức Mạnh (Str) và Nhanh Nhẹn (Agi)"
+  }
+}

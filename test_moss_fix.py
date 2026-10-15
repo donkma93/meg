@@ -26,6 +26,7 @@ def test_offsets():
     ]
     required_keys = [
         "moss_roll", "moss_roll_handler", "moss_init", "moss_select_cat",
+        "moss_send_roll", "moss_roll_click", "moss_window_close",
         "game_object_set_active", "component_get_game_object",
         "npc_talk", "get_window_handler", "ui_moss_window"
     ]
@@ -43,7 +44,7 @@ def test_engine_moss_methods():
     from meg_direct_engine import MegDirectEngine
     
     methods = [
-        "roll_moss", "open_moss", "reset_moss_ui", "find_moss_npc",
+        "roll_moss", "open_moss", "close_moss", "find_moss_npc",
         "interact_moss_npc", "sell_moss_plus_items", "get_moss_categories"
     ]
     for m in methods:
@@ -64,6 +65,9 @@ def test_frida_js_template():
         "__MOSS_ROLL_HANDLER__",
         "__MOSS_INIT__",
         "__MOSS_SELECT_CAT__",
+        "__MOSS_SEND_ROLL__",
+        "__MOSS_ROLL_CLICK__",
+        "__MOSS_WINDOW_CLOSE__",
         "__GAME_OBJECT_SET_ACTIVE__",
         "__NPC_TALK__",
         "__UI_MOSS_WINDOW__"

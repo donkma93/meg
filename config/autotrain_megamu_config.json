@@ -37,9 +37,9 @@
     {
       "min_level": 160,
       "max_level": 319,
-      "map_name": "Tarkan 2",
-      "x": 166,
-      "y": 200
+      "map_name": "Dungeon",
+      "x": 25,
+      "y": 180
     },
     {
       "min_level": 320,

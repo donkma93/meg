@@ -19,12 +19,36 @@ import time
 import math
 import threading
 from typing import Optional, Dict, Any, List, Tuple, Callable
+from datetime import datetime
 try:
     import psutil
 except ImportError:
     psutil = None
 
 from meg_direct_engine import MegDirectEngine
+
+CLASS_ID_TO_CODE = {
+    0: "DW", 1: "DK", 2: "FE", 3: "MG", 4: "DL", 5: "SU", 6: "RF", 7: "GL",
+    8: "RW", 9: "SL", 10: "GC", 11: "KM", 12: "LM", 13: "IK", 14: "AL", 15: "CR"
+}
+CLASS_CODE_TO_NAME = {
+    "DW": "Dark Wizard (Phù Thủy)",
+    "DK": "Dark Knight (Chiến Binh)",
+    "FE": "Fairy Elf (Tiên Nữ)",
+    "MG": "Magic Gladiator (Đấu Sĩ)",
+    "DL": "Dark Lord (Chúa Tể)",
+    "SU": "Summoner (Thuật Sĩ)",
+    "RF": "Rage Fighter (Thiết Binh)",
+    "GL": "Grow Lancer (Thương Thủ)",
+    "RW": "Rune Wizard (Phù Thủy Rune)",
+    "SL": "Slayer (Sát Thủ)",
+    "GC": "Gun Crusher (Pháo Thủ)",
+    "KM": "Kundun Mephis",
+    "LM": "Lemuria",
+    "IK": "Illusion Knight (Huyễn Ảnh)",
+    "AL": "Alchemist (Giả Kim)",
+    "CR": "Crusher"
+}
 
 class MapResolver:
     """
@@ -254,6 +278,19 @@ class AutoTrainWorker:
         self.bypass_idx = 0
         self.last_helper_stop_check = 0.0
 
+        # Tự động Reset & Cộng điểm Point
+        self.last_reset_cmd_time = 0.0
+        self.last_add_point_time = 0.0
+        self.auto_reset = bool(self.config.get("auto_reset", False))
+        self.auto_add_point = bool(self.config.get("auto_add_point", False))
+        self.reset_level = int(self.config.get("reset_level", 400))
+        self.stat_ratio = self.config.get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
+
+        # Đồng bộ sự kiện Devil Square
+        self.last_devil_attempt_time = 0.0
+        self.in_devil_square = False
+        self.auto_devil = bool(self.config.get("auto_devil", False))
+
         # Xử lý Hồi sinh / Reset Level
         self.respawn_until = 0.0
         self.respawn_armed = False
@@ -337,7 +374,26 @@ class AutoTrainWorker:
     def update_config(self, new_config: Dict[str, Any]):
         """Cập nhật cấu hình trực tiếp khi worker đang chạy (Hot-Reload thông minh)."""
         try:
-            self.config = new_config
+            self.config.update(new_config)
+            if "auto_devil" in new_config:
+                self.auto_devil = bool(new_config["auto_devil"])
+            if "auto_reset" in new_config:
+                self.auto_reset = bool(new_config["auto_reset"])
+            if "auto_add_point" in new_config:
+                self.auto_add_point = bool(new_config["auto_add_point"])
+            if "reset_level" in new_config:
+                self.reset_level = int(new_config["reset_level"])
+            if "stat_ratio" in new_config:
+                self.stat_ratio = new_config["stat_ratio"]
+            if "stat_mode" in new_config:
+                self.config["stat_mode"] = new_config["stat_mode"]
+            if "class_profiles" in new_config:
+                self.config["class_profiles"] = new_config["class_profiles"]
+            if "custom_class" in new_config:
+                self.config["custom_class"] = new_config["custom_class"]
+            if "min_add_points" in new_config:
+                self.config["min_add_points"] = int(new_config["min_add_points"])
+
             new_stages = new_config.get("stages", [])
             if not new_stages:
                 return
@@ -735,6 +791,56 @@ class AutoTrainWorker:
         self._log("Chưa phát hiện phản hồi bật MuHelper từ game; sẽ tự động thử lại ở chu kỳ tiếp theo...", "WARNING")
         return False
 
+    def _get_stat_ratio_for_player(self, class_id: int) -> Tuple[str, Dict[str, float]]:
+        """Lấy tỷ lệ cộng Point chuẩn theo Class hoặc theo cấu hình Tùy Chỉnh của người dùng."""
+        stat_mode = self.config.get("stat_mode", "auto_class")
+        custom_ratio = self.config.get("stat_ratio")
+
+        # 1. Nếu người dùng chọn Tùy Chỉnh (Custom)
+        if stat_mode == "custom" and custom_ratio and isinstance(custom_ratio, dict):
+            c_code = self.config.get("custom_class") or CLASS_ID_TO_CODE.get(class_id, "CUSTOM")
+            return c_code, custom_ratio
+
+        # 2. Nếu chọn Theo Class (Tự Động)
+        class_code = CLASS_ID_TO_CODE.get(class_id, "DK")
+        profiles = None
+        try:
+            from pathlib import Path
+            f_path = Path("config/class_stat_profiles.json")
+            if not f_path.exists():
+                f_path = Path(__file__).resolve().parent / "config" / "class_stat_profiles.json"
+            if f_path.exists():
+                profiles = json.loads(f_path.read_text(encoding="utf-8"))
+        except Exception:
+            profiles = None
+
+        if not profiles:
+            profiles = self.config.get("class_profiles")
+
+        if profiles and class_code in profiles and "stat_ratio" in profiles[class_code]:
+            return class_code, profiles[class_code]["stat_ratio"]
+
+        # 3. Bảng mặc định chuẩn nếu không đọc được file
+        defaults = {
+            "DW": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0},
+            "DK": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0},
+            "FE": {"str": 0.15, "agi": 0.75, "vit": 0.1, "ene": 0.0, "cmd": 0.0},
+            "MG": {"str": 0.45, "agi": 0.35, "vit": 0.0, "ene": 0.2, "cmd": 0.0},
+            "DL": {"str": 0.3, "agi": 0.3, "vit": 0.0, "ene": 0.1, "cmd": 0.3},
+            "SU": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0},
+            "RF": {"str": 0.5, "agi": 0.2, "vit": 0.3, "ene": 0.0, "cmd": 0.0},
+            "GL": {"str": 0.55, "agi": 0.35, "vit": 0.1, "ene": 0.0, "cmd": 0.0},
+            "RW": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0},
+            "SL": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0},
+            "GC": {"str": 0.1, "agi": 0.5, "vit": 0.1, "ene": 0.3, "cmd": 0.0},
+            "KM": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0},
+            "LM": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0},
+            "IK": {"str": 0.4, "agi": 0.5, "vit": 0.1, "ene": 0.0, "cmd": 0.0},
+            "AL": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0},
+            "CR": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0},
+        }
+        return class_code, defaults.get(class_code, {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
+
     def _run(self):
         """Vòng lặp chính điều hướng và cắm bãi (Smart AutoTrain Main Loop)."""
         time.sleep(((self.slot_idx - 1) % 50) * 0.035)
@@ -769,6 +875,131 @@ class AutoTrainWorker:
                     time.sleep(max(0.45, self.poll_interval))
                     continue
                 self.invalid_level_logged = False
+
+                # 2.0. Tự động cộng point nếu có point chưa cộng (Hoạt động ở MỌI map: map ngoài, Devil Square, Blood Castle,...)
+                if self.config.get("auto_add_point", False):
+                    pts = int(info.get("points", 0))
+                    min_pts = int(self.config.get("min_add_points", 1))
+                    if pts >= min_pts and (now - self.last_add_point_time) >= 5.0:
+                        self.last_add_point_time = now
+                        class_id = int(info.get("classId", -1))
+                        class_code, ratio = self._get_stat_ratio_for_player(class_id)
+
+                        raw_str = pts * float(ratio.get("str", 0.0))
+                        raw_agi = pts * float(ratio.get("agi", 0.0))
+                        raw_vit = pts * float(ratio.get("vit", 0.0))
+                        raw_ene = pts * float(ratio.get("ene", 0.0))
+                        raw_cmd = pts * float(ratio.get("cmd", 0.0))
+
+                        p_str = int(raw_str)
+                        p_agi = int(raw_agi)
+                        p_vit = int(raw_vit)
+                        p_ene = int(raw_ene)
+                        p_cmd = int(raw_cmd)
+
+                        # Bù điểm dư do làm tròn số nguyên vào chỉ số có tỷ lệ cao nhất
+                        rem = pts - (p_str + p_agi + p_vit + p_ene + p_cmd)
+                        if rem > 0:
+                            top_stat = max(ratio.items(), key=lambda x: x[1])[0]
+                            if top_stat == "str": p_str += rem
+                            elif top_stat == "agi": p_agi += rem
+                            elif top_stat == "vit": p_vit += rem
+                            elif top_stat == "ene": p_ene += rem
+                            elif top_stat == "cmd": p_cmd += rem
+
+                        if hasattr(self.core, "add_stats"):
+                            stat_parts = []
+                            if p_str > 0: stat_parts.append(f"Str +{p_str}")
+                            if p_agi > 0: stat_parts.append(f"Agi +{p_agi}")
+                            if p_vit > 0: stat_parts.append(f"Vit +{p_vit}")
+                            if p_ene > 0: stat_parts.append(f"Ene +{p_ene}")
+                            if p_cmd > 0: stat_parts.append(f"Cmd +{p_cmd}")
+                            stat_desc = ", ".join(stat_parts) if stat_parts else "0"
+                            self._log(f"⭐ Auto Cộng Point [{class_code}]: +{pts} pts ({stat_desc})", "SUCCESS")
+                            self.core.add_stats(p_str, p_agi, p_vit, p_ene, p_cmd)
+
+                # 2.1. Xử lý trạng thái đang trong Map Devil Square (Map 9 hoặc 32)
+                is_in_ds = (current_map_id in (9, 32)) or (hasattr(self.core, 'is_devil_event_map') and self.core.is_devil_event_map())
+                if is_in_ds:
+                    if not self.in_devil_square:
+                        self.in_devil_square = True
+                        self._log(f"🔥 NHÂN VẬT ĐÃ VÀO DEVIL SQUARE (Map {current_map_id})! Bật MuHelper cày quái...", "SUCCESS")
+                        self._set_state(f"DEVIL SQUARE ({px}, {py})")
+                        self.core.cancel_move()
+                    if now >= self.next_helper_check:
+                        self._ensure_helper()
+                        self.next_helper_check = now + self.helper_recheck_interval
+                    time.sleep(self.stable_poll_interval)
+                    continue
+                elif self.in_devil_square:
+                    self.in_devil_square = False
+                    self.current_stage_key = None
+                    self.arrived_at_spot = False
+                    self._log("Sự kiện Devil Square đã kết thúc / Nhân vật đã rời map DS. Tiếp tục lộ trình Auto Train...", "INFO")
+
+                # 2.2. Kiểm tra lịch mở cổng Devil Square nếu bật tùy chọn auto_devil
+                if self.config.get("auto_devil", False) and not self.in_devil_square:
+                    cur_dt = datetime.now()
+                    is_odd_hour = (cur_dt.hour % 2 == 1)
+                    is_ds_gate_time = is_odd_hour and (25 <= cur_dt.minute < 30)
+                    if is_ds_gate_time and (now - self.last_devil_attempt_time) >= 20.0:
+                        self.last_devil_attempt_time = now
+                        t_info = self.core.get_devil_ticket_info() if hasattr(self.core, "get_devil_ticket_info") else {}
+                        if not t_info.get("hasTicket"):
+                            self._log(f"⚠️ Đến giờ mở cổng Devil Square ({cur_dt.strftime('%H:%M')}) nhưng không tìm thấy vé Invitation trong hòm đồ!", "WARNING")
+                        else:
+                            self._log(f"⏰ Đến giờ mở cổng Devil Square ({cur_dt.strftime('%H:%M')})! Bắt đầu quy trình vào cửa...", "SUCCESS")
+                            # 1. Nếu chưa ở Event Square (53) và chưa ở Noria (3), di chuyển sang Event Square
+                            if current_map_id not in (53, 9, 32):
+                                self._log("Đang chuyển sang Event Square (/move ev)...", "INFO")
+                                self.core.send_chat("/move ev")
+                                for _ in range(6):
+                                    time.sleep(0.5)
+                                    fresh_inf = self.core.get_player_info()
+                                    if fresh_inf and fresh_inf.get("mapId") == 53:
+                                        current_map_id = 53
+                                        px = fresh_inf.get("tileX", px)
+                                        py = fresh_inf.get("tileY", py)
+                                        break
+
+                            # 2. Nếu đã ở Event Square (53), di chuyển lại gần NPC Charon (225, 52)
+                            if current_map_id == 53:
+                                dist_to_charon = math.hypot(px - 225, py - 52)
+                                if dist_to_charon > 6:
+                                    self._log("Đang chạy lại gần NPC Charon (225, 52)...", "INFO")
+                                    self.core.start_auto_move(225, 52)
+                                    for _ in range(8):
+                                        time.sleep(0.5)
+                                        fresh_inf = self.core.get_player_info()
+                                        if fresh_inf:
+                                            px = fresh_inf.get("tileX", px)
+                                            py = fresh_inf.get("tileY", py)
+                                            if math.hypot(px - 225, py - 52) <= 5:
+                                                self.core.cancel_move()
+                                                break
+
+                            # 3. Tương tác với NPC Charon để mở phiên sự kiện
+                            if hasattr(self.core, "click_devil_npc"):
+                                self.core.click_devil_npc()
+                                time.sleep(0.4)
+
+                            # 4. Gửi lệnh vào cửa Devil Square
+                            res = self.core.enter_devil() if hasattr(self.core, "enter_devil") else {}
+                            if res.get("success"):
+                                self._log(f"✅ Gửi lệnh vào Devil Square thành công (DS {res.get('dsLevel', '?')})!", "SUCCESS")
+                                time.sleep(1.0)
+                                continue
+                            else:
+                                self._log(f"⚠️ Chưa thể vào Devil Square: {res.get('error', 'unknown')}", "WARNING")
+
+                # 2.3. Kiểm tra Auto Reset nếu bật cấu hình
+                if self.config.get("auto_reset", False) and level >= int(self.config.get("reset_level", 400)):
+                    if (now - self.last_reset_cmd_time) >= 15.0:
+                        self.last_reset_cmd_time = now
+                        self._log(f"⚡ Level {level} đạt mốc Reset ({self.config.get('reset_level', 400)}). Đang gửi lệnh /reset...", "SUCCESS")
+                        self.core.send_chat("/reset")
+                        time.sleep(1.0)
+                        continue
 
                 # 3. Phát hiện Reset (Level từ > 1 giảm xuống 1)
                 if self.last_level is not None and self.last_level > 1 and level == 1:

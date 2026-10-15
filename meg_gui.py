@@ -246,6 +246,7 @@ def extract_bundled_resources():
         "autotrain_profiles.json", "autotrain_megamu_config.json",
         "slot_assignments.json", "ui_settings.json",
         "moss_slots_config.json", "mirror_schedule_config.json",
+        "event_slots_config.json",
         "maps.ini", "map_commands.json", "license_settings.json"
     ]:
         t_cfg = CONFIG_DIR / cfg
@@ -274,6 +275,31 @@ UI_SETTINGS_FILE = CONFIG_DIR / "ui_settings.json"
 MAP_COMMANDS_FILE = CONFIG_DIR / "map_commands.json"
 MOSS_CONFIG_FILE = CONFIG_DIR / "moss_slots_config.json"
 MIRROR_CONFIG_FILE = CONFIG_DIR / "mirror_schedule_config.json"
+EVENT_CONFIG_FILE = CONFIG_DIR / "event_slots_config.json"
+CLASS_STAT_PROFILES_FILE = CONFIG_DIR / "class_stat_profiles.json"
+
+CLASS_ID_TO_CODE = {
+    0: "DW", 1: "DK", 2: "FE", 3: "MG", 4: "DL", 5: "SU", 6: "RF", 7: "GL",
+    8: "RW", 9: "SL", 10: "GC", 11: "KM", 12: "LM", 13: "IK", 14: "AL", 15: "CR"
+}
+CLASS_CODE_TO_NAME = {
+    "DW": "Dark Wizard (Phù Thủy)",
+    "DK": "Dark Knight (Chiến Binh)",
+    "FE": "Fairy Elf (Tiên Nữ)",
+    "MG": "Magic Gladiator (Đấu Sĩ)",
+    "DL": "Dark Lord (Chúa Tể)",
+    "SU": "Summoner (Thuật Sĩ)",
+    "RF": "Rage Fighter (Thiết Binh)",
+    "GL": "Grow Lancer (Thương Thủ)",
+    "RW": "Rune Wizard (Phù Thủy Rune)",
+    "SL": "Slayer (Sát Thủ)",
+    "GC": "Gun Crusher (Pháo Thủ)",
+    "KM": "Kundun Mephis",
+    "LM": "Lemuria",
+    "IK": "Illusion Knight (Huyễn Ảnh)",
+    "AL": "Alchemist (Giả Kim)",
+    "CR": "Crusher"
+}
 
 PROFILE_NAMES = [f"Config {i}" for i in range(1, 11)]
  
@@ -1300,6 +1326,116 @@ class ConfigPersistenceManager:
             except Exception:
                 pass
 
+    @classmethod
+    def load_class_stat_profiles(cls) -> Dict[str, Any]:
+        """Đọc bảng cấu hình chỉ số Point của tất cả 16 Class từ class_stat_profiles.json."""
+        with cls._lock:
+            if CLASS_STAT_PROFILES_FILE.exists():
+                try:
+                    return json.loads(CLASS_STAT_PROFILES_FILE.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            # Fallback nếu file chưa tồn tại
+            return {
+                "DW": {"name": "Dark Wizard (Phù Thủy)", "class_id": 0, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
+                "DK": {"name": "Dark Knight (Chiến Binh)", "class_id": 1, "stat_ratio": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
+                "FE": {"name": "Fairy Elf (Tiên Nữ)", "class_id": 2, "stat_ratio": {"str": 0.15, "agi": 0.75, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
+                "MG": {"name": "Magic Gladiator (Đấu Sĩ)", "class_id": 3, "stat_ratio": {"str": 0.45, "agi": 0.35, "vit": 0.0, "ene": 0.2, "cmd": 0.0}},
+                "DL": {"name": "Dark Lord (Chúa Tể)", "class_id": 4, "stat_ratio": {"str": 0.3, "agi": 0.3, "vit": 0.0, "ene": 0.1, "cmd": 0.3}},
+                "SU": {"name": "Summoner (Thuật Sĩ)", "class_id": 5, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
+                "RF": {"name": "Rage Fighter (Thiết Binh)", "class_id": 6, "stat_ratio": {"str": 0.5, "agi": 0.2, "vit": 0.3, "ene": 0.0, "cmd": 0.0}},
+                "GL": {"name": "Grow Lancer (Thương Thủ)", "class_id": 7, "stat_ratio": {"str": 0.55, "agi": 0.35, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
+                "RW": {"name": "Rune Wizard (Phù Thủy Rune)", "class_id": 8, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
+                "SL": {"name": "Slayer (Sát Thủ)", "class_id": 9, "stat_ratio": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
+                "GC": {"name": "Gun Crusher (Pháo Thủ)", "class_id": 10, "stat_ratio": {"str": 0.1, "agi": 0.5, "vit": 0.1, "ene": 0.3, "cmd": 0.0}},
+                "KM": {"name": "Kundun Mephis", "class_id": 11, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
+                "LM": {"name": "Lemuria", "class_id": 12, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
+                "IK": {"name": "Illusion Knight (Huyễn Ảnh)", "class_id": 13, "stat_ratio": {"str": 0.4, "agi": 0.5, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
+                "AL": {"name": "Alchemist (Giả Kim)", "class_id": 14, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
+                "CR": {"name": "Crusher", "class_id": 15, "stat_ratio": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0}}
+            }
+
+    @classmethod
+    def save_class_stat_profile(cls, class_code: str, ratio: Dict[str, float]):
+        """Lưu lại tỷ lệ Point tùy biến cho 1 Class cụ thể."""
+        with cls._lock:
+            profiles = cls.load_class_stat_profiles()
+            c_code = class_code.upper().strip()
+            if c_code in profiles:
+                profiles[c_code]["stat_ratio"] = ratio
+            else:
+                profiles[c_code] = {
+                    "name": CLASS_CODE_TO_NAME.get(c_code, c_code),
+                    "stat_ratio": ratio
+                }
+            try:
+                tmp = CLASS_STAT_PROFILES_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(profiles, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(CLASS_STAT_PROFILES_FILE)
+            except Exception:
+                pass
+
+    @classmethod
+    def load_event_configs(cls) -> Dict[int, Dict[str, Any]]:
+        """Đọc cấu hình Auto Devil Square, Auto Reset & Point của từng Slot từ event_slots_config.json."""
+        with cls._lock:
+            res = {}
+            if EVENT_CONFIG_FILE.exists():
+                try:
+                    data = json.loads(EVENT_CONFIG_FILE.read_text(encoding="utf-8"))
+                    slots_data = data.get("slots", {})
+                    for s_str, conf in slots_data.items():
+                        try:
+                            s_int = int(s_str)
+                            res[s_int] = {
+                                "auto_devil": bool(conf.get("auto_devil", False)),
+                                "auto_reset": bool(conf.get("auto_reset", False)),
+                                "auto_add_point": bool(conf.get("auto_add_point", False)),
+                                "reset_level": int(conf.get("reset_level", 400)),
+                                "stat_mode": str(conf.get("stat_mode", "auto_class")),
+                                "custom_class": str(conf.get("custom_class", "")),
+                                "stat_ratio": conf.get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
+                            }
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            return res
+
+    @classmethod
+    def save_event_config(
+        cls,
+        slot_idx: int,
+        auto_devil: bool = False,
+        auto_reset: bool = False,
+        auto_add_point: bool = False,
+        reset_level: int = 400,
+        stat_mode: str = "auto_class",
+        custom_class: str = "",
+        stat_ratio: Optional[Dict[str, float]] = None
+    ):
+        """Lưu cấu hình Auto Devil, Reset & Cộng Point của riêng Slot slot_idx."""
+        with cls._lock:
+            cur = cls.load_event_configs()
+            if stat_ratio is None:
+                stat_ratio = cur.get(slot_idx, {}).get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
+            cur[slot_idx] = {
+                "auto_devil": bool(auto_devil),
+                "auto_reset": bool(auto_reset),
+                "auto_add_point": bool(auto_add_point),
+                "reset_level": int(reset_level),
+                "stat_mode": str(stat_mode or "auto_class"),
+                "custom_class": str(custom_class or ""),
+                "stat_ratio": stat_ratio
+            }
+            try:
+                store = {"slots": {str(k): v for k, v in sorted(cur.items(), key=lambda x: int(x[0]))}}
+                tmp = EVENT_CONFIG_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(EVENT_CONFIG_FILE)
+            except Exception:
+                pass
+
 
 # ==============================================================================
 # CONTROLLER QUẢN LÝ TỪNG DÒNG TÀI KHOẢN (SLOT CONTROLLER)
@@ -1339,6 +1475,36 @@ class SlotController:
         self.mirror_worker_thread: Optional[threading.Thread] = None
         self.mirror_sniping: bool = False
         self.mirror_snipe_thread: Optional[threading.Thread] = None
+
+        # Điểm Point & Master Point đọc từ RAM/Engine
+        self.points: int = 0
+        self.master_points: int = 0
+        self.class_id: int = -1
+        self.class_code: str = ""
+
+        # Cấu hình Devil Square & Auto Reset & Point riêng cho Slot này
+        self.auto_devil: bool = False
+        self.auto_reset: bool = False
+        self.auto_add_point: bool = False
+        self.reset_level: int = 400
+        self.stat_mode: str = "auto_class"
+        self.custom_class: str = ""
+        self.stat_ratio: Dict[str, float] = {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}
+
+        try:
+            evt_cfgs = ConfigPersistenceManager.load_event_configs()
+            if self.slot_idx in evt_cfgs:
+                s_evt = evt_cfgs[self.slot_idx]
+                self.auto_devil = bool(s_evt.get("auto_devil", False))
+                self.auto_reset = bool(s_evt.get("auto_reset", False))
+                self.auto_add_point = bool(s_evt.get("auto_add_point", False))
+                self.reset_level = int(s_evt.get("reset_level", 400))
+                self.stat_mode = str(s_evt.get("stat_mode", "auto_class"))
+                self.custom_class = str(s_evt.get("custom_class", ""))
+                if isinstance(s_evt.get("stat_ratio"), dict):
+                    self.stat_ratio = s_evt["stat_ratio"]
+        except Exception:
+            pass
 
     def set_profile(self, profile_idx: int):
         """Thay đổi Profile và lưu ngay vào file JSON."""
@@ -1570,6 +1736,14 @@ class SlotController:
 
         # Đọc cấu hình tươi mới 100% từ file đĩa JSON!
         cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
+        cfg["auto_devil"] = self.auto_devil
+        cfg["auto_reset"] = self.auto_reset
+        cfg["auto_add_point"] = self.auto_add_point
+        cfg["reset_level"] = self.reset_level
+        cfg["stat_mode"] = self.stat_mode
+        cfg["custom_class"] = self.custom_class
+        cfg["stat_ratio"] = self.stat_ratio
+        cfg["class_profiles"] = ConfigPersistenceManager.load_class_stat_profiles()
         stages = cfg.get("stages", [])
         if not stages:
             self.app.log_message(f"[Slot {self.slot_idx:02d}] Config {self.profile_index} chưa thiết lập chặng!", "ERROR")
@@ -1754,9 +1928,28 @@ class SlotController:
             if px > 0 or py > 0:
                 self.coords = f"{px},{py}"
 
-            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
+            if "points" in p_info:
+                try:
+                    self.points = int(p_info.get("points", 0))
+                except Exception:
+                    pass
+            if "masterPoints" in p_info:
+                try:
+                    self.master_points = int(p_info.get("masterPoints", 0))
+                except Exception:
+                    pass
+            if "classId" in p_info:
+                try:
+                    cid = int(p_info.get("classId", -1))
+                    if cid >= 0:
+                        self.class_id = cid
+                        self.class_code = CLASS_ID_TO_CODE.get(cid, "")
+                except Exception:
+                    pass
+
+            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code)
         elif self.char_name != "---" or self.level != "---":
-            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
+            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code)
 
     def start_moss(self) -> bool:
         """Kích hoạt Auto Quay Moss cho riêng slot này theo cấu hình đã cài đặt."""
@@ -1906,12 +2099,24 @@ class SlotController:
                         pass
 
                 if eng and not eng.is_moss_open():
+                    # Đợi một chút kiểm tra nếu người dùng vừa bấm (X) trong game hoặc giao diện vừa đóng
+                    time.sleep(0.4)
+                    if not self.moss_running:
+                        break
                     try:
                         eng.interact_moss_npc(self.moss_category)
-                        for _ in range(10):
-                            if eng.is_moss_open():
+                        for _ in range(12):
+                            if not self.moss_running or eng.is_moss_open():
                                 break
                             time.sleep(0.1)
+                    except Exception:
+                        pass
+
+                # Chụp lại trạng thái hòm đồ trước khi quay để kiểm tra item trúng thưởng
+                inv_before = None
+                if eng and eng.is_ready:
+                    try:
+                        inv_before = eng.get_inventory_summary()
                     except Exception:
                         pass
 
@@ -1920,10 +2125,35 @@ class SlotController:
                     consecutive_fails = 0
                     self.moss_rolls_count += 1
                     r_num = self.moss_rolls_count
-                    def _update_ui(s=self.slot_idx, r=r_num, c=self.moss_category):
+
+                    # Chờ ngắn để Server trả kết quả packet vật phẩm về hòm đồ
+                    time.sleep(0.25)
+
+                    # So sánh hòm đồ để tìm món đồ mới quay được
+                    new_item_desc = ""
+                    if eng and eng.is_ready and inv_before:
+                        try:
+                            inv_after = eng.get_inventory_summary()
+                            if inv_after and not inv_after.get("error"):
+                                b_kept = {item.get("slot"): item for item in inv_before.get("keptSlots", [])}
+                                a_kept = {item.get("slot"): item for item in inv_after.get("keptSlots", [])}
+                                for s_idx, itm in a_kept.items():
+                                    if s_idx not in b_kept:
+                                        it_name = itm.get("name", "Vật phẩm")
+                                        it_lvl = itm.get("level", 0)
+                                        is_sp = itm.get("isSpecial", False)
+                                        is_exc = itm.get("exc", 0) > 0
+                                        is_anc = itm.get("anc", 0) > 0
+                                        tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else f"+{it_lvl}"))
+                                        new_item_desc = f" -> 🎁 Trúng: {it_name} ({tag})"
+                                        break
+                        except Exception:
+                            pass
+
+                    def _update_ui(s=self.slot_idx, r=r_num, c=self.moss_category, desc=new_item_desc):
                         self.app.update_moss_slot_rolls(s, r)
                         c_str = self.app.get_moss_cat_name(c)
-                        self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}")
+                        self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}{desc}")
                     self.app.after(0, _update_ui)
                 else:
                     consecutive_fails += 1
@@ -3418,7 +3648,7 @@ class DashboardApp(ctk.CTk):
             ("col_route_preset", 220, "w"),
             ("col_coordinates", 160, "center"),
             ("col_status", 130, "center"),
-            ("col_actions", 120, "center")
+            ("col_actions", 200, "center")
         ]
 
         for k, w, anc in col_defs:
@@ -3549,14 +3779,28 @@ class DashboardApp(ctk.CTk):
         prog_bar.set(0.0)
         prog_bar.pack(anchor="w", pady=(2, 1))
 
+        bot_line = ctk.CTkFrame(route_box, fg_color="transparent")
+        bot_line.pack(fill="x", pady=(0, 2))
+
         exp_lbl = ctk.CTkLabel(
-            route_box,
+            bot_line,
             text="-- / -- EXP",
             font=ctk.CTkFont(family="Segoe UI", size=9),
             text_color="#71717a",
             anchor="w"
         )
-        exp_lbl.pack(anchor="w", pady=(0, 2))
+        exp_lbl.pack(side="left")
+
+        pts_init = f"⭐ {ctrl.points:,} pts" if ctrl.points > 0 else "⭐ 0 pts"
+        pts_color = "#10b981" if ctrl.points > 0 else "#64748b"
+        pts_lbl = ctk.CTkLabel(
+            bot_line,
+            text=pts_init,
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            text_color=pts_color,
+            anchor="e"
+        )
+        pts_lbl.pack(side="right")
 
         # Cột 4: Coordinates (Rounded container with coordinates and dropdown arrow)
         coords_frame = ctk.CTkFrame(
@@ -3600,9 +3844,21 @@ class DashboardApp(ctk.CTk):
         import tkinter as tk
         def _show_slot_ctx(event, s=i):
             try:
+                ctrl_s = self.controllers[s - 1]
+                ds_status = "✅ BẬT" if ctrl_s.auto_devil else "❌ TẮT"
+                rs_status = "✅ BẬT" if ctrl_s.auto_reset else "❌ TẮT"
+                pt_status = "✅ BẬT" if ctrl_s.auto_add_point else "❌ TẮT"
+
                 menu = tk.Menu(self, tearoff=0, bg="#181c26", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
                 menu.add_command(label="🔄 Kết nối lại (Reconnect)", command=lambda: self.on_slot_status_clicked(s))
-                menu.add_command(label="⚙️ Mở Cấu hình", command=lambda: self.jump_to_config_tab(s))
+                menu.add_command(label="⚙️ Mở Cấu hình Chặng", command=lambda: self.jump_to_config_tab(s))
+                menu.add_separator()
+                menu.add_command(label=f"🔥 Tự động đi Devil Square [{ds_status}]", command=lambda: self.on_toggle_slot_devil(s))
+                menu.add_command(label=f"🔄 Tự động Reset [{rs_status}]", command=lambda: self.on_toggle_slot_reset(s))
+                menu.add_command(label=f"⭐ Tự động Cộng Point [{pt_status}]", command=lambda: self.on_toggle_slot_point(s))
+                menu.add_command(label="⚡ Đi Devil Square ngay lập tức", command=lambda: self.on_quick_devil_enter(s))
+                menu.add_command(label="🔄 Thực hiện /reset ngay", command=lambda: self.on_quick_reset(s))
+                menu.add_command(label="🛠️ Cài đặt tỷ lệ Point & Reset...", command=lambda: self.open_slot_stat_ratio_dialog(s))
                 menu.add_separator()
                 menu.add_command(label="❌ Ngắt kết nối", command=lambda: self.controllers[s - 1].detach())
                 menu.tk_popup(event.x_root, event.y_root)
@@ -3612,7 +3868,7 @@ class DashboardApp(ctk.CTk):
         for _w in (row_frame, slot_lbl, status_lbl, coords_frame, coords_lbl):
             _w.bind("<Button-3>", lambda e, s=i: _show_slot_ctx(e, s))
 
-        # Cột 6: Actions (Play/Stop | Configure | Slot Logs)
+        # Cột 6: Actions (Play/Stop | DS | RS | PT | Configure | Slot Logs)
         actions_box = ctk.CTkFrame(row_frame, fg_color="transparent")
         actions_box.pack(side="left", padx=4)
 
@@ -3634,6 +3890,57 @@ class DashboardApp(ctk.CTk):
             **act_btn_style
         )
         btn_toggle.pack(side="left", padx=2)
+
+        # Nút Devil Square (DS)
+        btn_devil = ctk.CTkButton(
+            actions_box,
+            text="DS",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            width=28,
+            height=28,
+            corner_radius=0,
+            fg_color="#4c0519" if ctrl.auto_devil else "#181c26",
+            text_color="#f43f5e" if ctrl.auto_devil else "#64748b",
+            border_width=1,
+            border_color="#e11d48" if ctrl.auto_devil else "#2b3244",
+            hover_color="#881337" if ctrl.auto_devil else "#242b3a",
+            command=lambda s=i: self.on_toggle_slot_devil(s)
+        )
+        btn_devil.pack(side="left", padx=2)
+
+        # Nút Auto Reset (RS)
+        btn_reset = ctk.CTkButton(
+            actions_box,
+            text="RS",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            width=28,
+            height=28,
+            corner_radius=0,
+            fg_color="#064e3b" if ctrl.auto_reset else "#181c26",
+            text_color="#10b981" if ctrl.auto_reset else "#64748b",
+            border_width=1,
+            border_color="#059669" if ctrl.auto_reset else "#2b3244",
+            hover_color="#047857" if ctrl.auto_reset else "#242b3a",
+            command=lambda s=i: self.on_toggle_slot_reset(s)
+        )
+        btn_reset.pack(side="left", padx=2)
+
+        # Nút Auto Cộng Point (PT)
+        btn_point = ctk.CTkButton(
+            actions_box,
+            text="PT",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            width=28,
+            height=28,
+            corner_radius=0,
+            fg_color="#075985" if ctrl.auto_add_point else "#181c26",
+            text_color="#38bdf8" if ctrl.auto_add_point else "#64748b",
+            border_width=1,
+            border_color="#0284c7" if ctrl.auto_add_point else "#2b3244",
+            hover_color="#0369a1" if ctrl.auto_add_point else "#242b3a",
+            command=lambda s=i: self.on_toggle_slot_point(s)
+        )
+        btn_point.pack(side="left", padx=2)
 
         btn_cfg = ctk.CTkButton(
             actions_box,
@@ -3664,9 +3971,13 @@ class DashboardApp(ctk.CTk):
             "lvl_lbl": lvl_lbl,
             "prog_bar": prog_bar,
             "exp_lbl": exp_lbl,
+            "pts_lbl": pts_lbl,
             "coords_lbl": coords_lbl,
             "status_lbl": status_lbl,
             "btn_toggle": btn_toggle,
+            "btn_devil": btn_devil,
+            "btn_reset": btn_reset,
+            "btn_point": btn_point,
             "btn_cfg": btn_cfg,
             "btn_log": btn_log
         }
@@ -8653,6 +8964,632 @@ class DashboardApp(ctk.CTk):
         ctrl = self.controllers[slot_idx - 1]
         ctrl.toggle_auto()
 
+    def on_toggle_slot_devil(self, slot_idx: int):
+        """Bật/tắt chế độ tự động tham gia Devil Square cho slot."""
+        ctrl = self.controllers[slot_idx - 1]
+        ctrl.auto_devil = not ctrl.auto_devil
+        ConfigPersistenceManager.save_event_config(
+            slot_idx=slot_idx,
+            auto_devil=ctrl.auto_devil,
+            auto_reset=ctrl.auto_reset,
+            auto_add_point=ctrl.auto_add_point,
+            reset_level=ctrl.reset_level,
+            stat_ratio=ctrl.stat_ratio
+        )
+        if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
+            ctrl.worker.update_config({"auto_devil": ctrl.auto_devil})
+
+        el = self.slot_ui_elements.get(slot_idx)
+        if el and el.get("btn_devil"):
+            if ctrl.auto_devil:
+                el["btn_devil"].configure(fg_color="#4c0519", text_color="#f43f5e", border_color="#e11d48", hover_color="#881337")
+            else:
+                el["btn_devil"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
+
+        state_str = "BẬT" if ctrl.auto_devil else "TẮT"
+        self.log_message(f"[Slot {slot_idx:02d}] Đã {state_str} tính năng Tự Động Đi Devil Square.", "SUCCESS" if ctrl.auto_devil else "INFO")
+
+    def on_toggle_slot_reset(self, slot_idx: int):
+        """Bật/tắt chế độ Auto Reset cho slot."""
+        ctrl = self.controllers[slot_idx - 1]
+        new_state = not ctrl.auto_reset
+        ctrl.auto_reset = new_state
+        ConfigPersistenceManager.save_event_config(
+            slot_idx=slot_idx,
+            auto_devil=ctrl.auto_devil,
+            auto_reset=ctrl.auto_reset,
+            auto_add_point=ctrl.auto_add_point,
+            reset_level=ctrl.reset_level,
+            stat_mode=ctrl.stat_mode,
+            custom_class=ctrl.custom_class,
+            stat_ratio=ctrl.stat_ratio
+        )
+        if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
+            ctrl.worker.update_config({
+                "auto_reset": ctrl.auto_reset,
+                "reset_level": ctrl.reset_level
+            })
+
+        el = self.slot_ui_elements.get(slot_idx)
+        if el and el.get("btn_reset"):
+            if new_state:
+                el["btn_reset"].configure(fg_color="#064e3b", text_color="#10b981", border_color="#059669", hover_color="#047857")
+            else:
+                el["btn_reset"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
+
+        state_str = "BẬT" if new_state else "TẮT"
+        self.log_message(f"[Slot {slot_idx:02d}] Đã {state_str} tính năng Tự Động Reset (LV {ctrl.reset_level}).", "SUCCESS" if new_state else "INFO")
+
+    def on_toggle_slot_point(self, slot_idx: int):
+        """Bật/tắt chế độ Auto Cộng Point cho slot."""
+        ctrl = self.controllers[slot_idx - 1]
+        new_state = not ctrl.auto_add_point
+        ctrl.auto_add_point = new_state
+        ConfigPersistenceManager.save_event_config(
+            slot_idx=slot_idx,
+            auto_devil=ctrl.auto_devil,
+            auto_reset=ctrl.auto_reset,
+            auto_add_point=ctrl.auto_add_point,
+            reset_level=ctrl.reset_level,
+            stat_mode=ctrl.stat_mode,
+            custom_class=ctrl.custom_class,
+            stat_ratio=ctrl.stat_ratio
+        )
+        if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
+            ctrl.worker.update_config({
+                "auto_add_point": ctrl.auto_add_point,
+                "stat_mode": ctrl.stat_mode,
+                "custom_class": ctrl.custom_class,
+                "stat_ratio": ctrl.stat_ratio
+            })
+
+        el = self.slot_ui_elements.get(slot_idx)
+        if el and el.get("btn_point"):
+            if new_state:
+                el["btn_point"].configure(fg_color="#075985", text_color="#38bdf8", border_color="#0284c7", hover_color="#0369a1")
+            else:
+                el["btn_point"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
+
+        state_str = "BẬT" if new_state else "TẮT"
+        self.log_message(f"[Slot {slot_idx:02d}] Đã {state_str} tính năng Tự Động Cộng Point.", "SUCCESS" if new_state else "INFO")
+
+    def on_quick_devil_enter(self, slot_idx: int):
+        """Kích hoạt đi Devil Square ngay lập tức qua native injection (Zero-Mouse, không click NPC)."""
+        ctrl = self.controllers[slot_idx - 1]
+        if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+            self.log_message(f"[Slot {slot_idx:02d}] Chưa kết nối Game!", "WARNING")
+            return
+        eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
+        if not eng or not eng.is_ready:
+            self.log_message(f"[Slot {slot_idx:02d}] Direct Engine chưa sẵn sàng!", "WARNING")
+            return
+
+        def _do_enter():
+            self.log_message(f"[Slot {slot_idx:02d}] Đang kiểm tra vé và gửi packet vào Devil Square...", "INFO")
+            res = eng.enter_devil()
+            is_ok = False
+            err_msg = "Không rõ nguyên nhân"
+            ds_lvl = "?"
+            if isinstance(res, dict):
+                is_ok = bool(res.get("ok") or res.get("success"))
+                err_msg = res.get("reason") or res.get("error") or err_msg
+                ds_lvl = res.get("ds_level", "?")
+            else:
+                is_ok = bool(res)
+
+            if is_ok:
+                self.log_message(f"[Slot {slot_idx:02d}] ✅ Vào Devil Square thành công (DS {ds_lvl})!", "SUCCESS")
+            else:
+                self.log_message(f"[Slot {slot_idx:02d}] ⚠️ Không thể vào Devil Square: {err_msg}", "WARNING")
+
+        threading.Thread(target=_do_enter, daemon=True).start()
+
+    def on_quick_reset(self, slot_idx: int):
+        """Thực hiện lệnh /reset ngay lập tức."""
+        ctrl = self.controllers[slot_idx - 1]
+        if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+            self.log_message(f"[Slot {slot_idx:02d}] Chưa kết nối Game!", "WARNING")
+            return
+        eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
+        if not eng or not eng.is_ready:
+            self.log_message(f"[Slot {slot_idx:02d}] Direct Engine chưa sẵn sàng!", "WARNING")
+            return
+        res = eng.do_reset()
+        is_ok = False
+        err_msg = "Lỗi gửi lệnh"
+        if isinstance(res, dict):
+            is_ok = bool(res.get("ok") or res.get("success"))
+            err_msg = res.get("error") or res.get("reason") or err_msg
+        else:
+            is_ok = bool(res)
+
+        if is_ok:
+            self.log_message(f"[Slot {slot_idx:02d}] Đã gửi lệnh /reset vào game thành công!", "SUCCESS")
+        else:
+            self.log_message(f"[Slot {slot_idx:02d}] Gửi lệnh /reset thất bại: {err_msg}", "WARNING")
+
+    def open_slot_stat_ratio_dialog(self, slot_idx: int):
+        """Mở cửa sổ cấu hình Tự Động Đi Devil Square, Tự Động Reset & Chỉ số Point theo từng Class."""
+        ctrl = self.controllers[slot_idx - 1]
+        dlg = ctk.CTkToplevel(self)
+        dlg.title(f"Cài Đặt Slot {slot_idx:02d} - Devil Square, Reset & Point")
+        dlg.geometry("520x680")
+        dlg.resizable(False, False)
+        dlg.configure(fg_color="#0f111a")
+        dlg.transient(self)
+        dlg.grab_set()
+
+        # Nạp bảng cấu hình chuẩn của 16 Class
+        class_profiles = ConfigPersistenceManager.load_class_stat_profiles()
+
+        # Nhận diện class hiện tại của nhân vật
+        det_cid = ctrl.class_id
+        eng = ctrl.engine or (getattr(self, "direct_engines", {}).get(ctrl.assigned_pid) if ctrl.assigned_pid else None)
+        if eng and eng.is_ready:
+            try:
+                p_inf = eng.get_player_info(max_age=0.5)
+                if p_inf:
+                    if "classId" in p_inf and int(p_inf["classId"]) >= 0:
+                        det_cid = int(p_inf["classId"])
+                        ctrl.class_id = det_cid
+                        ctrl.class_code = CLASS_ID_TO_CODE.get(det_cid, "")
+                    if "name" in p_inf and p_inf["name"]:
+                        ctrl.char_name = p_inf["name"]
+                    if "points" in p_inf:
+                        ctrl.points = int(p_inf["points"])
+            except Exception:
+                pass
+
+        det_code = ctrl.class_code if ctrl.class_code else CLASS_ID_TO_CODE.get(det_cid, "DK")
+        det_fullname = CLASS_CODE_TO_NAME.get(det_code, "Dark Knight")
+
+        # Tiêu đề
+        header_frame = ctk.CTkFrame(dlg, fg_color="#181c26", corner_radius=0, height=54)
+        header_frame.pack(fill="x")
+        header_frame.pack_propagate(False)
+
+        cname = ctrl.char_name if ctrl.char_name != "---" else f"Slot {slot_idx:02d}"
+        t_lbl = ctk.CTkLabel(
+            header_frame,
+            text=f"⚙️ CẤU HÌNH TỰ ĐỘNG - {cname.upper()}",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#38bdf8"
+        )
+        t_lbl.pack(side="left", padx=16, pady=8)
+
+        tag_class = ctk.CTkLabel(
+            header_frame,
+            text=f"Class: [{det_code}] {det_fullname}",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#10b981",
+            fg_color="#064e3b",
+            corner_radius=4,
+            padx=8,
+            pady=2
+        )
+        tag_class.pack(side="right", padx=16, pady=12)
+
+        content = ctk.CTkScrollableFrame(dlg, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=16, pady=10)
+
+        # 1. Devil Square Section
+        ds_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
+        ds_card.pack(fill="x", pady=(0, 10), padx=4)
+
+        ds_header = ctk.CTkLabel(
+            ds_card,
+            text="🔥 TỰ ĐỘNG THAM GIA DEVIL SQUARE (DS)",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#f43f5e"
+        )
+        ds_header.pack(anchor="w", padx=12, pady=(8, 2))
+
+        ds_sub = ctk.CTkLabel(
+            ds_card,
+            text="Tự động warp sang Event Square & vào cửa DS không cần click NPC khi mở cổng (:25 - :30 giờ lẻ).",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8",
+            wraplength=460,
+            justify="left"
+        )
+        ds_sub.pack(anchor="w", padx=12, pady=(0, 6))
+
+        var_ds = ctk.BooleanVar(value=ctrl.auto_devil)
+        chk_ds = ctk.CTkCheckBox(
+            ds_card,
+            text="Kích hoạt tự động đi Devil Square cho nhân vật này",
+            variable=var_ds,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f1f5f9",
+            fg_color="#e11d48",
+            hover_color="#be123c"
+        )
+        chk_ds.pack(anchor="w", padx=12, pady=(0, 10))
+
+        # 2. Reset Section
+        rs_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
+        rs_card.pack(fill="x", pady=(0, 10), padx=4)
+
+        rs_header = ctk.CTkLabel(
+            rs_card,
+            text="🔄 TỰ ĐỘNG RESET KHI ĐẠT LEVEL",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#10b981"
+        )
+        rs_header.pack(anchor="w", padx=12, pady=(8, 2))
+
+        var_rs = ctk.BooleanVar(value=ctrl.auto_reset)
+        chk_rs = ctk.CTkCheckBox(
+            rs_card,
+            text="Kích hoạt tự động gửi lệnh /reset khi đạt cấp độ yêu cầu",
+            variable=var_rs,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f1f5f9",
+            fg_color="#059669",
+            hover_color="#047857"
+        )
+        chk_rs.pack(anchor="w", padx=12, pady=(0, 6))
+
+        row_rs_lvl = ctk.CTkFrame(rs_card, fg_color="transparent")
+        row_rs_lvl.pack(fill="x", padx=12, pady=(0, 10))
+
+        ctk.CTkLabel(row_rs_lvl, text="Cấp độ Reset:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left")
+        ent_rs_lvl = ctk.CTkEntry(row_rs_lvl, width=70, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
+        ent_rs_lvl.pack(side="left", padx=8)
+        ent_rs_lvl.insert(0, str(ctrl.reset_level or 400))
+        ctk.CTkLabel(row_rs_lvl, text="(Mặc định: 400)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#64748b").pack(side="left")
+
+        # 3. Stat Ratio Section - THEO CLASS & TÙY CHỌN RIÊNG
+        stat_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
+        stat_card.pack(fill="x", pady=(0, 10), padx=4)
+
+        stat_header = ctk.CTkLabel(
+            stat_card,
+            text="⭐ CẤU HÌNH CỘNG POINT THEO CLASS & TÙY CHỈNH",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#38bdf8"
+        )
+        stat_header.pack(anchor="w", padx=12, pady=(8, 2))
+
+        var_stat = ctk.BooleanVar(value=ctrl.auto_add_point)
+        chk_stat = ctk.CTkCheckBox(
+            stat_card,
+            text="Kích hoạt tự động cộng điểm point khi có điểm dư (>= 10 pts)",
+            variable=var_stat,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f1f5f9",
+            fg_color="#0284c7",
+            hover_color="#0369a1"
+        )
+        chk_stat.pack(anchor="w", padx=12, pady=(0, 8))
+
+        # Chọn Chế Độ: Theo Class (Auto) hoặc Tùy Chỉnh (Custom)
+        cur_mode = ctrl.stat_mode if getattr(ctrl, "stat_mode", None) in ("auto_class", "custom") else "auto_class"
+        var_mode = ctk.StringVar(value="Theo Class (Tự Động)" if cur_mode == "auto_class" else "Tùy Chỉnh Riêng")
+
+        mode_frame = ctk.CTkFrame(stat_card, fg_color="#181c26", corner_radius=6)
+        mode_frame.pack(fill="x", padx=12, pady=(0, 8))
+
+        ctk.CTkLabel(mode_frame, text="Chế độ:", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left", padx=(8, 4), pady=6)
+
+        seg_mode = ctk.CTkSegmentedButton(
+            mode_frame,
+            values=["Theo Class (Tự Động)", "Tùy Chỉnh Riêng"],
+            variable=var_mode,
+            height=26,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            selected_color="#0284c7",
+            selected_hover_color="#0369a1",
+            unselected_color="#242b3a",
+            unselected_hover_color="#334155"
+        )
+        seg_mode.pack(side="left", padx=4, pady=6)
+
+        # Dropdown Class
+        class_options = [f"{code} - {CLASS_CODE_TO_NAME.get(code, code)}" for code in CLASS_ID_TO_CODE.values()]
+        init_sel_class = f"{det_code} - {det_fullname}"
+        if init_sel_class not in class_options:
+            init_sel_class = class_options[0]
+
+        var_sel_class = ctk.StringVar(value=init_sel_class)
+        combo_class = ctk.CTkOptionMenu(
+            mode_frame,
+            values=class_options,
+            variable=var_sel_class,
+            width=210,
+            height=26,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#242b3a",
+            button_color="#334155"
+        )
+        combo_class.pack(side="right", padx=8, pady=6)
+
+        lbl_mode_hint = ctk.CTkLabel(
+            stat_card,
+            text="💡 Chế độ 'Theo Class': Mọi nhân vật thuộc Class này sẽ tự động nhận tỷ lệ đã cấu hình.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#38bdf8"
+        )
+        lbl_mode_hint.pack(anchor="w", padx=12, pady=(0, 6))
+
+        def _on_mode_change(val):
+            if val == "Theo Class (Tự Động)":
+                lbl_mode_hint.configure(
+                    text="💡 Chế độ 'Theo Class': Hệ thống tự phát hiện Class của nhân vật từ RAM và áp dụng đúng tỷ lệ.",
+                    text_color="#38bdf8"
+                )
+                btn_save_class.configure(state="normal")
+            else:
+                lbl_mode_hint.configure(
+                    text="⚠️ Chế độ 'Tùy Chỉnh Riêng': Áp dụng tỷ lệ nhập bên dưới riêng cho Slot này (bỏ qua Class).",
+                    text_color="#f59e0b"
+                )
+
+        seg_mode.configure(command=_on_mode_change)
+
+        # Lưới nhập % Stat
+        stat_entries = {}
+        grid_frame = ctk.CTkFrame(stat_card, fg_color="transparent")
+        grid_frame.pack(fill="x", padx=12, pady=(0, 8))
+
+        # Lấy tỷ lệ ban đầu
+        init_ratio = ctrl.stat_ratio
+        if cur_mode == "auto_class" and det_code in class_profiles:
+            init_ratio = class_profiles[det_code].get("stat_ratio", init_ratio)
+        if not init_ratio:
+            init_ratio = {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}
+
+        labels = [
+            ("str", "Sức mạnh (Str /f):", int(init_ratio.get("str", 0.4) * 100)),
+            ("agi", "Nhanh nhẹn (Agi /a):", int(init_ratio.get("agi", 0.4) * 100)),
+            ("vit", "Thể lực (Vit /v):", int(init_ratio.get("vit", 0.1) * 100)),
+            ("ene", "Năng lượng (Ene /e):", int(init_ratio.get("ene", 0.1) * 100)),
+            ("cmd", "Mệnh lệnh DL (Cmd /c):", int(init_ratio.get("cmd", 0.0) * 100)),
+        ]
+
+        for r_idx, (key, title, val) in enumerate(labels):
+            lbl_item = ctk.CTkLabel(grid_frame, text=title, font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1", width=160, anchor="w")
+            lbl_item.grid(row=r_idx, column=0, pady=2, sticky="w")
+
+            ent_item = ctk.CTkEntry(grid_frame, width=65, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
+            ent_item.grid(row=r_idx, column=1, pady=2, padx=(4, 6))
+            ent_item.insert(0, str(val))
+            stat_entries[key] = ent_item
+
+            unit_lbl = ctk.CTkLabel(grid_frame, text="%", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8")
+            unit_lbl.grid(row=r_idx, column=2, pady=2, sticky="w")
+
+        def _apply_stats(s, a, v, e, c):
+            stat_entries["str"].delete(0, "end"); stat_entries["str"].insert(0, str(s))
+            stat_entries["agi"].delete(0, "end"); stat_entries["agi"].insert(0, str(a))
+            stat_entries["vit"].delete(0, "end"); stat_entries["vit"].insert(0, str(v))
+            stat_entries["ene"].delete(0, "end"); stat_entries["ene"].insert(0, str(e))
+            stat_entries["cmd"].delete(0, "end"); stat_entries["cmd"].insert(0, str(c))
+
+        def _on_class_selected(val):
+            code = val.split(" - ")[0].strip()
+            # Nạp tươi từ file để luôn đồng bộ mới nhất
+            fresh_p = ConfigPersistenceManager.load_class_stat_profiles()
+            if code in fresh_p:
+                r = fresh_p[code].get("stat_ratio", {})
+                _apply_stats(
+                    int(r.get("str", 0.0) * 100),
+                    int(r.get("agi", 0.0) * 100),
+                    int(r.get("vit", 0.0) * 100),
+                    int(r.get("ene", 0.0) * 100),
+                    int(r.get("cmd", 0.0) * 100)
+                )
+            btn_save_class.configure(text=f"💾 Lưu Cấu Hình Chuẩn Cho Class [{code}]")
+
+        combo_class.configure(command=_on_class_selected)
+
+        # Nút presets
+        preset_row = ctk.CTkFrame(stat_card, fg_color="transparent")
+        preset_row.pack(fill="x", padx=12, pady=(0, 6))
+
+        btn_p1 = ctk.CTkButton(preset_row, text="Chiến (50/50)", width=75, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(50, 50, 0, 0, 0))
+        btn_p1.pack(side="left", padx=2)
+        btn_p2 = ctk.CTkButton(preset_row, text="Phép (70/30)", width=75, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(0, 30, 0, 70, 0))
+        btn_p2.pack(side="left", padx=2)
+        btn_p3 = ctk.CTkButton(preset_row, text="Elf Cung", width=65, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(15, 80, 5, 0, 0))
+        btn_p3.pack(side="left", padx=2)
+        btn_p4 = ctk.CTkButton(preset_row, text="Chúa Tể DL", width=75, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(30, 30, 0, 10, 30))
+        btn_p4.pack(side="left", padx=2)
+        btn_p5 = ctk.CTkButton(preset_row, text="Cân Bằng", width=65, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(40, 40, 10, 10, 0))
+        btn_p5.pack(side="left", padx=2)
+
+        # Hàng mốc điểm tối thiểu
+        min_pts_row = ctk.CTkFrame(stat_card, fg_color="transparent")
+        min_pts_row.pack(fill="x", padx=12, pady=(0, 6))
+        ctk.CTkLabel(min_pts_row, text="Cộng khi có tối thiểu:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left")
+        ent_min_pts = ctk.CTkEntry(min_pts_row, width=50, height=24, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
+        ent_min_pts.pack(side="left", padx=6)
+        ent_min_pts.insert(0, "1")
+        ctk.CTkLabel(min_pts_row, text="điểm point (Khuyên dùng: 1 điểm để tăng sức mạnh ngay)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#94a3b8").pack(side="left")
+
+        # Nút lưu làm mặc định cho Class
+        def _save_as_class_default():
+            try:
+                sel_code = var_sel_class.get().split(" - ")[0].strip()
+                raw_s = float(stat_entries["str"].get().strip() or 0)
+                raw_a = float(stat_entries["agi"].get().strip() or 0)
+                raw_v = float(stat_entries["vit"].get().strip() or 0)
+                raw_e = float(stat_entries["ene"].get().strip() or 0)
+                raw_c = float(stat_entries["cmd"].get().strip() or 0)
+                tot = raw_s + raw_a + raw_v + raw_e + raw_c
+                if tot <= 0: tot = 100.0
+                new_r = {
+                    "str": round(raw_s / tot, 3),
+                    "agi": round(raw_a / tot, 3),
+                    "vit": round(raw_v / tot, 3),
+                    "ene": round(raw_e / tot, 3),
+                    "cmd": round(raw_c / tot, 3),
+                }
+                ConfigPersistenceManager.save_class_stat_profile(sel_code, new_r)
+                fresh_profiles = ConfigPersistenceManager.load_class_stat_profiles()
+                ctrl.stat_mode = "auto_class"
+                ctrl.custom_class = sel_code
+                ctrl.stat_ratio = new_r
+                ConfigPersistenceManager.save_event_config(
+                    slot_idx=slot_idx,
+                    auto_devil=var_ds.get(),
+                    auto_reset=var_rs.get(),
+                    auto_add_point=var_stat.get(),
+                    reset_level=int(ent_rs_lvl.get().strip() or 400),
+                    stat_mode="auto_class",
+                    custom_class=sel_code,
+                    stat_ratio=new_r
+                )
+                if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
+                    ctrl.worker.update_config({
+                        "stat_mode": "auto_class",
+                        "custom_class": sel_code,
+                        "stat_ratio": new_r,
+                        "min_add_points": 1,
+                        "class_profiles": fresh_profiles
+                    })
+                self.log_message(f"Đã lưu tỷ lệ Point chuẩn cho Class [{sel_code}]: {new_r}", "SUCCESS")
+                messagebox.showinfo("Thành Công", f"Đã lưu tỷ lệ chuẩn cho Class [{sel_code}]!\n\nMọi nhân vật mang Class [{sel_code}] sẽ tự động áp dụng tỷ lệ này khi cắm auto.\nWorker đang chạy đã được cập nhật ngay lập tức.")
+            except Exception as e_cd:
+                messagebox.showerror("Lỗi", f"Không thể lưu mặc định Class: {e_cd}")
+
+        btn_save_class = ctk.CTkButton(
+            stat_card,
+            text=f"💾 Lưu Cấu Hình Chuẩn Cho Class [{det_code}]",
+            height=28,
+            fg_color="#0f766e",
+            hover_color="#115e59",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_save_as_class_default
+        )
+        btn_save_class.pack(fill="x", padx=12, pady=(0, 10))
+
+        # Footer Buttons
+        footer = ctk.CTkFrame(dlg, fg_color="#141722", height=50, corner_radius=0)
+        footer.pack(fill="x", side="bottom")
+
+        def _save_and_close():
+            try:
+                new_ds = var_ds.get()
+                new_rs = var_rs.get()
+                new_stat = var_stat.get()
+                try:
+                    new_rs_lvl = int(ent_rs_lvl.get().strip())
+                except Exception:
+                    new_rs_lvl = 400
+
+                try:
+                    new_min_pts = int(ent_min_pts.get().strip() or 1)
+                except Exception:
+                    new_min_pts = 1
+
+                sel_code = var_sel_class.get().split(" - ")[0].strip()
+                raw_s = float(stat_entries["str"].get().strip() or 0)
+                raw_a = float(stat_entries["agi"].get().strip() or 0)
+                raw_v = float(stat_entries["vit"].get().strip() or 0)
+                raw_e = float(stat_entries["ene"].get().strip() or 0)
+                raw_c = float(stat_entries["cmd"].get().strip() or 0)
+                total = raw_s + raw_a + raw_v + raw_e + raw_c
+                if total <= 0:
+                    new_ratio = {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}
+                else:
+                    new_ratio = {
+                        "str": round(raw_s / total, 3),
+                        "agi": round(raw_a / total, 3),
+                        "vit": round(raw_v / total, 3),
+                        "ene": round(raw_e / total, 3),
+                        "cmd": round(raw_c / total, 3),
+                    }
+
+                is_auto_class = (var_mode.get() == "Theo Class (Tự Động)")
+                applied_mode = "auto_class" if is_auto_class else "custom"
+
+                if is_auto_class:
+                    # Tự động lưu luôn vào class_stat_profiles để mọi nhân vật Class này nhận
+                    ConfigPersistenceManager.save_class_stat_profile(sel_code, new_ratio)
+
+                fresh_profiles = ConfigPersistenceManager.load_class_stat_profiles()
+
+                ctrl.auto_devil = new_ds
+                ctrl.auto_reset = new_rs
+                ctrl.auto_add_point = new_stat
+                ctrl.reset_level = new_rs_lvl
+                ctrl.stat_mode = applied_mode
+                ctrl.custom_class = sel_code
+                ctrl.stat_ratio = new_ratio
+
+                ConfigPersistenceManager.save_event_config(
+                    slot_idx=slot_idx,
+                    auto_devil=new_ds,
+                    auto_reset=new_rs,
+                    auto_add_point=new_stat,
+                    reset_level=new_rs_lvl,
+                    stat_mode=applied_mode,
+                    custom_class=sel_code,
+                    stat_ratio=new_ratio
+                )
+
+                if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
+                    ctrl.worker.update_config({
+                        "auto_devil": new_ds,
+                        "auto_reset": new_rs,
+                        "auto_add_point": new_stat,
+                        "reset_level": new_rs_lvl,
+                        "stat_mode": applied_mode,
+                        "custom_class": sel_code,
+                        "stat_ratio": new_ratio,
+                        "min_add_points": new_min_pts,
+                        "class_profiles": fresh_profiles
+                    })
+
+                el = self.slot_ui_elements.get(slot_idx)
+                if el:
+                    if el.get("btn_devil"):
+                        if new_ds:
+                            el["btn_devil"].configure(fg_color="#4c0519", text_color="#f43f5e", border_color="#e11d48", hover_color="#881337")
+                        else:
+                            el["btn_devil"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
+                    if el.get("btn_reset"):
+                        if new_rs:
+                            el["btn_reset"].configure(fg_color="#064e3b", text_color="#10b981", border_color="#059669", hover_color="#047857")
+                        else:
+                            el["btn_reset"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
+                    if el.get("btn_point"):
+                        if new_stat:
+                            el["btn_point"].configure(fg_color="#075985", text_color="#38bdf8", border_color="#0284c7", hover_color="#0369a1")
+                        else:
+                            el["btn_point"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
+
+                mode_text = f"Theo Class [{sel_code}]" if is_auto_class else "Tùy Chỉnh Riêng"
+                self.log_message(f"[Slot {slot_idx:02d}] Đã lưu cài đặt ({mode_text}): DS={new_ds}, RS={new_rs} (LV {new_rs_lvl}), Point={new_stat} (Str:{int(new_ratio['str']*100)}%, Agi:{int(new_ratio['agi']*100)}%, Vit:{int(new_ratio['vit']*100)}%, Ene:{int(new_ratio['ene']*100)}%, Cmd:{int(new_ratio['cmd']*100)}%).", "SUCCESS")
+                dlg.destroy()
+            except Exception as ex:
+                messagebox.showerror("Lỗi Cài Đặt", f"Không thể lưu cài đặt: {ex}")
+
+        btn_save = ctk.CTkButton(
+            footer,
+            text="Lưu & Áp Dụng",
+            width=160,
+            height=32,
+            fg_color="#2563eb",
+            hover_color="#1d4ed8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_save_and_close
+        )
+        btn_save.pack(side="right", padx=16, pady=9)
+
+        btn_cancel = ctk.CTkButton(
+            footer,
+            text="Hủy Bỏ",
+            width=80,
+            height=32,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=dlg.destroy
+        )
+        btn_cancel.pack(side="right", padx=8, pady=9)
+
     def update_slot_ui_status(self, slot_idx: int, text: str):
         def _apply():
             el = self.slot_ui_elements.get(slot_idx)
@@ -8702,17 +9639,19 @@ class DashboardApp(ctk.CTk):
         except Exception:
             _apply()
 
-    def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str):
+    def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str, points: Optional[int] = None, class_code: Optional[str] = None):
         def _apply():
             el = self.slot_ui_elements.get(slot_idx)
             if not el:
                 return
             ctrl = self.controllers[slot_idx - 1]
+            c_tag = f"[{class_code}] " if (class_code and class_code.strip()) else (f"[{ctrl.class_code}] " if ctrl.class_code else "")
             if el.get("proc_var") and name and name != "---":
                 curr = el["proc_var"].get()
-                if curr in ("--", tr("select"), "") or name not in curr:
+                if curr in ("--", tr("select"), "") or name not in curr or (c_tag and not curr.startswith("[")):
                     pid_str = f"{ctrl.assigned_pid}" if ctrl.assigned_pid else ""
-                    el["proc_var"].set(f"{name} ({pid_str})" if pid_str else name)
+                    disp_str = f"{c_tag}{name} ({pid_str})" if pid_str else f"{c_tag}{name}"
+                    el["proc_var"].set(disp_str)
 
             if lvl and lvl != "---":
                 try:
@@ -8737,6 +9676,13 @@ class DashboardApp(ctk.CTk):
                         expected_cfg = f"Config {ctrl.profile_index}"
                         if el["profile_var"].get() != expected_cfg:
                             el["profile_var"].set(expected_cfg)
+
+            pts_val = points if points is not None else getattr(ctrl, "points", 0)
+            if el.get("pts_lbl"):
+                if pts_val > 0:
+                    el["pts_lbl"].configure(text=f"⭐ {pts_val:,} pts", text_color="#10b981")
+                else:
+                    el["pts_lbl"].configure(text="⭐ 0 pts", text_color="#64748b")
 
             if el.get("coords_lbl"):
                 if coords and coords.strip() and coords not in ("--,--", "--", "--, --"):
@@ -9146,12 +10092,6 @@ class DashboardApp(ctk.CTk):
                 if not hasattr(self, "_last_lic_display") or self._last_lic_display != lic_str:
                     self._last_lic_display = lic_str
                     self.update_header_stats()
-
-            # Định kỳ kiểm tra cập nhật ngầm từ GitHub mỗi 5 phút (300 giây)
-            now = time.time()
-            if now - getattr(self, "_last_update_check_time", 0.0) > 300:
-                self._last_update_check_time = now
-                threading.Thread(target=self._check_update_async, kwargs={"manual": False}, daemon=True).start()
         except Exception:
             pass
         self.after(1000, self._periodic_license_monitor)

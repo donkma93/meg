@@ -97,11 +97,22 @@ DEFAULT_OFFSETS = {
     "moss_roll_handler": "0x278DC90",
     "moss_init": "0x278FC00",
     "moss_select_cat": "0x278D470",
+    "moss_send_roll": "0x238B780",
+    "moss_roll_click": "0x2791220",
+    "moss_window_close": "0x27911E0",
     "game_object_set_active": "0x4533470",
     "mirror_enter": "0x106EF40",
     "mirror_npc_click": "0x10677F0",
     "mirror_is_event_map": "0x10689A0",
     "mirror_teleport_event": "0x37E2C0",
+    "item_mirror_ticket": 7279,
+    "devil_enter": "0x10609C0",
+    "devil_npc_click": "0x1056C50",
+    "devil_is_event_map": "0x104A180",
+    "item_devil_ticket": 7187,
+    "player_point": "0x238",
+    "player_master_point": "0x23C",
+    "player_reset_count": "0x2B4",
     "inv_sell_item": "0x14FC670",
     "inv_trash_item": "0x14F4CB0",
     "player_inventory": "0x1B0",
@@ -320,6 +331,30 @@ try {
     }
 } catch (eMossSC) {}
 
+var nativeMossSendRoll = null;
+try {
+    var msrOff = off('__MOSS_SEND_ROLL__');
+    if (!msrOff.isNull()) {
+        nativeMossSendRoll = new NativeFunction(baseAddr.add(msrOff), 'void', ['int32']);
+    }
+} catch (eMossSR) {}
+
+var nativeMossRollClick = null;
+try {
+    var mrcOff = off('__MOSS_ROLL_CLICK__');
+    if (!mrcOff.isNull()) {
+        nativeMossRollClick = new NativeFunction(baseAddr.add(mrcOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eMossRC) {}
+
+var nativeMossWindowClose = null;
+try {
+    var mwcOff = off('__MOSS_WINDOW_CLOSE__');
+    if (!mwcOff.isNull()) {
+        nativeMossWindowClose = new NativeFunction(baseAddr.add(mwcOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eMossWC) {}
+
 var nativeGameObjectSetActive = null;
 try {
     var gosaOff = off('__GAME_OBJECT_SET_ACTIVE__');
@@ -367,6 +402,30 @@ try {
         nativeMirrorTeleportEventMap = new NativeFunction(baseAddr.add(mtemOff), 'void', ['pointer', 'bool', 'pointer']);
     }
 } catch (eMirrorTeleport) {}
+
+var nativeDevilEnter = null;
+try {
+    var deOff = off('__DEVIL_ENTER__');
+    if (!deOff.isNull()) {
+        nativeDevilEnter = new NativeFunction(baseAddr.add(deOff), 'void', ['int', 'int', 'pointer']);
+    }
+} catch (eDevilEnter) {}
+
+var nativeDevilNpcClick = null;
+try {
+    var dnOff = off('__DEVIL_NPC_CLICK__');
+    if (!dnOff.isNull()) {
+        nativeDevilNpcClick = new NativeFunction(baseAddr.add(dnOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eDevilNpc) {}
+
+var nativeDevilIsEventMap = null;
+try {
+    var dimOff = off('__DEVIL_IS_EVENT_MAP__');
+    if (!dimOff.isNull()) {
+        nativeDevilIsEventMap = new NativeFunction(baseAddr.add(dimOff), 'bool', []);
+    }
+} catch (eDevilMap) {}
 
 var nativeNpcTalk = null;
 try {
@@ -557,6 +616,32 @@ function sendMirrorEnterPacket(slot) {
         nativeGSSend(gs, arr, 0, 0, ptr(0));
         return true;
     } catch (eMirrorPkt) {
+        return false;
+    }
+}
+
+function sendDevilEnterPacket(level, slot) {
+    try {
+        if (nativeGetGS === null || nativeGSSend === null || mono_domain_get_corlib === null || il2cpp_class_from_name === null || il2cpp_array_new === null) {
+            return false;
+        }
+        var gs = nativeGetGS();
+        if (gs.isNull()) return false;
+        var corlib = mono_domain_get_corlib();
+        if (corlib.isNull()) return false;
+        var byteClass = il2cpp_class_from_name(corlib, Memory.allocUtf8String("System"), Memory.allocUtf8String("Byte"));
+        if (byteClass.isNull()) return false;
+        var arr = il2cpp_array_new(byteClass, 5);
+        if (arr.isNull()) return false;
+        var raw = arr.add(0x20);
+        raw.writeU8(0xC1);
+        raw.add(1).writeU8(0x05);
+        raw.add(2).writeU8(0x90);
+        raw.add(3).writeU8(level & 0xFF);
+        raw.add(4).writeU8(slot & 0xFF);
+        nativeGSSend(gs, arr, 0, 0, ptr(0));
+        return true;
+    } catch (eDevilPkt) {
         return false;
     }
 }
@@ -1003,15 +1088,15 @@ function isGameObjectValid(goPtr) {
 function ensureMossRollButtonActive(mossWin, resetTimer) {
     if (!mossWin || mossWin.isNull()) return false;
     try {
-        // 1. Luôn TẮT LoadingImage (offset 0x60) để KHÔNG BAO GIỜ bị kẹt xoay tròn (quay tít)!
+        // 1. Tắt LoadingImage (offset 0x60)
         var loadingImg = mossWin.add(0x60).readPointer();
-        if (!loadingImg.isNull() && nativeGameObjectSetActive !== null) {
+        if (!loadingImg.isNull() && isGameObjectValid(loadingImg) && nativeGameObjectSetActive !== null) {
             try {
                 nativeGameObjectSetActive(loadingImg, 0, ptr(0));
             } catch (eLI) {}
         }
 
-        // 2. Luôn BẬT RollButton (offset 0x58)
+        // 2. Bật RollButton (offset 0x58)
         var rollBtn = mossWin.add(0x58).readPointer();
         if (!rollBtn.isNull()) {
             var btnObj = ptr(0);
@@ -1020,12 +1105,7 @@ function ensureMossRollButtonActive(mossWin, resetTimer) {
                     btnObj = nativeComponentGetGameObject(rollBtn);
                 } catch (eGO) {}
             }
-            if (btnObj.isNull()) {
-                try {
-                    btnObj = rollBtn.add(0x10).readPointer();
-                } catch (eFB) {}
-            }
-            if (!btnObj.isNull() && nativeGameObjectSetActive !== null) {
+            if (!btnObj.isNull() && isGameObjectValid(btnObj) && nativeGameObjectSetActive !== null) {
                 try {
                     nativeGameObjectSetActive(btnObj, 1, ptr(0));
                 } catch (eAct) {}
@@ -1050,31 +1130,28 @@ function setupMossWindow(mossWin, cat) {
         // 1. Cập nhật Category ID (offset 0x78)
         mossWin.add(0x78).writeS32(catId);
 
-        // 2. Khởi tạo dữ liệu qua CLCAABGMDPA (0x26D13C0)
-        if (nativeMossInit !== null) {
-            try {
-                nativeMossInit(mossWin, ptr(0));
-            } catch (eInit) {}
+        // 2. Kiểm tra danh sách Category từ Server
+        // Tuyệt đối không gọi nativeMossInit để tránh sinh các nút CategoryItemPrefab trùng lặp!
+        var catList = mossWin.add(0x80).readPointer();
+        var catCount = 0;
+        if (!catList.isNull()) {
+            try { catCount = catList.add(0x18).readS32(); } catch (eCC) {}
         }
 
         // 3. Chọn đúng tab Category theo chỉ định
-        if (nativeMossSelectCat !== null) {
+        if (nativeMossSelectCat !== null && !catList.isNull() && catCount > 0) {
             try {
-                var catList = mossWin.add(0x80).readPointer();
-                if (!catList.isNull()) {
-                    var count = catList.add(0x18).readS32();
-                    var items = catList.add(0x10).readPointer();
-                    if (!items.isNull() && catId < count && catId >= 0) {
-                        var catObj = items.add(0x20 + catId * 8).readPointer();
-                        if (!catObj.isNull()) {
-                            nativeMossSelectCat(mossWin, catObj, ptr(0));
-                        }
+                var items = catList.add(0x10).readPointer();
+                if (!items.isNull() && catId < catCount && catId >= 0) {
+                    var catObj = items.add(0x20 + catId * 8).readPointer();
+                    if (!catObj.isNull()) {
+                        nativeMossSelectCat(mossWin, catObj, ptr(0));
                     }
                 }
             } catch (eCat) {}
         }
 
-        // 4. LUÔN BẢO ĐẢM NÚT QUAY BẬT VÀ LoadingImage TẮT
+        // 4. Đảm bảo nút quay sẵn sàng và LoadingImage tắt
         ensureMossRollButtonActive(mossWin, true);
 
         // 5. Hiển thị cửa sổ (MWindow tại offset 0x20)
@@ -1086,6 +1163,14 @@ function setupMossWindow(mossWin, cat) {
                 try { nativeWindowSetState(win, 1, ptr(0)); } catch (eWSS) {}
             }
             win.add(0x48).writeU8(1);
+        }
+        if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
+            try {
+                var mGo = nativeComponentGetGameObject(mossWin);
+                if (!mGo.isNull() && isGameObjectValid(mGo)) {
+                    nativeGameObjectSetActive(mGo, 1, ptr(0));
+                }
+            } catch (eMGO) {}
         }
         return true;
     } catch (eSetup) {
@@ -1224,6 +1309,109 @@ function findLugardNpc() {
         }
     } catch (eLugard) {}
     return null;
+}
+
+function findCharonNpc() {
+    try {
+        var localPlayer = getPlayerPtr();
+        var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+        if (typeInfo.isNull()) return null;
+        var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+        if (staticFields.isNull()) return null;
+        var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+        if (gameInstance.isNull()) return null;
+        var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+        if (viewport.isNull()) return null;
+        var objDict = viewport.add(ptr('0x20')).readPointer();
+        if (objDict.isNull()) return null;
+
+        var entries = objDict.add(ptr('0x18')).readPointer();
+        if (entries.isNull()) return null;
+        var count = objDict.add(ptr('0x20')).readS32();
+        if (count <= 0 || count > 500) return null;
+
+        for (var i = 0; i < count; i++) {
+            var entryAddr = entries.add(0x20 + i * 24);
+            var val = entryAddr.add(16).readPointer();
+            if (val.isNull()) continue;
+            var body = val.add(ptr('0x18')).readPointer();
+            if (body.isNull()) continue;
+
+            if (!localPlayer.isNull() && body.equals(localPlayer)) continue;
+
+            var bIdx = body.add(0x20).readS32();
+            if (bIdx < 0) continue;
+
+            var npcType = -1;
+            try { npcType = body.add(0x34).readS32(); } catch (eT) {}
+
+            var name = "";
+            try {
+                var namePtr = body.add(off('__PLAYER_NAME__')).readPointer();
+                if (!namePtr.isNull()) {
+                    var len = namePtr.add(0x10).readS32();
+                    if (len > 0 && len < 64) {
+                        name = namePtr.add(0x14).readUtf16String(len);
+                    }
+                }
+            } catch (eN) {}
+
+            var lowName = (name || "").toLowerCase();
+            // NPC Charon ID: 236 (Noria/Chuẩn), 237, 720 (Event Square)
+            if (npcType === 236 || npcType === 237 || npcType === 720 || lowName.indexOf("charon") !== -1 || lowName.indexOf("devil") !== -1) {
+                return body;
+            }
+        }
+    } catch (eCharon) {}
+    return null;
+}
+
+function checkDevilItem(itemPtr, idx) {
+    var itName = getItemName(itemPtr) || "";
+    var lowName = itName.toLowerCase();
+    var itLevel = 0;
+    try { itLevel = itemPtr.add(0x10).readS32(); } catch (eL) {}
+
+    if (idx === 7187) {
+        return { isTicket: true, level: itLevel, name: itName || ("Devil's Invitation +" + itLevel) };
+    }
+    if (lowName.length > 0) {
+        if (lowName.indexOf("devil's invitation") !== -1 ||
+            lowName.indexOf("devil invitation") !== -1 ||
+            lowName.indexOf("convite do diabo") !== -1 ||
+            lowName.indexOf("devil square ticket") !== -1) {
+            return { isTicket: true, level: itLevel, name: itName };
+        }
+    }
+    return { isTicket: false, level: 0, name: itName };
+}
+
+function getPlayerDevilSquareLevel() {
+    try {
+        var p = getPlayerPtr();
+        if (p.isNull()) return 0;
+        var lvl = p.add(off('__PLAYER_LEVEL__')).readS32();
+        var cls = p.add(off('__PLAYER_CLASS__')).readS32();
+        var isSpecial = (cls >= 48 && cls <= 67);
+        if (lvl >= 400) return 6; // DS 7
+        if (isSpecial) {
+            if (lvl <= 110) return 0; // DS 1
+            if (lvl <= 160) return 1; // DS 2
+            if (lvl <= 210) return 2; // DS 3
+            if (lvl <= 260) return 3; // DS 4
+            if (lvl <= 310) return 4; // DS 5
+            return 5;                 // DS 6
+        } else {
+            if (lvl <= 130) return 0; // DS 1
+            if (lvl <= 180) return 1; // DS 2
+            if (lvl <= 230) return 2; // DS 3
+            if (lvl <= 280) return 3; // DS 4
+            if (lvl <= 330) return 4; // DS 5
+            return 5;                 // DS 6
+        }
+    } catch (e) {
+        return 0;
+    }
 }
 
 function findMerchantNpc() {
@@ -1382,21 +1570,6 @@ try {
                                 setupMossWindow(mossWin, cat);
                             } catch (eMossUI) {}
                         }
-
-                        // Khi cửa sổ Moss đang hiển thị trên màn hình:
-                        // Nếu timer quay rảnh rỗi (0.0), đảm bảo RollButton luôn bật và LoadingImage tắt
-                        try {
-                            var mossWinCheck = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
-                            if (!mossWinCheck.isNull()) {
-                                var mWinObj = mossWinCheck.add(0x20).readPointer();
-                                if (!mWinObj.isNull() && mWinObj.add(0x48).readU8() === 1) {
-                                    var rTimer = mossWinCheck.add(0x98).readFloat();
-                                    if (rTimer === 0.0) {
-                                        ensureMossRollButtonActive(mossWinCheck, false);
-                                    }
-                                }
-                            }
-                        } catch (eMossTimer) {}
                     }
                     if (pendingCommand !== null) {
                         var cmd = pendingCommand;
@@ -1639,6 +1812,20 @@ function readPlayerInfoSnapshot(readName) {
             if (!h.isNull()) helperState = h.add(off('__HELPER_STATE__')).readU8();
         } catch (e) {}
 
+        var points = 0, masterPoints = 0;
+        try {
+            var ptOff = off('__PLAYER_POINT__');
+            if (!ptOff.isNull()) {
+                points = p.add(ptOff).readS32();
+            }
+        } catch (ePts) {}
+        try {
+            var mptOff = off('__PLAYER_MASTER_POINT__');
+            if (!mptOff.isNull()) {
+                masterPoints = p.add(mptOff).readS32();
+            }
+        } catch (eMpts) {}
+
         return {
             name: charName,
             level: level,
@@ -1649,7 +1836,9 @@ function readPlayerInfoSnapshot(readName) {
             x: tileX,
             y: tileY,
             isMoving: isMoving,
-            helperState: helperState
+            helperState: helperState,
+            points: (points > 0 ? points : 0),
+            masterPoints: (masterPoints > 0 ? masterPoints : 0)
         };
     } catch (e) {
         return null;
@@ -1671,7 +1860,7 @@ function fastTelemetryTick() {
         if (readName) lastFastNameReadAt = nowMs;
         var info = readPlayerInfoSnapshot(readName);
         if (info === null) return;
-        var sig = [info.level, info.mapId, info.tileX, info.tileY, info.isMoving ? 1 : 0, info.helperState].join('|');
+        var sig = [info.level, info.mapId, info.tileX, info.tileY, info.isMoving ? 1 : 0, info.helperState, info.points || 0].join('|');
         if (sig !== lastFastSignature || (nowMs - lastFastSentAt) >= 700) {
             lastFastSignature = sig;
             lastFastSentAt = nowMs;
@@ -1994,29 +2183,33 @@ rpc.exports = {
                             } catch (eCat) {}
                         }
 
-                        // 3. Kích hoạt handler bấm nút Roll chuẩn của MEGAMU (NEOMFDBIIHM - RVA 0x26D1180)
-                        if (nativeMossRollHandler !== null) {
+                        // 3. GỬI LỆNH QUAY:
+                        // Ưu tiên 1: Gửi qua Native Packet RPC trực tiếp (MossMerchantWindow.PPGKJNECJHO - RVA 0x238B780)
+                        var sent = false;
+                        if (nativeMossSendRoll !== null) {
                             try {
-                                nativeMossRollHandler(mossWin, ptr(0));
-                            } catch (eRH) {}
+                                nativeMossSendRoll(cat);
+                                sent = true;
+                            } catch (eSend) {}
                         }
 
-                        // 4. Ép timer AGFHDCHLLIB tại offset 0x98 thành 0.001f để kích hoạt gửi packet
-                        mossWin.add(0x98).writeFloat(0.001);
-
-                        // 5. Kích hoạt trực tiếp MMossMerchantWindow.Update (RVA 0x26D1580)
-                        // Mã máy MEGAMU tại 0x26D16F8-0x26D175B sẽ phát gói tin C1 05 70 10 [cat]
-                        if (nativeMossRoll !== null) {
+                        // Ưu tiên 2: Fallback qua OnClick của RollButton (MMossMerchantWindow.HHHGKHKLGHB - RVA 0x2791220)
+                        if (!sent && nativeMossRollClick !== null) {
                             try {
-                                nativeMossRoll(mossWin, ptr(0));
-                            } catch (eRoll) {}
+                                nativeMossRollClick(mossWin, ptr(0));
+                                sent = true;
+                            } catch (eRC) {}
                         }
 
-                        // 6. QUAN TRỌNG: PHỤC HỒI NGAY NÚT QUAY (RollButton.gameObject = true) VÀ TẮT LOADING
-                        // Khắc phục triệt để lỗi kẹt xoay tròn LoadingImage và bảo vệ an toàn crash
-                        ensureMossRollButtonActive(mossWin, true);
+                        // 4. Kích hoạt hiệu ứng LoadingImage quay mượt mà trên giao diện
+                        try {
+                            var loadingImg = mossWin.add(0x60).readPointer();
+                            if (!loadingImg.isNull() && isGameObjectValid(loadingImg) && nativeGameObjectSetActive !== null) {
+                                nativeGameObjectSetActive(loadingImg, 1, ptr(0));
+                            }
+                        } catch (eLI) {}
 
-                        return true;
+                        return sent;
                     }
                 }
             }
@@ -2029,14 +2222,19 @@ rpc.exports = {
     closeMoss: function() {
         try {
             ensureThreadAttached();
-            if (nativeCloseTalk !== null) {
-                try { nativeCloseTalk(); } catch (eCT) {}
-            }
+            pendingMossOpenCategory = null;
+
             if (nativeGetGameUI !== null) {
                 var gui = nativeGetGameUI();
                 if (!gui.isNull()) {
                     var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
                     if (!mossWin.isNull()) {
+                        // 1. Gọi hàm đóng chuẩn của MMossMerchantWindow (RVA 0x27911E0)
+                        if (nativeMossWindowClose !== null) {
+                            try { nativeMossWindowClose(mossWin, ptr(0)); } catch (eMWC) {}
+                        }
+
+                        // 2. Ẩn MWindow tại offset 0x20
                         var win = mossWin.add(0x20).readPointer();
                         if (!win.isNull()) {
                             if (nativeWindowHide !== null) {
@@ -2045,10 +2243,34 @@ rpc.exports = {
                                 try { nativeWindowSetState(win, 0, ptr(0)); } catch (eWSS) {}
                             }
                             win.add(0x48).writeU8(0);
+                            if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
+                                try {
+                                    var wGo = nativeComponentGetGameObject(win);
+                                    if (!wGo.isNull() && isGameObjectValid(wGo)) {
+                                        nativeGameObjectSetActive(wGo, 0, ptr(0));
+                                    }
+                                } catch (eWGO) {}
+                            }
+                        }
+
+                        // 3. Tắt GameObject của MMossMerchantWindow
+                        if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
+                            try {
+                                var mGo = nativeComponentGetGameObject(mossWin);
+                                if (!mGo.isNull() && isGameObjectValid(mGo)) {
+                                    nativeGameObjectSetActive(mGo, 0, ptr(0));
+                                }
+                            } catch (eMGO) {}
                         }
                     }
                 }
             }
+
+            // 4. Gửi packet C1:31 đóng phiên đàm thoại NPC
+            if (nativeCloseTalk !== null) {
+                try { nativeCloseTalk(); } catch (eCT) {}
+            }
+
             return true;
         } catch (eCM) {
             return false;
@@ -2069,18 +2291,6 @@ rpc.exports = {
                 }
             }
             pendingMossOpenCategory = cat;
-
-            try {
-                if (nativeGetGameUI !== null) {
-                    var gui = nativeGetGameUI();
-                    if (!gui.isNull()) {
-                        var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
-                        setupMossWindow(mossWin, cat);
-                        ensureMossRollButtonActive(mossWin, true);
-                    }
-                }
-            } catch (eDirectUI) {}
-
             return true;
         } catch (eMO) {
             return false;
@@ -2217,17 +2427,6 @@ rpc.exports = {
             }
 
             pendingMossOpenCategory = cat;
-
-            try {
-                if (nativeGetGameUI !== null) {
-                    var gui = nativeGetGameUI();
-                    if (!gui.isNull()) {
-                        var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
-                        setupMossWindow(mossWin, cat);
-                        ensureMossRollButtonActive(mossWin, true);
-                    }
-                }
-            } catch (eDirectUI) {}
 
             return {
                 success: true,
@@ -2828,6 +3027,188 @@ rpc.exports = {
                 return (info.mapId >= 65 && info.mapId <= 68);
             }
         } catch (eMM) {}
+        return false;
+    },
+
+    enterDevil: function(targetLevel, slot) {
+        try {
+            ensureThreadAttached();
+            var dsLevel = (targetLevel !== undefined && targetLevel !== null && parseInt(targetLevel) >= 0) ? parseInt(targetLevel) : getPlayerDevilSquareLevel();
+            var itemSlot = -1;
+            if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
+                itemSlot = parseInt(slot);
+            } else {
+                try {
+                    var p = getPlayerPtr();
+                    if (!p.isNull()) {
+                        var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                        if (!inv.isNull()) {
+                            var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                            if (!itemsArr.isNull()) {
+                                var maxSlot = 140;
+                                try {
+                                    var arrLen = itemsArr.add(0x18).readS32();
+                                    if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+                                } catch (eLen) {}
+
+                                var mainMatchedSlot = -1;
+                                var extMatchedSlot = -1;
+                                var anyMainSlot = -1;
+                                var anyExtSlot = -1;
+
+                                for (var s = 12; s < maxSlot; s++) {
+                                    var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                                    if (!itemPtr.isNull()) {
+                                        var idx = readItemIndex(itemPtr);
+                                        var check = checkDevilItem(itemPtr, idx);
+                                        if (check.isTicket) {
+                                            var matches = (check.level === (dsLevel + 1) || check.level === 0);
+                                            if (matches) {
+                                                if (s < 76 && mainMatchedSlot < 0) mainMatchedSlot = s;
+                                                else if (s >= 76 && extMatchedSlot < 0) extMatchedSlot = s;
+                                            }
+                                            if (s < 76 && anyMainSlot < 0) anyMainSlot = s;
+                                            else if (s >= 76 && anyExtSlot < 0) anyExtSlot = s;
+                                        }
+                                    }
+                                }
+                                if (mainMatchedSlot >= 12) itemSlot = mainMatchedSlot;
+                                else if (extMatchedSlot >= 12) itemSlot = extMatchedSlot;
+                                else if (anyMainSlot >= 12) itemSlot = anyMainSlot;
+                                else if (anyExtSlot >= 12) itemSlot = anyExtSlot;
+                            }
+                        }
+                    }
+                } catch (eScan) {}
+            }
+
+            if (itemSlot >= 0) {
+                var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
+                try {
+                    var charon = findCharonNpc();
+                    if (charon && !charon.isNull()) {
+                        if (nativeNpcTalk !== null) {
+                            try { nativeNpcTalk(charon, ptr(0)); } catch (eNT) {}
+                        }
+                        if (nativeDevilNpcClick !== null) {
+                            nativeDevilNpcClick(charon, ptr(0));
+                        }
+                    }
+                } catch (eCharonEnter) {}
+
+                if (nativeDevilEnter !== null) {
+                    try { nativeDevilEnter(dsLevel, relSlot, ptr(0)); } catch (eNDE1) {}
+                    try { nativeDevilEnter(dsLevel, itemSlot, ptr(0)); } catch (eNDE2) {}
+                }
+                sendDevilEnterPacket(dsLevel, relSlot);
+                sendDevilEnterPacket(dsLevel, itemSlot);
+
+                return JSON.stringify({
+                    success: true,
+                    dsLevel: dsLevel,
+                    slot: itemSlot,
+                    relSlot: relSlot,
+                    isExtended: (itemSlot >= 76)
+                });
+            }
+            return JSON.stringify({ success: false, error: "no_ticket" });
+        } catch (eDE) {
+            return JSON.stringify({ success: false, error: eDE.toString() });
+        }
+    },
+
+    getDevilTicketInfo: function() {
+        try {
+            ensureThreadAttached();
+            var dsLevel = getPlayerDevilSquareLevel();
+            var p = getPlayerPtr();
+            if (!p.isNull()) {
+                var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                if (!inv.isNull()) {
+                    var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                    if (!itemsArr.isNull()) {
+                        var maxSlot = 140;
+                        try {
+                            var arrLen = itemsArr.add(0x18).readS32();
+                            if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+                        } catch (eLen) {}
+
+                        var tickets = [];
+                        var matchedTickets = [];
+                        var mainSlots = [];
+                        var extSlots = [];
+
+                        for (var s = 12; s < maxSlot; s++) {
+                            var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                            if (!itemPtr.isNull()) {
+                                var idx = readItemIndex(itemPtr);
+                                var check = checkDevilItem(itemPtr, idx);
+                                if (check.isTicket) {
+                                    tickets.push(s);
+                                    if (s < 76) mainSlots.push(s);
+                                    else extSlots.push(s);
+                                    if (check.level === (dsLevel + 1) || check.level === 0) {
+                                        matchedTickets.push(s);
+                                    }
+                                }
+                            }
+                        }
+                        return JSON.stringify({
+                            hasTicket: tickets.length > 0,
+                            hasMatchedTicket: matchedTickets.length > 0,
+                            count: tickets.length,
+                            dsLevel: dsLevel,
+                            targetTicketLevel: dsLevel + 1,
+                            slots: tickets,
+                            matchedSlots: matchedTickets,
+                            mainSlots: mainSlots,
+                            extSlots: extSlots,
+                            hasOnlyExtended: (mainSlots.length === 0 && extSlots.length > 0)
+                        });
+                    }
+                }
+            }
+        } catch (eDTI) {}
+        return JSON.stringify({ hasTicket: false, count: 0, slots: [] });
+    },
+
+    clickDevilNpc: function(npcPtr) {
+        try {
+            ensureThreadAttached();
+            if (nativeDevilNpcClick !== null) {
+                var p = (npcPtr && parseInt(npcPtr) > 0) ? ptr(npcPtr) : ptr(0);
+                if (p.isNull()) {
+                    var charon = findCharonNpc();
+                    if (charon && !charon.isNull()) p = charon;
+                }
+                if (!p.isNull()) {
+                    if (nativeCloseTalk !== null) {
+                        try { nativeCloseTalk(); } catch (eCT) {}
+                    }
+                    if (nativeNpcTalk !== null) {
+                        try { nativeNpcTalk(p, ptr(0)); } catch (eNT) {}
+                    }
+                    nativeDevilNpcClick(p, ptr(0));
+                    return true;
+                }
+            }
+        } catch (eDN) {}
+        return false;
+    },
+
+    isDevilEventMap: function() {
+        try {
+            ensureThreadAttached();
+            if (nativeDevilIsEventMap !== null) {
+                try {
+                    if (nativeDevilIsEventMap()) return true;
+                } catch (eNDM) {}
+            }
+            var info = readPlayerInfoSnapshot(false);
+            if (info && info.mapId !== undefined && info.mapId >= 0) {
+                return (info.mapId === 9 || info.mapId === 32);
+            }
+        } catch (eDM) {}
         return false;
     },
 
@@ -3488,11 +3869,20 @@ class MegDirectEngine:
             "__MOSS_ROLL_HANDLER__": self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x278DC90"),
             "__MOSS_INIT__": self.offsets.get("moss_init") or DEFAULT_OFFSETS.get("moss_init", "0x278FC00"),
             "__MOSS_SELECT_CAT__": self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x278D470"),
+            "__MOSS_SEND_ROLL__": self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x238B780"),
+            "__MOSS_ROLL_CLICK__": self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x2791220"),
+            "__MOSS_WINDOW_CLOSE__": self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x27911E0"),
             "__GAME_OBJECT_SET_ACTIVE__": self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x4533470"),
             "__MIRROR_ENTER__": self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0x106EF40"),
             "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0x10677F0"),
             "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0x10689A0"),
             "__MIRROR_TELEPORT_EVENT__": self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x37E2C0"),
+            "__DEVIL_ENTER__": self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0x10609C0"),
+            "__DEVIL_NPC_CLICK__": self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0x1056C50"),
+            "__DEVIL_IS_EVENT_MAP__": self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0x104A180"),
+            "__PLAYER_POINT__": self.offsets.get("player_point") or DEFAULT_OFFSETS.get("player_point", "0x238"),
+            "__PLAYER_MASTER_POINT__": self.offsets.get("player_master_point") or DEFAULT_OFFSETS.get("player_master_point", "0x23C"),
+            "__PLAYER_RESET_COUNT__": self.offsets.get("player_reset_count") or DEFAULT_OFFSETS.get("player_reset_count", "0x2B4"),
             "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x14FC670"),
             "__MERCHANT_SELL_ITEM__": self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2754390"),
             "__SLOT_QUICK_ACTION__": self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x2372420"),
@@ -4538,6 +4928,102 @@ class MegDirectEngine:
             except Exception:
                 pass
         return False
+
+    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None) -> Dict[str, Any]:
+        """Gửi lệnh native vào cửa sự kiện Devil Square (không cần click NPC)."""
+        if self.is_ready:
+            try:
+                arg_lvl = int(level) if (level is not None and int(level) >= 0) else None
+                arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
+                res = self._call("enterDevil", arg_lvl, arg_slot)
+                if isinstance(res, str):
+                    try:
+                        res = json.loads(res)
+                    except Exception:
+                        pass
+                if isinstance(res, dict):
+                    return res
+                if bool(res):
+                    return {"success": True}
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi enter_devil: {e}")
+                return {"success": False, "error": str(e)}
+        return {"success": False, "error": "not_ready"}
+
+    def get_devil_ticket_info(self) -> Dict[str, Any]:
+        """Kiểm tra vé Devil's Square Invitation (item 7187) trong hòm đồ."""
+        if self.is_ready:
+            for attempt in range(2):
+                try:
+                    res = self._call("getDevilTicketInfo")
+                    if isinstance(res, str):
+                        res = json.loads(res)
+                    if isinstance(res, dict):
+                        return res
+                except Exception as e:
+                    _safe_log(f"[MegDirectEngine] Lỗi get_devil_ticket_info: {e}")
+                if attempt < 1:
+                    time.sleep(0.1)
+        return {"hasTicket": False, "count": 0, "slots": []}
+
+    def click_devil_npc(self, npc_ptr: int = 0) -> bool:
+        """Kích hoạt đối thoại NPC Charon sự kiện Devil Square."""
+        if self.is_ready:
+            try:
+                res = self._call("clickDevilNpc", int(npc_ptr) if npc_ptr else None)
+                if res:
+                    return True
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi click_devil_npc: {e}")
+        return False
+
+    def is_devil_event_map(self) -> bool:
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Devil Square (Map ID 9 hoặc 32) hay không."""
+        if self.is_ready:
+            try:
+                tele = self.get_player_info()
+                if tele and "mapId" in tele and tele["mapId"] in (9, 32):
+                    return True
+                return bool(self._call("isDevilEventMap"))
+            except Exception:
+                pass
+        return False
+
+    def add_stats(self, str_pts: int = 0, agi_pts: int = 0, vit_pts: int = 0, ene_pts: int = 0, cmd_pts: int = 0) -> bool:
+        """Cộng điểm chỉ số cho nhân vật qua các lệnh chat native /f, /a, /v, /e, /c."""
+        if not self.is_ready:
+            return False
+        try:
+            if str_pts > 0:
+                self.send_chat(f"/f {str_pts}")
+                time.sleep(0.20)
+            if agi_pts > 0:
+                self.send_chat(f"/a {agi_pts}")
+                time.sleep(0.20)
+            if vit_pts > 0:
+                self.send_chat(f"/v {vit_pts}")
+                time.sleep(0.20)
+            if ene_pts > 0:
+                self.send_chat(f"/e {ene_pts}")
+                time.sleep(0.20)
+            if cmd_pts > 0:
+                self.send_chat(f"/c {cmd_pts}")
+                time.sleep(0.20)
+            return True
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi add_stats: {e}")
+            return False
+
+    def do_reset(self) -> Dict[str, Any]:
+        """Gửi lệnh Reset nhân vật qua Native Chat."""
+        if not self.is_ready:
+            return {"ok": False, "error": "not_ready"}
+        try:
+            ok = self.send_chat("/reset")
+            return {"ok": bool(ok)}
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi do_reset: {e}")
+            return {"ok": False, "error": str(e)}
 
     get_latest_telemetry = get_player_info
 
