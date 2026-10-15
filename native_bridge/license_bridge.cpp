@@ -406,7 +406,7 @@ static bool HttpPostJson(const std::string& fullUrl, const std::string& jsonPayl
     }
 
     HINTERNET hSession = WinHttpOpen(
-        L"MEGAMU-SecureBridge/2.0",
+        L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME,
         WINHTTP_NO_PROXY_BYPASS,
@@ -416,6 +416,10 @@ static bool HttpPostJson(const std::string& fullUrl, const std::string& jsonPayl
         outResponse = "{\"success\":false,\"message\":\"C++ Bridge: WinHttpOpen failed\"}";
         return false;
     }
+
+    // Dam bao ho tro TLS 1.2 va TLS 1.3 tren moi Windows
+    DWORD secProtocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | 0x00002000;
+    WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &secProtocols, sizeof(secProtocols));
 
     WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
 
@@ -452,7 +456,7 @@ static bool HttpPostJson(const std::string& fullUrl, const std::string& jsonPayl
         WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwSecurityFlags, sizeof(dwSecurityFlags));
     }
 
-    LPCWSTR headers = L"Content-Type: application/json\r\nAccept: application/json\r\n";
+    LPCWSTR headers = L"Content-Type: application/json\r\nAccept: application/json, text/plain, */*\r\nAccept-Language: vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7\r\n";
     DWORD headersLen = (DWORD)wcslen(headers);
 
     std::string postData = jsonPayload;
