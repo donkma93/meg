@@ -54,13 +54,17 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
+[Dirs]
+Name: "{app}"; Permissions: users-modify
+Name: "{app}\config"; Permissions: users-modify
+
 [Files]
 ; File thuc thi chinh va cac file ho tro can thiet
 Source: "{#SourceDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\meg_license_bridge.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\megamu_dashboard_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\megamu_dashboard_logo.png"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\map_commands.json"; DestDir: "{app}"; Flags: ignoreversion; Tasks: 
+Source: "{#SourceDir}\map_commands.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\config\*"; DestDir: "{app}\config"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist
 
 [Icons]

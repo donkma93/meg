@@ -302,10 +302,62 @@ def save_license_data(data: Dict[str, Any]):
 
 LOCAL_SERVER_URL = "http://127.0.0.1:8000"
 
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Content-Type": "application/json",
+}
+
+def _http_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any]]:
+    """Gửi yêu cầu kích hoạt qua HTTPS trực tiếp với Browser Headers để bypass WAF/Imunify360 Bot-Protection."""
+    import urllib.request
+    import urllib.error
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    url = srv.rstrip("/") + "/api/v1/license/activate"
+    hwid = get_machine_hwid()
+    payload = json.dumps({
+        "license_key": cleaned_key,
+        "hwid": hwid,
+        "machine_name": os.environ.get("COMPUTERNAME", "PC"),
+        "client_version": "v1.5.2",
+        "product_code": "megamu-navigator"
+    }).encode("utf-8")
+
+    req = urllib.request.Request(url, data=payload, headers=BROWSER_HEADERS)
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            raw = resp.read().decode("utf-8")
+            data = json.loads(raw)
+            if data.get("success"):
+                lic_info = data.get("data", {})
+                lic_info["server_url"] = srv
+                sig = data.get("signature") or lic_info.get("signature")
+                if sig:
+                    verify_offline_signature(cleaned_key, sig)
+                save_license_data(lic_info)
+                return True, data.get("message", "Kích hoạt thành công!"), lic_info
+            return False, data.get("message", "Kích hoạt thất bại."), {}
+    except urllib.error.HTTPError as e:
+        try:
+            err_data = json.loads(e.read().decode("utf-8", errors="ignore"))
+            msg = err_data.get("message")
+            if msg:
+                return False, msg, {}
+        except Exception:
+            pass
+        return False, f"Máy chủ từ chối yêu cầu (HTTP {e.code}).", {}
+    except Exception as e:
+        return False, f"Lỗi kết nối máy chủ ({e})", {}
+
 def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any]]:
     bridge = _get_native_bridge()
     if not bridge:
-        return False, "Không tìm thấy thư viện meg_license_bridge.dll! Bắt buộc phải có file .dll này.", {}
+        return _http_activate(cleaned_key, srv)
 
     try:
         out_buf = ctypes.create_string_buffer(8192)
@@ -316,16 +368,30 @@ def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 8192)
         res_str = out_buf.value.decode("utf-8")
         if res_str:
-            data = json.loads(res_str)
+            # Phát hiện nếu WAF/Imunify360 chặn WinHTTP của C++ Bridge
+            if "imunify" in res_str.lower() or "bot-protection" in res_str.lower() or "access denied" in res_str.lower():
+                return _http_activate(cleaned_key, srv)
+
+            try:
+                data = json.loads(res_str)
+            except Exception:
+                return _http_activate(cleaned_key, srv)
+
             if data.get("success"):
                 lic_info = data.get("data", {})
                 lic_info["server_url"] = srv
                 save_license_data(lic_info)
                 return True, data.get("message", "Kích hoạt thành công!"), lic_info
-            return False, data.get("message", "Kích hoạt thất bại."), {}
-        return False, "Thư viện C++ không trả về phản hồi hợp lệ.", {}
-    except Exception as e:
-        return False, f"Lỗi gọi C++ Bridge ({e})", {}
+
+            # Nếu lỗi là thông báo nghiệp vụ từ Laravel (key sai, hết hạn, đổi máy...), trả về ngay
+            msg = data.get("message", "")
+            if msg and ("key" in msg.lower() or "thiết bị" in msg.lower() or "hết hạn" in msg.lower() or "khóa" in msg.lower()):
+                return False, msg, {}
+
+            return False, msg or "Kích hoạt thất bại.", {}
+        return _http_activate(cleaned_key, srv)
+    except Exception:
+        return _http_activate(cleaned_key, srv)
 
 def activate_license(license_key: str, server_url: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
     """
@@ -368,36 +434,100 @@ def verify_offline_signature(license_key: str, signature: str) -> bool:
             pass
     return False
 
-def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
-    bridge = _get_native_bridge()
-    if not bridge:
-        return False, "Không tìm thấy thư viện meg_license_bridge.dll!", {}
+def _http_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+    """Xác thực định kỳ qua HTTPS Browser Headers nếu C++ Bridge bị WAF/Imunify360 chặn."""
+    import urllib.request
+    import urllib.error
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
 
-    out_buf = ctypes.create_string_buffer(8192)
-    srv_bytes = srv.encode("utf-8")
-    key_bytes = str(key).encode("utf-8")
-    ver_bytes = b"v1.5.2"
-    ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
-    res_str = out_buf.value.decode("utf-8")
-    if res_str:
-        data = json.loads(res_str)
-        if data.get("valid"):
-            lic_data.update(data)
-            lic_data["valid"] = True
-            lic_data["server_url"] = srv
-            lic_data["last_verified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            save_license_data(lic_data)
-            return True, "Bản quyền hợp lệ.", lic_data
-        else:
-            st = data.get("status", "")
+    url = srv.rstrip("/") + "/api/v1/license/verify"
+    hwid = get_machine_hwid()
+    payload = json.dumps({
+        "license_key": str(key).strip(),
+        "hwid": hwid,
+        "client_version": "v1.5.2"
+    }).encode("utf-8")
+
+    req = urllib.request.Request(url, data=payload, headers=BROWSER_HEADERS)
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data.get("valid"):
+                lic_data.update(data)
+                lic_data["valid"] = True
+                lic_data["server_url"] = srv
+                lic_data["last_verified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                sig = data.get("signature")
+                if sig:
+                    verify_offline_signature(key, sig)
+                save_license_data(lic_data)
+                return True, "Bản quyền hợp lệ.", lic_data
+            else:
+                st = data.get("status", "")
+                if st in ("revoked", "banned", "expired", "hwid_mismatch"):
+                    lic_data["valid"] = False
+                    lic_data["status"] = st
+                    save_license_data(lic_data)
+                    return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
+                return True, "Duy trì phiên bản quyền hiện tại (máy chủ bận).", lic_data
+    except urllib.error.HTTPError as e:
+        try:
+            err_data = json.loads(e.read().decode("utf-8", errors="ignore"))
+            st = err_data.get("status", "")
             if st in ("revoked", "banned", "expired", "hwid_mismatch"):
                 lic_data["valid"] = False
                 lic_data["status"] = st
                 save_license_data(lic_data)
-                return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
+                return False, err_data.get("message", "Bản quyền không hợp lệ."), lic_data
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return False, "Không nhận được phản hồi từ máy chủ.", lic_data
+
+def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+    bridge = _get_native_bridge()
+    if not bridge:
+        return _http_verify(key, srv, lic_data)
+
+    try:
+        out_buf = ctypes.create_string_buffer(8192)
+        srv_bytes = srv.encode("utf-8")
+        key_bytes = str(key).encode("utf-8")
+        ver_bytes = b"v1.5.2"
+        ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
+        res_str = out_buf.value.decode("utf-8")
+        if res_str:
+            if "imunify" in res_str.lower() or "bot-protection" in res_str.lower() or "access denied" in res_str.lower():
+                return _http_verify(key, srv, lic_data)
+
+            try:
+                data = json.loads(res_str)
+            except Exception:
+                return _http_verify(key, srv, lic_data)
+
+            if data.get("valid"):
+                lic_data.update(data)
+                lic_data["valid"] = True
+                lic_data["server_url"] = srv
+                lic_data["last_verified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                save_license_data(lic_data)
+                return True, "Bản quyền hợp lệ.", lic_data
             else:
-                return True, "Duy trì phiên bản quyền hiện tại (máy chủ bận).", lic_data
-    return False, "Không nhận được phản hồi từ C++ Bridge.", lic_data
+                st = data.get("status", "")
+                if st in ("revoked", "banned", "expired", "hwid_mismatch"):
+                    lic_data["valid"] = False
+                    lic_data["status"] = st
+                    save_license_data(lic_data)
+                    return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
+                else:
+                    return True, "Duy trì phiên bản quyền hiện tại (máy chủ bận).", lic_data
+        return _http_verify(key, srv, lic_data)
+    except Exception:
+        return _http_verify(key, srv, lic_data)
 
 def verify_license(server_url: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
     """
