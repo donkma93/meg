@@ -388,7 +388,8 @@ def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
             if msg and ("key" in msg.lower() or "thiết bị" in msg.lower() or "hết hạn" in msg.lower() or "khóa" in msg.lower()):
                 return False, msg, {}
 
-            return False, msg or "Kích hoạt thất bại.", {}
+            # Nếu C++ báo không kết nối được hoặc lỗi mạng, fallback qua HTTPS
+            return _http_activate(cleaned_key, srv)
         return _http_activate(cleaned_key, srv)
     except Exception:
         return _http_activate(cleaned_key, srv)
@@ -466,24 +467,32 @@ def _http_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
                 save_license_data(lic_data)
                 return True, "Bản quyền hợp lệ.", lic_data
             else:
-                st = data.get("status", "")
-                if st in ("revoked", "banned", "expired", "hwid_mismatch"):
-                    lic_data["valid"] = False
-                    lic_data["status"] = st
+                st = data.get("status", "revoked")
+                lic_data["valid"] = False
+                lic_data["status"] = st
+                if st in ("not_found", "revoked", "banned") or not data.get("license_key"):
+                    deactivate_license()
+                else:
                     save_license_data(lic_data)
-                    return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
-                return True, "Duy trì phiên bản quyền hiện tại (máy chủ bận).", lic_data
+                return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
     except urllib.error.HTTPError as e:
         try:
             err_data = json.loads(e.read().decode("utf-8", errors="ignore"))
             st = err_data.get("status", "")
-            if st in ("revoked", "banned", "expired", "hwid_mismatch"):
-                lic_data["valid"] = False
-                lic_data["status"] = st
+            lic_data["valid"] = False
+            lic_data["status"] = st or "revoked"
+            if st in ("not_found", "revoked", "banned") or e.code == 404:
+                deactivate_license()
+            else:
                 save_license_data(lic_data)
-                return False, err_data.get("message", "Bản quyền không hợp lệ."), lic_data
+            return False, err_data.get("message", "Bản quyền không hợp lệ."), lic_data
         except Exception:
             pass
+        if e.code == 404:
+            lic_data["valid"] = False
+            lic_data["status"] = "not_found"
+            deactivate_license()
+            return False, "Key bản quyền không tồn tại trong hệ thống (đã bị xóa).", lic_data
     except Exception:
         pass
     return False, "Không nhận được phản hồi từ máy chủ.", lic_data
@@ -518,13 +527,16 @@ def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
                 return True, "Bản quyền hợp lệ.", lic_data
             else:
                 st = data.get("status", "")
-                if st in ("revoked", "banned", "expired", "hwid_mismatch"):
+                if st in ("revoked", "banned", "expired", "hwid_mismatch", "suspended", "not_found"):
                     lic_data["valid"] = False
                     lic_data["status"] = st
-                    save_license_data(lic_data)
+                    if st in ("not_found", "revoked", "banned"):
+                        deactivate_license()
+                    else:
+                        save_license_data(lic_data)
                     return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
                 else:
-                    return True, "Duy trì phiên bản quyền hiện tại (máy chủ bận).", lic_data
+                    return _http_verify(key, srv, lic_data)
         return _http_verify(key, srv, lic_data)
     except Exception:
         return _http_verify(key, srv, lic_data)
@@ -546,7 +558,7 @@ def verify_license(server_url: Optional[str] = None) -> Tuple[bool, str, Dict[st
 
     try:
         ok, msg, res_data = _exec_verify(key, srv, lic_data)
-        if ok or lic_data.get("status") in ("revoked", "banned", "expired", "hwid_mismatch"):
+        if ok or res_data.get("valid") is False or res_data.get("status") in ("not_found", "suspended", "revoked", "banned", "expired", "hwid_mismatch"):
             return ok, msg, res_data
 
         # Nếu srv thất bại do mất mạng / chưa deploy, thử server fallback
@@ -596,7 +608,7 @@ def is_license_valid() -> bool:
         return False
 
     data = load_license_data()
-    if not data or not data.get("license_key"):
+    if not data or not data.get("license_key") or data.get("valid") is False:
         return False
 
     # 1. Bắt buộc kiểm tra HWID của máy tính hiện tại
@@ -629,7 +641,7 @@ def is_license_valid() -> bool:
 
     # 3. Kiểm tra trạng thái bị thu hồi / cấm
     status = data.get("status", "active")
-    if status in ("revoked", "banned", "suspended", "expired", "hwid_mismatch"):
+    if status in ("revoked", "banned", "suspended", "expired", "hwid_mismatch", "not_found", "unregistered"):
         return False
 
     # 4. BẮT BUỘC xác thực chữ ký số HMAC-SHA256 qua C++ Native Bridge

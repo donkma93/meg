@@ -3833,14 +3833,19 @@ class DashboardApp(ctk.CTk):
         try:
             lic_data = license_client.load_license_data() if license_client else {}
             if lic_data and lic_data.get("license_key"):
-                license_client.verify_license()
+                ok, msg, info = license_client.verify_license()
+                if not ok:
+                    # Máy chủ phản hồi key đã bị xóa / khóa / không hợp lệ
+                    self.after(0, self.apply_license_lock_state)
+                    self.after(0, self.open_license_dialog)
             self.after(0, self.update_header_stats)
             self.after(0, self.update_modules_visibility)
+            self.after(0, self.apply_license_lock_state)
         except Exception:
             pass
         try:
-            # Tự động đồng bộ lại sau mỗi 30 phút (1.800.000 ms)
-            self.after(1800000, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
+            # Tự động đồng bộ lại định kỳ mỗi 5 phút (300.000 ms)
+            self.after(300000, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
         except Exception:
             pass
 
