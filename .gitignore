@@ -35,3 +35,6 @@ MEGAMU Auto Train Dashboard.spec
 dump/
 scratch/
 nuitka-crash-report.xml
+dist_installer/
+installer_staging/
+
