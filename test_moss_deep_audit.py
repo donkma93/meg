@@ -50,12 +50,12 @@ def test_1_offsets_integrity():
     # Component.get_gameObject = 0x452CB30
 
     check_list = {
-        "moss_roll": ("0x278DA90", "MMossMerchantWindow.Update (hàm Update của Unity)"),
-        "moss_roll_handler": ("0x278DC90", "MMossMerchantWindow.JDDCPBKMKFP (OnRollClick Handler)"),
-        "moss_init": ("0x278FC00", "MMossMerchantWindow.BHFBJLBFMGK (Khởi tạo cửa sổ Moss)"),
-        "moss_select_cat": ("0x278D470", "MMossMerchantWindow.JCDDIDMIHGP (Chọn tab category)"),
-        "game_object_set_active": ("0x4533470", "UnityEngine.GameObject.SetActive(bool)"),
-        "component_get_game_object": ("0x452F050", "UnityEngine.Component.get_gameObject()"),
+        "moss_roll": ("0x262EE30", "MMossMerchantWindow.Update (hàm Update của Unity)"),
+        "moss_roll_handler": ("0x262DCB0", "MMossMerchantWindow.FNJAHAICGNI (OnRollClick Handler)"),
+        "moss_init": ("0x262DCF0", "MMossMerchantWindow.Awake (Khởi tạo cửa sổ Moss)"),
+        "moss_select_cat": ("0x2627DD0", "MMossMerchantWindow.NCPAECAKMJI (Chọn tab category)"),
+        "game_object_set_active": ("0x45084D0", "UnityEngine.GameObject.SetActive(bool)"),
+        "component_get_game_object": ("0x45040B0", "UnityEngine.Component.get_gameObject()"),
         "ui_moss_window": ("0x1C8", "GameUI.MossMerchantWindow (offset trong GameUI)"),
     }
 
