@@ -535,7 +535,7 @@ class AutoTrainWorker:
         except Exception:
             pass
 
-        if not self.core.send_chat(command, force_simulator=use_alternate):
+        if not self.core.send_chat(command):
             self._log("Could not send map command.", "WARNING")
             return False
 

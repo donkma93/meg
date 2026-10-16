@@ -3,7 +3,7 @@
   "description": "Lưu trữ lựa chọn cấu hình Config 1..10 cho từng Slot",
   "slots": {
     "1": {
-      "profile": 2
+      "profile": 1
     },
     "2": {
       "profile": 3

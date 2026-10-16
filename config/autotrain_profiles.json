@@ -20,7 +20,7 @@
                 "stages": [
                     {
                         "min_level": 1,
-                        "max_level": 69,
+                        "max_level": 29,
                         "map_name": "Lorencia",
                         "x": 8,
                         "y": 134
@@ -40,11 +40,11 @@
                         "y": 16
                     },
                     {
-                        "min_level": 160,
-                        "max_level": 319,
+                        "min_level": 30,
+                        "max_level": 69,
                         "map_name": "Dungeon",
-                        "x": 25,
-                        "y": 180
+                        "x": 64,
+                        "y": 230
                     },
                     {
                         "min_level": 320,
@@ -59,6 +59,13 @@
                         "map_name": "Elbeland 2",
                         "x": 86,
                         "y": 15
+                    },
+                    {
+                        "min_level": 160,
+                        "max_level": 320,
+                        "map_name": "Tarkan 2",
+                        "x": 166,
+                        "y": 200
                     }
                 ]
             }

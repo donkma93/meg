@@ -896,45 +896,29 @@ function dispatchChatMessage(cmdText) {
     if (!cmdText) return false;
     var str = il2cpp_string_new(Memory.allocUtf8String(cmdText));
     if (str.isNull()) return false;
-    var ok = false;
 
-    // 1. Kênh Mạng Trực Tiếp: Gọi static Mega.Chat.FCIBNHIHDHO (0xF95530)
-    // Độc lập hoàn toàn với UI, hoạt động ở mọi bản đồ, gửi trực tiếp packet 0x00 qua GSConnection.Send!
+    // Mega.Chat.FCIBNHIHDHO (nativeStaticChatSend - RVA 0xF95530):
+    // Hàm tĩnh gốc của game xử lý TOÀN BỘ chat và lệnh '/' ngầm:
+    // 1. Tự động gọi CommandManager.BDMGLHEGJHO để chạy các lệnh client (/reconnect, /fps...).
+    // 2. Nếu là lệnh server (/warp, /move, /f, /a, /e, /c, /post...) hoặc tin nhắn thường,
+    //    tự động đóng gói C1:00/C1:02 gửi trực tiếp lên GSConnection.
+    // 3. Chạy 100% ngầm (headless), KHÔNG mở ChatFrame, KHÔNG cướp chuột/phím, KHÔNG phụ thuộc UI!
     if (nativeStaticChatSend !== null) {
         try {
             nativeStaticChatSend(str, ptr(0));
-            ok = true;
+            return true;
         } catch (eStatic) {}
     }
 
-    // 2. Kênh Giao Diện: Gửi qua ChatFrame.CGPBOGHGMOK (0x13C0C70) để đồng bộ hiển thị và lịch sử chatbox
-    try {
-        var cf = getChatFrameInstance();
-        if (!cf.isNull()) {
-            if (nativeChatFrameSend !== null) {
-                try {
-                    nativeChatFrameSend(cf, str, 1, ptr(0));
-                    ok = true;
-                } catch (e1) {}
-            }
-            if (!ok && sendChatMessageNative !== null) {
-                try {
-                    sendChatMessageNative(cf, str, 1, ptr(0));
-                    ok = true;
-                } catch (e2) {}
-            }
-        }
-    } catch (eCFSend) {}
-
-    // 3. Kích hoạt qua CommandManager (0xFA0A60) nếu là lệnh console '/'
+    // Fallback: Nếu không có static_chat_send thì thử gọi CommandManager (cho lệnh '/')
     if (cmdText.charAt(0) === '/' && nativeCommandManagerProcess !== null) {
         try {
-            var res = nativeCommandManagerProcess(str, ptr(0));
-            if (res) ok = true;
+            nativeCommandManagerProcess(str, ptr(0));
+            return true;
         } catch (eCmd) {}
     }
 
-    return ok;
+    return false;
 }
 
 var pendingHelperAction = null;
@@ -4419,21 +4403,20 @@ class MegDirectEngine:
         if not cmd:
             return False
 
+        # 1. Luôn ưu tiên tuyệt đối gửi ngầm 100% qua Native Hook (Static Chat Mega.Chat.FCIBNHIHDHO)
+        # Hoàn toàn không bao giờ mở khung chat hay cướp tiêu điểm chuột!
         native_sent = False
-        if not force_simulator and self.is_ready:
+        if self.is_ready:
             try:
                 if self._call("send_chat_native", cmd):
-                    native_sent = True
                     time.sleep(0.12)
-                    _safe_log(f"[MegDirectEngine] Đã gửi lệnh chat native (Unity Main Thread): '{cmd}'")
+                    _safe_log(f"[MegDirectEngine] Đã gửi lệnh chat native ngầm (Mega.Chat): '{cmd}'")
+                    return True
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi gọi send_chat_native: {e}")
 
-        # Nếu là lệnh teleport tối quan trọng như /move ev hoặc /move Lorencia, luôn kích hoạt cả 2 kênh (Native + Background PostMessage)
-        # để đảm bảo 100% nhân vật được dịch chuyển ngay lập tức bất kể trạng thái map hiện tại!
-        is_teleport_cmd = cmd.lower().startswith("/move")
-        if native_sent and not force_simulator and not is_teleport_cmd:
-            return True
+        if not force_simulator:
+            return False
 
         # Gửi bổ trợ qua Background PostMessage vào HWND cửa sổ game (Zero-Focus) nếu Native chưa gửi hoặc yêu cầu simulator
         hwnd = self.get_hwnd()
