@@ -299,8 +299,12 @@ class AutoTrainWorker:
 
         # Đồng bộ sự kiện Devil Square
         self.last_devil_attempt_time = 0.0
+        self.last_devil_gate_attempt = 0.0
         self.last_devil_attempt_hour = -1
         self.in_devil_square = False
+        self.preparing_devil = False
+        self.devil_entry_attempts = 0
+        self.devil_no_ticket_hour = -1
         self.auto_devil = bool(self.config.get("auto_devil", False))
 
         # Xử lý Hồi sinh / Reset Level
@@ -350,6 +354,8 @@ class AutoTrainWorker:
     def stop(self, reason: str = "Dừng Auto"):
         self.running = False
         self.stop_event.set()
+        self.preparing_devil = False
+        self.in_devil_square = False
 
         # Đợi worker thread kết thúc để tránh race condition gọi di chuyển dở dang
         if self.thread and self.thread.is_alive() and threading.current_thread() != self.thread:
@@ -965,75 +971,107 @@ class AutoTrainWorker:
                 if is_in_ds:
                     if not self.in_devil_square:
                         self.in_devil_square = True
+                        self.preparing_devil = False
+                        self.devil_entry_attempts = 0
                         self._log(f"🔥 NHÂN VẬT ĐÃ VÀO DEVIL SQUARE (Map {current_map_id})! Bật MuHelper cày quái...", "SUCCESS")
                         self._set_state(f"DEVIL SQUARE ({px}, {py})")
                         self.core.cancel_move()
+                        self.core.start_helper()
                     if now >= self.next_helper_check:
                         self._ensure_helper()
                         self.next_helper_check = now + self.helper_recheck_interval
                     time.sleep(self.stable_poll_interval)
                     continue
                 elif self.in_devil_square:
+                    # Trước đó đang ở trong DS mà giờ không còn ở map 9/32 -> Sự kiện kết thúc
                     self.in_devil_square = False
+                    self.preparing_devil = False
                     self.current_stage_key = None
                     self.arrived_at_spot = False
-                    self._log("🏁 Sự kiện Devil Square đã kết thúc / Nhân vật đã rời map DS. Tự động thực hiện /reset...", "SUCCESS")
-                    if hasattr(self.core, "do_reset"):
-                        self.core.do_reset()
-                    else:
-                        self.core.send_chat("/reset")
+                    self._log("🏁 Sự kiện Devil Square đã kết thúc / Nhân vật đã rời map DS.", "SUCCESS")
+                    if self.auto_reset or self.config.get("auto_reset", False):
+                        self._log("⚡ Tự động thực hiện /reset sau sự kiện Devil Square...", "INFO")
+                        if hasattr(self.core, "do_reset"):
+                            self.core.do_reset()
+                        else:
+                            self.core.send_chat("/reset")
                     time.sleep(2.0)
                     continue
 
                 # 2.2. Kiểm tra lịch mở cổng Devil Square nếu bật tùy chọn auto_devil
-                if self.config.get("auto_devil", False) and not self.in_devil_square:
+                if (self.auto_devil or self.config.get("auto_devil", False)) and not self.in_devil_square:
                     cur_dt = datetime.now()
                     is_odd_hour = (cur_dt.hour % 2 == 1)
 
-                    # Chuẩn bị di chuyển sang EV trước 30 giây (phút 26 giây 30 trở đi)
-                    if is_odd_hour and (cur_dt.minute == 26 and cur_dt.second >= 30) and current_map_id not in (53, 9, 32):
-                        if (now - self.last_devil_attempt_time) >= 15.0:
-                            self.last_devil_attempt_time = now
-                            self._log(f"⏰ Sắp đến giờ mở cổng Devil Square ({cur_dt.strftime('%H:%M:%S')}). Đang chuyển sang Event Square (/m ev) chuẩn bị...", "INFO")
-                            self.core.send_chat("/m ev")
+                    # Giai đoạn 1: Chuẩn bị trước giờ mở cổng (Giờ lẻ, phút 26:30 đến 27:04)
+                    is_prep_window = is_odd_hour and (cur_dt.minute == 26 and cur_dt.second >= 30)
+                    # Giai đoạn 2: Cửa đang mở (Giờ lẻ, phút 27:05 đến 29:59)
+                    is_gate_open_window = is_odd_hour and ((cur_dt.minute == 27 and cur_dt.second >= 5) or (28 <= cur_dt.minute < 30))
 
-                    # Khung giờ mở cổng: Giờ lẻ, bắt đầu từ phút 27 (sau 5 giây: 27:05) đến phút 30
-                    is_ds_gate_time = is_odd_hour and ((cur_dt.minute == 27 and cur_dt.second >= 5) or (28 <= cur_dt.minute < 30))
-                    already_attempted_this_hour = (self.last_devil_attempt_hour == cur_dt.hour)
+                    if is_prep_window or is_gate_open_window:
+                        # 1. Tạm dừng quy trình train bãi quái
+                        if not self.preparing_devil:
+                            self.preparing_devil = True
+                            self.arrived_at_spot = False
+                            self.current_stage_key = None
+                            self._log(f"⏰ Đến khung giờ sự kiện Devil Square ({cur_dt.strftime('%H:%M:%S')})! Tạm dừng Auto Train...", "INFO")
+                            try:
+                                self.core.stop_helper()
+                                self.core.cancel_move()
+                                if hasattr(self.core, "stop_auto_move"):
+                                    self.core.stop_auto_move()
+                            except Exception:
+                                pass
 
-                    if is_ds_gate_time and not already_attempted_this_hour:
-                        self.last_devil_attempt_hour = cur_dt.hour
-                        self.last_devil_attempt_time = now
+                        # 2. Kiểm tra vé Devil's Invitation trong hòm đồ
                         t_info = self.core.get_devil_ticket_info() if hasattr(self.core, "get_devil_ticket_info") else {}
                         if not t_info.get("hasTicket"):
-                            self._log(f"⚠️ Đến giờ mở cổng Devil Square ({cur_dt.strftime('%H:%M:%S')}) nhưng không tìm thấy vé Invitation trong hòm đồ!", "WARNING")
+                            if self.devil_no_ticket_hour != cur_dt.hour:
+                                self.devil_no_ticket_hour = cur_dt.hour
+                                self._log("⚠️ Không tìm thấy vé Devil's Invitation (hoặc Master Ticket) trong hòm đồ! Bỏ qua Devil và tiếp tục train.", "WARNING")
+                            self.preparing_devil = False
+                            # Cho phép trôi xuống train tiếp bình thường
                         else:
-                            self._log(f"⏰ Đúng giờ mở cổng Devil Square ({cur_dt.strftime('%H:%M:%S')})! Gửi lệnh vào cửa 1 lần duy nhất...", "SUCCESS")
-                            # 1. Đảm bảo đã ở Event Square (53)
-                            if current_map_id not in (53, 9, 32):
-                                self.core.send_chat("/m ev")
-                                for _ in range(6):
-                                    time.sleep(0.5)
-                                    fresh_inf = self.core.get_player_info()
-                                    if fresh_inf and fresh_inf.get("mapId") == 53:
-                                        current_map_id = 53
-                                        px = fresh_inf.get("tileX", px)
-                                        py = fresh_inf.get("tileY", py)
-                                        break
-
-                            # 2. Đứng yên tại chỗ
-                            if current_map_id == 53:
-                                if hasattr(self.core, "cancel_move"):
-                                    self.core.cancel_move()
-
-                            # 3. Gửi lệnh vào cửa Devil Square trực tiếp đúng 1 lần (Zero-dialog, không spam)
-                            res = self.core.enter_devil() if hasattr(self.core, "enter_devil") else {}
-                            if res.get("success"):
-                                self._log(f"✅ Gửi lệnh vào Devil Square thành công (DS {res.get('dsLevel', '?')})!", "SUCCESS")
-                                time.sleep(1.0)
+                            # 3. Đang có vé -> Giữ chân nhân vật ở Event Square (Map 53 hoặc 40)
+                            if current_map_id not in (53, 40):
+                                if (now - self.last_devil_attempt_time) >= 6.0:
+                                    self.last_devil_attempt_time = now
+                                    self._log("📍 Đang chuyển sang Event Square (/m ev) để đi Devil Square...", "INFO")
+                                    self.core.send_chat("/m ev")
+                                    self._set_state("CHUYỂN SANG EVENT SQUARE")
+                                time.sleep(0.8)
                                 continue
-                            else:
-                                self._log(f"⚠️ Chưa thể vào Devil Square: {res.get('error', 'unknown')}", "WARNING")
+
+                            # Nhân vật đã ở Event Square
+                            self.core.cancel_move()
+
+                            if is_prep_window:
+                                self._set_state("DEVIL: CHỜ CỔNG MỞ (EV SQUARE)")
+                                time.sleep(0.8)
+                                continue
+
+                            if is_gate_open_window:
+                                # Tiến hành gửi lệnh vào cửa native mỗi 1.8s
+                                if (now - self.last_devil_gate_attempt) >= 1.8:
+                                    self.last_devil_gate_attempt = now
+                                    self.devil_entry_attempts += 1
+                                    self._set_state(f"DEVIL: ĐANG VÀO CỔNG... (#{self.devil_entry_attempts})")
+                                    if self.devil_entry_attempts % 3 == 1:
+                                        self._log(f"🚪 Đang gửi lệnh native vào Devil Square (Lần {self.devil_entry_attempts})...", "INFO")
+                                    res = self.core.enter_devil() if hasattr(self.core, "enter_devil") else {}
+                                    if res.get("success") or res.get("ok"):
+                                        self._log(f"✅ Đã gửi lệnh vào Devil Square (DS {res.get('dsLevel', '?')})! Chờ xác nhận map...", "SUCCESS")
+                                time.sleep(0.5)
+                                continue
+
+                    else:
+                        # Ngoài khung giờ chuẩn bị & mở cổng
+                        if self.preparing_devil:
+                            self.preparing_devil = False
+                            self.devil_entry_attempts = 0
+                            self._log(f"⏰ Đã hết khung giờ vào Devil Square ({cur_dt.strftime('%H:%M:%S')}). Tự động đưa nhân vật trở lại bãi train...", "INFO")
+                            self.current_stage_key = None
+                            self.arrived_at_spot = False
 
                 # 2.3. Kiểm tra Auto Reset nếu bật cấu hình
                 if self.config.get("auto_reset", False) and level >= int(self.config.get("reset_level", 400)):

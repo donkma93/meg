@@ -1,8 +1,8 @@
 {
   "slots": {
     "1": {
-      "auto_devil": false,
-      "auto_reset": true,
+      "auto_devil": true,
+      "auto_reset": false,
       "auto_add_point": false,
       "reset_level": 400,
       "stat_mode": "auto_class",
