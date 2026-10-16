@@ -178,6 +178,16 @@ class MapResolver:
                 except Exception as e_ini:
                     print(f"[MapResolver] Lỗi đọc maps.ini: {e_ini}", flush=True)
 
+        # Luôn đăng ký Event Square với lệnh chuẩn /m ev
+        for ev_key in ["ev", "eventsquare", "event square", "eventsq", "event"]:
+            norm_ev = self._norm(ev_key)
+            self.aliases[norm_ev] = "/m ev"
+            self.map_ids[norm_ev] = 53
+        self.id_to_name[53] = "Event Square"
+        self.id_to_name[40] = "Event Square"
+        if "Event Square" not in self.display_names:
+            self.display_names.append("Event Square")
+
     @classmethod
     def get_instance(cls) -> "MapResolver":
         if cls._instance is None:
@@ -211,7 +221,7 @@ class MapResolver:
             elif cmd.startswith("/warp "):
                 return "/move " + cmd[6:]
             elif cmd.startswith("/m "):
-                return "/move " + cmd[3:]
+                return "/warp " + cmd[3:]
         return cmd
 
     def expected_map_id(self, value: str) -> Optional[int]:
@@ -261,6 +271,7 @@ class AutoTrainWorker:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
+        self.is_paused_for_event = False
 
         # Trạng thái di chuyển & Chặng
         self.current_stage_key = None
@@ -371,6 +382,27 @@ class AutoTrainWorker:
                 self._log(f"Lỗi khi dừng auto [{reason}]: {e}", "WARNING")
         else:
             self._log(f"Worker đã dừng [{reason}].", "INFO")
+
+    def pause_for_event(self, reason: str = "Tạm dừng cho sự kiện"):
+        """Tạm dừng AutoTrain để nhường quyền ưu tiên cho các sự kiện như Double Goer."""
+        self.is_paused_for_event = True
+        self._log(f"AutoTrain tạm dừng: {reason}", "INFO")
+        if self.core:
+            try:
+                if hasattr(self.core, "stop_auto_move"):
+                    self.core.stop_auto_move()
+                self.core.cancel_move()
+            except Exception:
+                pass
+
+    def resume_from_event(self, reason: str = "Khôi phục AutoTrain"):
+        """Khôi phục AutoTrain và đặt lại mục tiêu để đưa nhân vật về bãi train."""
+        self.is_paused_for_event = False
+        self.current_stage_key = None
+        self.arrived_at_spot = False
+        self.map_move_sent = False
+        self.map_wait_active = False
+        self._log(f"AutoTrain khôi phục sau sự kiện: {reason}", "SUCCESS")
 
     def update_config(self, new_config: Dict[str, Any]):
         """Cập nhật cấu hình trực tiếp khi worker đang chạy (Hot-Reload thông minh)."""
@@ -868,6 +900,15 @@ class AutoTrainWorker:
                 py = int(info.get("tileY", 0))
                 is_moving = bool(info.get("isMoving", False))
 
+                # 1.1. Cô lập an toàn khi tạm dừng cho sự kiện hoặc đang trong map sự kiện Double Goer
+                if self.is_paused_for_event:
+                    time.sleep(self.poll_interval)
+                    continue
+
+                if current_map_id in (65, 66, 67, 68):
+                    time.sleep(self.poll_interval)
+                    continue
+
                 # 2. Xử lý trạng thái nhân vật chưa tải xong
                 if level <= 0:
                     if not self.invalid_level_logged:
@@ -953,8 +994,8 @@ class AutoTrainWorker:
                     if is_odd_hour and (cur_dt.minute == 26 and cur_dt.second >= 30) and current_map_id not in (53, 9, 32):
                         if (now - self.last_devil_attempt_time) >= 15.0:
                             self.last_devil_attempt_time = now
-                            self._log(f"⏰ Sắp đến giờ mở cổng Devil Square ({cur_dt.strftime('%H:%M:%S')}). Đang chuyển sang Event Square (/move ev) chuẩn bị...", "INFO")
-                            self.core.send_chat("/move ev")
+                            self._log(f"⏰ Sắp đến giờ mở cổng Devil Square ({cur_dt.strftime('%H:%M:%S')}). Đang chuyển sang Event Square (/m ev) chuẩn bị...", "INFO")
+                            self.core.send_chat("/m ev")
 
                     # Khung giờ mở cổng: Giờ lẻ, bắt đầu từ phút 27 (sau 5 giây: 27:05) đến phút 30
                     is_ds_gate_time = is_odd_hour and ((cur_dt.minute == 27 and cur_dt.second >= 5) or (28 <= cur_dt.minute < 30))
@@ -970,7 +1011,7 @@ class AutoTrainWorker:
                             self._log(f"⏰ Đúng giờ mở cổng Devil Square ({cur_dt.strftime('%H:%M:%S')})! Gửi lệnh vào cửa 1 lần duy nhất...", "SUCCESS")
                             # 1. Đảm bảo đã ở Event Square (53)
                             if current_map_id not in (53, 9, 32):
-                                self.core.send_chat("/move ev")
+                                self.core.send_chat("/m ev")
                                 for _ in range(6):
                                     time.sleep(0.5)
                                     fresh_inf = self.core.get_player_info()

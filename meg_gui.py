@@ -1475,6 +1475,8 @@ class SlotController:
         self.mirror_worker_thread: Optional[threading.Thread] = None
         self.mirror_sniping: bool = False
         self.mirror_snipe_thread: Optional[threading.Thread] = None
+        self._mirror_lock = threading.Lock()
+        self.resume_auto_train_after_mirror: bool = False
 
         # Điểm Point & Master Point đọc từ RAM/Engine
         self.points: int = 0
@@ -1822,6 +1824,24 @@ class SlotController:
         else:
             self.set_status(tr("idle"))
 
+    def _pause_train_for_mirror(self, reason: str = ""):
+        """Tạm dừng AutoTrain cho Slot khi sự kiện Mirror bắt đầu."""
+        with self._mirror_lock:
+            if self.auto_requested or (self.worker and self.worker.running):
+                self.resume_auto_train_after_mirror = True
+                if self.worker and hasattr(self.worker, "pause_for_event"):
+                    self.worker.pause_for_event(reason)
+
+    def _resume_train_after_mirror(self, reason: str = ""):
+        """Khôi phục AutoTrain cho Slot sau khi sự kiện Mirror kết thúc hoặc hết thời gian chờ."""
+        with self._mirror_lock:
+            if self.resume_auto_train_after_mirror:
+                self.resume_auto_train_after_mirror = False
+                if self.worker and hasattr(self.worker, "resume_from_event"):
+                    self.worker.resume_from_event(reason)
+                if hasattr(self, "start_auto"):
+                    self.start_auto()
+
     def toggle_auto(self):
         if self.auto_requested:
             self.stop_auto(reason="Người dùng bấm nút Tắt Auto trên dòng tài khoản", trigger_by="MANUAL")
@@ -2059,38 +2079,24 @@ class SlotController:
                             junk_count = int(inv.get("junkCount", 0))
                             moss_plus = int(inv.get("mossPlusCount", 0))
 
-                            # Nếu còn ít ô trống và có đồ rác thường +0..+4 -> vứt ra ngoài đất
-                            if free_slots < 4 and junk_count > 0:
+                            # Nếu còn ít ô trống và có đồ rác thường (+0..+7) -> xóa/hủy trực tiếp an toàn ngay tại chỗ
+                            if free_slots < 6 and junk_count > 0:
                                 self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
                                     f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác..."
                                 ))
-                                c_res = eng.clean_inventory_junk("drop")
+                                c_res = eng.clean_inventory_junk("trash")
                                 cleaned = c_res.get("cleaned", 0)
                                 self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món đồ rác ra ngoài đất. Tiếp tục kiểm tra..."
+                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt/xóa {c} món đồ rác khỏi hòm đồ (an toàn). Tiếp tục quay Moss..."
                                 ))
                                 time.sleep(0.3)
                                 inv = eng.get_inventory_summary()
                                 if inv and not inv.get("error"):
                                     free_slots = int(inv.get("free", 64))
                                     junk_count = int(inv.get("junkCount", 0))
-                                    moss_plus = int(inv.get("mossPlusCount", 0))
-
-                            # Nếu hòm đồ bị đầy do chứa đồ Moss +5..+7 không thể vứt ra đất -> Tự động ra NPC Rhea (29, 235) bán đồ
-                            if free_slots < 4 and moss_plus > 0:
-                                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, f=free_slots, m=moss_plus: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {c}] 🛒 Hòm đồ còn {f} ô do chứa {m} món đồ Moss +5..+7 không thể vứt. Tự động ra NPC Rhea (29, 235) bán đồ..."
-                                ))
-                                self.sell_moss_items_at_merchant(eng)
-                                time.sleep(0.3)
-                                inv = eng.get_inventory_summary()
-                                if inv and not inv.get("error"):
-                                    free_slots = int(inv.get("free", 64))
-                                    junk_count = int(inv.get("junkCount", 0))
-                                    moss_plus = int(inv.get("mossPlusCount", 0))
 
                             # Nếu hòm đồ đã đầy các vật phẩm quý giá (Divine / Rồng / Exc / Socket / Set / Ngọc / +8+) -> Dừng an toàn
-                            if free_slots < 2 and junk_count == 0 and moss_plus == 0:
+                            if free_slots < 2 and junk_count == 0:
                                 self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
                                     f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Divine / Rồng / Exc / Socket / Set / Ngọc / +8 trở lên). Tự động dừng quay an toàn!"
                                 ))
@@ -2167,24 +2173,15 @@ class SlotController:
 
                             handled = False
                             if junk_count > 0:
-                                c_res = eng.clean_inventory_junk("drop")
+                                c_res = eng.clean_inventory_junk("trash")
                                 cleaned_items = c_res.get("cleaned", 0)
                                 if cleaned_items > 0:
                                     self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
-                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt {c} món rác ra ngoài đất khi bị đầy hòm. Thử quay tiếp..."
+                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt/xóa {c} món rác khỏi hòm đồ khi bị đầy. Thử quay tiếp..."
                                     ))
                                     time.sleep(0.3)
                                     consecutive_fails = 0
                                     handled = True
-
-                            if (free_slots < 4 or not handled) and (moss_plus > 0 or junk_count > 0):
-                                total_sell_cand = moss_plus if moss_plus > 0 else junk_count
-                                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, m=total_sell_cand: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {c}] 🛒 Hòm bị đầy ({m} món đồ rác không thể vứt ra đất). Đang ra NPC Rhea (29, 235) bán đồ..."
-                                ))
-                                self.sell_moss_items_at_merchant(eng)
-                                consecutive_fails = 0
-                                continue
 
                             if handled:
                                 continue
@@ -2363,7 +2360,7 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
         try:
-            res = eng.clean_inventory_junk("drop")
+            res = eng.clean_inventory_junk("trash")
             err = res.get("error")
             cleaned = res.get("cleaned", 0)
             if err:
@@ -2372,7 +2369,7 @@ class SlotController:
                 )
             else:
                 self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã vứt {cleaned} món đồ rác ra ngoài đất (Đã giữ lại đồ Divine / Rồng / Hoàn Hảo / Socket / Set / Ngọc / Đồ +5 trở lên)."
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã dọn xóa {cleaned} món đồ rác khỏi hòm đồ an toàn (Đã bảo vệ đồ Divine / Rồng / Hoàn Hảo / Socket / Set Thần / Ngọc / Đồ +8 trở lên)."
                 )
             return cleaned
         except Exception as e:
@@ -2397,11 +2394,11 @@ class SlotController:
             eng.close_merchant_npc()
             time.sleep(0.3)
 
-            # Điểm đích trước mặt Rhea: ô (28, 235) ngay cạnh Rhea (29, 235)
-            target_rhea_x, target_rhea_y = 28, 235
+            # Điểm đích trước mặt thương nhân Silvia: ô (44, 229) Elbeland
+            target_rhea_x, target_rhea_y = 44, 229
 
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Rhea ({target_rhea_x}, {target_rhea_y}) để dọn bán đồ rác..."
+                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Silvia ({target_rhea_x}, {target_rhea_y}) để dọn bán đồ rác..."
             ))
 
             # BƯỚC 1: Di chuyển tới Rhea (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
@@ -2421,7 +2418,7 @@ class SlotController:
                         py = p_info.get("y", 0) or p_info.get("tileY", 0)
                         if px > 0 and py > 0:
                             # Nếu đã đứng trong bán kính 3 ô tính từ Rhea (29, 235)
-                            dist = max(abs(px - 29), abs(py - 235))
+                            dist = max(abs(px - target_rhea_x), abs(py - target_rhea_y))
                             if dist <= 3:
                                 reached_rhea = True
                                 break
@@ -2430,7 +2427,7 @@ class SlotController:
                     break
                 else:
                     self.app.after(0, lambda s=self.slot_idx, c=self.char_name, a=attempt+1: self.app.append_moss_log(
-                        f"[Slot {s:02d} - {c}] ⏳ Chưa tới được Rhea (lần {a}/2), đang tiếp tục bước tới..."
+                        f"[Slot {s:02d} - {c}] ⏳ Chưa tới được Silvia (lần {a}/2), đang tiếp tục bước tới..."
                     ))
 
             # Dừng bước di chuyển và đứng yên hoàn toàn trước khi nói chuyện với NPC
@@ -2653,197 +2650,40 @@ class SlotController:
             )
         return True
 
-    def enter_mirror(self) -> bool:
-        """Gọi native function vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
+    def move_to_lugard(self) -> bool:
+        """Hàm hỗ trợ di chuyển (chỉ dùng khi người dùng chủ động yêu cầu trên giao diện)."""
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
             return False
         eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
+        if not eng or not eng.is_ready:
             return False
-        if not eng.is_ready:
-            eng.attach()
-
-        # Kiểm tra trước vé và cảnh báo nếu vé chỉ có ở ba lô mở rộng hoặc chỉ có mảnh ghép
-        try:
-            t_info = eng.get_mirror_ticket_info()
-            if t_info.get("hasOnlyExtended"):
-                ext_slots = ", ".join(str(s) for s in t_info.get("extSlots", []))
-                self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ LƯU Ý: Vé Mirror đang nằm ở Ba lô mở rộng (ô {ext_slots})! Nếu Game Server MEGAMU báo 'You don't have a Mirror of Dimensions', hãy chuyển vé vào 64 ô đầu của Hòm đồ chính."
-                )
-            elif t_info.get("hasOnlySign"):
-                signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
-                self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CHÚ Ý: Bạn chỉ có Mảnh vé Sign of Dimensions tại ô [{signs_str}], chưa ghép thành vé Mirror hoàn chỉnh!"
-                )
-        except Exception:
-            pass
-
-        # Tự động chuyển sang Event Square nếu nhân vật đang ở map ngoài; nếu đã ở trong Event Map thì đứng yên tại chỗ
-        try:
-            curr_map = -1
-            info = eng.get_player_info()
-            if info and "mapId" in info and info["mapId"] >= 0:
-                curr_map = info["mapId"]
-            if curr_map not in [40, 51, 53, 65, 66, 67, 68] and not (hasattr(eng, "is_mirror_event_map") and eng.is_mirror_event_map()):
-                self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang ở Map ID {curr_map}, tự động chuyển sang Event Square (/move ev)...")
-                self.move_to_event_map()
-                time.sleep(0.3)
-            elif curr_map in [40, 51, 53]:
-                # Đã ở trong Event Map: Đứng yên tại chỗ 100%, hủy di chuyển nếu có để gửi lệnh vào cửa nhanh nhất
-                if hasattr(eng, "stop_auto_move"):
-                    try:
-                        eng.stop_auto_move()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # 1. Kiểm tra trạng thái lịch mở cổng Double Goer hiện tại
-        now = datetime.now()
-        valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
-        is_gate_open = (now.hour in valid_hours and 10 <= now.minute < 15)
-
-        next_gate_open = None
-        for h in valid_hours:
-            cand_gate = now.replace(hour=h, minute=10, second=0, microsecond=0)
-            if cand_gate > now:
-                next_gate_open = cand_gate
-                break
-        if not next_gate_open:
-            tomorrow = now + timedelta(days=1)
-            next_gate_open = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
-
-        seconds_to_gate = int((next_gate_open - now).total_seconds())
-        rem_h = seconds_to_gate // 3600
-        rem_m = (seconds_to_gate % 3600) // 60
-        rem_s = seconds_to_gate % 60
-        time_left_str = f"{rem_h}h {rem_m:02d}m {rem_s:02d}s" if rem_h > 0 else f"{rem_m}m {rem_s:02d}s"
-
-        # 2. Kiểm tra vé trong hòm đồ
-        t_info = {}
-        has_ticket = False
-        try:
-            t_info = eng.get_mirror_ticket_info()
-            has_ticket = bool(t_info.get("hasTicket", False))
-        except Exception:
-            pass
-
-        # TRƯỜNG HỢP A: KHÔNG CÓ VÉ
-        if not has_ticket:
-            eng.enter_mirror()  # Kích hoạt nativeMirrorNpcClick để Client hiển thị popup "You don't have a Mirror of Dimensions"
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ KHÔNG CÓ VÉ: Không tìm thấy vé Mirror of Dimensions (Item 7279) trong hòm đồ! "
-                f"Game hiển thị: 'You don't have a Mirror of Dimensions'."
-            )
-            self.app.update_mirror_slot_status(self.slot_idx, "❌ Không có vé", text_color="#ef4444")
-            return False
-
-        # TRƯỜNG HỢP B: CỔNG CHƯA MỞ
-        if not is_gate_open:
-            eng.enter_mirror()  # Gửi packet 0x32 tới Lugard để GameServer gửi thông báo "The entrance is currently closed"
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ CỔNG CHƯA MỞ ĐỂ VÀO: Cổng Double Goer hiện đang đóng! "
-                f"Đợt mở cổng kế tiếp: {next_gate_open.strftime('%H:%M:%S')} (còn {time_left_str}). "
-                f"Game hiển thị: 'The entrance is currently closed'."
-            )
-            self.app.update_mirror_slot_status(self.slot_idx, f"⏳ Cổng đóng ({next_gate_open.strftime('%H:%M')})", text_color="#f59e0b")
-            return False
-
-        # TRƯỜNG HỢP C: CỔNG ĐANG MỞ VÀ ĐÃ CÓ VÉ
-        self.app.append_mirror_log(
-            f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ CỔNG DOUBLE GOER ĐANG MỞ & ĐÃ CÓ VÉ! Đang tiến hành vào cửa ngay lập tức..."
-        )
-        self.app.update_mirror_slot_status(self.slot_idx, "⚡ Đang vào cổng...", text_color="#10b981")
-
-        res = eng.enter_mirror()
-        if res.get("success"):
-            slot_used = res.get("slot", "?")
-            rel_slot = res.get("relSlot", "?")
-            ext_tag = " (Ba lô phụ)" if isinstance(slot_used, int) and slot_used >= 76 else " (Hòm chính)"
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa Double Goer "
-                f"(Native 0xEFF1B0 + 0xEFD7A0, Packet BF:0E & B0:AB) bằng vé ô {slot_used}{ext_tag} [rel: {rel_slot}]."
-            )
-            def _verify_entry():
-                time.sleep(0.6)
-                if eng and eng.is_mirror_event_map():
-                    self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 VÀO CỬA DOUBLE GOER THÀNH CÔNG! Đã dịch chuyển sang Map Sự Kiện.")
-                    self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981")
-                    if not eng.is_helper_active():
-                        eng.start_helper()
-                else:
-                    self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Đã gửi lệnh nhưng chưa vào được map (có thể phòng đã đầy 5 người hoặc lag mạng)!")
-            threading.Thread(target=_verify_entry, daemon=True).start()
-            return True
-        else:
-            err = res.get("error", "Unknown")
-            if err == "no_ticket":
-                self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không tìm thấy vé Mirror trong hòm đồ! Game hiển thị: 'You don't have a Mirror of Dimensions'.")
-                self.app.update_mirror_slot_status(self.slot_idx, "❌ Không có vé", text_color="#ef4444")
-            else:
-                self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không thể gửi lệnh vào cửa: {err}")
-            return False
-
-    def click_mirror_npc(self) -> bool:
-        """Kích hoạt đối thoại NPC Lugard từ xa (hiển thị popup thông báo nếu không có vé hoặc cổng đóng)."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-
-        now = datetime.now()
-        valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
-        is_gate_open = (now.hour in valid_hours and 10 <= now.minute < 15)
-        next_gate_open = None
-        for h in valid_hours:
-            cand_gate = now.replace(hour=h, minute=10, second=0, microsecond=0)
-            if cand_gate > now:
-                next_gate_open = cand_gate
-                break
-        if not next_gate_open:
-            tomorrow = now + timedelta(days=1)
-            next_gate_open = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
-        seconds_to_gate = int((next_gate_open - now).total_seconds())
-        rem_h = seconds_to_gate // 3600
-        rem_m = (seconds_to_gate % 3600) // 60
-        rem_s = seconds_to_gate % 60
-        time_left_str = f"{rem_h}h {rem_m:02d}m {rem_s:02d}s" if rem_h > 0 else f"{rem_m}m {rem_s:02d}s"
-
-        t_info = {}
-        has_ticket = False
-        try:
-            t_info = eng.get_mirror_ticket_info()
-            has_ticket = bool(t_info.get("hasTicket", False))
-        except Exception:
-            pass
-
-        ok = eng.click_mirror_npc()
-        if not has_ticket:
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ KHÔNG CÓ VÉ: Không tìm thấy vé Mirror trong hòm đồ! Game hiển thị: 'You don't have a Mirror of Dimensions'."
-            )
-            self.app.update_mirror_slot_status(self.slot_idx, "❌ Không có vé", text_color="#ef4444")
-        elif not is_gate_open:
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ CỔNG CHƯA MỞ ĐỂ VÀO: Cổng đóng (còn {time_left_str}, mở lúc {next_gate_open.strftime('%H:%M:%S')}). Game hiển thị: 'The entrance is currently closed'."
-            )
-            self.app.update_mirror_slot_status(self.slot_idx, f"⏳ Cổng đóng ({next_gate_open.strftime('%H:%M')})", text_color="#f59e0b")
-        else:
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ CỔNG ĐANG MỞ & ĐÃ CÓ VÉ! Đã gửi lệnh tương tác NPC Lugard."
-            )
-        return ok
+        return True
 
     def move_to_event_map(self) -> bool:
-        """Tự động chuyển sang Bản đồ Sự Kiện (Event Square qua /move ev). Nếu đã ở trong map rồi thì giữ nguyên không chuyển."""
+        """Chuyển sang bản đồ Event Square (/m ev) nếu nhân vật đang ở map khác."""
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng or not eng.is_ready:
+            return False
+        try:
+            pinfo = eng.get_player_info()
+            if pinfo:
+                cmap = pinfo.get("mapId", -1)
+                # Map 53: Event Square, Map 40: Event Square VIP/Alt, Map 65-68: Double Goer
+                if cmap in (53, 40, 65, 66, 67, 68):
+                    return True
+            eng.send_chat("/m ev")
+            time.sleep(0.4)
+            return True
+        except Exception:
+            return False
+
+    move_to_lugard_elbeland = move_to_lugard
+
+    def click_mirror_npc(self) -> bool:
+        """Kích hoạt đối thoại NPC Lugard trong Game thật tại vị trí hiện tại (đứng yên, không di chuyển)."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
             return False
         eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
         if not eng:
@@ -2851,45 +2691,95 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
-        # 1. KIỂM TRA ĐẦU TIÊN: Nếu nhân vật ĐÃ Ở TRONG MAP Sự Kiện (Event Square 40/53 hoặc Double Goer 65-68) -> KHÔNG MOVE NỮA!
-        try:
-            curr_map = -1
-            info = eng.get_player_info()
-            if info and "mapId" in info and info["mapId"] >= 0:
-                curr_map = info["mapId"]
-            if curr_map < 0:
-                tele = eng.get_latest_telemetry() if hasattr(eng, "get_latest_telemetry") else None
-                if tele and "mapId" in tele and tele["mapId"] >= 0:
-                    curr_map = tele["mapId"]
-            if curr_map in [40, 51, 53, 65, 66, 67, 68] or (hasattr(eng, "is_mirror_event_map") and eng.is_mirror_event_map()):
-                # Đã ở trong Map Sự Kiện: Đứng yên tại chỗ, hủy di chuyển nếu có
-                if hasattr(eng, "stop_auto_move"):
-                    try:
-                        eng.stop_auto_move()
-                    except Exception:
-                        pass
-                self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đã ở trong Map Sự Kiện (Map ID {curr_map}), đứng yên tại chỗ bắn packet, không cần di chuyển.")
-                return True
-        except Exception:
-            pass
-
-        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển sang Bản đồ Sự Kiện (/move ev & Gate 507)...")
-        # 2. Gọi lệnh teleport native Gate 507 và gửi lệnh chat /move ev chuẩn MEGAMU
-        eng.teleport_to_event_map()
-        eng.send_chat("/move ev")
-        time.sleep(0.3)
-        # Đứng yên tại vị trí sau khi vào Event Square, tuyệt đối không chạy bộ
+        if hasattr(eng, "cancel_move"):
+            try:
+                eng.cancel_move()
+            except Exception:
+                pass
         if hasattr(eng, "stop_auto_move"):
             try:
                 eng.stop_auto_move()
             except Exception:
                 pass
+
+        return eng.click_mirror_npc()
+
+    def enter_mirror(self) -> bool:
+        """
+        ĐỨNG YÊN VỊ TRÍ VÀ GỬI PACKET ĐỂ VÀO CỔNG - TUYỆT ĐỐI KHÔNG DI CHUYỂN!
+        Gửi trực tiếp lệnh đối thoại Lugard và packet vào cửa tới Game.
+        Nếu chưa vào được (do chưa tới giờ mở cổng hoặc chưa có vé), chính Game sẽ trực tiếp hiển thị thông báo.
+        """
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+
+        # Nếu đã ở trong map Double Goer (Map 65-68)
+        if hasattr(eng, "is_mirror_event_map") and eng.is_mirror_event_map():
+            if not eng.is_helper_active():
+                eng.start_helper()
+            return True
+
+        # ĐẢM BẢO ĐỨNG YÊN HOÀN TOÀN TẠI VỊ TRÍ HIỆN TẠI, KHÔNG DI CHUYỂN
+        if hasattr(eng, "cancel_move"):
+            try:
+                eng.cancel_move()
+            except Exception:
+                pass
+        if hasattr(eng, "stop_auto_move"):
+            try:
+                eng.stop_auto_move()
+            except Exception:
+                pass
+
+        # GỬI PACKET VÀO CỔNG TẠI CHỖ:
+        # 1. Gọi tương tác Lugard trong Game để Game phát thông báo nếu chưa có vé / chưa mở cổng
+        try:
+            eng.click_mirror_npc()
+            time.sleep(0.04)
+        except Exception:
+            pass
+
+        # 2. Quét slot vé (nếu có trong túi đồ)
+        ticket_slot = None
+        try:
+            t_info = eng.get_mirror_ticket_info()
+            if t_info and t_info.get("slots"):
+                ticket_slot = int(t_info["slots"][0])
+        except Exception:
+            pass
+
+        # 3. Gửi packet vào cửa trực tiếp tới GameServer
+        res = eng.enter_mirror(ticket_slot)
+
+        # 4. Kiểm tra xác nhận vào map trong game
+        def _verify_entry():
+            entered = False
+            for _ in range(12):
+                time.sleep(0.4)
+                if eng and eng.is_mirror_event_map():
+                    entered = True
+                    break
+
+            if entered:
+                self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
+                if not eng.is_helper_active():
+                    eng.start_helper()
+
+                while eng and eng.is_mirror_event_map():
+                    time.sleep(2.0)
+
+                self._resume_train_after_mirror("Sự kiện Double Goer hoàn tất")
+
+        threading.Thread(target=_verify_entry, daemon=True).start()
         return True
 
-    move_to_lugard_elbeland = move_to_event_map
-
     def start_mirror_auto(self) -> bool:
-        """Bắt đầu chạy Auto Double Goer cho slot này."""
+        """Bắt đầu chạy Auto Double Goer cho slot này (có kiểm tra vé, lịch giờ mở cổng và di chuyển tới Lugard)."""
         if license_client and not license_client.has_license_module("mirror"):
             self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Mirror of Dimensions!")
             return False
@@ -2913,37 +2803,40 @@ class SlotController:
                     self.app.after(0, lambda: self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng Auto Mirror."))
                     break
 
-                # 1. Kiểm tra xem đã ở trong map sự kiện chưa
-                in_event = eng.is_mirror_event_map() if eng else False
-                if in_event:
+                # 1. Nếu đã ở trong map Double Goer
+                if eng and eng.is_mirror_event_map():
                     self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
                     if not eng.is_helper_active():
                         eng.start_helper()
                     time.sleep(3.0)
                     continue
 
-                # 2. Nếu đang ở ngoài làng, thử vào cửa
-                self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⏳ Đang thử vào cửa"))
-                try:
-                    eng.click_mirror_npc()
-                    time.sleep(0.04)
-                except Exception:
-                    pass
-                res = eng.enter_mirror()
-                if res.get("success"):
-                    self.app.after(0, lambda s=res.get("slot", "?"): self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🪞 Đã gửi lệnh vào cửa (vé ô {s})."))
-                elif res.get("error") == "no_ticket":
-                    self.app.after(0, lambda: self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không có vé Mirror trong hòm đồ!"))
+                # 2. Kiểm tra vé và lịch giờ mở cổng
+                now = datetime.now()
+                valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+                is_gate_open = (now.hour in valid_hours and 10 <= now.minute < 15)
 
-                # Chờ 5 giây trước khi kiểm tra lại
-                slept = 0
-                while self.mirror_running and slept < 5.0:
-                    time.sleep(0.5)
-                    slept += 0.5
+                next_gate_open = None
+                for h in valid_hours:
+                    cand_gate = now.replace(hour=h, minute=10, second=0, microsecond=0)
+                    if cand_gate > now:
+                        next_gate_open = cand_gate
+                        break
+                if not next_gate_open:
+                    tomorrow = now + timedelta(days=1)
+                    next_gate_open = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
+                # Bỏ qua kiểm tra thời gian trên app theo yêu cầu, luôn gửi lệnh vào cửa trực tiếp xuống game:
+                # Nếu chưa tới giờ mở cổng, game sẽ hiển thị popup chuẩn:
+                # "DOPPELGANGER: You can't enter at the moment. Try at next time."
+                self.enter_mirror()
+                time.sleep(3.0)
 
             self.mirror_running = False
             self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
             self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng"))
+
+            # Khôi phục AutoTrain nếu trước đó bị tạm dừng bởi sự kiện Mirror
+            self._resume_train_after_mirror("Sự kiện Double Goer hoàn tất")
 
         self.mirror_worker_thread = threading.Thread(target=_worker, daemon=True)
         self.mirror_worker_thread.start()
@@ -2971,6 +2864,24 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
+        # ĐẢM BẢO ĐỨNG YÊN HOÀN TOÀN TẠI VỊ TRÍ HIỆN TẠI, TUYỆT ĐỐI KHÔNG DI CHUYỂN
+        if hasattr(eng, "cancel_move"):
+            try:
+                eng.cancel_move()
+            except Exception:
+                pass
+        if hasattr(eng, "stop_auto_move"):
+            try:
+                eng.stop_auto_move()
+            except Exception:
+                pass
+
+        # Gửi ngay lệnh đối thoại / tương tác tới Lugard tại chỗ để Game phát thông báo trực tiếp
+        try:
+            eng.click_mirror_npc()
+        except Exception:
+            pass
+
         # 1. Kiểm tra cache vé trước: nếu slot đã cache từ trước thì dùng ngay lập tức (0ms delay)
         cached_slot = getattr(self, "cached_mirror_ticket_slot", -1)
         t_info = {}
@@ -2986,24 +2897,7 @@ class SlotController:
                         break
                 except Exception:
                     pass
-                time.sleep(0.03)
-
-        # Trường hợp 1: Người dùng chỉ có Mảnh Ghép Sign of Dimensions (chưa ghép thành vé Mirror hoàn chỉnh)
-        if cached_slot < 0 and t_info.get("hasOnlySign"):
-            signs_cnt = len(t_info.get("signs", []))
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không thể Turbo Snipe: Bạn chỉ có {signs_cnt} Mảnh Ghép Sign of Dimensions, CHƯA GHÉP thành vé Mirror hoàn chỉnh! Hãy nhặt đủ 5 mảnh để tạo thành vé trước."
-            )
-            return False
-
-        # Trường hợp 2: Hoàn toàn không tìm thấy vé Mirror trong hòm đồ
-        if cached_slot < 0 and not t_info.get("hasTicket"):
-            eng.click_mirror_npc()
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không thể Turbo Snipe: Không tìm thấy vé Mirror (Item 7279) trong hòm đồ! Game hiển thị: 'You don't have a Mirror of Dimensions'."
-            )
-            self.app.update_mirror_slot_status(self.slot_idx, "❌ Không có vé", text_color="#ef4444")
-            return False
+                time.sleep(0.02)
 
         if self.mirror_sniping:
             return True
@@ -3011,16 +2905,6 @@ class SlotController:
         self.mirror_sniping = True
         self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
         self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms)", text_color="#c084fc")
-
-        # Đứng yên tại chỗ trong Event Map, dừng mọi di chuyển để ưu tiên bắn packet tốc độ tối đa (0ms delay)
-        try:
-            if hasattr(eng, "stop_auto_move"):
-                try:
-                    eng.stop_auto_move()
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
         # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, chạy trực tiếp trong RAM Game)
         native_started = False
@@ -9224,22 +9108,25 @@ class DashboardApp(ctk.CTk):
                     eng.start_helper()
                 return
 
-            # Nếu chưa ở Event Square (map 53 hoặc 40), tự động chuyển sang Event Square (/move ev) trước
+            # Nếu chưa ở Event Square (map 53 hoặc 40), tự động chuyển sang Event Square (/m ev) trước
             if cmap not in (53, 40):
-                self.log_message(f"[Slot {slot_idx:02d}] 📍 Đang chuyển sang bản đồ Event Square (/move ev) để đi Devil...", "INFO")
-                eng.send_chat("/move ev")
+                self.log_message(f"[Slot {slot_idx:02d}] 📍 Đang chuyển sang bản đồ Event Square (/m ev) để đi Devil...", "INFO")
+                eng.send_chat("/m ev")
                 in_ev = False
-                for _ in range(12):  # Chờ tối đa 6 giây
+                for step in range(12):  # Chờ tối đa 6 giây
                     time.sleep(0.5)
                     try:
                         fresh_inf = eng.get_player_info()
                         if fresh_inf and fresh_inf.get("mapId", -1) in (53, 40):
                             in_ev = True
                             break
+                        if step == 4 and not in_ev:
+                            eng.send_chat("/m ev")
+                            eng.send_chat("/warp ev")
                     except Exception:
                         pass
                 if not in_ev:
-                    self.log_message(f"[Slot {slot_idx:02d}] ❌ Không thể sang bản đồ Event Square (/move ev)! Vui lòng kiểm tra lại level hoặc zen của nhân vật.", "WARNING")
+                    self.log_message(f"[Slot {slot_idx:02d}] ❌ Không thể sang bản đồ Event Square (/m ev)! Vui lòng kiểm tra lại level hoặc zen của nhân vật.", "WARNING")
                     return
                 time.sleep(0.4)
 

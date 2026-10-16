@@ -103,6 +103,10 @@ def test_slot_controller_mutex_and_recovery():
             pass
         def update_mirror_slot_status(self, slot_idx, text, text_color=None):
             pass
+        def update_slot_ui_auto(self, slot_idx, is_on):
+            pass
+        def update_slot_ui_status(self, slot_idx, text):
+            pass
         def after(self, ms, func):
             # Thực thi ngay lập tức
             try:

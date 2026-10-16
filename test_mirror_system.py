@@ -26,9 +26,9 @@ def test_offsets():
     for k, v in rvas.items():
         print(f"  {k}: {hex(v)} ({v})")
 
-    assert rvas["mirror_enter"] == 0xEFD7A0, "mirror_enter RVA mismatch!"
-    assert rvas["mirror_npc_click"] == 0xEFDE60, "mirror_npc_click RVA mismatch!"
-    assert rvas["mirror_is_event_map"] == 0xF013A0, "mirror_is_event_map RVA mismatch!"
+    assert rvas["mirror_enter"] == 0xFA8BE0, "mirror_enter RVA mismatch!"
+    assert rvas["mirror_npc_click"] == 0xFAEA10, "mirror_npc_click RVA mismatch!"
+    assert rvas["mirror_is_event_map"] == 0xFA4C80, "mirror_is_event_map RVA mismatch!"
     assert rvas["mirror_teleport_event"] == 0x3802C0, "mirror_teleport_event RVA mismatch!"
     assert rvas["item_mirror_ticket"] == 7279, "item_mirror_ticket mismatch!"
     print("  => OK: Toàn bộ RVA và Item ID đã được xác thực chính xác.")

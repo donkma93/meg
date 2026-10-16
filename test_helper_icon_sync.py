@@ -19,10 +19,10 @@ expected_keys = {
     "ui_location_frame": "0x80",
     "location_helper_on": "0x60",
     "location_helper_off": "0x68",
-    "location_update_helper": "0x244C880",
-    "helper_send_bf51": "0x26829C0",
-    "helper_req_start": "0x26830F0",
-    "helper_req_stop": "0x2683B80",
+    "location_update_helper": "0x2546CE0",
+    "helper_send_bf51": "0x271D4A0",
+    "helper_req_start": "0x2718B10",
+    "helper_req_stop": "0x271DCD0",
 }
 
 for k, v in expected_keys.items():

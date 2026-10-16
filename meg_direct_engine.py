@@ -54,98 +54,97 @@ def _safe_log(msg: str):
 
 DEFAULT_OFFSETS = {
     "game_module": "GameAssembly.dll",
-    "get_player": "0xFABB30",
-    "get_game_ui": "0xFABF20",
-    "ui_chat_frame": "0x50",
-    "move_to": "0xB35B60",
-    "start_auto_move": "0xB46370",
-    "stop_auto_move": "0xB35DC0",
-    "chat_send": "0x1247380",
-    "chat_send_cmd": "0xE6C4F0",
-    "chat_frame_send": "0x1247380",
-    "static_chat_send": "0xE630B0",
-    "command_mgr_process": "0xE6C4F0",
-    "chat_update": "0x12594B0",
-    "game_ui_update": "0x12B31E0",
-    "helper_start": "0x2689720",
-    "helper_stop": "0x2682B20",
-    "helper_action": "0x268CF00",
-    "helper_toggle": "0x268CF00",
-    "helper_send_bf51": "0x26829C0",
-    "helper_req_start": "0x26830F0",
-    "helper_req_stop": "0x2683B80",
+    "get_player": "0x10A0810",
+    "get_game_ui": "0x10A0960",
+    "get_world": "0x10A0490",
+    "get_auto_login": "0x10A03C0",
+    "get_window_handler": "0x109B4A0",
+    "game_update": "0x10927F0",
+    "game_ui_update": "0x137DBE0",
+    "game_type_info": "0x54DBE40",
+    "item_storage_type_info": "0x54E1FC0",
+    "mlogin_ui_type_info": "0x54C7030",
+    "mlogin_submit": "0x1BFAA40",
+    "mlogin_token_login": "0x1BF89C0",
+    "set_auto_login": "0xF184A0",
+    "move_to": "0xB98100",
+    "start_auto_move": "0xB9F290",
+    "stop_auto_move": "0xB96A60",
+    "chat_send": "0x12FCCC0",
+    "chat_frame_send": "0x12FCCC0",
+    "chat_send_cmd": "0xF3E140",
+    "command_mgr_process": "0xF3E140",
+    "static_chat_send": "0xF2A550",
+    "chat_update": "0x12FF3C0",
+    "helper_start": "0x271F8D0",
+    "helper_stop": "0x2721F90",
+    "helper_action": "0x271D340",
+    "helper_toggle": "0x271D340",
+    "helper_send_bf51": "0x271D4A0",
+    "helper_req_start": "0x2718B10",
+    "helper_req_stop": "0x271DCD0",
     "ui_location_frame": "0x80",
     "location_helper_on": "0x60",
     "location_helper_off": "0x68",
-    "location_update_helper": "0x244C880",
+    "location_update_helper": "0x2546CE0",
+    "npc_talk": "0x1070430",
+    "npc_close_talk": "0x1077630",
+    "npc_click": "0xFA3F70",
+    "inv_sell_item": "0x1411100",
+    "inv_drop_item": "0x1404AD0",
+    "merchant_sell_item": "0x26EBF90",
+    "slot_quick_action": "0x2382900",
+    "window_show": "0x258FBC0",
+    "window_hide": "0x25986B0",
+    "window_set_state": "0x258A730",
+    "moss_roll": "0x2746970",
+    "moss_open": "0x258FBC0",
+    "moss_roll_handler": "0x2746890",
+    "moss_init": "0x27489D0",
+    "moss_select_cat": "0x27473D0",
+    "moss_send_roll": "0x2398520",
+    "moss_roll_click": "0x274AA70",
+    "moss_window_close": "0x274AA50",
+    "game_object_set_active": "0x456F2B0",
+    "component_get_game_object": "0x456AE90",
+    "mirror_enter": "0xFA8BE0",
+    "mirror_enter_alt": "0xFAED40",
+    "mirror_npc_click": "0xFAEA10",
+    "mirror_is_event_map": "0xFA4C80",
+    "mirror_teleport_event": "0x3802C0",
+    "item_mirror_ticket": 7279,
+    "devil_enter": "0xF9E090",
+    "devil_npc_click": "0xF9FE20",
+    "devil_is_event_map": "0xF9E5E0",
+    "item_devil_ticket": 7187,
+    "item_devil_ticket_master": 6702,
+    "get_gs_connection": "0x109BB20",
+    "gs_send": "0x11FFCD0",
+    "gs_send_alt": "0x11FFCD0",
+    "player_point": "0x238",
+    "player_master_point": "0x23C",
+    "player_reset_count": "0x2B4",
     "player_name": "0x28",
     "player_level": "0x30",
     "player_class": "0x34",
     "player_coord": "0x68",
     "player_move": "0xE8",
+    "player_inventory": "0x1B0",
     "player_helper": "0x1E0",
-    "player_last_coord": "0x4C8",
-    "auto_move_working": "0x480",
-    "auto_move_type": "0x484",
-    "auto_move_helper": "0x488",
-    "auto_move_dest": "0x490",
+    "player_last_coord": "0x508",
+    "auto_move_working": "0x4C0",
+    "auto_move_type": "0x4C4",
+    "auto_move_helper": "0x4C8",
+    "auto_move_dest": "0x4D0",
     "move_flag": "0x3C",
     "helper_state": "0x20",
-    "get_world": "0xFAC3F0",
-    "game_type_info": "0x5466768",
+    "inventory_items": "0x28",
     "game_world": "0x200",
     "world_scene_index": "0x20",
-    "moss_roll": "0x262EE30",
-    "moss_open": "0x24C0410",
-    "ui_moss_window": "0x1C8",
-    "window_show": "0x24C0410",
-    "window_hide": "0x1942170",
-    "window_set_state": "0x24C0220",
-    "moss_roll_handler": "0x262DCB0",
-    "moss_init": "0x262DCF0",
-    "moss_select_cat": "0x2627DD0",
-    "moss_send_roll": "0x22F2200",
-    "moss_roll_click": "0x2632710",
-    "moss_window_close": "0x2632630",
-    "game_object_set_active": "0x45084D0",
-    "mirror_enter": "0xEFD7A0",
-    "mirror_enter_alt": "0xEFF1B0",
-    "mirror_npc_click": "0xEFDE60",
-    "mirror_is_event_map": "0xF013A0",
-    "mirror_teleport_event": "0x3802C0",
-    "item_mirror_ticket": 7279,
-    "devil_enter": "0xEF37B0",
-    "devil_npc_click": "0xEFA3D0",
-    "devil_is_event_map": "0xEF5580",
-    "item_devil_ticket": 7187,
-    "item_devil_ticket_master": 6702,
-    "get_gs_connection": "0xFA9570",
-    "gs_send": "0x1115380",
-    "gs_send_alt": "0x1119CF0",
-    "player_point": "0x238",
-    "player_master_point": "0x23C",
-    "player_reset_count": "0x2B4",
-    "inv_sell_item": "0x1367460",
-    "inv_drop_item": "0x1368A30",
-    "inv_trash_item": "0x13678A0",
-    "player_inventory": "0x1B0",
-    "inventory_items": "0x28",
-    "get_auto_login": "0xFAC460",
-    "set_auto_login": "0xE59220",
-    "npc_talk": "0xF8D320",
     "viewport": "0x110",
-    "component_get_game_object": "0x45040B0",
-    "get_window_handler": "0xFAACF0",
-    "npc_close_talk": "0xF85E90",
-    "npc_click": "0xF785E0",
+    "ui_chat_frame": "0x50",
+    "ui_moss_window": "0x1C8",
     "ui_merchant_window": "0x198",
-    "merchant_sell_item": "0x2605BB0",
-    "slot_quick_action": "0x22DB330",
-    "item_storage_type_info": "0x546C240",
-    "mlogin_ui_type_info": "0x5451C68",
-    "mlogin_submit": "0x1B6DA50",
-    "mlogin_token_login": "0x1B70230",
-    "game_update": "0xF97C30",
 }
 
 FRIDA_AGENT_JS = r"""
@@ -427,7 +426,7 @@ try {
     if (!meaOff.isNull()) {
         nativeMirrorEnterAlt = new NativeFunction(baseAddr.add(meaOff), 'void', ['int', 'pointer']);
     } else {
-        nativeMirrorEnterAlt = new NativeFunction(baseAddr.add(ptr('0xEFF1B0')), 'void', ['int', 'pointer']);
+        nativeMirrorEnterAlt = new NativeFunction(baseAddr.add(ptr('0xFAED40')), 'void', ['int', 'pointer']);
     }
 } catch (eMirrorEnterAlt) {}
 
@@ -483,9 +482,25 @@ var nativeNpcTalk = null;
 try {
     var ntOff = off('__NPC_TALK__');
     if (!ntOff.isNull()) {
-        nativeNpcTalk = new NativeFunction(baseAddr.add(ntOff), 'void', ['pointer', 'pointer']);
+        nativeNpcTalk = new NativeFunction(baseAddr.add(ntOff), 'void', ['pointer', 'pointer', 'pointer']);
     }
 } catch (eNT) {}
+
+function invokeNpcTalk(body) {
+    if (!body || body.isNull()) return false;
+    var nm = getNpcManagerPtr();
+    if (nativeNpcTalk !== null) {
+        try {
+            if (nm && !nm.isNull()) {
+                nativeNpcTalk(nm, body, ptr(0));
+            } else {
+                nativeNpcTalk(body, body, ptr(0));
+            }
+            return true;
+        } catch (eNT) {}
+    }
+    return false;
+}
 
 var nativeCloseTalk = null;
 try {
@@ -539,17 +554,9 @@ var nativeInvDropItem = null;
 try {
     var idiOff = off('__INV_DROP_ITEM__');
     if (!idiOff.isNull()) {
-        nativeInvDropItem = new NativeFunction(baseAddr.add(idiOff), 'void', ['int', 'pointer', 'pointer']);
+        nativeInvDropItem = new NativeFunction(baseAddr.add(idiOff), 'void', ['int', 'pointer']);
     }
 } catch (eInvDrop) {}
-
-var nativeInvTrashItem = null;
-try {
-    var itiOff = off('__INV_TRASH_ITEM__');
-    if (!itiOff.isNull()) {
-        nativeInvTrashItem = new NativeFunction(baseAddr.add(itiOff), 'void', ['pointer', 'int', 'pointer']);
-    }
-} catch (eInvTrash) {}
 
 var nativeInvSellItem = null;
 try {
@@ -730,6 +737,19 @@ function sendMirrorEnterPacket(slot) {
         var p2 = sendGSPacket([0xC1, 0x05, 0xB0, 0xAB, rel & 0xFF]);
         return (p1 || p2);
     } catch (eMirrorPkt) {
+        return false;
+    }
+}
+
+function sendLugardTalkPacket() {
+    try {
+        var npcKey = 723;
+        var kLow = npcKey & 0xFF;
+        var kHigh = (npcKey >> 8) & 0xFF;
+        sendGSPacket([0xC1, 0x05, 0x30, kLow, kHigh]);
+        sendGSPacket([0xC1, 0x05, 0x32, kLow, kHigh]);
+        return true;
+    } catch (eLTP) {
         return false;
     }
 }
@@ -1447,14 +1467,14 @@ function findLugardNpc() {
             } catch (eC) {}
 
             var lowName = (name || "").toLowerCase();
-            // NPC Lugard ID: 723 (Event Square), 540 (Elbeland)
+            // NPC Lugard ID: 723 (Event Square), 540 (Elbeland), Type: 45 (0x2D)
             // Tọa độ Lugard: Event Square (229, 22), Elbeland (49, 216)
             var isLugard = false;
-            if (npcType === 723 || npcType === 540) {
+            if (npcType === 45 || npcType === 0x2d || npcType === -76 || npcType === 723 || npcType === 540) {
                 isLugard = true;
             } else if (lowName.indexOf("lugard") !== -1 || lowName.indexOf("doppel") !== -1 || lowName.indexOf("mirror") !== -1 || lowName.indexOf("espelho") !== -1) {
                 isLugard = true;
-            } else if ((tx >= 226 && tx <= 232 && ty >= 19 && ty <= 25) || (tx >= 46 && tx <= 52 && ty >= 213 && ty <= 219)) {
+            } else if ((tx >= 225 && tx <= 235 && ty >= 18 && ty <= 26) || (tx >= 46 && tx <= 52 && ty >= 213 && ty <= 219)) {
                 isLugard = true;
             }
 
@@ -1476,12 +1496,12 @@ function getOrCreateLugardPtr(npcPtr) {
         return lugard;
     }
     if (_syntheticLugardPtr === null) {
-        // Cấu trúc Mega.Body tối thiểu cho NPC Lugard Event Square (ID: 723):
-        // +0x20: npcKey / index = 723 (để Mega.NpcManager.Talk 0xF8D320 ghi vào packet C1:05:32)
-        // +0x34: npcType = 723 (để Mega.DoubleGoer.ILAIHGMFEGF 0xEFDE60 nhận diện đúng Lugard Event Square)
+        // Cấu trúc Mega.Body tối thiểu cho NPC Lugard Event Square (ID: 723, Type: 45 / 0x2D):
         _syntheticLugardPtr = Memory.alloc(0x100);
-        _syntheticLugardPtr.add(0x20).writeS32(723);
-        _syntheticLugardPtr.add(0x34).writeS32(723);
+        _syntheticLugardPtr.add(0x10).writePointer(_syntheticLugardPtr); // non-null gameObject pointer
+        _syntheticLugardPtr.add(0x20).writeS32(723); // npcKey = 723
+        _syntheticLugardPtr.add(0x34).writeS32(0x2d); // Lugard DoubleGoer NPC type (45 / 0x2d)
+        _syntheticLugardPtr.add(0xC0).writeU8(0); // isDead = 0
     }
     return _syntheticLugardPtr;
 }
@@ -1709,35 +1729,37 @@ function findMerchantNpc() {
             var lowerName = (name || "").toLowerCase();
             if (lowerName.indexOf('moss') !== -1) continue;
 
+            // Tuyệt đối loại bỏ Priest James / Ruud Store / NPC quanh bệ James (27..33, 234..241) để không mở nhầm Ruud Store
+            if (lowerName.indexOf('james') !== -1 || lowerName.indexOf('ruud') !== -1 || lowerName.indexOf('store') !== -1) continue;
+            if (tx >= 27 && tx <= 33 && ty >= 234 && ty <= 241) continue;
+
             var isMerchant = false;
-            // 1. Nhận diện theo tên NPC thương nhân (Rhea Elbeland, Leah, Silvia, Merchant, Potion...)
-            if (lowerName.indexOf('rhea') !== -1 || lowerName.indexOf('leah') !== -1 || lowerName.indexOf('lia') !== -1 ||
-                lowerName.indexOf('silvia') !== -1 || lowerName.indexOf('merchant') !== -1 ||
-                lowerName.indexOf('potion') !== -1 || lowerName.indexOf('tạp hóa') !== -1 ||
-                lowerName.indexOf('thuốc') !== -1 || lowerName.indexOf('thương nhân') !== -1 ||
-                lowerName.indexOf('poção') !== -1 || lowerName.indexOf('pocion') !== -1) {
+            // 1. Nhận diện theo tên NPC thương nhân (Silvia, Leah, Merchant, Potion...)
+            if (lowerName.indexOf('silvia') !== -1 || lowerName.indexOf('leah') !== -1 || lowerName.indexOf('lia') !== -1 ||
+                lowerName.indexOf('merchant') !== -1 || lowerName.indexOf('potion') !== -1 ||
+                lowerName.indexOf('tạp hóa') !== -1 || lowerName.indexOf('thuốc') !== -1 ||
+                lowerName.indexOf('thương nhân') !== -1 || lowerName.indexOf('poção') !== -1 || lowerName.indexOf('pocion') !== -1) {
                 isMerchant = true;
             }
-            // 2. Nhận diện theo tọa độ Rhea Elbeland (28..31, 233..237) hoặc Leah/Silvia
-            else if ((tx >= 27 && tx <= 31 && ty >= 233 && ty <= 237) ||
-                     (tx >= 35 && tx <= 40 && ty >= 234 && ty <= 239) ||
-                     (tx >= 42 && tx <= 47 && ty >= 227 && ty <= 232)) {
+            // 2. Nhận diện theo tọa độ thương nhân Silvia (42..47, 227..232) hoặc Leah (35..40, 234..239)
+            else if ((tx >= 42 && tx <= 47 && ty >= 227 && ty <= 232) ||
+                     (tx >= 35 && tx <= 40 && ty >= 234 && ty <= 239)) {
                 isMerchant = true;
             }
-            // 3. Nếu nhân vật đã đứng gần khu vực chợ (px >= 27 && px <= 48 && py >= 225 && py <= 242) và đứng cạnh NPC (<= 3 ô)
-            else if (px >= 27 && px <= 48 && py >= 225 && py <= 242 && Math.abs(tx - px) <= 3 && Math.abs(ty - py) <= 3) {
+            // 3. Nếu nhân vật đã đứng gần khu vực chợ (px >= 35 && px <= 48 && py >= 225 && py <= 242) và đứng cạnh NPC (<= 3 ô)
+            else if (px >= 35 && px <= 48 && py >= 225 && py <= 242 && Math.abs(tx - px) <= 3 && Math.abs(ty - py) <= 3) {
                 isMerchant = true;
             }
 
             if (isMerchant) {
-                // Ưu tiên NPC gần tọa độ Rhea (29, 235) nhất
-                var dist = Math.abs(tx - 29) + Math.abs(ty - 235);
+                // Ưu tiên NPC gần tọa độ Silvia (44, 229) nhất
+                var dist = Math.abs(tx - 44) + Math.abs(ty - 229);
                 if (dist < bestDist) {
                     bestDist = dist;
                     bestNpc = {
                         ptr: body,
                         index: bIdx,
-                        name: name || "Merchant Rhea",
+                        name: name || "Merchant Silvia",
                         x: tx,
                         y: ty
                     };
@@ -2975,15 +2997,18 @@ rpc.exports = {
 
             var pLugard = getOrCreateLugardPtr(0);
 
+            // Gửi packet đối thoại Lugard (723) lên GameServer để server phát thông báo "The entrance is currently closed" nếu chưa mở cổng
+            sendLugardTalkPacket();
+            if (pLugard && !pLugard.isNull()) {
+                invokeNpcTalk(pLugard);
+            }
+
             if (itemSlot < 0) {
                 if (nativeMirrorNpcClick !== null && pLugard && !pLugard.isNull()) {
                     try { nativeMirrorNpcClick(pLugard, ptr(0)); } catch (eMNP) {}
                 }
+                sendMirrorEnterPacket(0);
                 return JSON.stringify({ success: false, error: "no_ticket" });
-            }
-
-            if (nativeNpcTalk !== null && pLugard && !pLugard.isNull()) {
-                try { nativeNpcTalk(pLugard, ptr(0)); } catch (eNT) {}
             }
 
             var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
@@ -3037,7 +3062,8 @@ rpc.exports = {
                         return;
                     }
 
-                    // Bắn packet trực tiếp tốc độ cao đồng thời qua Native 0xEFF1B0, 0xEFD7A0 và Packet BF:0E, B0:AB
+                    // Bắn packet trực tiếp tốc độ cao đồng thời qua Native 0xFA3E10 và Packet BF:0E, B0:AB, đối thoại Lugard
+                    sendLugardTalkPacket();
                     if (nativeMirrorEnterAlt !== null) {
                         try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot, ptr(0)); } catch (eLAlt) {}
                     }
@@ -3157,20 +3183,19 @@ rpc.exports = {
 
             var pLugard = getOrCreateLugardPtr(0);
 
-            // Gửi packet C1:32 đối thoại NPC Lugard để Server gửi thông báo "Cổng chưa mở / Entrance is closed" lên màn hình game (kể cả khi không có NPC trong viewport)
+            // Gửi packet C1:30/C1:32 đối thoại NPC Lugard để Server gửi thông báo "The entrance is currently closed" nếu chưa mở cổng
             try {
+                sendLugardTalkPacket();
                 if (pLugard && !pLugard.isNull()) {
-                    if (nativeNpcTalk !== null) {
-                        try { nativeNpcTalk(pLugard, ptr(0)); } catch (eNT) {}
-                    }
+                    invokeNpcTalk(pLugard);
                 }
             } catch (eLugTalk) {}
 
             if (itemSlot >= 0) {
                 var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
                 // Bắn trực tiếp qua cả 2 hàm native enter:
-                // 1) nativeMirrorEnterAlt (0xEFF1B0) - gửi BF:0E qua GameServer connection
-                // 2) nativeMirrorEnter (0xEFD7A0) - gửi B0:AB
+                // 1) nativeMirrorEnterAlt (0xFAED40) - gửi BF:0E qua GameServer connection
+                // 2) nativeMirrorEnter (0xFA8BE0) - gửi B0
                 if (nativeMirrorEnterAlt !== null) {
                     try { nativeMirrorEnterAlt(relSlot, ptr(0)); } catch (eNEA) {}
                 }
@@ -3267,10 +3292,9 @@ rpc.exports = {
                 if (nativeCloseTalk !== null) {
                     try { nativeCloseTalk(); } catch (eCT) {}
                 }
-                // 1. Gửi gói tin C1:32 tới GameServer (Server sẽ gửi về thông báo "The entrance is currently closed" nếu cổng đóng)
-                if (nativeNpcTalk !== null) {
-                    try { nativeNpcTalk(p, ptr(0)); } catch (eNT) {}
-                }
+                // 1. Gửi gói tin C1:30/C1:32 tới GameServer (Server sẽ gửi về thông báo "The entrance is currently closed" nếu cổng đóng)
+                sendLugardTalkPacket();
+                invokeNpcTalk(p);
                 // 2. Gọi client dialog DoubleGoer (0xEFDE60):
                 // - Nếu không có vé: hiển thị popup "You don't have a Mirror of Dimensions"
                 // - Nếu có vé: hiển thị confirm modal "You have a Mirror of Dimensions. Do you want to enter?"
@@ -3492,10 +3516,10 @@ rpc.exports = {
             if (info && info.mapId !== undefined && (info.mapId === 40 || info.mapId === 53 || (info.mapId >= 65 && info.mapId <= 68))) {
                 return true;
             }
-            dispatchChatMessage("/move ev");
+            dispatchChatMessage("/m ev");
             sendGatePacket(507);
             if (this.sendChatNative) {
-                try { this.sendChatNative("/move ev"); } catch (eSC) {}
+                try { this.sendChatNative("/m ev"); } catch (eSC) {}
             }
             if (nativeMirrorTeleportEventMap !== null) {
                 try { nativeMirrorTeleportEventMap(ptr(0), 1, ptr(0)); } catch (e) {}
@@ -3545,23 +3569,18 @@ rpc.exports = {
 
                 // Bảo tồn nghiêm ngặt theo yêu cầu:
                 // 1. Đồ Divine, Đồ Rồng (tuyệt đối không vứt hay bán)
-                // 2. Đồ thường từ +5 trở lên (itemLevel >= 5)
-                // 3. Đồ Hoàn Hảo (excOpt > 0)
-                // 4. Đồ Thần (ancOpt > 0)
-                // 5. Đồ Socket (sockOpt > 0)
-                // 6. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
-                // -> Còn lại (đồ thường +0 đến +4 không Exc/Set/Socket/Divine/Rồng) là đồ rác có thể vứt.
+                // 2. Đồ Hoàn Hảo (excOpt > 0)
+                // 3. Đồ Thần (ancOpt > 0)
+                // 4. Đồ Socket (sockOpt > 0)
+                // 5. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
+                // 6. Đồ cấp cao >= +8 (itemLevel >= 8)
+                // -> Còn lại (đồ thường từ +0 đến +7 không Exc/Set/Socket/Divine/Rồng) là đồ rác CẦN VỨT!
                 var isDivineOrDragon = isDivineOrDragonItem(itemPtr, itemIndex);
-                var isKept = isDivineOrDragon || (excOpt > 0) || (ancOpt > 0) || (sockOpt > 0) || (itemLevel >= 5) || (sec >= 12 && sec <= 15);
+                var isKept = isDivineOrDragon || (excOpt > 0) || (ancOpt > 0) || (sockOpt > 0) || (itemLevel >= 8) || (sec >= 12 && sec <= 15);
                 var isExt = (s >= 76);
                 var itName = getItemName(itemPtr);
                 if (isKept) {
                     keptSlots.push({ slot: s, index: itemIndex, name: itName, level: itemLevel, exc: excOpt, anc: ancOpt, sock: sockOpt, isExt: isExt, isSpecial: isDivineOrDragon });
-                    // Phân loại đồ Moss rác thông thường <= +7 (không Divine/Rồng, không Exc, không Thần, không Socket, sec < 12)
-                    // để tự động mang ra NPC bán khi hòm đồ bị đầy hoặc không thể vứt ra đất
-                    if (!isDivineOrDragon && excOpt === 0 && ancOpt === 0 && sockOpt === 0 && (sec < 12 || sec > 15) && itemLevel <= 7) {
-                        mossPlusSlots.push({ slot: s, index: itemIndex, name: itName, level: itemLevel, isExt: isExt });
-                    }
                 } else {
                     junkSlots.push({ slot: s, index: itemIndex, name: itName, level: itemLevel, isExt: isExt });
                 }
@@ -3597,7 +3616,7 @@ rpc.exports = {
             var itemsArr = inv.add(itemsOff).readPointer();
             if (itemsArr.isNull()) return JSON.stringify({ cleaned: 0, error: "no_items_arr" });
 
-            if (nativeInvDropItem === null && nativeInvTrashItem === null && nativeInvSellItem === null && nativeGSSend === null) {
+            if (nativeInvDropItem === null && nativeInvSellItem === null && nativeGSSend === null) {
                 return JSON.stringify({ cleaned: 0, error: "no_native_fn" });
             }
 
@@ -3638,59 +3657,37 @@ rpc.exports = {
                 var sockOpt = itemPtr.add(0x28).readS32();
                 var sec = Math.floor(itemIndex / 512);
 
-                // Bảo vệ tuyệt đối: Đồ Divine, Đồ Rồng, Đồ thường >= +5, Exc, Ancient, Socket, Ngọc/Vé sự kiện/Cánh/Sách phép (sec 12-15)
-                // Cho phép vứt: Đồ thường từ +0 đến +4 không Exc/Ancient/Socket/Divine/Rồng
-                if (isDivineOrDragonItem(itemPtr, itemIndex) || excOpt > 0 || ancOpt > 0 || sockOpt > 0 || itemLevel >= 5 || (sec >= 12 && sec <= 15)) {
+                // Bảo vệ tuyệt đối: Đồ Divine, Đồ Rồng, Đồ Exc, Ancient, Socket, Ngọc/Vé sự kiện/Cánh/Sách phép (sec 12-15), Đồ >= +8
+                // Cho phép vứt: Đồ thường từ +0 đến +7 không Exc/Ancient/Socket/Divine/Rồng
+                if (isDivineOrDragonItem(itemPtr, itemIndex) || excOpt > 0 || ancOpt > 0 || sockOpt > 0 || itemLevel >= 8 || (sec >= 12 && sec <= 15)) {
                     continue;
                 }
 
                 var itemHandled = false;
                 try {
-                    if (useMethod === "drop" || useMethod === "trash" || useMethod === "both") {
-                        ensureDropAllowed();
-                        // Thao tác 1: Vứt qua nativeInvDropItem (0x1368A30) với coord null (Engine tự sinh tọa độ quanh nhân vật và gửi packet 0x23)
+                    if (useMethod === "trash" || useMethod === "drop" || useMethod === "both") {
+                        // Thao tác 1 (Ưu tiên số 1): Vứt ra đất qua nativeInvDropItem (0x1404AD0 - IEIEMOHANPL, tự động tính tọa độ và gửi packet C1:23)
                         if (nativeInvDropItem !== null) {
                             try {
-                                nativeInvDropItem(s, ptr(0), ptr(0));
-                                try { Thread.sleep(0.06); } catch (eSl1) {}
+                                ensureDropAllowed();
+                                nativeInvDropItem(s, ptr(0));
+                                try { Thread.sleep(0.08); } catch (eSl1) {}
                                 var postPtr1 = itemsArr.add(0x20 + s * 8).readPointer();
                                 if (postPtr1.isNull() || !postPtr1.equals(itemPtr)) {
                                     itemHandled = true;
                                 }
                             } catch (eDrop1) {}
                         }
-                        // Thao tác 2: Vứt qua nativeInvDropItem với tọa độ cạnh bên
-                        if (!itemHandled && nativeInvDropItem !== null && !dropCoord.isNull()) {
+                        // Thao tác 2: Gửi trực tiếp packet GS C1:23
+                        if (!itemHandled && curX > 0 && curY > 0) {
                             try {
-                                nativeInvDropItem(s, dropCoord, ptr(0));
-                                try { Thread.sleep(0.06); } catch (eSl2) {}
+                                sendDropPacket(s, curX + 1, curY);
+                                try { Thread.sleep(0.08); } catch (eSl2) {}
                                 var postPtr2 = itemsArr.add(0x20 + s * 8).readPointer();
                                 if (postPtr2.isNull() || !postPtr2.equals(itemPtr)) {
                                     itemHandled = true;
                                 }
-                            } catch (eDrop2) {}
-                        }
-                        // Thao tác 3: Gửi trực tiếp packet GS C1:23
-                        if (!itemHandled && curX > 0 && curY > 0) {
-                            try {
-                                sendDropPacket(s, curX + 1, curY);
-                                try { Thread.sleep(0.06); } catch (eSl3) {}
-                                var postPtr3 = itemsArr.add(0x20 + s * 8).readPointer();
-                                if (postPtr3.isNull() || !postPtr3.equals(itemPtr)) {
-                                    itemHandled = true;
-                                }
                             } catch (eDropPkt) {}
-                        }
-                        // Thao tác 4: Xóa/hủy qua nativeInvTrashItem (0x13678A0, instance method nhận inv)
-                        if (!itemHandled && nativeInvTrashItem !== null && !inv.isNull()) {
-                            try {
-                                nativeInvTrashItem(inv, s, ptr(0));
-                                try { Thread.sleep(0.06); } catch (eSl4) {}
-                                var postPtr4 = itemsArr.add(0x20 + s * 8).readPointer();
-                                if (postPtr4.isNull() || !postPtr4.equals(itemPtr)) {
-                                    itemHandled = true;
-                                }
-                            } catch (eTrash) {}
                         }
                     }
                     if (!itemHandled && (useMethod === "sell" || useMethod === "both")) {
@@ -3733,7 +3730,7 @@ rpc.exports = {
             var s = parseInt(slot);
             var ox = parseInt(offX !== undefined ? offX : 1);
             var oy = parseInt(offY !== undefined ? offY : 0);
-            if (nativeInvDropItem === null && nativeInvTrashItem === null && nativeGSSend === null) {
+            if (nativeInvDropItem === null && nativeGSSend === null) {
                 return JSON.stringify({ ok: false, err: "no_drop_native_available" });
             }
 
@@ -3823,18 +3820,6 @@ rpc.exports = {
                 } catch (eD3) {}
             }
 
-            // Thao tác 4: Native Trash Item (0x13678A0 với inv instance)
-            if (!dropped && nativeInvTrashItem !== null && !inv.isNull()) {
-                try {
-                    nativeInvTrashItem(inv, s, ptr(0));
-                    try { Thread.sleep(0.06); } catch (eSl4) {}
-                    if (!itemsArr.isNull()) {
-                        var chk4 = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (chk4.isNull() || !chk4.equals(itemP)) dropped = true;
-                    }
-                } catch (eD4) {}
-            }
-
             return JSON.stringify({ ok: dropped, allowed: allowed, slot: s, x: dropX, y: dropY });
         } catch (e) {
             return JSON.stringify({ ok: false, err: e.toString() });
@@ -3889,28 +3874,16 @@ rpc.exports = {
             }
 
             // 3. Fallback: vứt ra đất hoặc xóa nếu không bán được
-            if (nativeInvDropItem !== null || nativeInvTrashItem !== null) {
+            if (nativeInvDropItem !== null) {
                 ensureDropAllowed();
-                if (nativeInvDropItem !== null) {
-                    try {
-                        nativeInvDropItem(s, ptr(0), ptr(0));
-                        try { Thread.sleep(0.06); } catch (eSl3) {}
-                        if (!itemsArr.isNull()) {
-                            var postDrop = itemsArr.add(0x20 + s * 8).readPointer();
-                            if (postDrop.isNull() || !postDrop.equals(itemP)) return true;
-                        }
-                    } catch (eD) {}
-                }
-                if (nativeInvTrashItem !== null && !inv.isNull()) {
-                    try {
-                        nativeInvTrashItem(inv, s, ptr(0));
-                        try { Thread.sleep(0.06); } catch (eSl4) {}
-                        if (!itemsArr.isNull()) {
-                            var postTrash = itemsArr.add(0x20 + s * 8).readPointer();
-                            if (postTrash.isNull() || !postTrash.equals(itemP)) return true;
-                        }
-                    } catch (eT) {}
-                }
+                try {
+                    nativeInvDropItem(s, ptr(0));
+                    try { Thread.sleep(0.06); } catch (eSl3) {}
+                    if (!itemsArr.isNull()) {
+                        var postDrop = itemsArr.add(0x20 + s * 8).readPointer();
+                        if (postDrop.isNull() || !postDrop.equals(itemP)) return true;
+                    }
+                } catch (eD) {}
             }
         } catch (e) {}
         return false;
@@ -4146,95 +4119,94 @@ class MegDirectEngine:
     def _generate_js(self) -> str:
         js = FRIDA_AGENT_JS
         mapping = {
-            "__GET_PLAYER__": self.offsets.get("get_player") or DEFAULT_OFFSETS.get("get_player", "0x10A8080"),
-            "__GET_GAME_UI__": self.offsets.get("get_game_ui") or DEFAULT_OFFSETS.get("get_game_ui", "0x10A80F0"),
+            "__GET_PLAYER__": self.offsets.get("get_player") or DEFAULT_OFFSETS.get("get_player", "0x1107280"),
+            "__GET_GAME_UI__": self.offsets.get("get_game_ui") or DEFAULT_OFFSETS.get("get_game_ui", "0x1106430"),
             "__UI_CHAT_FRAME__": self.offsets.get("ui_chat_frame") or DEFAULT_OFFSETS.get("ui_chat_frame", "0x50"),
-            "__MOVE_TO__": self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xBBA6C0"),
+            "__MOVE_TO__": self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xC9C8D0"),
             "__CHAT_SEND__": self.offsets.get("chat_send") or DEFAULT_OFFSETS.get("chat_send", "0x13C0C70"),
             "__CHAT_SEND_CMD__": self.offsets.get("chat_send_cmd") or DEFAULT_OFFSETS.get("chat_send_cmd", "0xFA0A60"),
             "__CHAT_FRAME_SEND__": self.offsets.get("chat_frame_send") or DEFAULT_OFFSETS.get("chat_frame_send", "0x13C0C70"),
             "__STATIC_CHAT_SEND__": self.offsets.get("static_chat_send") or DEFAULT_OFFSETS.get("static_chat_send", "0xF95530"),
             "__COMMAND_MGR_PROCESS__": self.offsets.get("command_mgr_process") or DEFAULT_OFFSETS.get("command_mgr_process", "0xFA0A60"),
             "__CHAT_UPDATE__": self.offsets.get("chat_update") or DEFAULT_OFFSETS.get("chat_update", "0x13BD830"),
-            "__GAME_UI_UPDATE__": self.offsets.get("game_ui_update") or DEFAULT_OFFSETS.get("game_ui_update", "0x12B31E0"),
-            "__HELPER_START__": self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x2689720"),
-            "__HELPER_STOP__": self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x2682B20"),
-            "__HELPER_ACTION__": self.offsets.get("helper_action") or DEFAULT_OFFSETS.get("helper_action", "0x268CF00"),
-            "__HELPER_TOGGLE__": self.offsets.get("helper_toggle") or DEFAULT_OFFSETS.get("helper_toggle", "0x268CF00"),
-            "__HELPER_SEND_BF51__": self.offsets.get("helper_send_bf51") or DEFAULT_OFFSETS.get("helper_send_bf51", "0x26829C0"),
-            "__HELPER_REQ_START__": self.offsets.get("helper_req_start") or DEFAULT_OFFSETS.get("helper_req_start", "0x26830F0"),
-            "__HELPER_REQ_STOP__": self.offsets.get("helper_req_stop") or DEFAULT_OFFSETS.get("helper_req_stop", "0x2683B80"),
+            "__GAME_UI_UPDATE__": self.offsets.get("game_ui_update") or DEFAULT_OFFSETS.get("game_ui_update", "0x1415C00"),
+            "__HELPER_START__": self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x289BD70"),
+            "__HELPER_STOP__": self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x28A1530"),
+            "__HELPER_ACTION__": self.offsets.get("helper_action") or DEFAULT_OFFSETS.get("helper_action", "0x289FE20"),
+            "__HELPER_TOGGLE__": self.offsets.get("helper_toggle") or DEFAULT_OFFSETS.get("helper_toggle", "0x289FE20"),
+            "__HELPER_SEND_BF51__": self.offsets.get("helper_send_bf51") or DEFAULT_OFFSETS.get("helper_send_bf51", "0x289B300"),
+            "__HELPER_REQ_START__": self.offsets.get("helper_req_start") or DEFAULT_OFFSETS.get("helper_req_start", "0x289FD90"),
+            "__HELPER_REQ_STOP__": self.offsets.get("helper_req_stop") or DEFAULT_OFFSETS.get("helper_req_stop", "0x28A1530"),
             "__UI_LOCATION_FRAME__": self.offsets.get("ui_location_frame") or DEFAULT_OFFSETS.get("ui_location_frame", "0x80"),
             "__LOCATION_HELPER_ON__": self.offsets.get("location_helper_on") or DEFAULT_OFFSETS.get("location_helper_on", "0x60"),
             "__LOCATION_HELPER_OFF__": self.offsets.get("location_helper_off") or DEFAULT_OFFSETS.get("location_helper_off", "0x68"),
-            "__LOCATION_UPDATE_HELPER__": self.offsets.get("location_update_helper") or DEFAULT_OFFSETS.get("location_update_helper", "0x244C880"),
+            "__LOCATION_UPDATE_HELPER__": self.offsets.get("location_update_helper") or DEFAULT_OFFSETS.get("location_update_helper", "0x25B5570"),
             "__PLAYER_NAME__": self.offsets.get("player_name") or DEFAULT_OFFSETS.get("player_name", "0x28"),
             "__PLAYER_LEVEL__": self.offsets.get("player_level") or DEFAULT_OFFSETS.get("player_level", "0x30"),
             "__PLAYER_CLASS__": self.offsets.get("player_class") or DEFAULT_OFFSETS.get("player_class", "0x34"),
             "__PLAYER_COORD__": self.offsets.get("player_coord") or DEFAULT_OFFSETS.get("player_coord", "0x68"),
-            "__PLAYER_MOVE__": self.offsets.get("player_move") or DEFAULT_OFFSETS.get("player_move", "0xF0"),
+            "__PLAYER_MOVE__": self.offsets.get("player_move") or DEFAULT_OFFSETS.get("player_move", "0xE8"),
             "__PLAYER_HELPER__": self.offsets.get("player_helper") or DEFAULT_OFFSETS.get("player_helper", "0x1E0"),
-            "__PLAYER_LAST_COORD__": self.offsets.get("player_last_coord") or DEFAULT_OFFSETS.get("player_last_coord", "0x4E0"),
+            "__PLAYER_LAST_COORD__": self.offsets.get("player_last_coord") or DEFAULT_OFFSETS.get("player_last_coord", "0x4C8"),
             "__MOVE_FLAG__": self.offsets.get("move_flag") or DEFAULT_OFFSETS.get("move_flag", "0x3C"),
             "__HELPER_STATE__": self.offsets.get("helper_state") or DEFAULT_OFFSETS.get("helper_state", "0x20"),
-            "__GET_WORLD__": self.offsets.get("get_world") or DEFAULT_OFFSETS.get("get_world", "0x10ABBE0"),
-            "__GAME_TYPE_INFO__": self.offsets.get("game_type_info") or DEFAULT_OFFSETS.get("game_type_info", "0x549B980"),
+            "__GET_WORLD__": self.offsets.get("get_world") or DEFAULT_OFFSETS.get("get_world", "0x1106740"),
+            "__GAME_TYPE_INFO__": self.offsets.get("game_type_info") or DEFAULT_OFFSETS.get("game_type_info", "0x54A9808"),
             "__GAME_WORLD__": self.offsets.get("game_world") or DEFAULT_OFFSETS.get("game_world", "0x200"),
-            "__START_AUTO_MOVE__": self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xBCB280"),
-            "__STOP_AUTO_MOVE__": self.offsets.get("stop_auto_move") or DEFAULT_OFFSETS.get("stop_auto_move", "0xBCB300"),
-            "__AUTO_MOVE_WORKING__": self.offsets.get("auto_move_working") or DEFAULT_OFFSETS.get("auto_move_working", "0x498"),
-            "__AUTO_MOVE_TYPE__": self.offsets.get("auto_move_type") or DEFAULT_OFFSETS.get("auto_move_type", "0x49C"),
-            "__AUTO_MOVE_HELPER__": self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x4A0"),
-            "__AUTO_MOVE_DEST__": self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x4A8"),
+            "__START_AUTO_MOVE__": self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xC9BB00"),
+            "__STOP_AUTO_MOVE__": self.offsets.get("stop_auto_move") or DEFAULT_OFFSETS.get("stop_auto_move", "0xC984B0"),
+            "__AUTO_MOVE_WORKING__": self.offsets.get("auto_move_working") or DEFAULT_OFFSETS.get("auto_move_working", "0x480"),
+            "__AUTO_MOVE_TYPE__": self.offsets.get("auto_move_type") or DEFAULT_OFFSETS.get("auto_move_type", "0x484"),
+            "__AUTO_MOVE_HELPER__": self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x488"),
+            "__AUTO_MOVE_DEST__": self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x490"),
             "__WORLD_SCENE_INDEX__": self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20"),
-            "__MOSS_ROLL__": self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x262EE30"),
-            "__MOSS_OPEN__": self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x24C0410"),
+            "__MOSS_ROLL__": self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x278DA90"),
+            "__MOSS_OPEN__": self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x255C140"),
             "__UI_MOSS_WINDOW__": self.offsets.get("ui_moss_window") or DEFAULT_OFFSETS.get("ui_moss_window", "0x1C8"),
-            "__WINDOW_SHOW__": self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x24C0410"),
-            "__WINDOW_HIDE__": self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x1942170"),
-            "__WINDOW_SET_STATE__": self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x24C0220"),
-            "__MOSS_ROLL_HANDLER__": self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x262DCB0"),
-            "__MOSS_INIT__": self.offsets.get("moss_init") or DEFAULT_OFFSETS.get("moss_init", "0x262DCF0"),
-            "__MOSS_SELECT_CAT__": self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x2627DD0"),
-            "__MOSS_SEND_ROLL__": self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x22F2200"),
-            "__MOSS_ROLL_CLICK__": self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x2632710"),
-            "__MOSS_WINDOW_CLOSE__": self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x2632630"),
-            "__GAME_OBJECT_SET_ACTIVE__": self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x45084D0"),
-            "__MIRROR_ENTER__": self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xEFD7A0"),
-            "__MIRROR_ENTER_ALT__": self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0xEFF1B0"),
-            "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xEFDE60"),
-            "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xF013A0"),
-            "__MIRROR_TELEPORT_EVENT__": self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x3802C0"),
-            "__DEVIL_ENTER__": self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xEF37B0"),
-            "__DEVIL_NPC_CLICK__": self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xEFA3D0"),
-            "__DEVIL_IS_EVENT_MAP__": self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xEF5580"),
+            "__WINDOW_SHOW__": self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x255C140"),
+            "__WINDOW_HIDE__": self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x255DE30"),
+            "__WINDOW_SET_STATE__": self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x255E9B0"),
+            "__MOSS_ROLL_HANDLER__": self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x278DC90"),
+            "__MOSS_INIT__": self.offsets.get("moss_init") or DEFAULT_OFFSETS.get("moss_init", "0x278FC00"),
+            "__MOSS_SELECT_CAT__": self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x278D470"),
+            "__MOSS_SEND_ROLL__": self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x238B780"),
+            "__MOSS_ROLL_CLICK__": self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x2791220"),
+            "__MOSS_WINDOW_CLOSE__": self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x27911E0"),
+            "__GAME_OBJECT_SET_ACTIVE__": self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x4533470"),
+            "__MIRROR_ENTER__": self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xFA8BE0"),
+            "__MIRROR_ENTER_ALT__": self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0xFAED40"),
+            "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xFAEA10"),
+            "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0x10689A0"),
+            "__MIRROR_TELEPORT_EVENT__": self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x37E2C0"),
+            "__DEVIL_ENTER__": self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0x104A230"),
+            "__DEVIL_NPC_CLICK__": self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0x104DE10"),
+            "__DEVIL_IS_EVENT_MAP__": self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0x1053450"),
             "__PLAYER_POINT__": self.offsets.get("player_point") or DEFAULT_OFFSETS.get("player_point", "0x238"),
             "__PLAYER_MASTER_POINT__": self.offsets.get("player_master_point") or DEFAULT_OFFSETS.get("player_master_point", "0x23C"),
             "__PLAYER_RESET_COUNT__": self.offsets.get("player_reset_count") or DEFAULT_OFFSETS.get("player_reset_count", "0x2B4"),
-            "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x1367460"),
-            "__MERCHANT_SELL_ITEM__": self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2605BB0"),
-            "__SLOT_QUICK_ACTION__": self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x22DB330"),
-            "__INV_DROP_ITEM__": self.offsets.get("inv_drop_item") or DEFAULT_OFFSETS.get("inv_drop_item", "0x1368A30"),
-            "__INV_TRASH_ITEM__": self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x13678A0"),
+            "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x14FC670"),
+            "__MERCHANT_SELL_ITEM__": self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2754390"),
+            "__SLOT_QUICK_ACTION__": self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x2372420"),
+            "__INV_DROP_ITEM__": self.offsets.get("inv_drop_item") or DEFAULT_OFFSETS.get("inv_drop_item", "0x14F46A0"),
             "__PLAYER_INVENTORY__": self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B0"),
             "__INVENTORY_ITEMS__": self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28"),
-            "__GET_AUTO_LOGIN__": self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0xFAC460"),
-            "__SET_AUTO_LOGIN__": self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xE59220"),
-            "__NPC_TALK__": self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0xF8D320"),
+            "__GET_AUTO_LOGIN__": self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0x1107210"),
+            "__SET_AUTO_LOGIN__": self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xF8A030"),
+            "__NPC_TALK__": self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x1116450"),
             "__VIEWPORT__": self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110"),
-            "__COMPONENT_GET_GAMEOBJECT__": self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x45040B0"),
-            "__GET_WINDOW_HANDLER__": self.offsets.get("get_window_handler") or DEFAULT_OFFSETS.get("get_window_handler", "0xFAACF0"),
-            "__NPC_CLOSE_TALK__": self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0xF85E90"),
-            "__NPC_CLICK__": self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0xF785E0"),
+            "__COMPONENT_GET_GAMEOBJECT__": self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x452F050"),
+            "__GET_WINDOW_HANDLER__": self.offsets.get("get_window_handler") or DEFAULT_OFFSETS.get("get_window_handler", "0x11023E0"),
+            "__NPC_CLOSE_TALK__": self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x111CF60"),
+            "__NPC_CLICK__": self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x10677F0"),
             "__UI_MERCHANT_WINDOW__": self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x198"),
-            "__ITEM_STORAGE_TYPE_INFO__": self.offsets.get("item_storage_type_info") or DEFAULT_OFFSETS.get("item_storage_type_info", "0x546C240"),
-            "__MLOGIN_UI_TYPE_INFO__": self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x5451C68"),
-            "__MLOGIN_SUBMIT__": self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1B6DA50"),
-            "__MLOGIN_TOKEN_LOGIN__": self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1B70230"),
-            "__GAME_UPDATE__": self.offsets.get("game_update") or DEFAULT_OFFSETS.get("game_update", "0xF97C30"),
-            "__GET_GS_CONNECTION__": self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0xFA9570"),
-            "__GS_SEND__": self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x1115380"),
-            "__GS_SEND_ALT__": self.offsets.get("gs_send_alt") or DEFAULT_OFFSETS.get("gs_send_alt", "0x1119CF0"),
+            "__ITEM_STORAGE_TYPE_INFO__": self.offsets.get("item_storage_type_info") or DEFAULT_OFFSETS.get("item_storage_type_info", "0x54C3FB8"),
+            "__MLOGIN_UI_TYPE_INFO__": self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x54A4820"),
+            "__MLOGIN_SUBMIT__": self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1C1A1F0"),
+            "__MLOGIN_TOKEN_LOGIN__": self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1C18750"),
+            "__GAME_UPDATE__": self.offsets.get("game_update") or DEFAULT_OFFSETS.get("game_update", "0x10FEEF0"),
+            "__GET_GS_CONNECTION__": self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0x1104220"),
+            "__GS_SEND__": self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x1264520"),
+            "__GS_SEND_ALT__": self.offsets.get("gs_send_alt") or DEFAULT_OFFSETS.get("gs_send_alt", "0x12647E0"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))

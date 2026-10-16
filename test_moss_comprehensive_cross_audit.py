@@ -39,13 +39,13 @@ def run_cross_audit():
         cfg = json.load(f)
 
     expected = {
-        "moss_send_roll": "0x22F2200",
-        "moss_roll_click": "0x2632710",
-        "moss_window_close": "0x2632630",
-        "moss_select_cat": "0x2627DD0",
+        "moss_send_roll": "0x2398520",
+        "moss_roll_click": "0x274AA70",
+        "moss_window_close": "0x274AA50",
+        "moss_select_cat": "0x27473D0",
         "ui_moss_window": "0x1C8",
-        "window_hide": "0x1942170",
-        "game_object_set_active": "0x45084D0"
+        "window_hide": "0x25986B0",
+        "game_object_set_active": "0x456F2B0"
     }
     for k, v in expected.items():
         assert cfg.get(k) == v, f"Offset {k} không khớp kỳ vọng! Thực tế: {cfg.get(k)}, kỳ vọng: {v}"
