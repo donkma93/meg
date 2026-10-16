@@ -736,8 +736,8 @@ function sendMirrorEnterPacket(slot) {
 
 function sendDevilEnterPacket(level, slot) {
     try {
-        var rel = (slot >= 12) ? (slot - 12) : slot;
-        return sendGSPacket([0xC1, 0x05, 0x90, level & 0xFF, rel & 0xFF]);
+        var actualSlot = (slot < 12 && slot >= 0) ? (slot + 12) : slot;
+        return sendGSPacket([0xC1, 0x05, 0x90, level & 0xFF, actualSlot & 0xFF]);
     } catch (eDevilPkt) {
         return false;
     }
@@ -1555,6 +1555,26 @@ function findCharonNpc() {
         }
     } catch (eCharon) {}
     return null;
+}
+
+var _syntheticCharonPtr = null;
+function getOrCreateCharonPtr(npcPtr) {
+    if (npcPtr && npcPtr !== 0 && !ptr(npcPtr).isNull()) {
+        return ptr(npcPtr);
+    }
+    var charon = findCharonNpc();
+    if (charon && !charon.isNull()) {
+        return charon;
+    }
+    if (_syntheticCharonPtr === null) {
+        // Cấu trúc Mega.Body tối thiểu cho NPC Charon Event Square (ID: 720 / 0x2D0):
+        // +0x20: npcKey / index = 720 (để Mega.NpcManager.Talk 0xF8D320 ghi vào packet C1:05:32)
+        // +0x34: npcType = 720 (0x2D0) (để Mega.DevilSquare.ILAIHGMFEGF 0xEFA3D0 nhận diện đúng Charon Event Square)
+        _syntheticCharonPtr = Memory.alloc(0x100);
+        _syntheticCharonPtr.add(0x20).writeS32(720);
+        _syntheticCharonPtr.add(0x34).writeS32(720);
+    }
+    return _syntheticCharonPtr;
 }
 
 function checkDevilItem(itemPtr, idx) {
@@ -3301,7 +3321,7 @@ rpc.exports = {
                         if (!inv.isNull()) {
                             var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
                             if (!itemsArr.isNull()) {
-                                var maxSlot = 140;
+                                var maxSlot = 204;
                                 try {
                                     var arrLen = itemsArr.add(0x18).readS32();
                                     if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
@@ -3338,43 +3358,37 @@ rpc.exports = {
                 } catch (eScan) {}
             }
 
-            // Kích hoạt tương tác đối thoại với Charon trước khi kiểm tra vé (để game gửi thông báo chưa có vé hoặc cổng chưa mở)
+            // Đóng mọi popup đối thoại trước khi gửi lệnh vào trực tiếp (Zero-prompt, Zero-dialog)
+            if (nativeCloseTalk !== null) {
+                try { nativeCloseTalk(); } catch (eCT) {}
+            }
             try {
-                var charon = findCharonNpc();
+                var charon = getOrCreateCharonPtr();
                 if (charon && !charon.isNull()) {
-                    if (nativeCloseTalk !== null) {
-                        try { nativeCloseTalk(); } catch (eCT) {}
-                    }
                     if (nativeNpcTalk !== null) {
                         try { nativeNpcTalk(charon, ptr(0)); } catch (eNT) {}
-                    }
-                    if (nativeDevilNpcClick !== null) {
-                        try { nativeDevilNpcClick(charon, ptr(0)); } catch (eDN) {}
-                    }
-                    if (nativeUniversalNpcClick !== null) {
-                        var nm = getNpcManagerPtr();
-                        if (!nm.isNull()) {
-                            try { nativeUniversalNpcClick(nm, charon, ptr(0)); } catch (eUNC) {}
-                        }
                     }
                 }
             } catch (eCharonEnter) {}
 
             if (itemSlot >= 0) {
-                var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
+                var actualSlot = (itemSlot < 12) ? (itemSlot + 12) : itemSlot;
+                // Chỉ gửi lệnh vào đúng 1 lần duy nhất, không gửi nhiều packet spam
                 if (nativeDevilEnter !== null) {
-                    try { nativeDevilEnter(dsLevel, relSlot, ptr(0)); } catch (eNDE1) {}
-                    try { nativeDevilEnter(dsLevel, itemSlot, ptr(0)); } catch (eNDE2) {}
+                    try { nativeDevilEnter(dsLevel, actualSlot, ptr(0)); } catch (eNDE1) {}
+                } else {
+                    sendDevilEnterPacket(dsLevel, actualSlot);
                 }
-                sendDevilEnterPacket(dsLevel, relSlot);
-                sendDevilEnterPacket(dsLevel, itemSlot);
+
+                if (nativeCloseTalk !== null) {
+                    try { nativeCloseTalk(); } catch (eCT2) {}
+                }
 
                 return JSON.stringify({
                     success: true,
                     dsLevel: dsLevel,
-                    slot: itemSlot,
-                    relSlot: relSlot,
-                    isExtended: (itemSlot >= 76)
+                    slot: actualSlot,
+                    isExtended: (actualSlot >= 76)
                 });
             }
             return JSON.stringify({ success: false, error: "no_ticket" });
@@ -3393,7 +3407,7 @@ rpc.exports = {
                 if (!inv.isNull()) {
                     var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
                     if (!itemsArr.isNull()) {
-                        var maxSlot = 140;
+                        var maxSlot = 204;
                         try {
                             var arrLen = itemsArr.add(0x18).readS32();
                             if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
@@ -3441,26 +3455,13 @@ rpc.exports = {
     clickDevilNpc: function(npcPtr) {
         try {
             ensureThreadAttached();
-            var p = (npcPtr && parseInt(npcPtr) > 0) ? ptr(npcPtr) : ptr(0);
-            if (p.isNull()) {
-                var charon = findCharonNpc();
-                if (charon && !charon.isNull()) p = charon;
-            }
+            var p = getOrCreateCharonPtr(npcPtr);
             if (!p.isNull()) {
                 if (nativeCloseTalk !== null) {
                     try { nativeCloseTalk(); } catch (eCT) {}
                 }
                 if (nativeNpcTalk !== null) {
                     try { nativeNpcTalk(p, ptr(0)); } catch (eNT) {}
-                }
-                if (nativeDevilNpcClick !== null) {
-                    try { nativeDevilNpcClick(p, ptr(0)); } catch (eDN) {}
-                }
-                if (nativeUniversalNpcClick !== null) {
-                    var nm = getNpcManagerPtr();
-                    if (!nm.isNull()) {
-                        try { nativeUniversalNpcClick(nm, p, ptr(0)); } catch (eUNC) {}
-                    }
                 }
                 return true;
             }
