@@ -39,13 +39,13 @@ def run_cross_audit():
         cfg = json.load(f)
 
     expected = {
-        "moss_send_roll": "0x2398520",
-        "moss_roll_click": "0x274AA70",
-        "moss_window_close": "0x274AA50",
-        "moss_select_cat": "0x27473D0",
+        "moss_send_roll": "0x23F8BE0",
+        "moss_roll_click": "0x27A8F90",
+        "moss_window_close": "0x27A9930",
+        "moss_select_cat": "0x27A8510",
         "ui_moss_window": "0x1C8",
-        "window_hide": "0x25986B0",
-        "game_object_set_active": "0x456F2B0"
+        "window_hide": "0x25EA5C0",
+        "game_object_set_active": "0x45CCB90"
     }
     for k, v in expected.items():
         assert cfg.get(k) == v, f"Offset {k} không khớp kỳ vọng! Thực tế: {cfg.get(k)}, kỳ vọng: {v}"
@@ -94,8 +94,8 @@ def run_cross_audit():
         gui_content = f.read()
 
     # Đảm bảo có snapshot hòm đồ để phát hiện item trúng thưởng
-    assert "inv_before = eng.get_inventory_summary()" in gui_content or "inv_before = None" in gui_content, "Thiếu snapshot hòm đồ trước khi quay"
-    assert "inv_after = eng.get_inventory_summary()" in gui_content, "Thiếu kiểm tra hòm đồ sau khi quay"
+    assert "inv_before = eng.get_inventory_summary" in gui_content or "inv_before = None" in gui_content, "Thiếu snapshot hòm đồ trước khi quay"
+    assert "inv_after = eng.get_inventory_summary" in gui_content, "Thiếu kiểm tra hòm đồ sau khi quay"
     assert "Trúng:" in gui_content, "Thiếu log thông báo item trúng thưởng"
     
     # Đảm bảo stop_moss đóng cửa sổ tức thì

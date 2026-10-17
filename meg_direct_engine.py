@@ -54,73 +54,79 @@ def _safe_log(msg: str):
 
 DEFAULT_OFFSETS = {
     "game_module": "GameAssembly.dll",
-    "get_player": "0x10A0810",
-    "get_game_ui": "0x10A0960",
-    "get_world": "0x10A0490",
-    "get_auto_login": "0x10A03C0",
-    "get_window_handler": "0x109B4A0",
-    "game_update": "0x10927F0",
-    "game_ui_update": "0x137DBE0",
-    "game_type_info": "0x54DBE40",
-    "item_storage_type_info": "0x54E1FC0",
-    "mlogin_ui_type_info": "0x54C7030",
-    "mlogin_submit": "0x1BFAA40",
-    "mlogin_token_login": "0x1BF89C0",
-    "set_auto_login": "0xF184A0",
-    "move_to": "0xB98100",
-    "start_auto_move": "0xB9F290",
-    "stop_auto_move": "0xB96A60",
-    "chat_send": "0x12FCCC0",
-    "chat_frame_send": "0x12FCCC0",
-    "chat_send_cmd": "0xF3E140",
-    "command_mgr_process": "0xF3E140",
-    "static_chat_send": "0xF2A550",
-    "chat_update": "0x12FF3C0",
-    "helper_start": "0x271F8D0",
-    "helper_stop": "0x2721F90",
-    "helper_action": "0x271D340",
-    "helper_toggle": "0x271D340",
-    "helper_send_bf51": "0x271D4A0",
-    "helper_req_start": "0x2718B10",
-    "helper_req_stop": "0x271DCD0",
+    "get_player": "0x107FBF0",
+    "get_game_ui": "0x107FF00",
+    "get_world": "0x107FD40",
+    "get_auto_login": "0x107F2D0",
+    "get_window_handler": "0x1078690",
+    "game_update": "0x10701F0",
+    "game_ui_update": "0x1393AC0",
+    "game_type_info": "0x553B900",
+    "item_storage_type_info": "0x5540838",
+    "mlogin_ui_type_info": "0x55286D0",
+    "mlogin_submit": "0x1C35790",
+    "mlogin_token_login": "0x1C307B0",
+    "set_auto_login": "0xEBF7C0",
+    "move_to": "0xB893E0",
+    "start_auto_move": "0xB93B10",
+    "stop_auto_move": "0xB98400",
+    "chat_send": "0x1331880",
+    "chat_frame_send": "0x1331880",
+    "chat_send_cmd": "0xEFE530",
+    "command_mgr_process": "0xEFE530",
+    "static_chat_send": "0xF1F710",
+    "chat_update": "0x1334D30",
+    "helper_start": "0x27776F0",
+    "helper_stop": "0x277C760",
+    "helper_action": "0x25DC620",
+    "helper_toggle": "0x25DC620",
+    "helper_send_bf51": "0x277BDD0",
+    "helper_req_start": "0x27776F0",
+    "helper_req_stop": "0x277C760",
     "ui_location_frame": "0x80",
     "location_helper_on": "0x60",
     "location_helper_off": "0x68",
-    "location_update_helper": "0x2546CE0",
-    "npc_talk": "0x1070430",
-    "npc_close_talk": "0x1077630",
-    "npc_click": "0xFA3F70",
-    "inv_sell_item": "0x1411100",
-    "inv_drop_item": "0x1404AD0",
-    "merchant_sell_item": "0x26EBF90",
-    "slot_quick_action": "0x2382900",
-    "window_show": "0x258FBC0",
-    "window_hide": "0x25986B0",
-    "window_set_state": "0x258A730",
-    "moss_roll": "0x2746970",
-    "moss_open": "0x258FBC0",
-    "moss_roll_handler": "0x2746890",
-    "moss_init": "0x27489D0",
-    "moss_select_cat": "0x27473D0",
-    "moss_send_roll": "0x2398520",
-    "moss_roll_click": "0x274AA70",
-    "moss_window_close": "0x274AA50",
-    "game_object_set_active": "0x456F2B0",
-    "component_get_game_object": "0x456AE90",
-    "mirror_enter": "0xFA8BE0",
-    "mirror_enter_alt": "0xFAED40",
-    "mirror_npc_click": "0xFAEA10",
-    "mirror_is_event_map": "0xFA4C80",
-    "mirror_teleport_event": "0x3802C0",
+    "location_update_helper": "0x25A5750",
+    "npc_talk": "0x1015210",
+    "npc_close_talk": "0x1025540",
+    "npc_click": "0x1013520",
+    "get_config": "0x107B360",
+    "get_user_2fa": "0x1077980",
+    "inv_trash_item": "0x1449740",
+    "inv_sell_item": "0x144B9A0",
+    "inv_drop_item": "0x1449740",
+    "user_inv_trash": "0x144C8A0",
+    "user_inv_action": "0x1441DF0",
+    "item_storage_drop": "0x222CD00",
+    "merchant_sell_item": "0x2743520",
+    "slot_quick_action": "0x23E24A0",
+    "window_show": "0x25EA7C0",
+    "window_hide": "0x25EA5C0",
+    "window_set_state": "0x25EA7C0",
+    "moss_roll": "0x27A9760",
+    "moss_open": "0x25EA7C0",
+    "moss_roll_handler": "0x27A6230",
+    "moss_init": "0x27A77C0",
+    "moss_select_cat": "0x27A8510",
+    "moss_send_roll": "0x23F8BE0",
+    "moss_roll_click": "0x27A8F90",
+    "moss_window_close": "0x27A9930",
+    "game_object_set_active": "0x45CCB90",
+    "component_get_game_object": "0x45C8770",
+    "mirror_enter": "0xF94450",
+    "mirror_enter_alt": "0xF94B00",
+    "mirror_npc_click": "0xF927B0",
+    "mirror_is_event_map": "0xF93060",
+    "mirror_teleport_event": "0x37F2C0",
     "item_mirror_ticket": 7279,
-    "devil_enter": "0xF9E090",
-    "devil_npc_click": "0xF9FE20",
-    "devil_is_event_map": "0xF9E5E0",
+    "devil_enter": "0xF75CF0",
+    "devil_npc_click": "0xF760C0",
+    "devil_is_event_map": "0xF75C40",
     "item_devil_ticket": 7187,
     "item_devil_ticket_master": 6702,
-    "get_gs_connection": "0x109BB20",
-    "gs_send": "0x11FFCD0",
-    "gs_send_alt": "0x11FFCD0",
+    "get_gs_connection": "0x10803D0",
+    "gs_send": "0x11F71C0",
+    "gs_send_alt": "0x11F71C0",
     "player_point": "0x238",
     "player_master_point": "0x23C",
     "player_reset_count": "0x2B4",
@@ -144,7 +150,7 @@ DEFAULT_OFFSETS = {
     "viewport": "0x110",
     "ui_chat_frame": "0x50",
     "ui_moss_window": "0x1C8",
-    "ui_merchant_window": "0x198",
+    "ui_merchant_window": "0x198"
 }
 
 FRIDA_AGENT_JS = r"""
@@ -207,6 +213,8 @@ function getPlayerPtr() {
 
     return ptr(0);
 }
+
+var coordBuf = Memory.alloc(64);
 
 var moveToNative = new NativeFunction(
     baseAddr.add(off('__MOVE_TO__')),
@@ -416,7 +424,7 @@ var nativeMirrorEnter = null;
 try {
     var meOff = off('__MIRROR_ENTER__');
     if (!meOff.isNull()) {
-        nativeMirrorEnter = new NativeFunction(baseAddr.add(meOff), 'void', ['int', 'pointer']);
+        nativeMirrorEnter = new NativeFunction(baseAddr.add(meOff), 'void', ['int']);
     }
 } catch (eMirrorEnter) {}
 
@@ -424,9 +432,7 @@ var nativeMirrorEnterAlt = null;
 try {
     var meaOff = off('__MIRROR_ENTER_ALT__');
     if (!meaOff.isNull()) {
-        nativeMirrorEnterAlt = new NativeFunction(baseAddr.add(meaOff), 'void', ['int', 'pointer']);
-    } else {
-        nativeMirrorEnterAlt = new NativeFunction(baseAddr.add(ptr('0xFAED40')), 'void', ['int', 'pointer']);
+        nativeMirrorEnterAlt = new NativeFunction(baseAddr.add(meaOff), 'void', ['int']);
     }
 } catch (eMirrorEnterAlt) {}
 
@@ -550,21 +556,92 @@ try {
     }
 } catch (eSQA) {}
 
-var nativeInvDropItem = null;
+var nativeInvTrashItem = null;
 try {
-    var idiOff = off('__INV_DROP_ITEM__');
-    if (!idiOff.isNull()) {
-        nativeInvDropItem = new NativeFunction(baseAddr.add(idiOff), 'void', ['int', 'pointer']);
+    var itiOff = off('__INV_TRASH_ITEM__');
+    if (!itiOff.isNull()) {
+        nativeInvTrashItem = new NativeFunction(baseAddr.add(itiOff), 'void', ['int', 'pointer', 'pointer']);
+    } else {
+        nativeInvTrashItem = new NativeFunction(baseAddr.add(ptr('0x1449740')), 'void', ['int', 'pointer', 'pointer']);
     }
-} catch (eInvDrop) {}
+} catch (eInvTrash) {}
+
+var nativeInvDropItem = nativeInvTrashItem;
 
 var nativeInvSellItem = null;
 try {
     var isiOff = off('__INV_SELL_ITEM__');
     if (!isiOff.isNull()) {
-        nativeInvSellItem = new NativeFunction(baseAddr.add(isiOff), 'void', ['pointer', 'int', 'pointer']);
+        nativeInvSellItem = new NativeFunction(baseAddr.add(isiOff), 'void', ['int', 'pointer']);
+    } else {
+        nativeInvSellItem = new NativeFunction(baseAddr.add(ptr('0x144B9A0')), 'void', ['int', 'pointer']);
     }
 } catch (eInvSell) {}
+
+var nativeGetConfig = null;
+try {
+    var gcOff = off('__GET_CONFIG__');
+    if (!gcOff.isNull()) {
+        nativeGetConfig = new NativeFunction(baseAddr.add(gcOff), 'pointer', []);
+    } else {
+        nativeGetConfig = new NativeFunction(baseAddr.add(ptr('0x107B360')), 'pointer', []);
+    }
+} catch (eGC) {}
+
+var nativeGetUser2FA = null;
+try {
+    var u2faOff = off('__GET_USER_2FA__');
+    if (!u2faOff.isNull()) {
+        nativeGetUser2FA = new NativeFunction(baseAddr.add(u2faOff), 'pointer', []);
+    } else {
+        nativeGetUser2FA = new NativeFunction(baseAddr.add(ptr('0x1077980')), 'pointer', []);
+    }
+} catch (e2fa) {}
+
+var nativeUserInvTrash = null;
+try {
+    var uitOff = off('__USER_INV_TRASH__');
+    if (!uitOff.isNull()) {
+        nativeUserInvTrash = new NativeFunction(baseAddr.add(uitOff), 'void', ['int', 'int', 'pointer']);
+    } else {
+        nativeUserInvTrash = new NativeFunction(baseAddr.add(ptr('0x144C8A0')), 'void', ['int', 'int', 'pointer']);
+    }
+} catch (eUIT) {}
+
+var nativeUserInvAction = null;
+try {
+    var uiaOff = off('__USER_INV_ACTION__');
+    if (!uiaOff.isNull()) {
+        nativeUserInvAction = new NativeFunction(baseAddr.add(uiaOff), 'void', ['int', 'pointer']);
+    } else {
+        nativeUserInvAction = new NativeFunction(baseAddr.add(ptr('0x1441DF0')), 'void', ['int', 'pointer']);
+    }
+} catch (eUIA) {}
+
+var nativeItemStorageDrop = null;
+try {
+    var isdOff = off('__ITEM_STORAGE_DROP__');
+    if (!isdOff.isNull()) {
+        nativeItemStorageDrop = new NativeFunction(baseAddr.add(isdOff), 'void', ['pointer', 'pointer']);
+    } else {
+        nativeItemStorageDrop = new NativeFunction(baseAddr.add(ptr('0x222CD00')), 'void', ['pointer', 'pointer']);
+    }
+} catch (eISD) {}
+
+var nativeUserInvSub32 = null;
+try {
+    nativeUserInvSub32 = new NativeFunction(baseAddr.add(ptr('0x144B9A0')), 'void', ['int', 'pointer']);
+} catch (eSub32) {}
+
+var nativeUserInvSub61 = null;
+try {
+    nativeUserInvSub61 = new NativeFunction(baseAddr.add(ptr('0x144C370')), 'void', ['int', 'pointer']);
+} catch (eSub61) {}
+
+var nativeUserInvSubC7 = null;
+try {
+    nativeUserInvSubC7 = new NativeFunction(baseAddr.add(ptr('0x144F290')), 'void', ['int', 'pointer']);
+} catch (eSubC7) {}
 
 var nativeGetAutoLogin = null;
 try {
@@ -625,13 +702,19 @@ try {
 var mono_domain_get_corlib = null;
 var il2cpp_class_from_name = null;
 var il2cpp_array_new = null;
+var il2cpp_gchandle_new = null;
+var il2cpp_gchandle_free = null;
 try {
     var expCorlib = ga.findExportByName('mono_domain_get_corlib');
     var expClassFromName = ga.findExportByName('il2cpp_class_from_name');
     var expArrayNew = ga.findExportByName('il2cpp_array_new');
+    var expGCHandleNew = ga.findExportByName('il2cpp_gchandle_new');
+    var expGCHandleFree = ga.findExportByName('il2cpp_gchandle_free');
     if (expCorlib) mono_domain_get_corlib = new NativeFunction(expCorlib, 'pointer', []);
     if (expClassFromName) il2cpp_class_from_name = new NativeFunction(expClassFromName, 'pointer', ['pointer', 'pointer', 'pointer']);
     if (expArrayNew) il2cpp_array_new = new NativeFunction(expArrayNew, 'pointer', ['pointer', 'size_t']);
+    if (expGCHandleNew) il2cpp_gchandle_new = new NativeFunction(expGCHandleNew, 'uint32', ['pointer', 'int']);
+    if (expGCHandleFree) il2cpp_gchandle_free = new NativeFunction(expGCHandleFree, 'void', ['uint32']);
 } catch (eIL2CPP) {}
 
 function getGSConnection() {
@@ -671,27 +754,42 @@ function getByteClass() {
     return _cachedByteClass;
 }
 
-function sendGSPacket(bytes) {
+function createManagedByteArray(bytes) {
     try {
-        if (il2cpp_array_new === null) return false;
-        var gs = getGSConnection();
-        if (gs.isNull()) return false;
+        if (il2cpp_array_new === null) return null;
         var bClass = getByteClass();
-        if (!bClass || bClass.isNull()) return false;
+        if (!bClass || bClass.isNull()) return null;
         var arr = il2cpp_array_new(bClass, bytes.length);
-        if (arr.isNull()) return false;
+        if (arr.isNull()) return null;
         var raw = arr.add(0x20);
         for (var i = 0; i < bytes.length; i++) {
             raw.add(i).writeU8(bytes[i] & 0xFF);
         }
-        var sent = false;
-        if (nativeGSSend !== null) {
-            try { nativeGSSend(gs, arr, 0, 0, ptr(0)); sent = true; } catch (eS1) {}
-        }
-        if (!sent && nativeGSSendAlt !== null) {
-            try { nativeGSSendAlt(gs, arr, 0, 0, ptr(0)); sent = true; } catch (eS2) {}
-        }
-        return sent;
+        return arr;
+    } catch (e) {
+        return null;
+    }
+}
+
+function sendGSPacketDirect(gs, arr) {
+    if (!gs || gs.isNull() || !arr || arr.isNull()) return false;
+    var sent = false;
+    if (nativeGSSend !== null) {
+        try { nativeGSSend(gs, arr, 0, 0, ptr(0)); sent = true; } catch (eS1) {}
+    }
+    if (!sent && nativeGSSendAlt !== null) {
+        try { nativeGSSendAlt(gs, arr, 0, 0, ptr(0)); sent = true; } catch (eS2) {}
+    }
+    return sent;
+}
+
+function sendGSPacket(bytes) {
+    try {
+        var gs = getGSConnection();
+        if (gs.isNull()) return false;
+        var arr = createManagedByteArray(bytes);
+        if (!arr || arr.isNull()) return false;
+        return sendGSPacketDirect(gs, arr);
     } catch (ePkt) {
         return false;
     }
@@ -705,15 +803,12 @@ var pendingMerchantInteractPtr = null;
 function sendDropPacket(slot, targetX, targetY) {
     try {
         var s = parseInt(slot) & 0xFF;
+        // BẢO VỆ TUYỆT ĐỐI: Không bao giờ vứt các slot trang bị trên người (0..11)
+        if (s < 12) return false;
         var tx = parseInt(targetX) & 0xFF;
         var ty = parseInt(targetY) & 0xFF;
         // In MEGAMU protocol packet 0x23: [0xC1, 0x06, 0x23, targetX, targetY, slot]
-        var ok = sendGSPacket([0xC1, 0x06, 0x23, tx, ty, s]);
-        if (!ok) {
-            var rel = (s >= 12) ? (s - 12) : s;
-            ok = sendGSPacket([0xC1, 0x06, 0x23, tx, ty, rel]);
-        }
-        return ok;
+        return sendGSPacket([0xC1, 0x06, 0x23, tx, ty, s]);
     } catch (eDropPkt) {
         return false;
     }
@@ -721,10 +816,11 @@ function sendDropPacket(slot, targetX, targetY) {
 
 function sendSellPacket(slot) {
     try {
-        var rel = (slot >= 12) ? (slot - 12) : slot;
-        sendGSPacket([0xC1, 0x04, 0x33, rel & 0xFF]);
-        sendGSPacket([0xC1, 0x04, 0x33, slot & 0xFF]);
-        return true;
+        var s = parseInt(slot) & 0xFF;
+        // BẢO VỆ TUYỆT ĐỐI: Không bao giờ bán các slot trang bị trên người (0..11)
+        if (s < 12) return false;
+        // Chuẩn protocol bán đồ NPC MEGAMU: [0xC1, 0x04, 0x33, slot]
+        return sendGSPacket([0xC1, 0x04, 0x33, s]);
     } catch (eSellPkt) {
         return false;
     }
@@ -733,9 +829,7 @@ function sendSellPacket(slot) {
 function sendMirrorEnterPacket(slot) {
     try {
         var rel = (slot >= 12) ? (slot - 12) : slot;
-        var p1 = sendGSPacket([0xC1, 0x05, 0xBF, 0x0E, rel & 0xFF]);
-        var p2 = sendGSPacket([0xC1, 0x05, 0xB0, 0xAB, rel & 0xFF]);
-        return (p1 || p2);
+        return sendGSPacket([0xC1, 0x05, 0xBF, 0x0E, rel & 0xFF]);
     } catch (eMirrorPkt) {
         return false;
     }
@@ -743,13 +837,38 @@ function sendMirrorEnterPacket(slot) {
 
 function sendLugardTalkPacket() {
     try {
-        var npcKey = 723;
-        var kLow = npcKey & 0xFF;
-        var kHigh = (npcKey >> 8) & 0xFF;
-        sendGSPacket([0xC1, 0x05, 0x30, kLow, kHigh]);
-        sendGSPacket([0xC1, 0x05, 0x32, kLow, kHigh]);
-        return true;
+        var lugard = findLugardNpc();
+        if (lugard && !lugard.isNull()) {
+            var npcKey = -1;
+            try { npcKey = lugard.add(0x20).readS32(); } catch (eK) {}
+            if (npcKey > 0) {
+                var kLow = npcKey & 0xFF;
+                var kHigh = (npcKey >> 8) & 0xFF;
+                sendGSPacket([0xC1, 0x05, 0x30, kLow, kHigh]);
+                return true;
+            }
+        }
+        return false;
     } catch (eLTP) {
+        return false;
+    }
+}
+
+function sendCharonTalkPacket() {
+    try {
+        var charon = findCharonNpc();
+        if (charon && !charon.isNull()) {
+            var npcKey = -1;
+            try { npcKey = charon.add(0x20).readS32(); } catch (eK) {}
+            if (npcKey > 0) {
+                var kLow = npcKey & 0xFF;
+                var kHigh = (npcKey >> 8) & 0xFF;
+                sendGSPacket([0xC1, 0x05, 0x30, kLow, kHigh]);
+                return true;
+            }
+        }
+        return false;
+    } catch (eCTP) {
         return false;
     }
 }
@@ -771,45 +890,28 @@ function sendGatePacket(gateId) {
     }
 }
 
-var nativeGetConfig = null;
-try {
-    nativeGetConfig = new NativeFunction(baseAddr.add(ptr('0x1103450')), 'pointer', []);
-} catch (eCfg) {}
-
-var nativeGetUser2FA = null;
-try {
-    nativeGetUser2FA = new NativeFunction(baseAddr.add(ptr('0x11019B0')), 'pointer', []);
-} catch (e2fa) {}
-
 function ensureDropAllowed() {
-    var ok = false;
+    var ok = true;
     try {
         if (nativeGetConfig !== null) {
             var cfg = nativeGetConfig();
             if (!cfg.isNull()) {
-                var clientInfo = cfg.add(0x20).readPointer();
-                if (!clientInfo.isNull()) {
-                    clientInfo.add(0xE1).writeU8(1);
-                    ok = true;
+                var ci = cfg.add(0x20).readPointer();
+                if (!ci.isNull()) {
+                    ci.add(0xE1).writeU8(1); // 1 = Cho phép drop/thao tác
                 }
             }
         }
-    } catch (e1) {}
+    } catch (eCfg) {}
     try {
         if (nativeGetUser2FA !== null) {
             var u2fa = nativeGetUser2FA();
             if (!u2fa.isNull()) {
-                u2fa.add(0x20).writeU8(0);
-                var lockedArr = u2fa.add(0x28).readPointer();
-                if (!lockedArr.isNull()) {
-                    var len = lockedArr.add(0x18).readS32();
-                    if (len > 13) {
-                        lockedArr.add(0x20 + 13).writeU8(0);
-                    }
-                }
+                u2fa.add(0x20).writeU8(0); // 0 = 2FA unlocked cho vứt đồ
             }
         }
-    } catch (e2faErr) {}
+    } catch (e2fa) {}
+
     try {
         var tiOffset = off('__GAME_TYPE_INFO__');
         if (!tiOffset.isNull()) {
@@ -817,17 +919,40 @@ function ensureDropAllowed() {
             if (!typeInfo.isNull()) {
                 var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
                 if (!staticFields.isNull()) {
+                    // Xóa cờ khóa vứt đồ trong Game.StaticFields (offset +0x01)
+                    staticFields.add(1).writeU8(0);
+
                     var gameInst = staticFields.add(ptr('0x08')).readPointer();
                     if (!gameInst.isNull()) {
                         var cfgObj = gameInst.add(ptr('0xB0')).readPointer();
                         if (!cfgObj.isNull()) {
-                            var ci = cfgObj.add(ptr('0x20')).readPointer();
-                            if (!ci.isNull()) {
-                                ci.add(0xE1).writeU8(1);
-                                ok = true;
+                            var ci2 = cfgObj.add(ptr('0x20')).readPointer();
+                            if (!ci2.isNull()) {
+                                // 2FA Option 0xD (Drop Item): 1 = cho phép vứt đồ
+                                ci2.add(0xE1).writeU8(1);
                             }
                         }
+                        var u2faObj = gameInst.add(ptr('0x108')).readPointer();
+                        if (!u2faObj.isNull()) {
+                            u2faObj.add(0x20).writeU8(0); // 0 = 2FA không khóa
+                        }
                     }
+                }
+            }
+        }
+    } catch (e1) {}
+
+    // Bật cờ cho phép tương tác và QuickDrop trong ItemStorage
+    try {
+        var isTiOffset = off('__ITEM_STORAGE_TYPE_INFO__');
+        if (!isTiOffset.isNull()) {
+            var isTypeInfo = baseAddr.add(isTiOffset).readPointer();
+            if (!isTypeInfo.isNull()) {
+                var isStatic = isTypeInfo.add(ptr('0xB8')).readPointer();
+                if (!isStatic.isNull()) {
+                    isStatic.add(0x98).writeU8(1); // InventoryInteractionAvailable = true
+                    isStatic.add(0x99).writeU8(0); // InventoryInteractionBlock = false
+                    isStatic.add(0x9A).writeU8(1); // IsQuickDropActive = true
                 }
             }
         }
@@ -922,35 +1047,43 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
     var type = itemIndex % 512;
 
     // 1. Phân loại theo Item ID cố định trong database MU Online (Bảo vệ cứng 100%):
+    // Toàn bộ các item Master / Ruud / Archangel / Season cao cấp (type >= 30 trong sec 0..11):
+    if (type >= 30 && sec <= 11) return true;
+
     // Set Rồng Đỏ (Dragon Set): Sec 7..11, Type 1
     // Set Rồng Đen (Black Dragon): Sec 7..11, Type 16
+    // Set Dark Phoenix: Sec 7..11, Type 17
+    // Set Great Dragon: Sec 7..11, Type 21
     // Set Nữ Thần (Divine Set - Elf): Sec 7..11, Type 18
     // Set Dragon Knight (Hiệp sĩ rồng): Sec 7..11, Type 29
     // Set Dark Devil / Dragon Soul / các set rồng mở rộng: Sec 7..11 (Type 30, 31)
-    if ((type === 1 || type === 16 || type === 18 || type === 29 || type === 30 || type === 31) && (sec >= 7 && sec <= 11)) {
+    if ((type === 1 || type === 16 || type === 17 || type === 18 || type === 21 || type === 29 || type === 30 || type === 31) && (sec >= 7 && sec <= 11)) {
         return true;
     }
-    // Khiên Rồng (Dragon Shield / Dragon Slayer Shield): Sec 6, Type 7, 17
-    if (sec === 6 && (type === 7 || type === 17)) return true;
+    // Các set cao cấp khác: Grand Soul (3), Dark Soul (15), Hurricane (20), Red Spirit (19), Dark Master (22), Storm Crow (23), Valiant (24), Glorious (25)
+    if ((type === 3 || type === 15 || type === 19 || type === 20 || type === 22 || type === 23 || type === 24 || type === 25) && (sec >= 7 && sec <= 11)) {
+        return true;
+    }
+    // Khiên Rồng & Khiên cao cấp (Sec 6): Type 7 (Dragon Shield), >= 17 (Dragon Slayer, Crimson Glory, Salamander, Frost Barrier, Guardian, Cross...)
+    if (sec === 6 && (type === 7 || type >= 17)) return true;
     // Vũ khí Rồng: Chaos Dragon Axe (Sec 1, Type 6), Dragon Spear (Sec 3, Type 10)
     if (sec === 1 && type === 6) return true;
     if (sec === 3 && type === 10) return true;
-    // Vũ khí Divine Archangel (Tuyệt Tác Thần / Thiên Sứ):
-    // Sec 0: Kiếm (Type 19, 30, 31, 40, 41)
-    // Sec 2: Quyền trượng (Type 13, 30)
-    // Sec 4: Cung/Nỏ (Type 18, 30)
-    // Sec 5: Gậy/Sách (Type 10, 36, 40)
-    if (sec === 0 && (type === 19 || type === 30 || type === 31 || type === 40 || type === 41)) return true;
-    if (sec === 2 && (type === 13 || type === 30)) return true;
-    if (sec === 4 && (type === 18 || type === 30)) return true;
-    if (sec === 5 && (type === 10 || type === 36 || type === 40)) return true;
+    // Vũ khí Divine Archangel (Tuyệt Tác Thần / Thiên Sứ) & vũ khí cao cấp:
+    if (sec === 0 && (type === 16 || type === 19 || type >= 22)) return true; // Knight Blade, DAA, Bone Blade, Daybreak, Dancer, Rune Bastard...
+    if (sec === 2 && (type === 13 || type >= 14)) return true; // DAA Scepter, Shining, Solay...
+    if (sec === 4 && (type === 17 || type === 18 || type >= 20)) return true; // Celestial, DAA Bow, Grand Viper, Dark Stinger...
+    if (sec === 5 && (type === 10 || type === 12 || type === 13 || type >= 21)) return true; // DAA Staff, Kundun, Platina, Miracle, Imperial, Summoner Books...
 
     // 2. Phân loại theo tên native của vật phẩm trong Game Memory (Hỗ trợ đa ngôn ngữ EN, PT, ES, VN):
     var name = getItemName(itemPtr).toLowerCase();
     if (name.length > 0) {
         var keywords = [
             "divine", "divino", "divina", "archangel", "arcanjo", "thiên sứ", "nữ thần",
-            "dragon", "dragao", "dragão", "rồng"
+            "dragon", "dragao", "dragão", "rồng",
+            "bloodangel", "darkangel", "holyangel", "awakening", "blue eye", "silver heart", "manticore", "brilliant", "apocalypse", "lightning", "ruud",
+            "kundun", "miracle", "bone blade", "daybreak", "grand viper", "dark stinger",
+            "grand soul", "dark soul", "dark phoenix", "great dragon", "venom", "sylphid", "volcano", "sunlight", "hurricane", "valiant", "glorious", "dark master", "storm crow", "red spirit"
         ];
         for (var k = 0; k < keywords.length; k++) {
             if (name.indexOf(keywords[k]) !== -1) {
@@ -959,6 +1092,50 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
         }
     }
     return false;
+}
+
+function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat) {
+    if (itemIndex <= 0) return true; // Không rõ item -> bảo vệ an toàn
+
+    // 1. Đồ Divine, Đồ Rồng, Master/Ruud/High-tier
+    if (isDivineOrDragonItem(itemPtr, itemIndex)) return true;
+
+    // 2. Đồ Hoàn Hảo (Excellent)
+    if (excOpt > 0) return true;
+
+    // 3. Đồ Thần (Ancient / Set Item)
+    if (ancOpt > 0) return true;
+
+    // 4. Đồ Socket / 380
+    if (sockOpt > 0) return true;
+
+    // 5. Đồ Gia Cường Đá Tạo Hóa (Harmony)
+    if (harmonyOpt > 0) return true;
+
+    // 6. Đồ cấp cao: Giữ lại toàn bộ đồ từ +5 trở lên (+5, +6, +7, +8, +9, +10, +11, +12, +13, +14, +15)
+    // Cho phép vứt: Đồ thường từ +0 đến +4 không Exc/Ancient/Socket (kể cả có Luck/Skill từ Moss)
+    if (itemLevel >= 5) return true;
+
+    // 7. Toàn bộ ngọc, vé sự kiện, cánh, thú cưỡi, nhẫn, dây chuyền, sách phép, cuộn kỹ năng (sec 12..15)
+    var sec = Math.floor(itemIndex / 512);
+    if (sec >= 12 && sec <= 15) return true;
+
+    // 8. Giới hạn phạm vi theo danh mục Moss đang quay:
+    // Nếu đang quay Moss danh mục X thì CHỈ các món đồ rác thường thuộc danh mục X mới được phép dọn!
+    // Các trang bị khác loại người chơi mang theo người TUYỆT ĐỐI KHÔNG ĐƯỢC ĐỘNG VÀO.
+    if (mossCat !== null && mossCat !== undefined && mossCat >= 0) {
+        var matchCat = false;
+        if (mossCat === 0 && (sec >= 0 && sec <= 3)) matchCat = true;       // Kiếm / Rìu / Chùy / Thương
+        else if (mossCat === 1 && sec === 4) matchCat = true;              // Cung / Nỏ
+        else if (mossCat === 2 && sec === 5) matchCat = true;              // Gậy / Sách
+        else if (mossCat === 3 && sec === 6) matchCat = true;              // Khiên
+        else if (mossCat === 4 && (sec >= 7 && sec <= 11)) matchCat = true; // Set Quần Áo
+        
+        // Không thuộc loại đồ đang quay của Moss -> BẢO VỆ TUYỆT ĐỐI
+        if (!matchCat) return true;
+    }
+
+    return false; // Chỉ những món đồ rác thường (+0..+4 không Exc/Ancient/Socket/Harmony/Divine) mới bị dọn
 }
 
 var nativeGetGameUI = null;
@@ -993,92 +1170,57 @@ function getChatFrameInstance() {
 
 function dispatchChatMessage(cmdText) {
     if (!cmdText) return false;
-    var str = il2cpp_string_new(Memory.allocUtf8String(cmdText));
-    if (str.isNull()) return false;
+    try {
+        ensureThreadAttached();
+        var p = getPlayerPtr();
+        if (p.isNull()) return false;
 
-    // Mega.Chat.FCIBNHIHDHO (nativeStaticChatSend - RVA 0xF95530):
-    // Hàm tĩnh gốc của game xử lý TOÀN BỘ chat và lệnh '/' ngầm:
-    // 1. Tự động gọi CommandManager.BDMGLHEGJHO để chạy các lệnh client (/reconnect, /fps...).
-    // 2. Nếu là lệnh server (/warp, /move, /f, /a, /e, /c, /post...) hoặc tin nhắn thường,
-    //    tự động đóng gói C1:00/C1:02 gửi trực tiếp lên GSConnection.
-    // 3. Chạy 100% ngầm (headless), KHÔNG mở ChatFrame, KHÔNG cướp chuột/phím, KHÔNG phụ thuộc UI!
-    if (nativeStaticChatSend !== null) {
-        try {
-            nativeStaticChatSend(str, ptr(0));
-            return true;
-        } catch (eStatic) {}
-    }
+        var str = il2cpp_string_new(Memory.allocUtf8String(cmdText));
+        if (str.isNull()) return false;
 
-    // Fallback: Nếu không có static_chat_send thì thử gọi CommandManager (cho lệnh '/')
-    if (cmdText.charAt(0) === '/' && nativeCommandManagerProcess !== null) {
-        try {
-            nativeCommandManagerProcess(str, ptr(0));
-            return true;
-        } catch (eCmd) {}
-    }
+        // 1. Ưu tiên gửi qua static_chat_send (Mega.Chat.LLGBNHILFIE - RVA 0xF1F710)
+        if (nativeStaticChatSend !== null) {
+            try {
+                nativeStaticChatSend(str, ptr(0));
+                return true;
+            } catch (eStatic) {}
+        }
 
+        // 2. Fallback gửi qua ChatFrame (IHMCLDOIMCA - RVA 0x1331880)
+        var cf = getChatFrameInstance();
+        if (!cf.isNull() && sendChatMessageNative !== null) {
+            try {
+                sendChatMessageNative(cf, str, 0, ptr(0));
+                return true;
+            } catch (eCF) {}
+        }
+
+        // 3. Fallback cho lệnh '/' qua CommandManager (MLPKNNGGNPL - RVA 0xEFE530)
+        if (cmdText.charAt(0) === '/' && nativeCommandManagerProcess !== null) {
+            try {
+                return nativeCommandManagerProcess(str, ptr(0));
+            } catch (eCmd) {}
+        }
+    } catch (eDispatch) {}
     return false;
 }
 
 var pendingHelperAction = null;
 
 function syncHelperUI(isActive) {
-    try {
-        if (nativeGetGameUI === null) return;
-        var gui = nativeGetGameUI();
-        if (gui.isNull()) return;
-
-        var locFrame = gui.add(off('__UI_LOCATION_FRAME__')).readPointer();
-        if (!locFrame.isNull()) {
-            // 1. Gọi trực tiếp hàm cập nhật icon/nút Helper của LocationFrame (0x244C880) hoặc qua vtable + 0x1E8
-            if (nativeLocationFrameUpdate !== null) {
-                try { nativeLocationFrameUpdate(locFrame, ptr(0)); } catch (eU1) {}
-            } else {
-                try {
-                    var klass = locFrame.readPointer();
-                    if (!klass.isNull()) {
-                        var updateFnPtr = klass.add(ptr('0x1E8')).readPointer();
-                        var methodInfo = klass.add(ptr('0x1F0')).readPointer();
-                        if (!updateFnPtr.isNull()) {
-                            var callVf = new NativeFunction(updateFnPtr, 'void', ['pointer', 'pointer']);
-                            callVf(locFrame, methodInfo);
-                        }
-                    }
-                } catch (eU2) {}
-            }
-
-            // 2. Trực tiếp kích hoạt/tắt GameObject của HelperStateOnImage (0x60) và HelperStateOffImage (0x68)
-            // Đảm bảo icon Play/Stop trên thanh tọa độ màn hình game đổi trạng thái lập tức!
-            if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
-                try {
-                    var onImg = locFrame.add(off('__LOCATION_HELPER_ON__')).readPointer();
-                    if (!onImg.isNull()) {
-                        var onGo = nativeComponentGetGameObject(onImg, ptr(0));
-                        if (!onGo.isNull()) {
-                            nativeGameObjectSetActive(onGo, isActive ? 1 : 0, ptr(0));
-                        }
-                    }
-                    var offImg = locFrame.add(off('__LOCATION_HELPER_OFF__')).readPointer();
-                    if (!offImg.isNull()) {
-                        var offGo = nativeComponentGetGameObject(offImg, ptr(0));
-                        if (!offGo.isNull()) {
-                            nativeGameObjectSetActive(offGo, isActive ? 0 : 1, ptr(0));
-                        }
-                    }
-                } catch (eImg) {}
-            }
-        }
-    } catch (eSync) {}
+    // Để GameServer và client game tự động đồng bộ hóa icon MuHelper Play/Pause
+    // một cách tự nhiên trên Main Render Thread khi nhận packet phản hồi từ server.
+    // Tuyệt đối không can thiệp cưỡng ép MLocationFrame ngoài luồng tránh làm hỏng/đảo lộn icon game.
+    return;
 }
 
 function dispatchHelperAction(act) {
     if (!act) return false;
     try {
         var p = getPlayerPtr();
+        if (p.isNull()) return false;
         var h = ptr(0);
-        if (!p.isNull()) {
-            try { h = p.add(off('__PLAYER_HELPER__')).readPointer(); } catch (eH0) {}
-        }
+        try { h = p.add(off('__PLAYER_HELPER__')).readPointer(); } catch (eH0) {}
 
         var isAct = 0;
         if (!h.isNull()) {
@@ -1086,52 +1228,32 @@ function dispatchHelperAction(act) {
         }
 
         if (act === 'start') {
-            // 1. Cập nhật helper_state lên 1 trong RAM UserHelper
-            if (!h.isNull()) {
-                try { h.add(off('__HELPER_STATE__')).writeU8(1); } catch (eSW) {}
+            if (isAct === 1) {
+                return true;
             }
-            // 2. Gọi native StartHelper của UserHelper (0x2689720)
+            // 1. Gọi UserHelper.ALFOIEJFHLL (0x27776F0) để gửi packet BF:51, 00 (Start)
+            var sent = false;
             if (!h.isNull() && nativeStartHelper !== null) {
-                try { nativeStartHelper(h, ptr(0)); } catch (eS1) {}
+                try { nativeStartHelper(h, ptr(0)); sent = true; } catch (eS1) {}
             }
-            // 3. Gọi UserHelper.OEKEGKPIANC (0x26830F0) hoặc gửi packet mạng chuẩn BF:51, 00
-            if (!h.isNull() && nativeHelperReqStart !== null) {
-                try { nativeHelperReqStart(h, ptr(0)); } catch (eRS) {}
-            } else if (nativeHelperSendBf51 !== null) {
-                try { nativeHelperSendBf51(0, ptr(0)); } catch (eBF0) {}
+            // 2. Fallback trực tiếp hàm gửi packet BF:51 (0x277BDD0) với tham số 0 (Start)
+            if (!sent && nativeHelperSendBf51 !== null) {
+                try { nativeHelperSendBf51(0, ptr(0)); sent = true; } catch (eBF0) {}
             }
-            // 4. Fallback gửi packet B3:AD
-            if (nativeSendHelperAction !== null) {
-                try { nativeSendHelperAction(0, ptr(0)); } catch (eS2) {}
-            } else if (nativeHelperToggle !== null) {
-                try { nativeHelperToggle(0, ptr(0)); } catch (eS3) {}
-            }
-            // 5. Đồng bộ icon trên giao diện MLocationFrame (Play -> Stop)
-            syncHelperUI(true);
             return true;
         } else if (act === 'stop') {
-            // 1. Cập nhật helper_state về 0 trong RAM UserHelper
-            if (!h.isNull()) {
-                try { h.add(off('__HELPER_STATE__')).writeU8(0); } catch (eStW) {}
+            if (isAct === 0) {
+                return true;
             }
-            // 2. Gọi native StopHelper của UserHelper (0x2682B20)
+            // 1. Gọi UserHelper.BBLPCMHOBOE (0x277C760) để gửi packet BF:51, 01 (Stop)
+            var sentStop = false;
             if (!h.isNull() && nativeStopHelper !== null) {
-                try { nativeStopHelper(h, ptr(0)); } catch (eSt1) {}
+                try { nativeStopHelper(h, ptr(0)); sentStop = true; } catch (eSt1) {}
             }
-            // 3. Gọi UserHelper.JBEEAGHAHAC (0x2683B80) hoặc gửi packet mạng chuẩn BF:51, 01
-            if (!h.isNull() && nativeHelperReqStop !== null) {
-                try { nativeHelperReqStop(h, ptr(0)); } catch (eRSt) {}
-            } else if (nativeHelperSendBf51 !== null) {
-                try { nativeHelperSendBf51(1, ptr(0)); } catch (eBF1) {}
+            // 2. Fallback trực tiếp hàm gửi packet BF:51 (0x277BDD0) với tham số 1 (Stop)
+            if (!sentStop && nativeHelperSendBf51 !== null) {
+                try { nativeHelperSendBf51(1, ptr(0)); sentStop = true; } catch (eBF1) {}
             }
-            // 4. Fallback gửi packet B3:AD
-            if (nativeSendHelperAction !== null) {
-                try { nativeSendHelperAction(1, ptr(0)); } catch (eSt2) {}
-            } else if (nativeHelperToggle !== null) {
-                try { nativeHelperToggle(1, ptr(0)); } catch (eSt3) {}
-            }
-            // 5. Đồng bộ icon trên giao diện MLocationFrame (Stop -> Play)
-            syncHelperUI(false);
             return true;
         } else if (act === 'toggle') {
             if (isAct === 1) {
@@ -1144,7 +1266,56 @@ function dispatchHelperAction(act) {
     return false;
 }
 
+var coordBuf = Memory.alloc(64);
+var cachedCoordKlass = ptr(0);
+var shuttingDown = false;
 var pendingMoveTarget = null;
+
+function dispatchMoveTarget(target) {
+    if (!target) return;
+    try {
+        var pMove = getPlayerPtr();
+        if (pMove.isNull()) return;
+        var destC = ptr(0);
+        try {
+            var existingC = pMove.add(off('__AUTO_MOVE_DEST__')).readPointer();
+            if (!existingC.isNull()) destC = existingC;
+        } catch (eD) {}
+        if (!destC.isNull()) {
+            destC.add(0x10).writeS32(parseInt(target.x));
+            destC.add(0x14).writeS32(parseInt(target.y));
+            pMove.add(off('__AUTO_MOVE_DEST__')).writePointer(destC);
+            pMove.add(off('__AUTO_MOVE_TYPE__')).writeS32(0);
+            pMove.add(off('__AUTO_MOVE_HELPER__')).writeU8(target.helper ? 1 : 0);
+            pMove.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
+            try {
+                moveToNative(pMove, destC, 0.0, ptr(0), 0, 1, ptr(0));
+            } catch (eM) {}
+        } else {
+            var curC = pMove.add(off('__PLAYER_COORD__')).readPointer();
+            var k = ptr(0);
+            try { if (!curC.isNull()) k = curC.readPointer(); } catch (eK1) {}
+            if (k.isNull()) {
+                try {
+                    var lastC = pMove.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                    if (!lastC.isNull()) k = lastC.readPointer();
+                } catch (eK2) {}
+            }
+            if (k.isNull() && cachedCoordKlass && !cachedCoordKlass.isNull()) {
+                k = cachedCoordKlass;
+            }
+            if (!k.isNull()) {
+                coordBuf.writePointer(k);
+                coordBuf.add(0x08).writePointer(ptr(0));
+                coordBuf.add(0x10).writeS32(parseInt(target.x));
+                coordBuf.add(0x14).writeS32(parseInt(target.y));
+                try {
+                    moveToNative(pMove, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
+                } catch (eM2) {}
+            }
+        }
+    } catch (eQueueMove) {}
+}
 
 try {
     var cuOff = off('__CHAT_UPDATE__');
@@ -1167,49 +1338,7 @@ try {
                     if (pendingMoveTarget !== null) {
                         var target = pendingMoveTarget;
                         pendingMoveTarget = null;
-                        try {
-                            var pMove = getPlayerPtr();
-                            if (!pMove.isNull()) {
-                                var destC = ptr(0);
-                                try {
-                                    var existingC = pMove.add(off('__AUTO_MOVE_DEST__')).readPointer();
-                                    if (!existingC.isNull()) destC = existingC;
-                                } catch (eD) {}
-                                if (!destC.isNull()) {
-                                    destC.add(0x10).writeS32(parseInt(target.x));
-                                    destC.add(0x14).writeS32(parseInt(target.y));
-                                    pMove.add(off('__AUTO_MOVE_DEST__')).writePointer(destC);
-                                    pMove.add(off('__AUTO_MOVE_TYPE__')).writeS32(0);
-                                    pMove.add(off('__AUTO_MOVE_HELPER__')).writeU8(target.helper ? 1 : 0);
-                                    pMove.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
-                                    try {
-                                        moveToNative(pMove, destC, 0.0, ptr(0), 0, 1, ptr(0));
-                                    } catch (eM) {}
-                                } else {
-                                    var curC = pMove.add(off('__PLAYER_COORD__')).readPointer();
-                                    var k = ptr(0);
-                                    try { if (!curC.isNull()) k = curC.readPointer(); } catch (eK1) {}
-                                    if (k.isNull()) {
-                                        try {
-                                            var lastC = pMove.add(off('__PLAYER_LAST_COORD__')).readPointer();
-                                            if (!lastC.isNull()) k = lastC.readPointer();
-                                        } catch (eK2) {}
-                                    }
-                                    if (k.isNull() && cachedCoordKlass && !cachedCoordKlass.isNull()) {
-                                        k = cachedCoordKlass;
-                                    }
-                                    if (!k.isNull()) {
-                                        coordBuf.writePointer(k);
-                                        coordBuf.add(0x08).writePointer(ptr(0));
-                                        coordBuf.add(0x10).writeS32(parseInt(target.x));
-                                        coordBuf.add(0x14).writeS32(parseInt(target.y));
-                                        try {
-                                            moveToNative(pMove, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
-                                        } catch (eM2) {}
-                                    }
-                                }
-                            }
-                        } catch (eQueueMove) {}
+                        dispatchMoveTarget(target);
                     }
                 } catch (eEnter) {}
             }
@@ -1486,24 +1615,18 @@ function findLugardNpc() {
     return null;
 }
 
-var _syntheticLugardPtr = null;
 function getOrCreateLugardPtr(npcPtr) {
-    if (npcPtr && npcPtr !== 0 && !ptr(npcPtr).isNull()) {
-        return ptr(npcPtr);
+    if (npcPtr && npcPtr !== 0) {
+        try {
+            var p = ptr(npcPtr);
+            if (!p.isNull()) return p;
+        } catch (e) {}
     }
     var lugard = findLugardNpc();
     if (lugard && !lugard.isNull()) {
         return lugard;
     }
-    if (_syntheticLugardPtr === null) {
-        // Cấu trúc Mega.Body tối thiểu cho NPC Lugard Event Square (ID: 723, Type: 45 / 0x2D):
-        _syntheticLugardPtr = Memory.alloc(0x100);
-        _syntheticLugardPtr.add(0x10).writePointer(_syntheticLugardPtr); // non-null gameObject pointer
-        _syntheticLugardPtr.add(0x20).writeS32(723); // npcKey = 723
-        _syntheticLugardPtr.add(0x34).writeS32(0x2d); // Lugard DoubleGoer NPC type (45 / 0x2d)
-        _syntheticLugardPtr.add(0xC0).writeU8(0); // isDead = 0
-    }
-    return _syntheticLugardPtr;
+    return null;
 }
 
 function findCharonNpc() {
@@ -1577,24 +1700,18 @@ function findCharonNpc() {
     return null;
 }
 
-var _syntheticCharonPtr = null;
 function getOrCreateCharonPtr(npcPtr) {
-    if (npcPtr && npcPtr !== 0 && !ptr(npcPtr).isNull()) {
-        return ptr(npcPtr);
+    if (npcPtr && npcPtr !== 0) {
+        try {
+            var p = ptr(npcPtr);
+            if (!p.isNull()) return p;
+        } catch (e) {}
     }
     var charon = findCharonNpc();
     if (charon && !charon.isNull()) {
         return charon;
     }
-    if (_syntheticCharonPtr === null) {
-        // Cấu trúc Mega.Body tối thiểu cho NPC Charon Event Square (ID: 720 / 0x2D0):
-        // +0x20: npcKey / index = 720 (để Mega.NpcManager.Talk 0xF8D320 ghi vào packet C1:05:32)
-        // +0x34: npcType = 720 (0x2D0) (để Mega.DevilSquare.ILAIHGMFEGF 0xEFA3D0 nhận diện đúng Charon Event Square)
-        _syntheticCharonPtr = Memory.alloc(0x100);
-        _syntheticCharonPtr.add(0x20).writeS32(720);
-        _syntheticCharonPtr.add(0x34).writeS32(720);
-    }
-    return _syntheticCharonPtr;
+    return null;
 }
 
 function checkDevilItem(itemPtr, idx) {
@@ -1602,33 +1719,56 @@ function checkDevilItem(itemPtr, idx) {
     var itName = getItemName(itemPtr) || "";
     var lowName = itName.toLowerCase();
     var itLevel = 0;
-    try { itLevel = itemPtr.add(0x10).readS32(); } catch (eL) {}
+    try { itLevel = itemPtr.add(0x14).readS32(); } catch (eL) {}
 
-    // 1. Nhận diện theo ID: 7187 (0x1C13 - Devil's Invitation thường 1..7) hoặc 6702 (0x1A2E - Master Ticket)
-    if (trueIdx === 7187 || trueIdx === 6702) {
-        var isMaster = (trueIdx === 6702);
+    // 1. Nhận diện Master Ticket (Vé Master):
+    // - ID: 6702 (0x1A2E), 7214 (0x1C2E), 6675
+    // - Hoặc vé 7187 có level >= 7
+    // - Hoặc tên có từ 'master' cùng với 'devil'/'invit'/'diabo'/'convite'
+    var isMasterId = (trueIdx === 6702 || trueIdx === 7214 || trueIdx === 6675);
+    var isMasterName = (lowName.indexOf("master") !== -1 && (
+        lowName.indexOf("devil") !== -1 ||
+        lowName.indexOf("invit") !== -1 ||
+        lowName.indexOf("diabo") !== -1 ||
+        lowName.indexOf("convite") !== -1
+    ));
+    var isMaster = isMasterId || isMasterName || (trueIdx === 7187 && itLevel >= 7);
+
+    // 2. Nhận diện Normal Ticket (Vé thường):
+    // - ID 7187 (level 1..6)
+    // - Hoặc theo tên gọi chuẩn
+    var isNormalId = (trueIdx === 7187 && !isMaster);
+    var isNormalName = !isMaster && (
+        lowName.indexOf("devil's invitation") !== -1 ||
+        lowName.indexOf("devil invitation") !== -1 ||
+        lowName.indexOf("convite do diabo") !== -1 ||
+        lowName.indexOf("convite devil") !== -1 ||
+        lowName.indexOf("devil square ticket") !== -1 ||
+        (lowName.indexOf("devil") !== -1 && lowName.indexOf("invit") !== -1) ||
+        (lowName.indexOf("diabo") !== -1 && lowName.indexOf("convite") !== -1)
+    );
+
+    if (isMaster) {
         return {
             isTicket: true,
-            isMaster: isMaster,
+            isMaster: true,
             level: itLevel,
-            name: itName || (isMaster ? "Master Devil's Invitation" : ("Devil's Invitation +" + itLevel))
+            index: trueIdx,
+            name: itName || "Master Devil's Invitation"
         };
     }
 
-    // 2. Nhận diện theo Tên (tiếng Anh & tiếng Bồ Đào Nha MEGAMU)
-    if (lowName.length > 0) {
-        if (lowName.indexOf("devil's invitation") !== -1 ||
-            lowName.indexOf("devil invitation") !== -1 ||
-            lowName.indexOf("convite do diabo") !== -1 ||
-            lowName.indexOf("convite devil") !== -1 ||
-            lowName.indexOf("devil square ticket") !== -1 ||
-            (lowName.indexOf("devil") !== -1 && lowName.indexOf("invit") !== -1) ||
-            (lowName.indexOf("diabo") !== -1 && lowName.indexOf("convite") !== -1)) {
-            var isM = (lowName.indexOf("master") !== -1 || trueIdx === 6702);
-            return { isTicket: true, isMaster: isM, level: itLevel, name: itName };
-        }
+    if (isNormalId || isNormalName) {
+        return {
+            isTicket: true,
+            isMaster: false,
+            level: itLevel,
+            index: trueIdx,
+            name: itName || ("Devil's Invitation +" + itLevel)
+        };
     }
-    return { isTicket: false, isMaster: false, level: 0, name: itName };
+
+    return { isTicket: false, isMaster: false, level: 0, index: trueIdx, name: itName };
 }
 
 function getPlayerDevilSquareLevel() {
@@ -1854,25 +1994,18 @@ try {
                     try { dispatchHelperAction(hAct); } catch (eHGU) {}
                 }
 
-                helperSyncCounter = (helperSyncCounter || 0) + 1;
-                if (helperSyncCounter >= 30) {
-                    helperSyncCounter = 0;
-                    try {
-                        var pHS = getPlayerPtr();
-                        if (!pHS.isNull()) {
-                            var hPtr = pHS.add(off('__PLAYER_HELPER__')).readPointer();
-                            if (!hPtr.isNull()) {
-                                var curAct = hPtr.add(off('__HELPER_STATE__')).readU8();
-                                syncHelperUI(curAct === 1);
-                            }
-                        }
-                    } catch (eHAutoSync) {}
-                }
+
 
                 if (pendingCommand !== null) {
                     var cmd = pendingCommand;
                     pendingCommand = null;
                     try { dispatchChatMessage(cmd); } catch (eCGU) {}
+                }
+
+                if (pendingMoveTarget !== null) {
+                    var mTarget = pendingMoveTarget;
+                    pendingMoveTarget = null;
+                    try { dispatchMoveTarget(mTarget); } catch (eMGU) {}
                 }
 
                 if (pendingAutoLogin === null) return;
@@ -1985,9 +2118,48 @@ function ensureThreadAttached() {
     } catch (e) {}
 }
 
-var coordBuf = Memory.alloc(64);
-var cachedCoordKlass = ptr(0);
-var shuttingDown = false;
+
+
+function getCurrentMapId() {
+    var mapId = -1;
+    try {
+        if (getWorldNative !== null) {
+            var w = getWorldNative();
+            if (!w.isNull()) {
+                var sc = w.add(off('__WORLD_SCENE_INDEX__')).readS32();
+                if (sc >= 0 && sc <= 255) mapId = sc;
+            }
+        }
+    } catch (eWorldNative) {}
+
+    if (mapId < 0) {
+        try {
+            var tiOffset = off('__GAME_TYPE_INFO__');
+            if (!tiOffset.isNull()) {
+                var typeInfo = baseAddr.add(tiOffset).readPointer();
+                if (!typeInfo.isNull()) {
+                    var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+                    if (!staticFields.isNull()) {
+                        var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+                        if (!gameInstance.isNull()) {
+                            var world = gameInstance.add(off('__GAME_WORLD__')).readPointer();
+                            if (!world.isNull()) {
+                                var sc2 = world.add(off('__WORLD_SCENE_INDEX__')).readS32();
+                                if (sc2 >= 0 && sc2 <= 255) mapId = sc2;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (eWorld) {}
+    }
+    return mapId;
+}
+
+function isCurrentMapDoubleGoer() {
+    var mid = getCurrentMapId();
+    return (mid >= 65 && mid <= 68);
+}
 
 function readPlayerInfoSnapshot(readName) {
     try {
@@ -2034,35 +2206,8 @@ function readPlayerInfoSnapshot(readName) {
             }
         } catch (eCoord) {}
 
-        // Đọc Map ID (SceneIndex) chuẩn xác 100% qua native get_world hoặc static GameInstance
-        try {
-            if (getWorldNative !== null) {
-                var w = getWorldNative();
-                if (!w.isNull()) {
-                    var sc = w.add(off('__WORLD_SCENE_INDEX__')).readS32();
-                    if (sc >= 0 && sc <= 255) mapId = sc;
-                }
-            }
-        } catch (eWorldNative) {}
-
-        if (mapId < 0) {
-            try {
-                var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
-                if (!typeInfo.isNull()) {
-                    var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
-                    if (!staticFields.isNull()) {
-                        var gameInstance = staticFields.add(ptr('0x8')).readPointer();
-                        if (!gameInstance.isNull()) {
-                            var world = gameInstance.add(off('__GAME_WORLD__')).readPointer();
-                            if (!world.isNull()) {
-                                var sc = world.add(off('__WORLD_SCENE_INDEX__')).readS32();
-                                if (sc >= 0 && sc <= 255) mapId = sc;
-                            }
-                        }
-                    }
-                }
-            } catch (eWorld) {}
-        }
+        // Đọc Map ID (SceneIndex) chuẩn xác 100% qua getCurrentMapId()
+        mapId = getCurrentMapId();
 
         var isMoving = false;
         try {
@@ -2139,6 +2284,13 @@ fastTelemetryTick();
 var _nativeMirrorTurboTimer = null;
 var _nativeMirrorTurboStats = { running: false, packetsSent: 0, startTime: 0, durationMs: 0, activeSlot: -1, relSlot: -1, entered: false };
 
+function cleanupNativeTurbo() {
+    if (_nativeMirrorTurboTimer !== null) {
+        clearInterval(_nativeMirrorTurboTimer);
+        _nativeMirrorTurboTimer = null;
+    }
+}
+
 rpc.exports = {
     getPlayerInfo: function() {
         return readPlayerInfoSnapshot(true);
@@ -2170,7 +2322,7 @@ rpc.exports = {
                     p.add(off('__AUTO_MOVE_TYPE__')).writeS32(-1);
                 } catch (eA) {}
                 try {
-                    nativeStopAutoMove(p, 1, ptr(0));
+                    nativeStopAutoMove(p, 0, ptr(0));
                 } catch (eS) {}
                 return true;
             }
@@ -2227,9 +2379,8 @@ rpc.exports = {
     startHelper: function() {
         try {
             ensureThreadAttached();
-            pendingHelperAction = 'start';
-            try { dispatchHelperAction('start'); } catch (eD1) {}
-            return true;
+            pendingHelperAction = null;
+            return dispatchHelperAction('start');
         } catch (eH) {}
         return false;
     },
@@ -2237,9 +2388,8 @@ rpc.exports = {
     stopHelper: function() {
         try {
             ensureThreadAttached();
-            pendingHelperAction = 'stop';
-            try { dispatchHelperAction('stop'); } catch (eD2) {}
-            return true;
+            pendingHelperAction = null;
+            return dispatchHelperAction('stop');
         } catch (eH) {}
         return false;
     },
@@ -2247,9 +2397,8 @@ rpc.exports = {
     toggleHelper: function() {
         try {
             ensureThreadAttached();
-            pendingHelperAction = 'toggle';
-            try { dispatchHelperAction('toggle'); } catch (eD3) {}
-            return true;
+            pendingHelperAction = null;
+            return dispatchHelperAction('toggle');
         } catch (eT) {}
         return false;
     },
@@ -2349,7 +2498,7 @@ rpc.exports = {
             ensureThreadAttached();
             var p = getPlayerPtr();
             if (!p.isNull()) {
-                nativeStopAutoMove(p, 1, ptr(0));
+                nativeStopAutoMove(p, 0, ptr(0));
                 return true;
             }
         } catch (eSM) {}
@@ -2840,27 +2989,33 @@ rpc.exports = {
             }
 
             for (var s = 12; s < maxSlot; s++) {
+                // HARD SAFETY GUARD: Tuyệt đối không bao giờ bán trang bị trên người (0..11)
+                if (s < 12) continue;
+
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                 if (itemPtr.isNull()) continue;
 
                 var itemIndex = readItemIndex(itemPtr);
                 var itemLevel = itemPtr.add(0x10).readS32();
+                var skill = itemPtr.add(0x14).readS32();
+                var luck = itemPtr.add(0x18).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
-                var sockOpt = itemPtr.add(0x2C).readS32();
-                var sec = Math.floor(itemIndex / 512);
+                var sockOpt = itemPtr.add(0x28).readS32();
+                var harmonyOpt = itemPtr.add(0x2C).readS32();
 
                 // BẢO VỆ TUYỆT ĐỐI (Không bao giờ bán):
-                // 1. Đồ Divine, Đồ Rồng (isDivineOrDragonItem)
+                // 1. Đồ Divine, Đồ Rồng, Master/Ruud/High-tier (isDivineOrDragonItem)
                 // 2. Đồ Hoàn Hảo (excOpt > 0)
                 // 3. Đồ Thần (ancOpt > 0)
-                // 4. Đồ Socket (sockOpt > 0)
-                // 5. Cấp độ >= +8 (giữ lại đồ xịn +8 trở lên)
-                // 6. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
-                if (isDivineOrDragonItem(itemPtr, itemIndex)) continue;
-                if (excOpt > 0 || ancOpt > 0 || sockOpt > 0) continue;
-                if (sec >= 12 && sec <= 15) continue;
-                if (itemLevel > 7) continue; // BÁN TOÀN BỘ ĐỒ RÁC THƯỜNG TỪ +0 ĐẾN +7!
+                // 4. Đồ Socket / 380 (sockOpt > 0)
+                // 5. Đồ Harmony (harmonyOpt > 0)
+                // 6. Đồ có May Mắn (luck > 0)
+                // 7. Cấp độ >= +7 (giữ lại đồ xịn +7 trở lên)
+                // 8. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
+                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, -1)) {
+                    continue;
+                }
 
                 candidatesCount++;
                 var itName = getItemName(itemPtr);
@@ -2965,7 +3120,7 @@ rpc.exports = {
                         if (!inv.isNull()) {
                             var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
                             if (!itemsArr.isNull()) {
-                                var maxSlot = 140;
+                                var maxSlot = 204;
                                 try {
                                     var arrLen = itemsArr.add(0x18).readS32();
                                     if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
@@ -2990,30 +3145,23 @@ rpc.exports = {
                 } catch (eScan) {}
             }
 
-            // Đóng bất kỳ cửa sổ đối thoại NPC nào đang mở để tránh bị modal chặn thao tác
+            // Đóng bất kỳ cửa sổ đối thoại NPC nào đang mở
             if (nativeCloseTalk !== null) {
                 try { nativeCloseTalk(); } catch (eCT) {}
             }
 
-            var pLugard = getOrCreateLugardPtr(0);
-
-            // Gửi packet đối thoại Lugard (723) lên GameServer để server phát thông báo "The entrance is currently closed" nếu chưa mở cổng
+            // Gửi packet C1:30/C1:32 tới GameServer (Server sẽ phản hồi thông báo cổng đóng nếu chưa đến giờ)
             sendLugardTalkPacket();
-            if (pLugard && !pLugard.isNull()) {
-                invokeNpcTalk(pLugard);
-            }
 
             if (itemSlot < 0) {
-                if (nativeMirrorNpcClick !== null && pLugard && !pLugard.isNull()) {
-                    try { nativeMirrorNpcClick(pLugard, ptr(0)); } catch (eMNP) {}
-                }
-                sendMirrorEnterPacket(0);
                 return JSON.stringify({ success: false, error: "no_ticket" });
             }
 
             var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
-            var intMs = (intervalMs !== undefined && parseInt(intervalMs) >= 15) ? parseInt(intervalMs) : 35;
+            var intMs = (intervalMs !== undefined && parseInt(intervalMs) >= 40) ? parseInt(intervalMs) : 60;
             var maxDur = (maxDurationMs !== undefined && parseInt(maxDurationMs) >= 1000) ? parseInt(maxDurationMs) : 15000;
+
+            cleanupNativeTurbo();
 
             _nativeMirrorTurboStats = {
                 running: true,
@@ -3025,35 +3173,43 @@ rpc.exports = {
                 entered: false
             };
 
-            // Bắn ngay packet đầu tiên không độ trễ (0ms delay) qua cả Native 0xEFF1B0, 0xEFD7A0 và socket
+            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms) - Đồng bộ 100% với hàm Vào Mirror
             if (nativeMirrorEnterAlt !== null) {
-                try { nativeMirrorEnterAlt(relSlot, ptr(0)); } catch (eNEAlt0) {}
+                try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
             }
             if (nativeMirrorEnter !== null) {
-                try { nativeMirrorEnter(relSlot, ptr(0)); } catch (eNE1) {}
-                try { nativeMirrorEnter(itemSlot, ptr(0)); } catch (eNE2) {}
+                try { nativeMirrorEnter(relSlot); } catch (eNE1) {}
             }
             sendMirrorEnterPacket(relSlot);
-            sendMirrorEnterPacket(itemSlot);
-            _nativeMirrorTurboStats.packetsSent++;
+            _nativeMirrorTurboStats.packetsSent += 1;
 
-            var checkMapCounter = 0;
             _nativeMirrorTurboTimer = setInterval(function() {
                 try {
                     if (!_nativeMirrorTurboStats.running) {
-                        if (_nativeMirrorTurboTimer !== null) {
-                            clearInterval(_nativeMirrorTurboTimer);
-                            _nativeMirrorTurboTimer = null;
-                        }
+                        cleanupNativeTurbo();
                         return;
                     }
+
+                    // --- BƯỚC 1: KIỂM TRA ĐÃ VÀO MAP DOUBLE GOER (MAP ID: 65, 66, 67, 68) ---
+                    // Tuyệt đối chỉ trigger thành công khi SceneIndex thực sự thuộc 65-68!
+                    // Event Square là map 53 sẽ luôn trả về false, không bao giờ trigger ảo!
+                    if (isCurrentMapDoubleGoer()) {
+                        _nativeMirrorTurboStats.running = false;
+                        _nativeMirrorTurboStats.entered = true;
+                        cleanupNativeTurbo();
+                        send({
+                            type: "mirror_turbo_entered",
+                            packets: _nativeMirrorTurboStats.packetsSent,
+                            elapsed: Date.now() - _nativeMirrorTurboStats.startTime
+                        });
+                        return;
+                    }
+
+                    // --- BƯỚC 2: KIỂM TRA HẾT HẠN THỜI GIAN (TIMEOUT) ---
                     var elapsed = Date.now() - _nativeMirrorTurboStats.startTime;
                     if (elapsed >= _nativeMirrorTurboStats.durationMs) {
                         _nativeMirrorTurboStats.running = false;
-                        if (_nativeMirrorTurboTimer !== null) {
-                            clearInterval(_nativeMirrorTurboTimer);
-                            _nativeMirrorTurboTimer = null;
-                        }
+                        cleanupNativeTurbo();
                         send({
                             type: "mirror_turbo_timeout",
                             packets: _nativeMirrorTurboStats.packetsSent,
@@ -3062,39 +3218,16 @@ rpc.exports = {
                         return;
                     }
 
-                    // Bắn packet trực tiếp tốc độ cao đồng thời qua Native 0xFA3E10 và Packet BF:0E, B0:AB, đối thoại Lugard
-                    sendLugardTalkPacket();
+                    // --- BƯỚC 3: GỌI NATIVE ENTRY VÀ BẮN PACKET CƯỚP CỔNG (ĐỒNG BỘ 100% VỚI PHẦN VÀO CỬA) ---
                     if (nativeMirrorEnterAlt !== null) {
-                        try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot, ptr(0)); } catch (eLAlt) {}
+                        try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot); } catch (eNEA) {}
                     }
                     if (nativeMirrorEnter !== null) {
-                        try { nativeMirrorEnter(_nativeMirrorTurboStats.relSlot, ptr(0)); } catch (eL1) {}
-                        try { nativeMirrorEnter(_nativeMirrorTurboStats.activeSlot, ptr(0)); } catch (eL2) {}
+                        try { nativeMirrorEnter(_nativeMirrorTurboStats.relSlot); } catch (eNE1) {}
                     }
                     sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
-                    sendMirrorEnterPacket(_nativeMirrorTurboStats.activeSlot);
-                    _nativeMirrorTurboStats.packetsSent++;
+                    _nativeMirrorTurboStats.packetsSent += 1;
 
-                    // Mỗi 4 packet (~120-140ms), kiểm tra xem nhân vật đã vào map sự kiện chưa
-                    checkMapCounter++;
-                    if (checkMapCounter >= 4) {
-                        checkMapCounter = 0;
-                        var info = readPlayerInfoSnapshot(false);
-                        if (info && info.mapId !== undefined && (info.mapId >= 65 && info.mapId <= 68)) {
-                            _nativeMirrorTurboStats.running = false;
-                            _nativeMirrorTurboStats.entered = true;
-                            if (_nativeMirrorTurboTimer !== null) {
-                                clearInterval(_nativeMirrorTurboTimer);
-                                _nativeMirrorTurboTimer = null;
-                            }
-                            send({
-                                type: "mirror_turbo_entered",
-                                packets: _nativeMirrorTurboStats.packetsSent,
-                                elapsed: elapsed,
-                                mapId: info.mapId
-                            });
-                        }
-                    }
                 } catch (eLoop) {}
             }, intMs);
 
@@ -3111,10 +3244,7 @@ rpc.exports = {
 
     stopNativeMirrorTurbo: function() {
         try {
-            if (_nativeMirrorTurboTimer !== null) {
-                clearInterval(_nativeMirrorTurboTimer);
-                _nativeMirrorTurboTimer = null;
-            }
+            cleanupNativeTurbo();
             _nativeMirrorTurboStats.running = false;
             return JSON.stringify({
                 stopped: true,
@@ -3146,7 +3276,7 @@ rpc.exports = {
                         if (!inv.isNull()) {
                             var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
                             if (!itemsArr.isNull()) {
-                                var maxSlot = 140;
+                                var maxSlot = 204;
                                 try {
                                     var arrLen = itemsArr.add(0x18).readS32();
                                     if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
@@ -3193,18 +3323,13 @@ rpc.exports = {
 
             if (itemSlot >= 0) {
                 var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
-                // Bắn trực tiếp qua cả 2 hàm native enter:
-                // 1) nativeMirrorEnterAlt (0xFAED40) - gửi BF:0E qua GameServer connection
-                // 2) nativeMirrorEnter (0xFA8BE0) - gửi B0
                 if (nativeMirrorEnterAlt !== null) {
-                    try { nativeMirrorEnterAlt(relSlot, ptr(0)); } catch (eNEA) {}
+                    try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
                 }
                 if (nativeMirrorEnter !== null) {
-                    try { nativeMirrorEnter(relSlot, ptr(0)); } catch (eNE1) {}
-                    try { nativeMirrorEnter(itemSlot, ptr(0)); } catch (eNE2) {}
+                    try { nativeMirrorEnter(relSlot); } catch (eNE1) {}
                 }
                 sendMirrorEnterPacket(relSlot);
-                sendMirrorEnterPacket(itemSlot);
                 return JSON.stringify({
                     success: true,
                     slot: itemSlot,
@@ -3212,17 +3337,8 @@ rpc.exports = {
                     isExtended: (itemSlot >= 76)
                 });
             } else {
-                // KHI KHÔNG CÓ VÉ: Kích hoạt nativeMirrorNpcClick với pLugard (kể cả không có NPC trong viewport)
-                // để Client game hiển thị popup "You don't have a Mirror of Dimensions"
                 if (nativeMirrorNpcClick !== null && pLugard && !pLugard.isNull()) {
                     try { nativeMirrorNpcClick(pLugard, ptr(0)); } catch (eMNP) {}
-                }
-                sendMirrorEnterPacket(0);
-                if (nativeMirrorEnterAlt !== null) {
-                    try { nativeMirrorEnterAlt(0, ptr(0)); } catch (eNEA0) {}
-                }
-                if (nativeMirrorEnter !== null) {
-                    try { nativeMirrorEnter(0, ptr(0)); } catch (eNE0) {}
                 }
                 return JSON.stringify({ success: false, error: "no_ticket" });
             }
@@ -3245,7 +3361,7 @@ rpc.exports = {
                         var signSlots = [];
                         var mainTickets = [];
                         var extTickets = [];
-                        var maxSlot = 140;
+                        var maxSlot = 204;
                         try {
                             var arrLen = itemsArr.add(0x18).readS32();
                             if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
@@ -3317,15 +3433,7 @@ rpc.exports = {
     isMirrorEventMap: function() {
         try {
             ensureThreadAttached();
-            if (nativeMirrorIsEventMap !== null) {
-                try {
-                    if (nativeMirrorIsEventMap()) return true;
-                } catch (eNM) {}
-            }
-            var info = readPlayerInfoSnapshot(false);
-            if (info && info.mapId !== undefined && info.mapId >= 0) {
-                return (info.mapId >= 65 && info.mapId <= 68);
-            }
+            return isCurrentMapDoubleGoer();
         } catch (eMM) {}
         return false;
     },
@@ -3335,6 +3443,7 @@ rpc.exports = {
             ensureThreadAttached();
             var dsLevel = (targetLevel !== undefined && targetLevel !== null && parseInt(targetLevel) >= 0) ? parseInt(targetLevel) : getPlayerDevilSquareLevel();
             var itemSlot = -1;
+            var isMasterTicketUsed = false;
             if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
                 itemSlot = parseInt(slot);
             } else {
@@ -3351,10 +3460,11 @@ rpc.exports = {
                                     if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
                                 } catch (eLen) {}
 
-                                var mainMatchedSlot = -1;
-                                var extMatchedSlot = -1;
-                                var anyMainSlot = -1;
-                                var anyExtSlot = -1;
+                                var masterMatchedSlot = -1;
+                                var normalMatchedSlot = -1;
+                                var anyMasterSlot = -1;
+                                var anyNormalSlot = -1;
+                                var anyTicketSlot = -1;
 
                                 for (var s = 12; s < maxSlot; s++) {
                                     var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
@@ -3362,20 +3472,50 @@ rpc.exports = {
                                         var idx = readItemIndex(itemPtr);
                                         var check = checkDevilItem(itemPtr, idx);
                                         if (check.isTicket) {
-                                            var matches = (check.isMaster || check.level === (dsLevel + 1) || check.level === 0 || dsLevel >= 6);
-                                            if (matches) {
-                                                if (s < 76 && mainMatchedSlot < 0) mainMatchedSlot = s;
-                                                else if (s >= 76 && extMatchedSlot < 0) extMatchedSlot = s;
+                                            if (anyTicketSlot < 0) anyTicketSlot = s;
+                                            if (check.isMaster) {
+                                                if (anyMasterSlot < 0) anyMasterSlot = s;
+                                                // Master: dsLevel >= 6
+                                                if (dsLevel >= 6 && masterMatchedSlot < 0) {
+                                                    masterMatchedSlot = s;
+                                                }
+                                            } else {
+                                                if (anyNormalSlot < 0) anyNormalSlot = s;
+                                                if (check.level === (dsLevel + 1) || check.level === 0 || (dsLevel >= 6 && check.level >= 7)) {
+                                                    if (normalMatchedSlot < 0) normalMatchedSlot = s;
+                                                }
                                             }
-                                            if (s < 76 && anyMainSlot < 0) anyMainSlot = s;
-                                            else if (s >= 76 && anyExtSlot < 0) anyExtSlot = s;
                                         }
                                     }
                                 }
-                                if (mainMatchedSlot >= 12) itemSlot = mainMatchedSlot;
-                                else if (extMatchedSlot >= 12) itemSlot = extMatchedSlot;
-                                else if (anyMainSlot >= 12) itemSlot = anyMainSlot;
-                                else if (anyExtSlot >= 12) itemSlot = anyExtSlot;
+
+                                // Ưu tiên vé:
+                                // Nếu là Master (dsLevel >= 6): Ưu tiên Master Ticket trước, sau đó tới Normal Matched (+7)
+                                if (dsLevel >= 6) {
+                                    if (masterMatchedSlot >= 12) {
+                                        itemSlot = masterMatchedSlot;
+                                        isMasterTicketUsed = true;
+                                    } else if (anyMasterSlot >= 12) {
+                                        itemSlot = anyMasterSlot;
+                                        isMasterTicketUsed = true;
+                                    } else if (normalMatchedSlot >= 12) {
+                                        itemSlot = normalMatchedSlot;
+                                    } else if (anyTicketSlot >= 12) {
+                                        itemSlot = anyTicketSlot;
+                                    }
+                                } else {
+                                    // Nhân vật thường: Ưu tiên Normal Ticket đúng cấp
+                                    if (normalMatchedSlot >= 12) {
+                                        itemSlot = normalMatchedSlot;
+                                    } else if (anyNormalSlot >= 12) {
+                                        itemSlot = anyNormalSlot;
+                                    } else if (anyMasterSlot >= 12) {
+                                        itemSlot = anyMasterSlot;
+                                        isMasterTicketUsed = true;
+                                    } else if (anyTicketSlot >= 12) {
+                                        itemSlot = anyTicketSlot;
+                                    }
+                                }
                             }
                         }
                     }
@@ -3386,23 +3526,25 @@ rpc.exports = {
             if (nativeCloseTalk !== null) {
                 try { nativeCloseTalk(); } catch (eCT) {}
             }
+            var charon = getOrCreateCharonPtr();
+
+            // 1. Tương tác với NPC Charon: Gửi packet C1:30 đối thoại và gọi NPC Talk
+            // Server sẽ gửi thông báo cổng đóng trực tiếp trên màn hình game nếu chưa đến giờ mở cửa!
             try {
-                var charon = getOrCreateCharonPtr();
+                sendCharonTalkPacket();
                 if (charon && !charon.isNull()) {
-                    if (nativeNpcTalk !== null) {
-                        try { nativeNpcTalk(charon, ptr(0)); } catch (eNT) {}
-                    }
+                    invokeNpcTalk(charon);
                 }
-            } catch (eCharonEnter) {}
+            } catch (eCharonTalk) {}
 
             if (itemSlot >= 0) {
                 var actualSlot = (itemSlot < 12) ? (itemSlot + 12) : itemSlot;
-                // Chỉ gửi lệnh vào đúng 1 lần duy nhất, không gửi nhiều packet spam
+                // Gửi trực tiếp vào NPC và bỏ qua xác nhận (Zero-confirm)
                 if (nativeDevilEnter !== null) {
                     try { nativeDevilEnter(dsLevel, actualSlot, ptr(0)); } catch (eNDE1) {}
-                } else {
-                    sendDevilEnterPacket(dsLevel, actualSlot);
                 }
+                // Fallback qua GS packet [0xC1, 0x05, 0x90, level, slot]
+                sendDevilEnterPacket(dsLevel, actualSlot);
 
                 if (nativeCloseTalk !== null) {
                     try { nativeCloseTalk(); } catch (eCT2) {}
@@ -3412,10 +3554,17 @@ rpc.exports = {
                     success: true,
                     dsLevel: dsLevel,
                     slot: actualSlot,
+                    isMasterTicket: isMasterTicketUsed,
                     isExtended: (actualSlot >= 76)
                 });
+            } else {
+                // KHÔNG CÓ VÉ: Kích hoạt client click NPC Charon (0xF760C0)
+                // Game sẽ hiển thị popup dialog "You don't have a Devil's Invitation" ngay trên màn hình game!
+                if (nativeDevilNpcClick !== null && charon && !charon.isNull()) {
+                    try { nativeDevilNpcClick(charon, ptr(0)); } catch (eDNC) {}
+                }
+                return JSON.stringify({ success: false, error: "no_ticket" });
             }
-            return JSON.stringify({ success: false, error: "no_ticket" });
         } catch (eDE) {
             return JSON.stringify({ success: false, error: eDE.toString() });
         }
@@ -3438,9 +3587,11 @@ rpc.exports = {
                         } catch (eLen) {}
 
                         var tickets = [];
+                        var normalSlots = [];
+                        var masterSlots = [];
                         var matchedTickets = [];
-                        var mainSlots = [];
-                        var extSlots = [];
+                        var normalTickets = [];
+                        var masterTickets = [];
 
                         for (var s = 12; s < maxSlot; s++) {
                             var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
@@ -3449,9 +3600,23 @@ rpc.exports = {
                                 var check = checkDevilItem(itemPtr, idx);
                                 if (check.isTicket) {
                                     tickets.push(s);
-                                    if (s < 76) mainSlots.push(s);
-                                    else extSlots.push(s);
-                                    if (check.isMaster || check.level === (dsLevel + 1) || check.level === 0 || dsLevel >= 6) {
+                                    if (check.isMaster) {
+                                        masterSlots.push(s);
+                                        masterTickets.push({ slot: s, level: check.level, name: check.name });
+                                    } else {
+                                        normalSlots.push(s);
+                                        normalTickets.push({ slot: s, level: check.level, name: check.name });
+                                    }
+
+                                    var isMatched = false;
+                                    if (check.isMaster) {
+                                        if (dsLevel >= 6) isMatched = true;
+                                    } else {
+                                        if (check.level === (dsLevel + 1) || check.level === 0 || (dsLevel >= 6 && check.level >= 7)) {
+                                            isMatched = true;
+                                        }
+                                    }
+                                    if (isMatched) {
                                         matchedTickets.push(s);
                                     }
                                 }
@@ -3459,33 +3624,55 @@ rpc.exports = {
                         }
                         return JSON.stringify({
                             hasTicket: tickets.length > 0,
+                            hasNormalTicket: normalSlots.length > 0,
+                            hasMasterTicket: masterSlots.length > 0,
                             hasMatchedTicket: matchedTickets.length > 0,
                             count: tickets.length,
+                            normalCount: normalSlots.length,
+                            masterCount: masterSlots.length,
                             dsLevel: dsLevel,
                             targetTicketLevel: dsLevel + 1,
                             slots: tickets,
+                            normalSlots: normalSlots,
+                            masterSlots: masterSlots,
                             matchedSlots: matchedTickets,
-                            mainSlots: mainSlots,
-                            extSlots: extSlots,
-                            hasOnlyExtended: (mainSlots.length === 0 && extSlots.length > 0)
+                            normalTickets: normalTickets,
+                            masterTickets: masterTickets
                         });
                     }
                 }
             }
         } catch (eDTI) {}
-        return JSON.stringify({ hasTicket: false, count: 0, slots: [] });
+        return JSON.stringify({
+            hasTicket: false,
+            hasNormalTicket: false,
+            hasMasterTicket: false,
+            hasMatchedTicket: false,
+            count: 0,
+            normalCount: 0,
+            masterCount: 0,
+            slots: []
+        });
     },
 
     clickDevilNpc: function(npcPtr) {
         try {
             ensureThreadAttached();
             var p = getOrCreateCharonPtr(npcPtr);
-            if (!p.isNull()) {
+            if (p && !p.isNull()) {
                 if (nativeCloseTalk !== null) {
                     try { nativeCloseTalk(); } catch (eCT) {}
                 }
-                if (nativeNpcTalk !== null) {
-                    try { nativeNpcTalk(p, ptr(0)); } catch (eNT) {}
+                sendCharonTalkPacket();
+                invokeNpcTalk(p);
+                if (nativeDevilNpcClick !== null) {
+                    try { nativeDevilNpcClick(p, ptr(0)); } catch (eDN) {}
+                }
+                if (nativeUniversalNpcClick !== null) {
+                    var nm = getNpcManagerPtr();
+                    if (!nm.isNull()) {
+                        try { nativeUniversalNpcClick(nm, p, ptr(0)); } catch (eUNC) {}
+                    }
                 }
                 return true;
             }
@@ -3529,7 +3716,7 @@ rpc.exports = {
         return false;
     },
 
-    getInventorySummary: function() {
+    getInventorySummary: function(mossCategory) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
@@ -3553,6 +3740,7 @@ rpc.exports = {
             var junkSlots = [];
             var mossPlusSlots = [];
             var keptSlots = [];
+            var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
 
             for (var s = 12; s < maxSlot; s++) {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
@@ -3561,28 +3749,43 @@ rpc.exports = {
                     continue;
                 }
                 var itemIndex = readItemIndex(itemPtr);
-                var itemLevel = itemPtr.add(0x14).readS32();
+                var itemLevel = itemPtr.add(0x10).readS32();
+                var skill = itemPtr.add(0x14).readS32();
+                var luck = itemPtr.add(0x18).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
                 var sockOpt = itemPtr.add(0x28).readS32();
-                var sec = Math.floor(itemIndex / 512);
+                var harmonyOpt = itemPtr.add(0x2C).readS32();
 
-                // Bảo tồn nghiêm ngặt theo yêu cầu:
-                // 1. Đồ Divine, Đồ Rồng (tuyệt đối không vứt hay bán)
-                // 2. Đồ Hoàn Hảo (excOpt > 0)
-                // 3. Đồ Thần (ancOpt > 0)
-                // 4. Đồ Socket (sockOpt > 0)
-                // 5. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
-                // 6. Đồ cấp cao >= +8 (itemLevel >= 8)
-                // -> Còn lại (đồ thường từ +0 đến +7 không Exc/Set/Socket/Divine/Rồng) là đồ rác CẦN VỨT!
-                var isDivineOrDragon = isDivineOrDragonItem(itemPtr, itemIndex);
-                var isKept = isDivineOrDragon || (excOpt > 0) || (ancOpt > 0) || (sockOpt > 0) || (itemLevel >= 8) || (sec >= 12 && sec <= 15);
+                var isSpecial = isDivineOrDragonItem(itemPtr, itemIndex);
+                var isKept = isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat);
                 var isExt = (s >= 76);
                 var itName = getItemName(itemPtr);
                 if (isKept) {
-                    keptSlots.push({ slot: s, index: itemIndex, name: itName, level: itemLevel, exc: excOpt, anc: ancOpt, sock: sockOpt, isExt: isExt, isSpecial: isDivineOrDragon });
+                    keptSlots.push({
+                        slot: s,
+                        index: itemIndex,
+                        name: itName,
+                        level: itemLevel,
+                        skill: skill,
+                        luck: luck,
+                        exc: excOpt,
+                        anc: ancOpt,
+                        sock: sockOpt,
+                        harmony: harmonyOpt,
+                        isExt: isExt,
+                        isSpecial: isSpecial
+                    });
                 } else {
-                    junkSlots.push({ slot: s, index: itemIndex, name: itName, level: itemLevel, isExt: isExt });
+                    junkSlots.push({
+                        slot: s,
+                        index: itemIndex,
+                        name: itName,
+                        level: itemLevel,
+                        skill: skill,
+                        luck: luck,
+                        isExt: isExt
+                    });
                 }
             }
 
@@ -3602,11 +3805,18 @@ rpc.exports = {
         }
     },
 
-    cleanInventoryJunk: function(method) {
+    cleanInventoryJunk: function(method, protectedSlotsJson, mossCategory) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
             if (p.isNull()) return JSON.stringify({ cleaned: 0, error: "no_player" });
+
+            if (nativeGetGS !== null) {
+                try {
+                    var gs = nativeGetGS(ptr(0));
+                    if (gs.isNull()) return JSON.stringify({ cleaned: 0, error: "no_gs_connection" });
+                } catch (eGSCheck) {}
+            }
 
             var invOff = off('__PLAYER_INVENTORY__');
             var inv = p.add(invOff).readPointer();
@@ -3616,9 +3826,17 @@ rpc.exports = {
             var itemsArr = inv.add(itemsOff).readPointer();
             if (itemsArr.isNull()) return JSON.stringify({ cleaned: 0, error: "no_items_arr" });
 
-            if (nativeInvDropItem === null && nativeInvSellItem === null && nativeGSSend === null) {
-                return JSON.stringify({ cleaned: 0, error: "no_native_fn" });
+            var protMap = {};
+            if (protectedSlotsJson && typeof protectedSlotsJson === "string") {
+                try {
+                    var protArr = JSON.parse(protectedSlotsJson);
+                    for (var pi = 0; pi < protArr.length; pi++) {
+                        protMap[parseInt(protArr[pi])] = true;
+                    }
+                } catch (ePJson) {}
             }
+
+            var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
 
             var dropCoord = ptr(0);
             var curX = 0;
@@ -3626,6 +3844,7 @@ rpc.exports = {
             try {
                 var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
                 if (!curCoord.isNull()) {
+                    dropCoord = curCoord;
                     var klass = curCoord.readPointer();
                     if (!klass.isNull()) coordBuf.writePointer(klass);
                     coordBuf.add(0x08).writePointer(ptr(0));
@@ -3633,88 +3852,78 @@ rpc.exports = {
                     curY = curCoord.add(0x14).readS32();
                     coordBuf.add(0x10).writeS32(curX + 1);
                     coordBuf.add(0x14).writeS32(curY);
-                    dropCoord = coordBuf;
+                }
+                if (curX === 0 && curY === 0) {
+                    var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                    if (!lastCoord.isNull()) {
+                        curX = lastCoord.add(0x10).readS32();
+                        curY = lastCoord.add(0x14).readS32();
+                        coordBuf.add(0x10).writeS32(curX + 1);
+                        coordBuf.add(0x14).writeS32(curY);
+                    }
                 }
             } catch (eXY) {}
+            if (dropCoord.isNull()) {
+                dropCoord = coordBuf;
+            }
 
             var cleaned = 0;
-            var useMethod = (method || "drop").toLowerCase();
+            var useMethod = (method || "trash").toLowerCase();
 
-            var maxSlot = 140;
+            // Mặc định chỉ dọn thùng đồ chính (12..75) để đảm bảo không chạm vào túi mở rộng
+            var maxSlot = 76;
             try {
                 var arrLen = itemsArr.add(0x18).readS32();
                 if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
             } catch (eLen) {}
 
             for (var s = 12; s < maxSlot; s++) {
+                // HARD SAFETY GUARD 1: TUYỆT ĐỐI KHÔNG BAO GIỜ ĐỤNG VÀO CÁC Ô TRANG BỊ TRÊN NGƯỜI (0..11)
+                if (s < 12) continue;
+
+                // HARD SAFETY GUARD 2: BẢO VỆ CÁC Ô ĐÃ CÓ TRƯỚC KHI BẮT ĐẦU QUAY MOSS
+                if (protMap[s]) continue;
+
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                 if (itemPtr.isNull()) continue;
 
                 var itemIndex = readItemIndex(itemPtr);
-                var itemLevel = itemPtr.add(0x14).readS32();
+                var itemLevel = itemPtr.add(0x10).readS32();
+                var skill = itemPtr.add(0x14).readS32();
+                var luck = itemPtr.add(0x18).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
                 var sockOpt = itemPtr.add(0x28).readS32();
-                var sec = Math.floor(itemIndex / 512);
+                var harmonyOpt = itemPtr.add(0x2C).readS32();
 
-                // Bảo vệ tuyệt đối: Đồ Divine, Đồ Rồng, Đồ Exc, Ancient, Socket, Ngọc/Vé sự kiện/Cánh/Sách phép (sec 12-15), Đồ >= +8
-                // Cho phép vứt: Đồ thường từ +0 đến +7 không Exc/Ancient/Socket/Divine/Rồng
-                if (isDivineOrDragonItem(itemPtr, itemIndex) || excOpt > 0 || ancOpt > 0 || sockOpt > 0 || itemLevel >= 8 || (sec >= 12 && sec <= 15)) {
+                // HARD SAFETY GUARD 3: BẢO VỆ TOÀN DIỆN VẬT PHẨM GIÁ TRỊ VÀ THEO DANH MỤC MOSS
+                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat)) {
                     continue;
                 }
 
                 var itemHandled = false;
                 try {
-                    if (useMethod === "trash" || useMethod === "drop" || useMethod === "both") {
-                        // Thao tác 1 (Ưu tiên số 1): Vứt ra đất qua nativeInvDropItem (0x1404AD0 - IEIEMOHANPL, tự động tính tọa độ và gửi packet C1:23)
-                        if (nativeInvDropItem !== null) {
-                            try {
-                                ensureDropAllowed();
-                                nativeInvDropItem(s, ptr(0));
-                                try { Thread.sleep(0.08); } catch (eSl1) {}
-                                var postPtr1 = itemsArr.add(0x20 + s * 8).readPointer();
-                                if (postPtr1.isNull() || !postPtr1.equals(itemPtr)) {
-                                    itemHandled = true;
-                                }
-                            } catch (eDrop1) {}
-                        }
-                        // Thao tác 2: Gửi trực tiếp packet GS C1:23
-                        if (!itemHandled && curX > 0 && curY > 0) {
-                            try {
-                                sendDropPacket(s, curX + 1, curY);
-                                try { Thread.sleep(0.08); } catch (eSl2) {}
-                                var postPtr2 = itemsArr.add(0x20 + s * 8).readPointer();
-                                if (postPtr2.isNull() || !postPtr2.equals(itemPtr)) {
-                                    itemHandled = true;
-                                }
-                            } catch (eDropPkt) {}
+                    ensureDropAllowed();
+
+                    // Phương pháp gốc chuẩn đã hoạt động tốt: Gọi trực tiếp hàm Native (UserInventory.KCEAGAMOOOO)
+                    if (useMethod === "drop" || useMethod === "trash" || useMethod === "both") {
+                        if (nativeInvTrashItem !== null) {
+                            nativeInvTrashItem(s, dropCoord, ptr(0));
+                            itemHandled = true;
                         }
                     }
                     if (!itemHandled && (useMethod === "sell" || useMethod === "both")) {
-                        // Thao tác 5: Bán vào NPC shop qua nativeInvSellItem hoặc sendSellPacket
-                        if (nativeInvSellItem !== null && !inv.isNull()) {
-                            try {
-                                nativeInvSellItem(inv, s, ptr(0));
-                                try { Thread.sleep(0.06); } catch (eSl5) {}
-                                var postPtr5 = itemsArr.add(0x20 + s * 8).readPointer();
-                                if (postPtr5.isNull() || !postPtr5.equals(itemPtr)) {
-                                    itemHandled = true;
-                                }
-                            } catch (eSellNative) {}
-                        }
-                        if (!itemHandled) {
-                            sendSellPacket(s);
-                            try { Thread.sleep(0.06); } catch (eSl6) {}
-                            var postPtrSell = itemsArr.add(0x20 + s * 8).readPointer();
-                            if (postPtrSell.isNull() || !postPtrSell.equals(itemPtr)) {
-                                itemHandled = true;
-                            }
+                        if (nativeInvSellItem !== null) {
+                            nativeInvSellItem(s, ptr(0));
+                            itemHandled = true;
                         }
                     }
+
                     if (itemHandled) {
                         cleaned++;
+                        try { Thread.sleep(0.12); } catch (eSl) {}
                     }
-                } catch (eAct) {}
+                } catch (eSlotHandle) {}
             }
 
             return JSON.stringify({ cleaned: cleaned });
@@ -3728,11 +3937,11 @@ rpc.exports = {
             ensureThreadAttached();
             var allowed = ensureDropAllowed();
             var s = parseInt(slot);
+            if (s < 12) {
+                return JSON.stringify({ ok: false, err: "protected_equipped_slot", slot: s });
+            }
             var ox = parseInt(offX !== undefined ? offX : 1);
             var oy = parseInt(offY !== undefined ? offY : 0);
-            if (nativeInvDropItem === null && nativeGSSend === null) {
-                return JSON.stringify({ ok: false, err: "no_drop_native_available" });
-            }
 
             var p = getPlayerPtr();
             var dropCoord = ptr(0);
@@ -3742,6 +3951,7 @@ rpc.exports = {
                 if (!p.isNull()) {
                     var curCoord = p.add(off('__PLAYER_COORD__')).readPointer();
                     if (!curCoord.isNull()) {
+                        dropCoord = curCoord;
                         var klass = curCoord.readPointer();
                         if (!klass.isNull()) coordBuf.writePointer(klass);
                         coordBuf.add(0x08).writePointer(ptr(0));
@@ -3751,10 +3961,27 @@ rpc.exports = {
                         dropY = curY + oy;
                         coordBuf.add(0x10).writeS32(dropX);
                         coordBuf.add(0x14).writeS32(dropY);
-                        dropCoord = coordBuf;
+                        if (ox !== 0 || oy !== 0) {
+                            dropCoord = coordBuf;
+                        }
+                    }
+                    if (dropX === 0 && dropY === 0) {
+                        var lastCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                        if (!lastCoord.isNull()) {
+                            var curX2 = lastCoord.add(0x10).readS32();
+                            var curY2 = lastCoord.add(0x14).readS32();
+                            dropX = curX2 + ox;
+                            dropY = curY2 + oy;
+                            coordBuf.add(0x10).writeS32(dropX);
+                            coordBuf.add(0x14).writeS32(dropY);
+                            dropCoord = coordBuf;
+                        }
                     }
                 }
             } catch (ePXY) {}
+            if (dropCoord.isNull()) {
+                dropCoord = coordBuf;
+            }
 
             var itemP = ptr(0);
             var itemIdx = -1;
@@ -3768,7 +3995,7 @@ rpc.exports = {
                         if (!itemsArr.isNull()) {
                             itemP = itemsArr.add(0x20 + s * 8).readPointer();
                             if (!itemP.isNull()) {
-                                itemIdx = itemP.add(0x10).readS32();
+                                itemIdx = readItemIndex(itemP);
                             }
                         }
                     }
@@ -3779,45 +4006,24 @@ rpc.exports = {
                 return JSON.stringify({ ok: false, err: "empty_slot", slot: s });
             }
 
-            if (isDivineOrDragonItem(itemP, itemIdx)) {
-                return JSON.stringify({ ok: false, err: "protected_item_divine_or_dragon", slot: s });
+            var itemLevel = itemP.add(0x10).readS32();
+            var skill = itemP.add(0x14).readS32();
+            var luck = itemP.add(0x18).readS32();
+            var excOpt = itemP.add(0x20).readS32();
+            var ancOpt = itemP.add(0x24).readS32();
+            var sockOpt = itemP.add(0x28).readS32();
+            var harmonyOpt = itemP.add(0x2C).readS32();
+
+            if (isItemProtected(itemP, itemIdx, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, -1)) {
+                return JSON.stringify({ ok: false, err: "protected_item", slot: s });
             }
 
             var dropped = false;
-            // Thao tác 1: Native Drop với null coord (game tự tính tọa độ quanh nhân vật và jitter)
-            if (nativeInvDropItem !== null) {
-                try {
-                    nativeInvDropItem(s, ptr(0), ptr(0));
-                    try { Thread.sleep(0.06); } catch (eSl1) {}
-                    if (!itemsArr.isNull()) {
-                        var chk1 = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (chk1.isNull() || !chk1.equals(itemP)) dropped = true;
-                    }
-                } catch (eD1) {}
-            }
+            ensureDropAllowed();
 
-            // Thao tác 2: Native Drop với dropCoord
-            if (!dropped && nativeInvDropItem !== null && !dropCoord.isNull()) {
-                try {
-                    nativeInvDropItem(s, dropCoord, ptr(0));
-                    try { Thread.sleep(0.06); } catch (eSl2) {}
-                    if (!itemsArr.isNull()) {
-                        var chk2 = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (chk2.isNull() || !chk2.equals(itemP)) dropped = true;
-                    }
-                } catch (eD2) {}
-            }
-
-            // Thao tác 3: Gửi packet GS C1:23
-            if (!dropped && dropX > 0 && dropY > 0) {
-                try {
-                    sendDropPacket(s, dropX, dropY);
-                    try { Thread.sleep(0.06); } catch (eSl3) {}
-                    if (!itemsArr.isNull()) {
-                        var chk3 = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (chk3.isNull() || !chk3.equals(itemP)) dropped = true;
-                    }
-                } catch (eD3) {}
+            if (nativeInvTrashItem !== null) {
+                nativeInvTrashItem(s, dropCoord, ptr(0));
+                dropped = true;
             }
 
             return JSON.stringify({ ok: dropped, allowed: allowed, slot: s, x: dropX, y: dropY });
@@ -3830,60 +4036,42 @@ rpc.exports = {
         try {
             ensureThreadAttached();
             var s = parseInt(slot);
+            if (s < 12) return false;
             var itemP = ptr(0);
             var itemIdx = -1;
             var p = getPlayerPtr();
             var itemsArr = ptr(0);
             try {
                 if (!p.isNull()) {
-                    var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                    inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
                     if (!inv.isNull()) {
                         itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
                         if (!itemsArr.isNull()) {
                             itemP = itemsArr.add(0x20 + s * 8).readPointer();
                             if (!itemP.isNull()) {
-                                itemIdx = itemP.add(0x10).readS32();
+                                itemIdx = readItemIndex(itemP);
                             }
                         }
                     }
                 }
             } catch (eP) {}
             if (itemP.isNull()) return false;
-            if (isDivineOrDragonItem(itemP, itemIdx)) {
+
+            var itemLevel = itemP.add(0x10).readS32();
+            var skill = itemP.add(0x14).readS32();
+            var luck = itemP.add(0x18).readS32();
+            var excOpt = itemP.add(0x20).readS32();
+            var ancOpt = itemP.add(0x24).readS32();
+            var sockOpt = itemP.add(0x28).readS32();
+            var harmonyOpt = itemP.add(0x2C).readS32();
+
+            if (isItemProtected(itemP, itemIdx, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, -1)) {
                 return false;
             }
 
-            // 1. Gửi gói tin C1:33 bán vào shop NPC
-            sendSellPacket(s);
-            try { Thread.sleep(0.08); } catch (eSl1) {}
-            if (!itemsArr.isNull()) {
-                var postSell = itemsArr.add(0x20 + s * 8).readPointer();
-                if (postSell.isNull() || !postSell.equals(itemP)) return true;
-            }
-
-            // 2. Thử native Slot Quick Action nếu có window shop
-            if (nativeSlotQuickAction !== null) {
-                try {
-                    nativeSlotQuickAction(itemP, ptr(0));
-                    try { Thread.sleep(0.08); } catch (eSl2) {}
-                    if (!itemsArr.isNull()) {
-                        var postQA = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (postQA.isNull() || !postQA.equals(itemP)) return true;
-                    }
-                } catch (eQA) {}
-            }
-
-            // 3. Fallback: vứt ra đất hoặc xóa nếu không bán được
-            if (nativeInvDropItem !== null) {
-                ensureDropAllowed();
-                try {
-                    nativeInvDropItem(s, ptr(0));
-                    try { Thread.sleep(0.06); } catch (eSl3) {}
-                    if (!itemsArr.isNull()) {
-                        var postDrop = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (postDrop.isNull() || !postDrop.equals(itemP)) return true;
-                    }
-                } catch (eD) {}
+            if (nativeInvSellItem !== null) {
+                nativeInvSellItem(s, ptr(0));
+                return true;
             }
         } catch (e) {}
         return false;
@@ -4119,94 +4307,99 @@ class MegDirectEngine:
     def _generate_js(self) -> str:
         js = FRIDA_AGENT_JS
         mapping = {
-            "__GET_PLAYER__": self.offsets.get("get_player") or DEFAULT_OFFSETS.get("get_player", "0x1107280"),
-            "__GET_GAME_UI__": self.offsets.get("get_game_ui") or DEFAULT_OFFSETS.get("get_game_ui", "0x1106430"),
-            "__UI_CHAT_FRAME__": self.offsets.get("ui_chat_frame") or DEFAULT_OFFSETS.get("ui_chat_frame", "0x50"),
-            "__MOVE_TO__": self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xC9C8D0"),
-            "__CHAT_SEND__": self.offsets.get("chat_send") or DEFAULT_OFFSETS.get("chat_send", "0x13C0C70"),
-            "__CHAT_SEND_CMD__": self.offsets.get("chat_send_cmd") or DEFAULT_OFFSETS.get("chat_send_cmd", "0xFA0A60"),
-            "__CHAT_FRAME_SEND__": self.offsets.get("chat_frame_send") or DEFAULT_OFFSETS.get("chat_frame_send", "0x13C0C70"),
-            "__STATIC_CHAT_SEND__": self.offsets.get("static_chat_send") or DEFAULT_OFFSETS.get("static_chat_send", "0xF95530"),
-            "__COMMAND_MGR_PROCESS__": self.offsets.get("command_mgr_process") or DEFAULT_OFFSETS.get("command_mgr_process", "0xFA0A60"),
-            "__CHAT_UPDATE__": self.offsets.get("chat_update") or DEFAULT_OFFSETS.get("chat_update", "0x13BD830"),
-            "__GAME_UI_UPDATE__": self.offsets.get("game_ui_update") or DEFAULT_OFFSETS.get("game_ui_update", "0x1415C00"),
-            "__HELPER_START__": self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x289BD70"),
-            "__HELPER_STOP__": self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x28A1530"),
-            "__HELPER_ACTION__": self.offsets.get("helper_action") or DEFAULT_OFFSETS.get("helper_action", "0x289FE20"),
-            "__HELPER_TOGGLE__": self.offsets.get("helper_toggle") or DEFAULT_OFFSETS.get("helper_toggle", "0x289FE20"),
-            "__HELPER_SEND_BF51__": self.offsets.get("helper_send_bf51") or DEFAULT_OFFSETS.get("helper_send_bf51", "0x289B300"),
-            "__HELPER_REQ_START__": self.offsets.get("helper_req_start") or DEFAULT_OFFSETS.get("helper_req_start", "0x289FD90"),
-            "__HELPER_REQ_STOP__": self.offsets.get("helper_req_stop") or DEFAULT_OFFSETS.get("helper_req_stop", "0x28A1530"),
-            "__UI_LOCATION_FRAME__": self.offsets.get("ui_location_frame") or DEFAULT_OFFSETS.get("ui_location_frame", "0x80"),
-            "__LOCATION_HELPER_ON__": self.offsets.get("location_helper_on") or DEFAULT_OFFSETS.get("location_helper_on", "0x60"),
-            "__LOCATION_HELPER_OFF__": self.offsets.get("location_helper_off") or DEFAULT_OFFSETS.get("location_helper_off", "0x68"),
-            "__LOCATION_UPDATE_HELPER__": self.offsets.get("location_update_helper") or DEFAULT_OFFSETS.get("location_update_helper", "0x25B5570"),
-            "__PLAYER_NAME__": self.offsets.get("player_name") or DEFAULT_OFFSETS.get("player_name", "0x28"),
-            "__PLAYER_LEVEL__": self.offsets.get("player_level") or DEFAULT_OFFSETS.get("player_level", "0x30"),
-            "__PLAYER_CLASS__": self.offsets.get("player_class") or DEFAULT_OFFSETS.get("player_class", "0x34"),
-            "__PLAYER_COORD__": self.offsets.get("player_coord") or DEFAULT_OFFSETS.get("player_coord", "0x68"),
-            "__PLAYER_MOVE__": self.offsets.get("player_move") or DEFAULT_OFFSETS.get("player_move", "0xE8"),
-            "__PLAYER_HELPER__": self.offsets.get("player_helper") or DEFAULT_OFFSETS.get("player_helper", "0x1E0"),
-            "__PLAYER_LAST_COORD__": self.offsets.get("player_last_coord") or DEFAULT_OFFSETS.get("player_last_coord", "0x4C8"),
-            "__MOVE_FLAG__": self.offsets.get("move_flag") or DEFAULT_OFFSETS.get("move_flag", "0x3C"),
-            "__HELPER_STATE__": self.offsets.get("helper_state") or DEFAULT_OFFSETS.get("helper_state", "0x20"),
-            "__GET_WORLD__": self.offsets.get("get_world") or DEFAULT_OFFSETS.get("get_world", "0x1106740"),
-            "__GAME_TYPE_INFO__": self.offsets.get("game_type_info") or DEFAULT_OFFSETS.get("game_type_info", "0x54A9808"),
-            "__GAME_WORLD__": self.offsets.get("game_world") or DEFAULT_OFFSETS.get("game_world", "0x200"),
-            "__START_AUTO_MOVE__": self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xC9BB00"),
-            "__STOP_AUTO_MOVE__": self.offsets.get("stop_auto_move") or DEFAULT_OFFSETS.get("stop_auto_move", "0xC984B0"),
-            "__AUTO_MOVE_WORKING__": self.offsets.get("auto_move_working") or DEFAULT_OFFSETS.get("auto_move_working", "0x480"),
-            "__AUTO_MOVE_TYPE__": self.offsets.get("auto_move_type") or DEFAULT_OFFSETS.get("auto_move_type", "0x484"),
-            "__AUTO_MOVE_HELPER__": self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x488"),
-            "__AUTO_MOVE_DEST__": self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x490"),
-            "__WORLD_SCENE_INDEX__": self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20"),
-            "__MOSS_ROLL__": self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x278DA90"),
-            "__MOSS_OPEN__": self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x255C140"),
-            "__UI_MOSS_WINDOW__": self.offsets.get("ui_moss_window") or DEFAULT_OFFSETS.get("ui_moss_window", "0x1C8"),
-            "__WINDOW_SHOW__": self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x255C140"),
-            "__WINDOW_HIDE__": self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x255DE30"),
-            "__WINDOW_SET_STATE__": self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x255E9B0"),
-            "__MOSS_ROLL_HANDLER__": self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x278DC90"),
-            "__MOSS_INIT__": self.offsets.get("moss_init") or DEFAULT_OFFSETS.get("moss_init", "0x278FC00"),
-            "__MOSS_SELECT_CAT__": self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x278D470"),
-            "__MOSS_SEND_ROLL__": self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x238B780"),
-            "__MOSS_ROLL_CLICK__": self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x2791220"),
-            "__MOSS_WINDOW_CLOSE__": self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x27911E0"),
-            "__GAME_OBJECT_SET_ACTIVE__": self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x4533470"),
-            "__MIRROR_ENTER__": self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xFA8BE0"),
-            "__MIRROR_ENTER_ALT__": self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0xFAED40"),
-            "__MIRROR_NPC_CLICK__": self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xFAEA10"),
-            "__MIRROR_IS_EVENT_MAP__": self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xFA4C80"),
-            "__MIRROR_TELEPORT_EVENT__": self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x3802C0"),
-            "__DEVIL_ENTER__": self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xF9E090"),
-            "__DEVIL_NPC_CLICK__": self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xF9FE20"),
-            "__DEVIL_IS_EVENT_MAP__": self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xF9E5E0"),
-            "__PLAYER_POINT__": self.offsets.get("player_point") or DEFAULT_OFFSETS.get("player_point", "0x238"),
-            "__PLAYER_MASTER_POINT__": self.offsets.get("player_master_point") or DEFAULT_OFFSETS.get("player_master_point", "0x23C"),
-            "__PLAYER_RESET_COUNT__": self.offsets.get("player_reset_count") or DEFAULT_OFFSETS.get("player_reset_count", "0x2B4"),
-            "__INV_SELL_ITEM__": self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x14FC670"),
-            "__MERCHANT_SELL_ITEM__": self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2754390"),
-            "__SLOT_QUICK_ACTION__": self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x2372420"),
-            "__INV_DROP_ITEM__": self.offsets.get("inv_drop_item") or DEFAULT_OFFSETS.get("inv_drop_item", "0x14F46A0"),
-            "__PLAYER_INVENTORY__": self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B0"),
-            "__INVENTORY_ITEMS__": self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28"),
-            "__GET_AUTO_LOGIN__": self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0x1107210"),
-            "__SET_AUTO_LOGIN__": self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xF8A030"),
-            "__NPC_TALK__": self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x1116450"),
-            "__VIEWPORT__": self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110"),
-            "__COMPONENT_GET_GAMEOBJECT__": self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x452F050"),
-            "__GET_WINDOW_HANDLER__": self.offsets.get("get_window_handler") or DEFAULT_OFFSETS.get("get_window_handler", "0x11023E0"),
-            "__NPC_CLOSE_TALK__": self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x111CF60"),
-            "__NPC_CLICK__": self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x10677F0"),
-            "__UI_MERCHANT_WINDOW__": self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x198"),
-            "__ITEM_STORAGE_TYPE_INFO__": self.offsets.get("item_storage_type_info") or DEFAULT_OFFSETS.get("item_storage_type_info", "0x54C3FB8"),
-            "__MLOGIN_UI_TYPE_INFO__": self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x54A4820"),
-            "__MLOGIN_SUBMIT__": self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1C1A1F0"),
-            "__MLOGIN_TOKEN_LOGIN__": self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1C18750"),
-            "__GAME_UPDATE__": self.offsets.get("game_update") or DEFAULT_OFFSETS.get("game_update", "0x10FEEF0"),
-            "__GET_GS_CONNECTION__": self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0x1104220"),
-            "__GS_SEND__": self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x1264520"),
-            "__GS_SEND_ALT__": self.offsets.get("gs_send_alt") or DEFAULT_OFFSETS.get("gs_send_alt", "0x12647E0"),
+            "__GET_PLAYER__": str(self.offsets.get("get_player") or DEFAULT_OFFSETS.get("get_player", "0x107FBF0")),
+            "__GET_GAME_UI__": str(self.offsets.get("get_game_ui") or DEFAULT_OFFSETS.get("get_game_ui", "0x107FF00")),
+            "__GET_WORLD__": str(self.offsets.get("get_world") or DEFAULT_OFFSETS.get("get_world", "0x107FD40")),
+            "__GET_AUTO_LOGIN__": str(self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0x107F2D0")),
+            "__GET_WINDOW_HANDLER__": str(self.offsets.get("get_window_handler") or DEFAULT_OFFSETS.get("get_window_handler", "0x1078690")),
+            "__GAME_UPDATE__": str(self.offsets.get("game_update") or DEFAULT_OFFSETS.get("game_update", "0x10701F0")),
+            "__GAME_UI_UPDATE__": str(self.offsets.get("game_ui_update") or DEFAULT_OFFSETS.get("game_ui_update", "0x1393AC0")),
+            "__GAME_TYPE_INFO__": str(self.offsets.get("game_type_info") or DEFAULT_OFFSETS.get("game_type_info", "0x553B900")),
+            "__MLOGIN_UI_TYPE_INFO__": str(self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x55286D0")),
+            "__MLOGIN_SUBMIT__": str(self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1C35790")),
+            "__MLOGIN_TOKEN_LOGIN__": str(self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1C307B0")),
+            "__SET_AUTO_LOGIN__": str(self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xEBF7C0")),
+            "__MOVE_TO__": str(self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xB893E0")),
+            "__START_AUTO_MOVE__": str(self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xB93B10")),
+            "__STOP_AUTO_MOVE__": str(self.offsets.get("stop_auto_move") or DEFAULT_OFFSETS.get("stop_auto_move", "0xB98400")),
+            "__CHAT_SEND__": str(self.offsets.get("chat_send") or DEFAULT_OFFSETS.get("chat_send", "0x1331880")),
+            "__CHAT_FRAME_SEND__": str(self.offsets.get("chat_frame_send") or DEFAULT_OFFSETS.get("chat_frame_send", "0x1331880")),
+            "__CHAT_SEND_CMD__": str(self.offsets.get("chat_send_cmd") or DEFAULT_OFFSETS.get("chat_send_cmd", "0xEFE530")),
+            "__COMMAND_MGR_PROCESS__": str(self.offsets.get("command_mgr_process") or DEFAULT_OFFSETS.get("command_mgr_process", "0xEFE530")),
+            "__STATIC_CHAT_SEND__": str(self.offsets.get("static_chat_send") or DEFAULT_OFFSETS.get("static_chat_send", "0xF1F710")),
+            "__CHAT_UPDATE__": str(self.offsets.get("chat_update") or DEFAULT_OFFSETS.get("chat_update", "0x1334D30")),
+            "__HELPER_START__": str(self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x277E360")),
+            "__HELPER_STOP__": str(self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x277B9C0")),
+            "__HELPER_ACTION__": str(self.offsets.get("helper_action") or DEFAULT_OFFSETS.get("helper_action", "0x2776D60")),
+            "__HELPER_TOGGLE__": str(self.offsets.get("helper_toggle") or DEFAULT_OFFSETS.get("helper_toggle", "0x2776D60")),
+            "__HELPER_SEND_BF51__": str(self.offsets.get("helper_send_bf51") or DEFAULT_OFFSETS.get("helper_send_bf51", "0x2777010")),
+            "__HELPER_REQ_START__": str(self.offsets.get("helper_req_start") or DEFAULT_OFFSETS.get("helper_req_start", "0x2776620")),
+            "__HELPER_REQ_STOP__": str(self.offsets.get("helper_req_stop") or DEFAULT_OFFSETS.get("helper_req_stop", "0x2777C00")),
+            "__UI_LOCATION_FRAME__": str(self.offsets.get("ui_location_frame") or DEFAULT_OFFSETS.get("ui_location_frame", "0x80")),
+            "__LOCATION_HELPER_ON__": str(self.offsets.get("location_helper_on") or DEFAULT_OFFSETS.get("location_helper_on", "0x60")),
+            "__LOCATION_HELPER_OFF__": str(self.offsets.get("location_helper_off") or DEFAULT_OFFSETS.get("location_helper_off", "0x68")),
+            "__LOCATION_UPDATE_HELPER__": str(self.offsets.get("location_update_helper") or DEFAULT_OFFSETS.get("location_update_helper", "0x25B7CF0")),
+            "__NPC_TALK__": str(self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x1015210")),
+            "__NPC_CLOSE_TALK__": str(self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x1025540")),
+            "__NPC_CLICK__": str(self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x1013520")),
+            "__GET_CONFIG__": str(self.offsets.get("get_config") or DEFAULT_OFFSETS.get("get_config", "0x107B360")),
+            "__GET_USER_2FA__": str(self.offsets.get("get_user_2fa") or DEFAULT_OFFSETS.get("get_user_2fa", "0x1077980")),
+            "__INV_TRASH_ITEM__": str(self.offsets.get("inv_trash_item") or DEFAULT_OFFSETS.get("inv_trash_item", "0x1449740")),
+            "__INV_DROP_ITEM__": str(self.offsets.get("inv_drop_item") or DEFAULT_OFFSETS.get("inv_drop_item", "0x1449740")),
+            "__INV_SELL_ITEM__": str(self.offsets.get("inv_sell_item") or DEFAULT_OFFSETS.get("inv_sell_item", "0x144B9A0")),
+            "__USER_INV_TRASH__": str(self.offsets.get("user_inv_trash") or DEFAULT_OFFSETS.get("user_inv_trash", "0x144C8A0")),
+            "__USER_INV_ACTION__": str(self.offsets.get("user_inv_action") or DEFAULT_OFFSETS.get("user_inv_action", "0x1441DF0")),
+            "__ITEM_STORAGE_DROP__": str(self.offsets.get("item_storage_drop") or DEFAULT_OFFSETS.get("item_storage_drop", "0x222CD00")),
+            "__MERCHANT_SELL_ITEM__": str(self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2743520")),
+            "__SLOT_QUICK_ACTION__": str(self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x23E24A0")),
+            "__WINDOW_SHOW__": str(self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x25EA7C0")),
+            "__WINDOW_HIDE__": str(self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x25EA5C0")),
+            "__WINDOW_SET_STATE__": str(self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x25EA7C0")),
+            "__MOSS_ROLL__": str(self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x27A9760")),
+            "__MOSS_OPEN__": str(self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x25EA7C0")),
+            "__MOSS_ROLL_HANDLER__": str(self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x27A6230")),
+            "__MOSS_INIT__": str(self.offsets.get("moss_init") or DEFAULT_OFFSETS.get("moss_init", "0x27A77C0")),
+            "__MOSS_SELECT_CAT__": str(self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x27A8510")),
+            "__MOSS_SEND_ROLL__": str(self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x23F8BE0")),
+            "__MOSS_ROLL_CLICK__": str(self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x27A8F90")),
+            "__MOSS_WINDOW_CLOSE__": str(self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x27A9930")),
+            "__GAME_OBJECT_SET_ACTIVE__": str(self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x45CCB90")),
+            "__COMPONENT_GET_GAME_OBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x45C8770")),
+            "__MIRROR_ENTER__": str(self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xF94450")),
+            "__MIRROR_ENTER_ALT__": str(self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0xF94B00")),
+            "__MIRROR_NPC_CLICK__": str(self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xF927B0")),
+            "__MIRROR_IS_EVENT_MAP__": str(self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xF93060")),
+            "__MIRROR_TELEPORT_EVENT__": str(self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x37F2C0")),
+            "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xF8E2F0")),
+            "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xF8DAB0")),
+            "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xF8D0B0")),
+            "__GET_GS_CONNECTION__": str(self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0x10803D0")),
+            "__GS_SEND__": str(self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x11F71C0")),
+            "__GS_SEND_ALT__": str(self.offsets.get("gs_send_alt") or DEFAULT_OFFSETS.get("gs_send_alt", "0x11F71C0")),
+            "__PLAYER_POINT__": str(self.offsets.get("player_point") or DEFAULT_OFFSETS.get("player_point", "0x238")),
+            "__PLAYER_MASTER_POINT__": str(self.offsets.get("player_master_point") or DEFAULT_OFFSETS.get("player_master_point", "0x23C")),
+            "__PLAYER_RESET_COUNT__": str(self.offsets.get("player_reset_count") or DEFAULT_OFFSETS.get("player_reset_count", "0x2B4")),
+            "__PLAYER_NAME__": str(self.offsets.get("player_name") or DEFAULT_OFFSETS.get("player_name", "0x28")),
+            "__PLAYER_LEVEL__": str(self.offsets.get("player_level") or DEFAULT_OFFSETS.get("player_level", "0x30")),
+            "__PLAYER_CLASS__": str(self.offsets.get("player_class") or DEFAULT_OFFSETS.get("player_class", "0x34")),
+            "__PLAYER_COORD__": str(self.offsets.get("player_coord") or DEFAULT_OFFSETS.get("player_coord", "0x68")),
+            "__PLAYER_MOVE__": str(self.offsets.get("player_move") or DEFAULT_OFFSETS.get("player_move", "0xE8")),
+            "__PLAYER_INVENTORY__": str(self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B0")),
+            "__PLAYER_HELPER__": str(self.offsets.get("player_helper") or DEFAULT_OFFSETS.get("player_helper", "0x1E0")),
+            "__PLAYER_LAST_COORD__": str(self.offsets.get("player_last_coord") or DEFAULT_OFFSETS.get("player_last_coord", "0x508")),
+            "__AUTO_MOVE_WORKING__": str(self.offsets.get("auto_move_working") or DEFAULT_OFFSETS.get("auto_move_working", "0x4C0")),
+            "__AUTO_MOVE_TYPE__": str(self.offsets.get("auto_move_type") or DEFAULT_OFFSETS.get("auto_move_type", "0x4C4")),
+            "__AUTO_MOVE_HELPER__": str(self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x4C8")),
+            "__AUTO_MOVE_DEST__": str(self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x4D0")),
+            "__MOVE_FLAG__": str(self.offsets.get("move_flag") or DEFAULT_OFFSETS.get("move_flag", "0x3C")),
+            "__HELPER_STATE__": str(self.offsets.get("helper_state") or DEFAULT_OFFSETS.get("helper_state", "0x20")),
+            "__INVENTORY_ITEMS__": str(self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28")),
+            "__GAME_WORLD__": str(self.offsets.get("game_world") or DEFAULT_OFFSETS.get("game_world", "0x200")),
+            "__WORLD_SCENE_INDEX__": str(self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20")),
+            "__VIEWPORT__": str(self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110")),
+            "__UI_CHAT_FRAME__": str(self.offsets.get("ui_chat_frame") or DEFAULT_OFFSETS.get("ui_chat_frame", "0x50")),
+            "__UI_MOSS_WINDOW__": str(self.offsets.get("ui_moss_window") or DEFAULT_OFFSETS.get("ui_moss_window", "0x1C8")),
+            "__UI_MERCHANT_WINDOW__": str(self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x198")),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -4320,19 +4513,35 @@ class MegDirectEngine:
             return False
 
     def _call(self, func_name: str, *args, timeout: float = 4.0) -> Any:
-        if not self.is_ready or not self.script:
-            return None
         with self._rpc_lock:
+            # Tự động kết nối lại nếu bị ngắt kết nối nhưng tiến trình game vẫn đang sống
+            if not self.is_ready or not self.script:
+                if self.pid and psutil and psutil.pid_exists(self.pid):
+                    try:
+                        if not self._attach():
+                            return None
+                    except Exception:
+                        return None
+                else:
+                    return None
+
+            if not self.script:
+                return None
+
             try:
-                fn = getattr(self.script.exports_sync, func_name, None)
+                exports = getattr(self.script, "exports_sync", None)
+                if exports is None:
+                    return None
+
+                fn = getattr(exports, func_name, None)
                 if not fn:
                     if "_" in func_name:
                         camel = "".join(w.capitalize() if i > 0 else w for i, w in enumerate(func_name.split("_")))
-                        fn = getattr(self.script.exports_sync, camel, None)
+                        fn = getattr(exports, camel, None)
                     else:
                         import re
                         snake = re.sub(r'(?<!^)(?=[A-Z])', '_', func_name).lower()
-                        fn = getattr(self.script.exports_sync, snake, None)
+                        fn = getattr(exports, snake, None)
                 if fn:
                     return fn(*args)
             except Exception as e:
@@ -4342,6 +4551,8 @@ class MegDirectEngine:
                 # Nếu RPC lỗi do script bị mất, đánh dấu cần gắn lại
                 if "detached" in err_str or "destroyed" in err_str or "script is destroyed" in err_str:
                     self.is_ready = False
+                    self.script = None
+                    self.session = None
                 return None
         return None
 
@@ -4736,8 +4947,8 @@ class MegDirectEngine:
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi gọi send_chat_native: {e}")
 
-        if not force_simulator:
-            return False
+        if native_sent and not force_simulator:
+            return True
 
         # Gửi bổ trợ qua Background PostMessage vào HWND cửa sổ game (Zero-Focus) nếu Native chưa gửi hoặc yêu cầu simulator
         hwnd = self.get_hwnd()
@@ -4793,6 +5004,15 @@ class MegDirectEngine:
         """Kích hoạt bật MuHelper chuẩn giao diện game (Đồng bộ GUI Play->Stop và gửi gói tin máy chủ)."""
         self.last_fast_state = None
 
+        # Nếu helper đã bật sẵn và không cần force_restart: trả về True ngay lập tức
+        if not force_restart and self.is_helper_active(force_refresh=True):
+            if self.is_ready:
+                try:
+                    self._call("syncHelperUI", True)
+                except Exception:
+                    pass
+            return True
+
         # Nếu cần force_restart (để ghim lại tọa độ gốc cắm bãi): tắt helper cũ trước
         if force_restart and self.is_helper_active(force_refresh=True):
             self.stop_helper()
@@ -4801,14 +5021,14 @@ class MegDirectEngine:
         tx = int(target_x) if target_x is not None else 0
         ty = int(target_y) if target_y is not None else 0
 
-        # Kênh 1: Native Helper Start trên Unity Main Thread (Game.Update) qua Frida
+        # Kênh 1: Native Helper Start trên Unity Main Thread (UserHelper.ALFOIEJFHLL -> packet BF:51, 00)
         if self.is_ready:
             try:
                 self._call("startHelper")
             except Exception:
                 pass
-            for _ in range(12):
-                time.sleep(0.04)
+            for _ in range(20):
+                time.sleep(0.05)
                 if self.is_helper_active(force_refresh=True):
                     try:
                         self._call("syncHelperUI", True)
@@ -4816,12 +5036,12 @@ class MegDirectEngine:
                         pass
                     return True
 
-        # Kênh 2: Gửi phím Home (VK_HOME = 0x24) chuẩn xác vào cửa sổ game (tương đương nhấn Play trên giao diện)
+        # Kênh 2: Gửi phím Home (VK_HOME = 0x24) CHỈ KHI helper chưa bật và Frida không sẵn sàng
         if not self.is_helper_active(force_refresh=True):
             hwnd = self.get_hwnd()
             if hwnd and sys.platform == "win32":
                 self.send_background_key(hwnd, 0x24, 0.05) # Phím Home
-                for _ in range(10):
+                for _ in range(15):
                     time.sleep(0.04)
                     if self.is_helper_active(force_refresh=True):
                         try:
@@ -4842,14 +5062,23 @@ class MegDirectEngine:
         """Kích hoạt tắt MuHelper chuẩn giao diện game (Đồng bộ GUI Stop->Play và gửi gói tin máy chủ)."""
         self.last_fast_state = None
 
-        # Kênh 1: Native Helper Stop & Packet qua Frida (Chạy ngầm headless 100%, không cần click game)
+        # Nếu helper đã tắt sẵn: trả về True ngay lập tức (KHÔNG bấm phím Home tránh vô tình bật lại!)
+        if not self.is_helper_active(force_refresh=True):
+            if self.is_ready:
+                try:
+                    self._call("syncHelperUI", False)
+                except Exception:
+                    pass
+            return True
+
+        # Kênh 1: Native Helper Stop & Packet qua Frida (UserHelper.BBLPCMHOBOE -> packet BF:51, 01)
         if self.is_ready:
             try:
                 self._call("stopHelper")
             except Exception:
                 pass
-            for _ in range(15):
-                time.sleep(0.04)
+            for _ in range(20):
+                time.sleep(0.05)
                 if not self.is_helper_active(force_refresh=True):
                     try:
                         self._call("syncHelperUI", False)
@@ -4857,12 +5086,12 @@ class MegDirectEngine:
                         pass
                     return True
 
-        # Kênh 2: Gửi phím Home (VK_HOME = 0x24) chuẩn xác vào cửa sổ game
+        # Kênh 2: Gửi phím Home (VK_HOME = 0x24) CHỈ KHI helper vẫn còn đang bật
         if self.is_helper_active(force_refresh=True):
             hwnd = self.get_hwnd()
             if hwnd and sys.platform == "win32":
                 self.send_background_key(hwnd, 0x24, 0.05) # Phím Home (Toggle)
-                for _ in range(10):
+                for _ in range(15):
                     time.sleep(0.04)
                     if not self.is_helper_active(force_refresh=True):
                         try:
@@ -5351,22 +5580,30 @@ class MegDirectEngine:
 
     get_latest_telemetry = get_player_info
 
-    def get_inventory_summary(self) -> Dict[str, Any]:
-        """Lấy thông tin tổng quan hòm đồ chính (số ô trống, số đồ rác, đồ giữ lại)."""
+    def get_inventory_summary(self, category: Optional[int] = None) -> Dict[str, Any]:
+        """Lấy thông tin tổng quan hòm đồ chính (số ô trống, số đồ rác, đồ giữ lại). Hỗ trợ lọc theo danh mục Moss category."""
         if self.is_ready:
             try:
-                res_str = self._call("getInventorySummary")
+                cat_val = int(category) if category is not None and category >= 0 else -1
+                res_str = self._call("getInventorySummary", cat_val)
                 if res_str:
                     return json.loads(res_str)
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi get_inventory_summary: {e}")
         return {"error": "not_ready", "free": 64, "junkCount": 0}
 
-    def clean_inventory_junk(self, method: str = "drop") -> Dict[str, Any]:
-        """Tự động vứt (drop) hoặc bán toàn bộ vật phẩm rác trong Main Inventory (bảo toàn đồ Exc/Socket/Set/Ngọc/Đồ cộng)."""
+    def clean_inventory_junk(
+        self,
+        method: str = "drop",
+        protected_slots: Optional[List[int]] = None,
+        category: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Tự động vứt (drop) hoặc bán toàn bộ vật phẩm rác trong Main Inventory (bảo toàn tuyệt đối đồ Exc/Socket/Set/Ngọc/Đồ cộng/Đồ có trước khi quay)."""
         if self.is_ready:
             try:
-                res_str = self._call("cleanInventoryJunk", str(method))
+                prot_json = json.dumps(protected_slots or [])
+                cat_val = int(category) if category is not None and category >= 0 else -1
+                res_str = self._call("cleanInventoryJunk", str(method), prot_json, cat_val)
                 if res_str:
                     return json.loads(res_str)
             except Exception as e:
@@ -5437,7 +5674,9 @@ class MegDirectEngine:
             try:
                 if self.script:
                     try:
-                        self.script.exports_sync.cleanup()
+                        exports = getattr(self.script, "exports_sync", None)
+                        if exports and hasattr(exports, "cleanup"):
+                            exports.cleanup()
                     except Exception:
                         pass
                 time.sleep(0.12)
