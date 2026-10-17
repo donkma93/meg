@@ -1028,10 +1028,16 @@ class AutoTrainWorker:
                         if not t_info.get("hasTicket"):
                             if self.devil_no_ticket_hour != cur_dt.hour:
                                 self.devil_no_ticket_hour = cur_dt.hour
-                                self._log("⚠️ Không tìm thấy vé Devil's Invitation (hoặc Master Ticket) trong hòm đồ! Bỏ qua Devil và tiếp tục train.", "WARNING")
+                                self._log("❌ Không tìm thấy vé Devil Square (cả vé thường lẫn vé master) trong hòm đồ! Bỏ qua Devil và tiếp tục train.", "WARNING")
                             self.preparing_devil = False
                             # Cho phép trôi xuống train tiếp bình thường
                         else:
+                            if self.devil_no_ticket_hour != -2:
+                                self.devil_no_ticket_hour = -2
+                                if t_info.get("hasMasterTicket"):
+                                    self._log(f"🎫 Phát hiện Vé Master Devil Square ({t_info.get('masterCount', 1)} vé) trong hòm đồ.", "INFO")
+                                else:
+                                    self._log(f"🎫 Phát hiện Vé thường Devil Square ({t_info.get('normalCount', 1)} vé) trong hòm đồ.", "INFO")
                             # 3. Đang có vé -> Giữ chân nhân vật ở Event Square (Map 53 hoặc 40)
                             if current_map_id not in (53, 40):
                                 if (now - self.last_devil_attempt_time) >= 6.0:
@@ -1042,11 +1048,21 @@ class AutoTrainWorker:
                                 time.sleep(0.8)
                                 continue
 
-                            # Nhân vật đã ở Event Square
-                            self.core.cancel_move()
+                            # Nhân vật đã ở Event Square: Tiếp cận vị trí NPC Charon (225, 52)
+                            if abs(tile_x - 225) > 5 or abs(tile_y - 52) > 5:
+                                if hasattr(self.core, "start_auto_move"):
+                                    self.core.start_auto_move(225, 52, helper=False)
+                                elif hasattr(self.core, "move_to"):
+                                    self.core.move_to(225, 52)
+                                self._set_state("DEVIL: TIẾP CẬN CHARON (225, 52)")
+                                time.sleep(0.8)
+                                continue
+                            else:
+                                if hasattr(self.core, "cancel_move"):
+                                    self.core.cancel_move()
 
                             if is_prep_window:
-                                self._set_state("DEVIL: CHỜ CỔNG MỞ (EV SQUARE)")
+                                self._set_state("DEVIL: CHỜ CỔNG MỞ (NPC CHARON)")
                                 time.sleep(0.8)
                                 continue
 

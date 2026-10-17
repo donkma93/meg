@@ -43,8 +43,8 @@
                         "min_level": 30,
                         "max_level": 69,
                         "map_name": "Dungeon",
-                        "x": 64,
-                        "y": 230
+                        "x": 86,
+                        "y": 212
                     },
                     {
                         "min_level": 320,
@@ -56,7 +56,7 @@
                     {
                         "min_level": 400,
                         "max_level": 400,
-                        "map_name": "Elbeland 2",
+                        "map_name": "Lorencia",
                         "x": 86,
                         "y": 15
                     },
@@ -296,10 +296,10 @@
                     },
                     {
                         "min_level": 320,
-                        "max_level": 400,
-                        "map_name": "Arena",
-                        "x": 90,
-                        "y": 23
+                        "max_level": 800,
+                        "map_name": "Aida 1",
+                        "x": 224,
+                        "y": 12
                     }
                 ]
             }
@@ -344,10 +344,10 @@
                     },
                     {
                         "min_level": 320,
-                        "max_level": 400,
-                        "map_name": "Kanturu 2",
-                        "x": 140,
-                        "y": 80
+                        "max_level": 800,
+                        "map_name": "Vulcanus",
+                        "x": 210,
+                        "y": 66
                     }
                 ]
             }

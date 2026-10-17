@@ -38,8 +38,8 @@
       "min_level": 30,
       "max_level": 69,
       "map_name": "Dungeon",
-      "x": 64,
-      "y": 230
+      "x": 86,
+      "y": 212
     },
     {
       "min_level": 320,
@@ -51,7 +51,7 @@
     {
       "min_level": 400,
       "max_level": 400,
-      "map_name": "Elbeland 2",
+      "map_name": "Lorencia",
       "x": 86,
       "y": 15
     },
