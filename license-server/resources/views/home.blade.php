@@ -127,7 +127,7 @@
                         <span class="text-xl font-black font-heading tracking-wider text-white">D<span class="text-cyan-400">AUTO</span></span>
                         <span class="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">MEGAMU</span>
                     </div>
-                    <p data-i18n="nav_subtitle" class="text-[11px] text-slate-400 font-medium tracking-tight">Auto Train Dashboard &bull; v1.5.2</p>
+                    <p data-i18n="nav_subtitle" class="text-[11px] text-slate-400 font-medium tracking-tight">Auto Train Dashboard &bull; v1.5.3</p>
                 </div>
             </a>
 
@@ -197,7 +197,7 @@
             <!-- Release Badge -->
             <div class="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold tracking-wide mb-8">
                 <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
-                <span data-i18n="hero_badge">PHẦN MỀM THỰC TẾ &bull; MEGAMU AUTO TRAIN DASHBOARD V1.5.2 CHÍNH THỨC</span>
+                <span data-i18n="hero_badge">PHẦN MỀM THỰC TẾ &bull; MEGAMU AUTO TRAIN DASHBOARD V1.5.3 CHÍNH THỨC</span>
             </div>
 
             <!-- Headline -->

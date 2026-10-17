@@ -137,6 +137,7 @@ python -m PyInstaller ^
     --add-data="config\slot_assignments.json;config" ^
     --add-data="config\ui_settings.json;config" ^
     --add-data="config\moss_slots_config.json;config" ^
+    --add-data="config\event_slots_config.json;config" ^
     --add-data="config\maps.ini;config" ^
     --hidden-import="PIL" ^
     --hidden-import="PIL.Image" ^

@@ -20,10 +20,10 @@ const I18N_DICTIONARY = {
         nav_faq: "Hỏi Đáp",
         nav_contact: "Liên Hệ",
         nav_trial_btn: "Liên Hệ Dùng Thử",
-        nav_subtitle: "Auto Train Dashboard • v1.5.2",
+        nav_subtitle: "Auto Train Dashboard • v1.5.3",
 
         // Hero Section
-        hero_badge: "PHẦN MỀM THỰC TẾ • MEGAMU AUTO TRAIN DASHBOARD V1.5.2 CHÍNH THỨC",
+        hero_badge: "PHẦN MỀM THỰC TẾ • MEGAMU AUTO TRAIN DASHBOARD V1.5.3 CHÍNH THỨC",
         hero_title_1: "Hệ Thống Auto Train Đỉnh Cao Cho ",
         hero_desc_1: "Giao diện điều khiển chuyên nghiệp quản lý từ 10 đến 50 tài khoản đồng thời. Tự động kết nối, tự dò đường bãi train, auto nhặt đồ và hồi sinh về spot chuẩn xác. ",
         hero_desc_2: "Công nghệ Zero-Mouse Hook không chiếm chuột và phím!",
@@ -201,10 +201,10 @@ const I18N_DICTIONARY = {
         nav_faq: "FAQ",
         nav_contact: "Contact",
         nav_trial_btn: "Free Trial",
-        nav_subtitle: "Auto Train Dashboard • v1.5.2",
+        nav_subtitle: "Auto Train Dashboard • v1.5.3",
 
         // Hero Section
-        hero_badge: "OFFICIAL SOFTWARE • MEGAMU AUTO TRAIN DASHBOARD V1.5.2 RELEASE",
+        hero_badge: "OFFICIAL SOFTWARE • MEGAMU AUTO TRAIN DASHBOARD V1.5.3 RELEASE",
         hero_title_1: "Elite Auto Train System For ",
         hero_desc_1: "Professional control dashboard managing 10 to 50 game accounts simultaneously. Auto connect, intelligent spot pathfinding, auto loot, and accurate spot revival. ",
         hero_desc_2: "Zero-Mouse Hook technology leaves your mouse and keyboard 100% free!",
@@ -382,10 +382,10 @@ const I18N_DICTIONARY = {
         nav_faq: "Preguntas",
         nav_contact: "Contacto",
         nav_trial_btn: "Probar Gratis",
-        nav_subtitle: "Auto Train Dashboard • v1.5.2",
+        nav_subtitle: "Auto Train Dashboard • v1.5.3",
 
         // Hero Section
-        hero_badge: "SOFTWARE OFICIAL • MEGAMU AUTO TRAIN DASHBOARD V1.5.2 LANZAMIENTO",
+        hero_badge: "SOFTWARE OFICIAL • MEGAMU AUTO TRAIN DASHBOARD V1.5.3 LANZAMIENTO",
         hero_title_1: "El Mejor Sistema Auto Train Para ",
         hero_desc_1: "Dashboard profesional que gestiona de 10 a 50 cuentas simultáneas. Conexión automática, navegación inteligente a spots, auto loot y revivir en spot con precisión. ",
         hero_desc_2: "¡Tecnología Zero-Mouse Hook sin capturar ratón ni teclado!",
@@ -563,10 +563,10 @@ const I18N_DICTIONARY = {
         nav_faq: "FAQ",
         nav_contact: "Contato",
         nav_trial_btn: "Teste Grátis",
-        nav_subtitle: "Auto Train Dashboard • v1.5.2",
+        nav_subtitle: "Auto Train Dashboard • v1.5.3",
 
         // Hero Section
-        hero_badge: "SOFTWARE OFICIAL • MEGAMU AUTO TRAIN DASHBOARD V1.5.2 LANÇAMENTO",
+        hero_badge: "SOFTWARE OFICIAL • MEGAMU AUTO TRAIN DASHBOARD V1.5.3 LANÇAMENTO",
         hero_title_1: "O Melhor Sistema de Auto Train Para ",
         hero_desc_1: "Dashboard profissional para gerenciar de 10 a 50 contas simultâneas. Conexão automática, navegação inteligente para spots, auto loot e retorno preciso ao spot após morrer. ",
         hero_desc_2: "Tecnologia Zero-Mouse Hook que não ocupa mouse nem teclado!",

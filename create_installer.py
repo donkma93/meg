@@ -56,7 +56,7 @@ def get_app_version() -> str:
         m = re.search(r'APP_VERSION\s*=\s*["\']v?([^"\']+)["\']', content)
         if m:
             return m.group(1).strip()
-    return "1.5.2"
+    return "1.5.3"
 
 def prepare_staging_dir(build_dir: Path, staging_dir: Path):
     """Chuẩn bị thư mục staging sạch sẽ, loại bỏ dữ liệu cá nhân."""
