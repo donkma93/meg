@@ -1784,21 +1784,14 @@ class SlotController:
     def stop_auto(self, reason: str = "Người dùng chủ động tắt Auto", trigger_by: str = "MANUAL"):
         worker = self.worker
         self.worker = None
-        if worker:
-            try:
-                worker.stop(reason=reason)
-            except Exception:
-                pass
-        if self.engine and self.engine.is_ready:
-            try:
-                self.engine.stop_helper()
-                self.engine.cancel_move()
-            except Exception:
-                pass
-
         was_auto = self.auto_requested
         self.auto_requested = False
         self.set_auto(False)
+
+        if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
+            self.set_status(tr("connected_status"))
+        else:
+            self.set_status(tr("idle"))
 
         # Ghi log chi tiết nếu slot thực sự đang chạy auto
         if was_auto or worker:
@@ -1819,10 +1812,22 @@ class SlotController:
                 log_level
             )
 
-        if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
-            self.set_status(tr("connected_status"))
-        else:
-            self.set_status(tr("idle"))
+        # Chạy dọn dẹp worker thread và engine trong background để KHÔNG BAO GIỜ làm đơ (Not Responding) giao diện UI!
+        def _stop_cleanup():
+            if worker:
+                try:
+                    worker.stop(reason=reason)
+                except Exception:
+                    pass
+            eng = self.engine
+            if eng and getattr(eng, "is_ready", False):
+                try:
+                    eng.stop_helper()
+                    eng.cancel_move()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_stop_cleanup, daemon=True).start()
 
     def _pause_train_for_mirror(self, reason: str = ""):
         """Tạm dừng AutoTrain cho Slot khi sự kiện Mirror bắt đầu."""
@@ -1840,13 +1845,13 @@ class SlotController:
                 if self.worker and hasattr(self.worker, "resume_from_event"):
                     self.worker.resume_from_event(reason)
                 if hasattr(self, "start_auto"):
-                    self.start_auto()
+                    threading.Thread(target=self.start_auto, daemon=True).start()
 
     def toggle_auto(self):
-        if self.auto_requested:
+        if self.auto_requested or (self.worker and self.worker.running):
             self.stop_auto(reason="Người dùng bấm nút Tắt Auto trên dòng tài khoản", trigger_by="MANUAL")
         else:
-            self.start_auto()
+            threading.Thread(target=self.start_auto, daemon=True).start()
 
     def set_status(self, text: str):
         self.status = text
@@ -2065,6 +2070,23 @@ class SlotController:
                 self.app.after(0, lambda s=self.slot_idx: self.app.update_moss_slot_ui_state(s, is_running=False))
                 return
 
+            # Snapshot các ô đồ đang có sẵn trước khi bắt đầu quay để bảo vệ tuyệt đối
+            self.moss_initial_slots = set()
+            if eng and eng.is_ready:
+                try:
+                    init_inv = eng.get_inventory_summary(category=self.moss_category)
+                    if init_inv and not init_inv.get("error"):
+                        for item in init_inv.get("keptSlots", []) + init_inv.get("junkSlots", []):
+                            s_num = item.get("slot")
+                            if s_num is not None:
+                                self.moss_initial_slots.add(int(s_num))
+                        if self.moss_initial_slots:
+                            self.app.after(0, lambda s=self.slot_idx, n=len(self.moss_initial_slots): self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] 🛡️ Đã kích hoạt vùng bảo vệ an toàn: {n} món đồ có sẵn trong hòm đồ sẽ KHÔNG BAO GIỜ bị xóa/bán!"
+                            ))
+                except Exception:
+                    pass
+
             while self.moss_running:
                 if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
                     self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
@@ -2073,32 +2095,36 @@ class SlotController:
                 # 1. Proactive auto-clean: Kiểm tra hòm đồ trước khi quay
                 if self.moss_auto_clean and eng and eng.is_ready:
                     try:
-                        inv = eng.get_inventory_summary()
+                        inv = eng.get_inventory_summary(category=self.moss_category)
                         if inv and not inv.get("error"):
                             free_slots = int(inv.get("free", 64))
                             junk_count = int(inv.get("junkCount", 0))
                             moss_plus = int(inv.get("mossPlusCount", 0))
 
-                            # Nếu còn ít ô trống và có đồ rác thường (+0..+7) -> xóa/hủy trực tiếp an toàn ngay tại chỗ
+                            # Nếu còn ít ô trống và có đồ rác thường (+0..+6 thuộc danh mục Moss) -> xóa/hủy trực tiếp an toàn
                             if free_slots < 6 and junk_count > 0:
                                 self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác..."
+                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác Moss..."
                                 ))
-                                c_res = eng.clean_inventory_junk("trash")
+                                c_res = eng.clean_inventory_junk(
+                                    "trash",
+                                    protected_slots=list(self.moss_initial_slots),
+                                    category=self.moss_category
+                                )
                                 cleaned = c_res.get("cleaned", 0)
                                 self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt/xóa {c} món đồ rác khỏi hòm đồ (an toàn). Tiếp tục quay Moss..."
+                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món đồ rác Moss (Đã bảo vệ đồ Divine / Rồng / Exc / Socket / Set / May mắn / Đồ >= +7). Tiếp tục quay..."
                                 ))
                                 time.sleep(0.3)
-                                inv = eng.get_inventory_summary()
+                                inv = eng.get_inventory_summary(category=self.moss_category)
                                 if inv and not inv.get("error"):
                                     free_slots = int(inv.get("free", 64))
                                     junk_count = int(inv.get("junkCount", 0))
 
-                            # Nếu hòm đồ đã đầy các vật phẩm quý giá (Divine / Rồng / Exc / Socket / Set / Ngọc / +8+) -> Dừng an toàn
+                            # Nếu hòm đồ đã đầy các vật phẩm quý giá -> Dừng an toàn
                             if free_slots < 2 and junk_count == 0:
                                 self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Divine / Rồng / Exc / Socket / Set / Ngọc / +8 trở lên). Tự động dừng quay an toàn!"
+                                    f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Divine / Rồng / Exc / Socket / Set / May Mắn / Ngọc / +7 trở lên). Tự động dừng quay an toàn!"
                                 ))
                                 break
                     except Exception:
@@ -2122,7 +2148,7 @@ class SlotController:
                 inv_before = None
                 if eng and eng.is_ready:
                     try:
-                        inv_before = eng.get_inventory_summary()
+                        inv_before = eng.get_inventory_summary(category=self.moss_category)
                     except Exception:
                         pass
 
@@ -2139,7 +2165,7 @@ class SlotController:
                     new_item_desc = ""
                     if eng and eng.is_ready and inv_before:
                         try:
-                            inv_after = eng.get_inventory_summary()
+                            inv_after = eng.get_inventory_summary(category=self.moss_category)
                             if inv_after and not inv_after.get("error"):
                                 b_kept = {item.get("slot"): item for item in inv_before.get("keptSlots", [])}
                                 a_kept = {item.get("slot"): item for item in inv_after.get("keptSlots", [])}
@@ -2150,7 +2176,8 @@ class SlotController:
                                         is_sp = itm.get("isSpecial", False)
                                         is_exc = itm.get("exc", 0) > 0
                                         is_anc = itm.get("anc", 0) > 0
-                                        tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else f"+{it_lvl}"))
+                                        is_luck = itm.get("luck", 0) > 0
+                                        tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else ("🍀 MAY MẮN!" if is_luck else f"+{it_lvl}")))
                                         new_item_desc = f" -> 🎁 Trúng: {it_name} ({tag})"
                                         break
                         except Exception:
@@ -2163,21 +2190,25 @@ class SlotController:
                     self.app.after(0, _update_ui)
                 else:
                     consecutive_fails += 1
-                    # Nếu quay không thành công (có thể bị đầy hòm), thử dọn rác và bán đồ ngay
+                    # Nếu quay không thành công (có thể bị đầy hòm), thử dọn rác an toàn
                     if self.moss_auto_clean and eng and eng.is_ready:
                         try:
-                            inv = eng.get_inventory_summary()
+                            inv = eng.get_inventory_summary(category=self.moss_category)
                             free_slots = int(inv.get("free", 64)) if inv else 0
                             junk_count = int(inv.get("junkCount", 0)) if inv else 0
                             moss_plus = int(inv.get("mossPlusCount", 0)) if inv else 0
 
                             handled = False
                             if junk_count > 0:
-                                c_res = eng.clean_inventory_junk("trash")
+                                c_res = eng.clean_inventory_junk(
+                                    "trash",
+                                    protected_slots=list(self.moss_initial_slots),
+                                    category=self.moss_category
+                                )
                                 cleaned_items = c_res.get("cleaned", 0)
                                 if cleaned_items > 0:
                                     self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
-                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã vứt/xóa {c} món rác khỏi hòm đồ khi bị đầy. Thử quay tiếp..."
+                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss khi bị đầy (an toàn). Thử quay tiếp..."
                                     ))
                                     time.sleep(0.3)
                                     consecutive_fails = 0
@@ -2360,7 +2391,8 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
         try:
-            res = eng.clean_inventory_junk("trash")
+            # Khi người dùng bấm dọn thủ công: Dọn toàn bộ đồ rác thường +0..+4 không Exc/Ancient/Socket (Không bị khóa bởi initial_slots hay category)
+            res = eng.clean_inventory_junk("trash", protected_slots=[], category=None)
             err = res.get("error")
             cleaned = res.get("cleaned", 0)
             if err:
@@ -2369,7 +2401,7 @@ class SlotController:
                 )
             else:
                 self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã dọn xóa {cleaned} món đồ rác khỏi hòm đồ an toàn (Đã bảo vệ đồ Divine / Rồng / Hoàn Hảo / Socket / Set Thần / Ngọc / Đồ +8 trở lên)."
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã dọn {cleaned} món đồ rác (Bảo vệ tuyệt đối: Đồ Divine/Rồng/Archangel/Ruud, Exc, Socket, Set Thần, Harmony, Đồ >= +5, Ngọc/Vé, Trang bị đang mặc)."
                 )
             return cleaned
         except Exception as e:
@@ -2547,40 +2579,40 @@ class SlotController:
 
     def move_to_moss_elbeland(self) -> bool:
         """Tự động chuyển map Elbeland và di chuyển tới tọa độ NPC Moss Merchant (22, 225)."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!")
-            return False
-        if not eng.is_ready:
-            eng.attach()
+        def _exec():
+            if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!"))
+                return
+            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+            if not eng:
+                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!"))
+                return
+            if not eng.is_ready:
+                eng.attach()
 
-        # 1. Tạm dừng Auto Train nếu đang chạy để tránh xung đột di chuyển / giữ bãi
-        if self.worker or self.auto_requested:
-            self.moss_paused_worker = True
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏸️ Tạm dừng Auto Train để tham gia sự kiện Moss...")
-            self.stop_auto("Tạm dừng Auto Train tham gia sự kiện Moss Merchant", trigger_by="EVENT")
-            time.sleep(0.3)
+            # 1. Tạm dừng Auto Train nếu đang chạy để tránh xung đột di chuyển / giữ bãi
+            if self.worker or self.auto_requested:
+                self.moss_paused_worker = True
+                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏸️ Tạm dừng Auto Train để tham gia sự kiện Moss..."))
+                self.stop_auto("Tạm dừng Auto Train tham gia sự kiện Moss Merchant", trigger_by="EVENT")
+                time.sleep(0.3)
 
-        # 2. Tắt MuHelper trước khi chuyển map nếu đang chạy (MEGAMU cấm warp khi Helper đang đánh)
-        if eng.is_helper_active(force_refresh=True):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚔️ Tạm tắt MuHelper để chuyển map về Elbeland...")
-            eng.stop_helper()
-            time.sleep(0.3)
+            # 2. Tắt MuHelper trước khi chuyển map nếu đang chạy (MEGAMU cấm warp khi Helper đang đánh)
+            if eng.is_helper_active(force_refresh=True):
+                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚔️ Tạm tắt MuHelper để chuyển map về Elbeland..."))
+                eng.stop_helper()
+                time.sleep(0.3)
 
-        self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland...")
-        eng.send_chat("/move Elbeland")
+            self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland..."))
+            eng.send_chat("/move Elbeland")
 
-        def _step_move():
             time.sleep(2.0)
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)...")
+            self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."))
             eng.start_auto_move(22, 225, helper=False)
             time.sleep(3.5)
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đã đến tọa độ (22, 225). Sẵn sàng chờ NPC Moss xuất hiện để click mở bảng...")
+            self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đã đến tọa độ (22, 225). Sẵn sàng chờ NPC Moss xuất hiện để click mở bảng..."))
 
-        threading.Thread(target=_step_move, daemon=True).start()
+        threading.Thread(target=_exec, daemon=True).start()
         return True
 
     def check_mirror_ticket(self) -> Dict[str, Any]:
@@ -2599,55 +2631,58 @@ class SlotController:
 
     def prepare_mirror_event(self) -> bool:
         """Giai đoạn chuẩn bị trước 5 phút: Tắt helper, chuyển về Event Map / Lugard, và kiểm tra vé."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
+        def _exec():
+            if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                return
+            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+            if not eng:
+                return
+            if not eng.is_ready:
+                eng.attach()
 
-        # 1. Tạm dừng Auto Helper / đánh quái ngoài bãi
-        try:
-            if eng.is_helper_active():
-                eng.stop_helper()
-        except Exception:
-            pass
+            # 1. Tạm dừng Auto Helper / đánh quái ngoài bãi
+            try:
+                if eng.is_helper_active():
+                    eng.stop_helper()
+            except Exception:
+                pass
 
-        # 2. Dịch chuyển về Event Map (Nếu đã ở trong map rồi thì tự động bỏ qua không di chuyển)
-        self.move_to_event_map()
+            # 2. Dịch chuyển về Event Map (Nếu đã ở trong map rồi thì tự động bỏ qua không di chuyển)
+            self.move_to_event_map()
 
-        # 3. Chờ client ổn định sau chuyển map rồi kiểm tra vé trong túi đồ (poll tối đa 3.5s)
-        t_info = {}
-        for _ in range(7):
-            time.sleep(0.5)
-            t_info = eng.get_mirror_ticket_info()
-            if t_info.get("hasTicket") or t_info.get("hasOnlySign"):
-                break
-        if t_info.get("hasTicket"):
-            if t_info.get("slots"):
-                self.cached_mirror_ticket_slot = int(t_info["slots"][0])
-            details = t_info.get("details", [])
-            main_slots = [d["slot"] for d in details if not d.get("isExtended")]
-            ext_slots = [d["slot"] for d in details if d.get("isExtended")]
-            loc_parts = []
-            if main_slots:
-                loc_parts.append(f"Hòm chính ô [{', '.join(str(s) for s in main_slots)}]")
-            if ext_slots:
-                loc_parts.append(f"Ba lô phụ ô [{', '.join(str(s) for s in ext_slots)}]")
-            loc_str = " • ".join(loc_parts) if loc_parts else f"ô [{', '.join(str(s) for s in t_info.get('slots', []))}]"
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ✅ Đã sẵn sàng {t_info.get('count')} vé Mirror ({loc_str})!"
-            )
-        elif t_info.get("hasOnlySign"):
-            signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CHÚ Ý: Tìm thấy Mảnh Vé Sign of Dimensions tại ô [{signs_str}], chưa ghép thành vé Mirror hoàn chỉnh!"
-            )
-        else:
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CẢNH BÁO: Chưa tìm thấy vé Mirror of Dimensions (Item 7279) trong hòm đồ (đã quét ô 12-139)!"
-            )
+            # 3. Chờ client ổn định sau chuyển map rồi kiểm tra vé trong túi đồ (poll tối đa 3.5s)
+            t_info = {}
+            for _ in range(7):
+                time.sleep(0.5)
+                t_info = eng.get_mirror_ticket_info()
+                if t_info.get("hasTicket") or t_info.get("hasOnlySign"):
+                    break
+            if t_info.get("hasTicket"):
+                if t_info.get("slots"):
+                    self.cached_mirror_ticket_slot = int(t_info["slots"][0])
+                details = t_info.get("details", [])
+                main_slots = [d["slot"] for d in details if not d.get("isExtended")]
+                ext_slots = [d["slot"] for d in details if d.get("isExtended")]
+                loc_parts = []
+                if main_slots:
+                    loc_parts.append(f"Hòm chính ô [{', '.join(str(s) for s in main_slots)}]")
+                if ext_slots:
+                    loc_parts.append(f"Ba lô phụ ô [{', '.join(str(s) for s in ext_slots)}]")
+                loc_str = " • ".join(loc_parts) if loc_parts else f"ô [{', '.join(str(s) for s in t_info.get('slots', []))}]"
+                self.app.after(0, lambda: self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ✅ Đã sẵn sàng {t_info.get('count')} vé Mirror ({loc_str})!"
+                ))
+            elif t_info.get("hasOnlySign"):
+                signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
+                self.app.after(0, lambda: self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CHÚ Ý: Tìm thấy Mảnh Vé Sign of Dimensions tại ô [{signs_str}], chưa ghép thành vé Mirror hoàn chỉnh!"
+                ))
+            else:
+                self.app.after(0, lambda: self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CẢNH BÁO: Chưa tìm thấy vé Mirror of Dimensions (Item 7279) trong hòm đồ (đã quét ô 12-203)!"
+                ))
+
+        threading.Thread(target=_exec, daemon=True).start()
         return True
 
     def move_to_lugard(self) -> bool:
@@ -2876,12 +2911,6 @@ class SlotController:
             except Exception:
                 pass
 
-        # Gửi ngay lệnh đối thoại / tương tác tới Lugard tại chỗ để Game phát thông báo trực tiếp
-        try:
-            eng.click_mirror_npc()
-        except Exception:
-            pass
-
         # 1. Kiểm tra cache vé trước: nếu slot đã cache từ trước thì dùng ngay lập tức (0ms delay)
         cached_slot = getattr(self, "cached_mirror_ticket_slot", -1)
         t_info = {}
@@ -2920,8 +2949,14 @@ class SlotController:
                     ))
                     self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
                     self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
-                    if not eng.is_helper_active():
-                        eng.start_helper()
+                    def _delayed_start_helper():
+                        time.sleep(1.2)
+                        try:
+                            if not eng.is_helper_active():
+                                eng.start_helper()
+                        except Exception:
+                            pass
+                    threading.Thread(target=_delayed_start_helper, daemon=True).start()
                 elif p_type == "mirror_turbo_timeout":
                     pkts = payload.get("packets", 0)
                     self.mirror_sniping = False
@@ -2937,6 +2972,14 @@ class SlotController:
                 self.app.append_mirror_log(
                     f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU NATIVE TURBO SNIPING CƯỚP CỔNG (0ms IPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
                 )
+            elif res_nat.get("error") == "no_ticket":
+                self.mirror_sniping = False
+                self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False)
+                self.app.update_mirror_slot_status(self.slot_idx, "Thiếu vé")
+                self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không tìm thấy vé Mirror of Dimensions (ID 7279) trong hòm đồ (ô 12-203)! Hãy chuẩn bị vé trước khi bật Turbo."
+                )
+                return False
 
         if not native_started:
             self.app.append_mirror_log(
@@ -2947,26 +2990,37 @@ class SlotController:
             start_t = time.time()
             if native_started:
                 # Native In-Process đang tự bắn liên thanh 0ms IPC bên trong RAM game.
-                # Luồng Python chỉ giám sát mapId và kiểm tra sức khỏe tiến trình (Zero Python GIL contention)!
+                # Luồng Python chỉ giám sát fast_state trong RAM Python (Zero GIL/RPC contention)!
                 while self.mirror_sniping:
-                    time.sleep(0.12)
+                    time.sleep(0.2)
                     now = time.time()
                     if (now - start_t) > (max_duration_s + 0.5):
                         break
                     if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
                         break
-                    if eng.is_mirror_event_map():
+                    fast = getattr(eng, "last_fast_state", None) or {}
+                    map_id = fast.get("mapId", -1)
+                    if map_id in (65, 66, 67, 68):
                         self.mirror_sniping = False
                         self.app.after(0, lambda: self.app.append_mirror_log(
                             f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer ({time.time() - start_t:.2f}s)!"
                         ))
                         self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
-                        if not eng.is_helper_active():
-                            eng.start_helper()
+                        def _delayed_start_helper2():
+                            time.sleep(1.2)
+                            try:
+                                if not eng.is_helper_active():
+                                    eng.start_helper()
+                            except Exception:
+                                pass
+                        threading.Thread(target=_delayed_start_helper2, daemon=True).start()
                         break
                 self.mirror_sniping = False
                 if hasattr(eng, "stop_native_mirror_turbo"):
-                    eng.stop_native_mirror_turbo()
+                    try:
+                        eng.stop_native_mirror_turbo()
+                    except Exception:
+                        pass
                 self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
                 return
 
@@ -7653,9 +7707,11 @@ class DashboardApp(ctk.CTk):
             hover_color="#5b21b6",
             text_color="#ffffff",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: self.controllers[s - 1].start_mirror_turbo_sniping(
-                self.get_mirror_snipe_delay(), self.get_mirror_snipe_dur()
-            )
+            command=lambda s=i: threading.Thread(
+                target=self.controllers[s - 1].start_mirror_turbo_sniping,
+                args=(self.get_mirror_snipe_delay(), self.get_mirror_snipe_dur()),
+                daemon=True
+            ).start()
         )
         btn_snipe.pack(side="left", padx=(0, 4))
 
@@ -7951,14 +8007,14 @@ class DashboardApp(ctk.CTk):
                 elif err == "no_engine":
                     msg = "⚠️ Engine chưa khởi tạo!"
                 else:
-                    msg = "⚠️ Không tìm thấy vé Mirror of Dimensions (đã quét toàn bộ ô 12-139)!"
+                    msg = "⚠️ Không tìm thấy vé Mirror of Dimensions (đã quét toàn bộ ô 12-203)!"
                 self.after(0, lambda: self.append_mirror_log(f"[Slot {slot_idx:02d} - {ctrl.char_name}] {msg}"))
         threading.Thread(target=_checker, daemon=True).start()
 
     def check_all_mirror_tickets(self):
         """Kiểm tra vé Mirror trên toàn bộ các tài khoản đang kết nối."""
         def _check_all():
-            self.after(0, lambda: self.append_mirror_log("🔍 Đang kiểm tra vé Mirror trên toàn bộ tài khoản (ô 12 - 139)..."))
+            self.after(0, lambda: self.append_mirror_log("🔍 Đang kiểm tra vé Mirror trên toàn bộ tài khoản (ô 12 - 203)..."))
             total_connected = 0
             has_ticket_count = 0
             for ctrl in self.controllers:
@@ -7986,7 +8042,7 @@ class DashboardApp(ctk.CTk):
                         ))
                     else:
                         self.after(0, lambda c=ctrl: self.append_mirror_log(
-                            f"  -> [Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ KHÔNG CÓ VÉ MIRROR (ô 12-139 trống)!"
+                            f"  -> [Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ KHÔNG CÓ VÉ MIRROR (ô 12-203 trống)!"
                         ))
                     time.sleep(0.05)
             self.after(0, lambda tc=total_connected, ht=has_ticket_count: self.append_mirror_log(
@@ -9015,6 +9071,25 @@ class DashboardApp(ctk.CTk):
         state_str = "BẬT" if ctrl.auto_devil else "TẮT"
         self.log_message(f"[Slot {slot_idx:02d}] Đã {state_str} tính năng Tự Động Đi Devil Square.", "SUCCESS" if ctrl.auto_devil else "INFO")
 
+        if ctrl.auto_devil:
+            eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine and ctrl.assigned_pid else None)
+            if eng and eng.is_ready and hasattr(eng, "get_devil_ticket_info"):
+                try:
+                    t_info = eng.get_devil_ticket_info()
+                    if not t_info.get("hasTicket"):
+                        self.log_message(f"[Slot {slot_idx:02d}] ❌ Không có vé Devil Square (cả vé thường lẫn vé master) trong hòm đồ!", "WARNING")
+                    else:
+                        has_m = bool(t_info.get("hasMasterTicket"))
+                        has_n = bool(t_info.get("hasNormalTicket"))
+                        if has_m and has_n:
+                            self.log_message(f"[Slot {slot_idx:02d}] 🎫 Đã phát hiện cả Vé Master ({t_info.get('masterCount', 1)}) và Vé thường ({t_info.get('normalCount', 1)})!", "INFO")
+                        elif has_m:
+                            self.log_message(f"[Slot {slot_idx:02d}] 🎫 Đã phát hiện Vé Master Devil Square ({t_info.get('masterCount', 1)} vé)!", "INFO")
+                        else:
+                            self.log_message(f"[Slot {slot_idx:02d}] 🎫 Đã phát hiện Vé thường Devil Square ({t_info.get('normalCount', 1)} vé)!", "INFO")
+                except Exception:
+                    pass
+
     def on_toggle_slot_reset(self, slot_idx: int):
         """Bật/tắt chế độ Auto Reset cho slot."""
         ctrl = self.controllers[slot_idx - 1]
@@ -9091,6 +9166,12 @@ class DashboardApp(ctk.CTk):
             return
 
         def _do_enter():
+            # Tạm dừng Auto Train nếu đang chạy để không bị worker gửi lệnh warp giật ngược về bãi train
+            was_training = False
+            if hasattr(ctrl, "worker") and ctrl.worker and ctrl.worker.running:
+                was_training = True
+                ctrl.worker.pause_for_event("Người dùng bấm đi Devil Square thủ công")
+
             # 1. Kiểm tra bản đồ hiện tại. Đi Devil Square bắt buộc phải đứng ở Event Square (map 53 / 40)
             try:
                 pinfo = eng.get_player_info()
@@ -9098,6 +9179,8 @@ class DashboardApp(ctk.CTk):
                 pinfo = None
             if not pinfo:
                 self.log_message(f"[Slot {slot_idx:02d}] Chưa đọc được thông tin nhân vật!", "WARNING")
+                if was_training and ctrl.worker:
+                    ctrl.worker.resume_from_event("Không đọc được thông tin nhân vật")
                 return
 
             cmap = pinfo.get("mapId", -1)
@@ -9110,7 +9193,7 @@ class DashboardApp(ctk.CTk):
 
             # Nếu chưa ở Event Square (map 53 hoặc 40), tự động chuyển sang Event Square (/m ev) trước
             if cmap not in (53, 40):
-                self.log_message(f"[Slot {slot_idx:02d}] 📍 Đang chuyển sang bản đồ Event Square (/m ev) để đi Devil...", "INFO")
+                self.log_message(f"[Slot {slot_idx:02d}] 📍 Đang chuyển sang bản đồ Event Square (/m ev) để tiếp cận NPC Charon...", "INFO")
                 eng.send_chat("/m ev")
                 in_ev = False
                 for step in range(12):  # Chờ tối đa 6 giây
@@ -9127,41 +9210,84 @@ class DashboardApp(ctk.CTk):
                         pass
                 if not in_ev:
                     self.log_message(f"[Slot {slot_idx:02d}] ❌ Không thể sang bản đồ Event Square (/m ev)! Vui lòng kiểm tra lại level hoặc zen của nhân vật.", "WARNING")
+                    if was_training and ctrl.worker:
+                        ctrl.worker.resume_from_event("Không thể chuyển sang Event Square")
                     return
                 time.sleep(0.4)
 
-            # Dừng mọi hành động di chuyển dở
+            # 1.5. Tiếp cận NPC Charon tại Event Square (tọa độ 225, 52):
+            char_pos = eng.get_player_info() or {}
+            cur_x = char_pos.get("tileX", char_pos.get("x", 0))
+            cur_y = char_pos.get("tileY", char_pos.get("y", 0))
+            if abs(cur_x - 225) > 5 or abs(cur_y - 52) > 5:
+                self.log_message(f"[Slot {slot_idx:02d}] 🚶 Đang di chuyển lại gần NPC Charon (225, 52)...", "INFO")
+                if hasattr(eng, "start_auto_move"):
+                    eng.start_auto_move(225, 52, helper=False)
+                elif hasattr(eng, "move_to"):
+                    eng.move_to(225, 52)
+                for _ in range(12):  # Chờ tối đa 6 giây cho nhân vật chạy lại gần
+                    time.sleep(0.5)
+                    pos = eng.get_player_info() or {}
+                    nx = pos.get("tileX", pos.get("x", 0))
+                    ny = pos.get("tileY", pos.get("y", 0))
+                    if abs(nx - 225) <= 5 and abs(ny - 52) <= 5:
+                        break
+                if hasattr(eng, "cancel_move"):
+                    try: eng.cancel_move()
+                    except Exception: pass
+                if hasattr(eng, "stop_auto_move"):
+                    try: eng.stop_auto_move()
+                    except Exception: pass
+                time.sleep(0.3)
+
+            # Dừng mọi hành động di chuyển dở để nhân vật đứng yên
             if hasattr(eng, "cancel_move"):
-                eng.cancel_move()
+                try: eng.cancel_move()
+                except Exception: pass
+            if hasattr(eng, "stop_auto_move"):
+                try: eng.stop_auto_move()
+                except Exception: pass
 
-            # 2. Kiểm tra vé Devil Square trong hòm đồ
+            # 2. Quét thông tin vé trong hòm đồ (Cả vé thường lẫn vé master)
             t_info = eng.get_devil_ticket_info() if hasattr(eng, "get_devil_ticket_info") else {}
-            if not t_info.get("hasTicket"):
-                self.log_message(f"[Slot {slot_idx:02d}] ⚠️ Không tìm thấy vé Devil's Square Invitation (hoặc Master Ticket 6702) trong hòm đồ!", "WARNING")
-                return
+            has_ticket = bool(t_info.get("hasTicket"))
+            has_master = bool(t_info.get("hasMasterTicket"))
+            has_normal = bool(t_info.get("hasNormalTicket"))
 
-            # 3. Gửi lệnh vào cửa Devil Square trực tiếp (Không hiển thị popup hỏi Yes/No)
-            self.log_message(f"[Slot {slot_idx:02d}] Đang gửi packet vào Devil Square...", "INFO")
+            if has_master and has_normal:
+                self.log_message(f"[Slot {slot_idx:02d}] 🎫 Có cả Vé Master ({t_info.get('masterCount', 1)}) và Vé thường ({t_info.get('normalCount', 1)})!", "INFO")
+            elif has_master:
+                self.log_message(f"[Slot {slot_idx:02d}] 🎫 Phát hiện Vé Master Devil Square ({t_info.get('masterCount', 1)} vé)!", "INFO")
+            elif has_normal:
+                self.log_message(f"[Slot {slot_idx:02d}] 🎫 Phát hiện Vé thường Devil Square ({t_info.get('normalCount', 1)} vé)!", "INFO")
+            else:
+                self.log_message(f"[Slot {slot_idx:02d}] ℹ️ Không phát hiện vé trong hòm đồ - Đang gọi NPC Charon để Game phát thông báo trực tiếp...", "INFO")
+                # Hiển thị thông báo trực tiếp trên màn hình game
+                try:
+                    eng.send_chat("[DEVIL] Bạn không có Vé Devil Square (hoặc cấp độ vé không phù hợp)!")
+                except Exception:
+                    pass
+
+            # 3. Gửi lệnh trực tiếp vào NPC Charon tại Event Square:
+            # - Bỏ qua hoàn toàn hộp thoại xác nhận (Zero-confirm)
+            # - Nếu chưa mở cổng: GameServer sẽ phát thông báo cổng đóng trên màn hình game
+            # - Nếu không có vé: NPC Charon sẽ hiển thị popup dialog trong game
+            ticket_desc = "Vé Master" if has_master else "Vé thường"
+            self.log_message(f"[Slot {slot_idx:02d}] 🚪 Đang tương tác NPC Charon tại Event Square (Bỏ qua confirm)...", "INFO")
+            if has_ticket:
+                try:
+                    eng.send_chat(f"[DEVIL] Đang tương tác NPC Charon vào Devil Square ({ticket_desc})...")
+                except Exception:
+                    pass
+
             res = eng.enter_devil()
-            is_ok = False
-            err_msg = "Không rõ nguyên nhân"
             ds_lvl = "?"
             if isinstance(res, dict):
-                is_ok = bool(res.get("ok") or res.get("success"))
-                err_msg = res.get("reason") or res.get("error") or err_msg
                 ds_lvl = res.get("ds_level") or res.get("dsLevel") or "?"
-            else:
-                is_ok = bool(res)
-
-            if not is_ok:
-                if err_msg == "no_ticket":
-                    err_msg = "Không tìm thấy vé Devil Square hợp lệ trong hòm đồ!"
-                self.log_message(f"[Slot {slot_idx:02d}] ⚠️ Không thể gửi lệnh vào Devil Square: {err_msg}", "WARNING")
-                return
 
             # 4. Xác nhận xem nhân vật đã vào map Devil Square (Map 9 hoặc 32) hay chưa
             entered_ds = False
-            for _ in range(7):  # Chờ 3.5 giây phản hồi từ GameServer
+            for _ in range(8):  # Chờ 4 giây phản hồi từ GameServer
                 time.sleep(0.5)
                 try:
                     inf = eng.get_player_info()
@@ -9173,27 +9299,25 @@ class DashboardApp(ctk.CTk):
                     pass
 
             if not entered_ds:
-                # Kiểm tra lịch mở cổng Devil Square để thông báo chính xác cho người dùng
-                now_dt = datetime.now()
-                is_odd_hour = (now_dt.hour % 2 == 1)
-                is_open_window = is_odd_hour and ((now_dt.minute == 27 and now_dt.second >= 5) or (28 <= now_dt.minute < 30))
-                if not is_open_window:
-                    next_h = now_dt.hour
-                    if now_dt.minute >= 27 or not is_odd_hour:
-                        next_h += 1
-                    while next_h % 2 != 1:
-                        next_h += 1
-                    target_dt = now_dt.replace(minute=27, second=5, microsecond=0)
-                    if next_h >= 24:
-                        target_dt = target_dt.replace(hour=next_h % 24) + timedelta(days=1)
-                    else:
-                        target_dt = target_dt.replace(hour=next_h)
-                        if target_dt < now_dt:
-                            target_dt += timedelta(days=1)
-                    rem_mins = max(1, int((target_dt - now_dt).total_seconds()) // 60)
-                    self.log_message(f"[Slot {slot_idx:02d}] ⏰ Cổng Devil Square hiện chưa mở (Cổng chỉ mở từ phút :27 đến :30 các giờ lẻ: 01h, 03h, 05h, 07h, 09h, 11h, 13h, 15h, 17h, 19h, 21h, 23h). Dự kiến mở lúc {target_dt.strftime('%H:%M')} (còn ~{rem_mins} phút).", "WARNING")
+                if not has_ticket:
+                    self.log_message(
+                        f"[Slot {slot_idx:02d}] ⚠️ Nhân vật không có vé Devil Square (Đã phát thông báo thiếu vé trực tiếp trên màn hình Game)!",
+                        "WARNING"
+                    )
                 else:
-                    self.log_message(f"[Slot {slot_idx:02d}] ⚠️ Chưa vào được Devil Square (Cổng sự kiện chưa mở hoặc server đang bận)!", "WARNING")
+                    # Gửi thông báo trực tiếp trên màn hình Game qua lệnh chat native
+                    try:
+                        eng.send_chat("[DEVIL] Chưa đến giờ mở cửa sự kiện Devil Square! Cổng hiện đang đóng.")
+                        if hasattr(eng, "click_devil_npc"):
+                            eng.click_devil_npc()
+                    except Exception:
+                        pass
+                    self.log_message(
+                        f"[Slot {slot_idx:02d}] ⏰ Đã gửi lệnh vào NPC Charon! Nếu chưa vào được cổng, vui lòng xem thông báo cổng đóng hiển thị trực tiếp trên Game.",
+                        "INFO"
+                    )
+                if was_training and hasattr(ctrl, "worker") and ctrl.worker:
+                    ctrl.worker.resume_from_event("Chưa vào được Devil Square")
                 return
 
             # 5. Đã vào map Devil Square thành công: Tự động bật MuHelper & Lập watcher tự Reset khi kết thúc
@@ -10031,42 +10155,54 @@ class DashboardApp(ctk.CTk):
             self.open_update_dialog()
             return
 
-        count = 0
-        for ctrl in self.controllers:
-            if ctrl.assigned_pid:
-                ok = ctrl.start_auto()
-                if ok:
-                    count += 1
-        self.update_header_stats()
-        self.log_message(f"Bật TẤT CẢ: Đã khởi động Auto cho {count} tài khoản.", "SUCCESS")
+        def _run_start():
+            count = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid:
+                    ok = ctrl.start_auto()
+                    if ok:
+                        count += 1
+            self.after(0, self.update_header_stats)
+            self.after(0, lambda: self.log_message(f"Bật TẤT CẢ: Đã khởi động Auto cho {count} tài khoản.", "SUCCESS"))
+
+        threading.Thread(target=_run_start, daemon=True).start()
 
     def stop_all(self):
         """Tắt Auto cho tất cả các slot."""
-        for ctrl in self.controllers:
-            if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
-                ctrl.stop_auto(reason="Người dùng bấm nút 'Tắt Tất Cả' trên thanh điều khiển", trigger_by="MANUAL")
-        self.update_header_stats()
-        self.log_message("Tắt TẤT CẢ: Đã dừng Auto cho toàn bộ tài khoản.", "INFO")
+        def _run_stop():
+            for ctrl in self.controllers:
+                if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                    ctrl.stop_auto(reason="Người dùng bấm nút 'Tắt Tất Cả' trên thanh điều khiển", trigger_by="MANUAL")
+            self.after(0, self.update_header_stats)
+            self.after(0, lambda: self.log_message("Tắt TẤT CẢ: Đã dừng Auto cho toàn bộ tài khoản.", "INFO"))
+
+        threading.Thread(target=_run_stop, daemon=True).start()
 
     def batch_start(self):
         """Bật Auto cho nhóm được chọn ở combobox Điều khiển."""
-        targets = self._get_filtered_controllers()
-        count = 0
-        for ctrl in targets:
-            if ctrl.assigned_pid:
-                ok = ctrl.start_auto()
-                if ok:
-                    count += 1
-        self.update_header_stats()
+        def _run_batch_start():
+            targets = self._get_filtered_controllers()
+            count = 0
+            for ctrl in targets:
+                if ctrl.assigned_pid:
+                    ok = ctrl.start_auto()
+                    if ok:
+                        count += 1
+            self.after(0, self.update_header_stats)
+
+        threading.Thread(target=_run_batch_start, daemon=True).start()
 
     def batch_stop(self):
         """Tắt Auto cho nhóm được chọn ở combobox Điều khiển."""
-        choice = self.ctrl_target_var.get()
-        targets = self._get_filtered_controllers()
-        for ctrl in targets:
-            if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
-                ctrl.stop_auto(reason=f"Người dùng bấm nút 'Dừng' theo nhóm [{choice}]", trigger_by="MANUAL")
-        self.update_header_stats()
+        def _run_batch_stop():
+            choice = self.ctrl_target_var.get()
+            targets = self._get_filtered_controllers()
+            for ctrl in targets:
+                if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                    ctrl.stop_auto(reason=f"Người dùng bấm nút 'Dừng' theo nhóm [{choice}]", trigger_by="MANUAL")
+            self.after(0, self.update_header_stats)
+
+        threading.Thread(target=_run_batch_stop, daemon=True).start()
 
     def _get_filtered_controllers(self) -> List[SlotController]:
         choice = self.ctrl_target_var.get()
@@ -10191,12 +10327,27 @@ class DashboardApp(ctk.CTk):
     def _periodic_game_scan(self):
         if not self.running:
             return
-        try:
-            self.detected_games = enumerate_megamu_processes()
-            self.update_header_stats()
-        except Exception:
-            pass
-        self.after(2500, self._periodic_game_scan)
+        if getattr(self, "_game_scan_active", False):
+            self.after(2500, self._periodic_game_scan)
+            return
+
+        self._game_scan_active = True
+        def _scan_worker():
+            try:
+                games = enumerate_megamu_processes()
+                def _apply():
+                    self.detected_games = games
+                    self.update_header_stats()
+                if self.running:
+                    self.after(0, _apply)
+            except Exception:
+                pass
+            finally:
+                self._game_scan_active = False
+                if self.running:
+                    self.after(2500, self._periodic_game_scan)
+
+        threading.Thread(target=_scan_worker, daemon=True).start()
 
     def _on_window_configure(self, event):
         if event.widget == self:
@@ -10213,13 +10364,25 @@ class DashboardApp(ctk.CTk):
         if not self.running or getattr(self, "_is_resizing", False):
             self.after(500, self._periodic_telemetry)
             return
-        try:
-            for ctrl in self.controllers:
-                if ctrl.assigned_pid:
-                    ctrl.sync_telemetry()
-        except Exception:
-            pass
-        self.after(500, self._periodic_telemetry)
+
+        if getattr(self, "_telemetry_worker_active", False):
+            self.after(500, self._periodic_telemetry)
+            return
+
+        self._telemetry_worker_active = True
+        def _worker():
+            try:
+                for ctrl in self.controllers:
+                    if ctrl.assigned_pid:
+                        ctrl.sync_telemetry()
+            except Exception:
+                pass
+            finally:
+                self._telemetry_worker_active = False
+                if self.running:
+                    self.after(500, self._periodic_telemetry)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _periodic_license_monitor(self):
         """Giám sát liên tục sự tồn tại của file .dll và trạng thái bản quyền theo thời gian thực (1 giây/lần)."""
