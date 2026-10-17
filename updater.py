@@ -46,6 +46,26 @@ def is_newer_version(remote_ver: str, current_ver: str) -> bool:
     v_curr = parse_version(current_ver)
     return v_remote > v_curr
 
+def _get_auth_headers() -> Dict[str, str]:
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        try:
+            p = subprocess.Popen(
+                ["git", "credential", "fill"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            out, _ = p.communicate("protocol=https\nhost=github.com\n\n", timeout=1)
+            creds = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+            token = creds.get("password")
+        except Exception:
+            pass
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
+
 def check_for_updates(current_version: str = "v1.5.3") -> Dict[str, Any]:
     """
     Kiểm tra phiên bản mới nhất từ GitHub Releases hoặc Tags.
@@ -69,6 +89,7 @@ def check_for_updates(current_version: str = "v1.5.3") -> Dict[str, Any]:
         "User-Agent": f"MEGAMU-AutoTrain-Client/{current_version}",
         "Accept": "application/vnd.github.v3+json"
     }
+    headers.update(_get_auth_headers())
 
     # 1. Thử lấy từ GitHub Releases (bản phát hành)
     try:

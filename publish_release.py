@@ -179,23 +179,22 @@ if __name__ == "__main__":
         create_release_zip(release_folder, zip_file)
 
     if exe_file and exe_file.exists():
-        # 1. Upload dang MEGAMU.Auto.Train.Dashboard.exe (URL chuan khong dau cach de nguoi dung tai an toan)
         if "MEGAMU.Auto.Train.Dashboard.exe" not in existing_assets:
-            upload_asset(token, upload_url, exe_file, "MEGAMU.Auto.Train.Dashboard.exe", "application/vnd.microsoft.portable-executable")
+            try:
+                upload_asset(token, upload_url, exe_file, "MEGAMU.Auto.Train.Dashboard.exe", "application/vnd.microsoft.portable-executable")
+            except Exception as e:
+                print(f"[*] Thong bao asset exe: {e}")
         else:
             print("[*] MEGAMU.Auto.Train.Dashboard.exe da co san trong release.")
-            
-        # 2. Upload dang MEGAMU Auto Train Dashboard.exe
-        if "MEGAMU Auto Train Dashboard.exe" not in existing_assets:
-            upload_asset(token, upload_url, exe_file, "MEGAMU Auto Train Dashboard.exe", "application/vnd.microsoft.portable-executable")
-        else:
-            print("[*] MEGAMU Auto Train Dashboard.exe da co san trong release.")
     else:
         print(f"[!] Khong tim thay file exe trong Release_MEGAMU hay Release_MEGAMU_Secure")
 
     if zip_file.exists():
         if zip_file.name not in existing_assets:
-            upload_asset(token, upload_url, zip_file, None, "application/zip")
+            try:
+                upload_asset(token, upload_url, zip_file, None, "application/zip")
+            except Exception as e:
+                print(f"[*] Thong bao asset zip: {e}")
         else:
             print(f"[*] {zip_file.name} da co san trong release.")
     else:
