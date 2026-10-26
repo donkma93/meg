@@ -46,9 +46,9 @@
     "item_storage_drop": "0x222CD00",
     "merchant_sell_item": "0x2743520",
     "slot_quick_action": "0x23E24A0",
-    "window_show": "0x25EA7C0",
-    "window_hide": "0x25EA5C0",
-    "window_set_state": "0x25EA7C0",
+    "window_show": "0x258FBC0",
+    "window_hide": "0x25986B0",
+    "window_set_state": "0x2589E10",
     "moss_roll": "0x27A9760",
     "moss_open": "0x25EA7C0",
     "moss_roll_handler": "0x27A6230",
@@ -96,5 +96,7 @@
     "viewport": "0x110",
     "ui_chat_frame": "0x50",
     "ui_moss_window": "0x1C8",
-    "ui_merchant_window": "0x198"
+    "ui_merchant_window": "0x198",
+    "ui_inventory_window": "0x188",
+    "ui_warehouse_window": "0x288"
 }

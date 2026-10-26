@@ -2053,8 +2053,9 @@ class SlotController:
                         time.sleep(0.3)
                         break
                     else:
-                        self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                            f"[Slot {s:02d}] ⚠️ Đã phát hiện NPC Moss nhưng click tương tác chưa thành công, đang thử lại..."
+                        err_msg = interact_res.get("error", "Unknown") if interact_res else "None"
+                        self.app.after(0, lambda s=self.slot_idx, err=err_msg: self.app.append_moss_log(
+                            f"[Slot {s:02d}] ⚠️ Đã phát hiện NPC Moss nhưng click tương tác chưa thành công ({err}), đang thử lại..."
                         ))
                 else:
                     wait_ticks += 1
@@ -2092,39 +2093,45 @@ class SlotController:
                     self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
                     break
 
+                # Xác định dung lượng ô tối thiểu theo danh mục (Cung/Kiếm/Gậy/Chùy/Trượng: 8 ô; Khiên/Giáp: 6 ô; Trang sức: 2 ô)
+                cat = int(getattr(self, "moss_category", 0) or 0)
+                min_slots_needed = 8 if cat in [0, 1, 2, 3, 4] else (6 if cat in [6, 8] else 2)
+
                 # 1. Proactive auto-clean: Kiểm tra hòm đồ trước khi quay
                 if self.moss_auto_clean and eng and eng.is_ready:
                     try:
-                        inv = eng.get_inventory_summary(category=self.moss_category)
+                        inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
                         if inv and not inv.get("error"):
                             free_slots = int(inv.get("free", 64))
                             junk_count = int(inv.get("junkCount", 0))
                             moss_plus = int(inv.get("mossPlusCount", 0))
 
                             # Nếu còn ít ô trống và có đồ rác thường (+0..+6 thuộc danh mục Moss) -> xóa/hủy trực tiếp an toàn
-                            if free_slots < 6 and junk_count > 0:
+                            if free_slots < (min_slots_needed + 4) and junk_count > 0:
                                 self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
                                     f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác Moss..."
                                 ))
                                 c_res = eng.clean_inventory_junk(
                                     "trash",
                                     protected_slots=list(self.moss_initial_slots),
-                                    category=self.moss_category
+                                    category=self.moss_category,
+                                    include_extended=True,
+                                    max_junk_level=6
                                 )
                                 cleaned = c_res.get("cleaned", 0)
                                 self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
                                     f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món đồ rác Moss (Đã bảo vệ đồ Divine / Rồng / Exc / Socket / Set / May mắn / Đồ >= +7). Tiếp tục quay..."
                                 ))
                                 time.sleep(0.3)
-                                inv = eng.get_inventory_summary(category=self.moss_category)
+                                inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
                                 if inv and not inv.get("error"):
                                     free_slots = int(inv.get("free", 64))
                                     junk_count = int(inv.get("junkCount", 0))
 
                             # Nếu hòm đồ đã đầy các vật phẩm quý giá -> Dừng an toàn
-                            if free_slots < 2 and junk_count == 0:
-                                self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ đã đầy các vật phẩm giá trị (Divine / Rồng / Exc / Socket / Set / May Mắn / Ngọc / +7 trở lên). Tự động dừng quay an toàn!"
+                            if free_slots < min_slots_needed and junk_count == 0:
+                                self.app.after(0, lambda s=self.slot_idx, f=free_slots, req=min_slots_needed, c=cat: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ chỉ còn {f} ô lẻ, không đủ khoảng trống {req} ô cho danh mục {self.app.get_moss_cat_name(c)}. Tự động dừng quay an toàn!"
                                 ))
                                 break
                     except Exception:
@@ -2148,29 +2155,30 @@ class SlotController:
                 inv_before = None
                 if eng and eng.is_ready:
                     try:
-                        inv_before = eng.get_inventory_summary(category=self.moss_category)
+                        inv_before = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
                     except Exception:
                         pass
 
                 ok = eng.roll_moss(self.moss_category) if eng else False
                 if ok:
-                    consecutive_fails = 0
-                    self.moss_rolls_count += 1
-                    r_num = self.moss_rolls_count
-
                     # Chờ ngắn để Server trả kết quả packet vật phẩm về hòm đồ
-                    time.sleep(0.25)
+                    time.sleep(0.35)
 
-                    # So sánh hòm đồ để tìm món đồ mới quay được
+                    # So sánh hòm đồ để tìm món đồ mới quay được (cả kept và junk)
+                    new_item_found = False
                     new_item_desc = ""
                     if eng and eng.is_ready and inv_before:
                         try:
-                            inv_after = eng.get_inventory_summary(category=self.moss_category)
+                            inv_after = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
                             if inv_after and not inv_after.get("error"):
                                 b_kept = {item.get("slot"): item for item in inv_before.get("keptSlots", [])}
                                 a_kept = {item.get("slot"): item for item in inv_after.get("keptSlots", [])}
+                                b_junk = {item.get("slot"): item for item in inv_before.get("junkSlots", [])}
+                                a_junk = {item.get("slot"): item for item in inv_after.get("junkSlots", [])}
+
                                 for s_idx, itm in a_kept.items():
                                     if s_idx not in b_kept:
+                                        new_item_found = True
                                         it_name = itm.get("name", "Vật phẩm")
                                         it_lvl = itm.get("level", 0)
                                         is_sp = itm.get("isSpecial", False)
@@ -2180,30 +2188,47 @@ class SlotController:
                                         tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else ("🍀 MAY MẮN!" if is_luck else f"+{it_lvl}")))
                                         new_item_desc = f" -> 🎁 Trúng: {it_name} ({tag})"
                                         break
+
+                                if not new_item_found:
+                                    for s_idx, itm in a_junk.items():
+                                        if s_idx not in b_junk:
+                                            new_item_found = True
+                                            it_name = itm.get("name", "Vật phẩm")
+                                            it_lvl = itm.get("level", 0)
+                                            new_item_desc = f" -> 🗑️ Nhận: {it_name} (+{it_lvl})"
+                                            break
                         except Exception:
                             pass
 
-                    def _update_ui(s=self.slot_idx, r=r_num, c=self.moss_category, desc=new_item_desc):
-                        self.app.update_moss_slot_rolls(s, r)
-                        c_str = self.app.get_moss_cat_name(c)
-                        self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}{desc}")
-                    self.app.after(0, _update_ui)
-                else:
-                    consecutive_fails += 1
-                    # Nếu quay không thành công (có thể bị đầy hòm), thử dọn rác an toàn
-                    if self.moss_auto_clean and eng and eng.is_ready:
-                        try:
-                            inv = eng.get_inventory_summary(category=self.moss_category)
-                            free_slots = int(inv.get("free", 64)) if inv else 0
-                            junk_count = int(inv.get("junkCount", 0)) if inv else 0
-                            moss_plus = int(inv.get("mossPlusCount", 0)) if inv else 0
+                    if new_item_found:
+                        consecutive_fails = 0
+                        self.moss_rolls_count += 1
+                        r_num = self.moss_rolls_count
 
-                            handled = False
-                            if junk_count > 0:
+                        def _update_ui(s=self.slot_idx, r=r_num, c=self.moss_category, desc=new_item_desc):
+                            self.app.update_moss_slot_rolls(s, r)
+                            c_str = self.app.get_moss_cat_name(c)
+                            self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}{desc}")
+                        self.app.after(0, _update_ui)
+                    else:
+                        # Server KHÔNG gửi item về (Hòm đồ đầy không đủ khối trống, hoặc hết Zen)
+                        consecutive_fails += 1
+                        # Giải phóng LoadingImage ngay lập tức trên game client
+                        try:
+                            if eng and eng.is_ready:
+                                eng.reset_moss_ui(self.moss_category)
+                        except Exception:
+                            pass
+
+                        # Thử dọn rác an toàn nếu được bật
+                        if self.moss_auto_clean and eng and eng.is_ready:
+                            try:
                                 c_res = eng.clean_inventory_junk(
                                     "trash",
                                     protected_slots=list(self.moss_initial_slots),
-                                    category=self.moss_category
+                                    category=self.moss_category,
+                                    include_extended=True,
+                                    max_junk_level=6
                                 )
                                 cleaned_items = c_res.get("cleaned", 0)
                                 if cleaned_items > 0:
@@ -2212,12 +2237,28 @@ class SlotController:
                                     ))
                                     time.sleep(0.3)
                                     consecutive_fails = 0
-                                    handled = True
+                                    continue
+                            except Exception:
+                                pass
 
-                            if handled:
-                                continue
-                        except Exception:
-                            pass
+                        if consecutive_fails >= 2:
+                            self.app.after(0, lambda s=self.slot_idx, c=cat, req=min_slots_needed: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Server không trả vật phẩm (Hòm đồ đầy không đủ khối {req} ô cho {self.app.get_moss_cat_name(c)} hoặc hết Zen). Tự động dừng quay và đóng bảng Moss an toàn!"
+                            ))
+                            break
+                        else:
+                            self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Lượt quay chưa nhận được vật phẩm (đang kiểm tra lại hòm đồ và giải phóng giao diện)..."
+                            ))
+                            time.sleep(0.5)
+                else:
+                    consecutive_fails += 1
+                    # Nếu quay không thành công, giải phóng giao diện
+                    try:
+                        if eng and eng.is_ready:
+                            eng.reset_moss_ui(self.moss_category)
+                    except Exception:
+                        pass
 
                     # Kiểm tra xem NPC Moss còn xuất hiện trong thế giới hay đã biến mất (hết giờ sự kiện)
                     npc_check = eng.find_moss_npc() if eng else None
@@ -2255,6 +2296,7 @@ class SlotController:
             self.moss_running = False
             if eng and eng.is_ready:
                 try:
+                    eng.reset_moss_ui(self.moss_category)
                     eng.close_moss()
                 except Exception:
                     pass
@@ -2279,6 +2321,7 @@ class SlotController:
             eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
             if eng and eng.is_ready:
                 try:
+                    eng.reset_moss_ui(self.moss_category)
                     eng.close_moss()
                 except Exception:
                     pass
@@ -2379,34 +2422,103 @@ class SlotController:
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Tương tác click NPC Moss thất bại: {err}")
             return False
 
-    def clean_moss_inventory(self) -> int:
-        """Dọn dẹp các món đồ rác trong hòm đồ chính của riêng slot này."""
+    def close_moss_dialog(self) -> bool:
+        """Đóng bảng NPC Moss và thoát phiên đối thoại để mở khóa thùng đồ."""
+        if self.moss_running:
+            self.stop_moss()
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-            return 0
+            return False
         eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
         if not eng:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!")
-            return 0
+            return False
         if not eng.is_ready:
             eng.attach()
         try:
-            # Khi người dùng bấm dọn thủ công: Dọn toàn bộ đồ rác thường +0..+4 không Exc/Ancient/Socket (Không bị khóa bởi initial_slots hay category)
-            res = eng.clean_inventory_junk("trash", protected_slots=[], category=None)
-            err = res.get("error")
-            cleaned = res.get("cleaned", 0)
-            if err:
-                self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không thể dọn rác: {err}"
-                )
-            else:
-                self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã dọn {cleaned} món đồ rác (Bảo vệ tuyệt đối: Đồ Divine/Rồng/Archangel/Ruud, Exc, Socket, Set Thần, Harmony, Đồ >= +5, Ngọc/Vé, Trang bị đang mặc)."
-                )
-            return cleaned
+            try:
+                eng.reset_moss_ui(self.moss_category)
+            except Exception:
+                pass
+            eng.close_moss()
+            eng.unlock_character_and_inventory()
+            self.app.append_moss_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚪 Đã đóng bảng Moss & mở khóa thùng đồ (phím V/I/Esc)."
+            )
+            return True
         except Exception as e:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi dọn đồ: {e}")
-            return 0
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi đóng Moss: {e}")
+            return False
+
+    def unlock_inventory(self) -> bool:
+        """Mở khóa và giải phóng toàn bộ trạng thái kẹt/treo của thùng đồ và nhân vật."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+        try:
+            ok = eng.unlock_character_and_inventory()
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔓 Đã mở khóa và giải phóng toàn bộ thùng đồ & nhân vật thành công!")
+            return bool(ok)
+        except Exception as e:
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi mở khóa thùng đồ: {e}")
+            return False
+
+    def unlock_and_close_inventory(self) -> bool:
+        """Mở khóa và đóng ngay thùng đồ + bảng Moss nếu đang bị treo/kẹt."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+            return False
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return False
+        if not eng.is_ready:
+            eng.attach()
+        try:
+            eng.unlock_character_and_inventory()
+            eng.close_inventory()
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔓 Đã giải phóng toàn bộ treo/kẹt & đóng thùng đồ + Moss thành công!")
+            return True
+        except Exception as e:
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi giải phóng thùng đồ: {e}")
+            return False
+
+    def clean_moss_inventory(self):
+        """Dọn dẹp các món đồ rác trong hòm đồ chính của riêng slot này."""
+        def _runner():
+            if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
+                return
+            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+            if not eng:
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!")
+                return
+            if not eng.is_ready:
+                eng.attach()
+            try:
+                # 1. Đảm bảo đóng bảng Moss & mở khóa thùng đồ & nhân vật trước tiên
+                eng.close_moss()
+                eng.unlock_character_and_inventory()
+                time.sleep(0.3)
+
+                # 2. Nếu đang ở Thành Elbeland (nơi Server cấm vứt đồ ra đất)
+                # Tự động kích hoạt bán đồ rác an toàn tại NPC Silvia/Rhea để dọn sạch thùng đồ
+                self.app.append_moss_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 💡 Đang ở Thành Elbeland (Server cấm vứt đồ ra đất). Tự động kích hoạt bán đồ rác tại thương nhân Silvia..."
+                )
+                self.sell_moss_items_at_merchant(eng)
+            except Exception as e:
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi dọn đồ: {e}")
+            finally:
+                try:
+                    eng.unlock_character_and_inventory()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_runner, daemon=True).start()
 
     def sell_moss_items_at_merchant(self, eng=None) -> bool:
         """
@@ -2422,9 +2534,10 @@ class SlotController:
             return False
 
         try:
-            # Đóng bảng Moss trước khi di chuyển để tránh kẹt trạng thái giao diện
-            eng.close_merchant_npc()
-            time.sleep(0.3)
+            # Đóng bảng Moss & mở khóa nhân vật trước khi di chuyển để tránh kẹt trạng thái giao diện
+            eng.close_moss()
+            eng.unlock_character_and_inventory()
+            time.sleep(0.4)
 
             # Điểm đích trước mặt thương nhân Silvia: ô (44, 229) Elbeland
             target_rhea_x, target_rhea_y = 44, 229
@@ -2523,6 +2636,7 @@ class SlotController:
 
             # Đóng phiên giao dịch Shop tại Rhea (gửi C1:31 và dọn WindowHandler)
             eng.close_merchant_npc()
+            eng.unlock_character_and_inventory()
             time.sleep(0.4)
 
             # BƯỚC 4: Di chuyển quay lại bệ NPC Moss (22, 225)
@@ -2566,6 +2680,11 @@ class SlotController:
                 f"[Slot {s:02d} - {c}] ⚠️ Lỗi trong quá trình tự động đi bán đồ Moss: {err}"
             ))
             return False
+        finally:
+            try:
+                eng.unlock_character_and_inventory()
+            except Exception:
+                pass
 
     def sell_moss_inventory(self):
         """Kích hoạt thủ công tiến trình đi bán đồ Moss +5..+7 tại NPC Leah trên luồng riêng."""
@@ -6550,6 +6669,21 @@ class DashboardApp(ctk.CTk):
         )
         btn_clean_all.pack(side="left", padx=(0, 6))
 
+        btn_unlock_all = ctk.CTkButton(
+            right_tb,
+            text="🔓 Mở Khóa / Tắt Hòm",
+            height=30,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#f59e0b",
+            text_color="#fbbf24",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.unlock_and_close_all_inventories
+        )
+        btn_unlock_all.pack(side="left", padx=(0, 6))
+
         btn_move_all_moss = ctk.CTkButton(
             right_tb,
             text="🚶 Tới NPC Moss Tất Cả",
@@ -6604,7 +6738,22 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.stop_all_moss_auto
         )
-        self.btn_moss_stop_all.pack(side="left")
+        self.btn_moss_stop_all.pack(side="left", padx=(0, 6))
+
+        btn_close_all_moss = ctk.CTkButton(
+            right_tb,
+            text="🚪 ĐÓNG NPC TẤT CẢ",
+            height=30,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#f59e0b",
+            text_color="#fbbf24",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.close_all_moss_dialogs
+        )
+        btn_close_all_moss.pack(side="left")
 
         # BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
         table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
@@ -6811,6 +6960,22 @@ class DashboardApp(ctk.CTk):
         )
         btn_open.pack(side="left", padx=(0, 4))
 
+        btn_close = ctk.CTkButton(
+            action_box,
+            text="🚪 Đóng",
+            width=50,
+            height=26,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#f59e0b",
+            text_color="#fbbf24",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: ctrl.close_moss_dialog()
+        )
+        btn_close.pack(side="left", padx=(0, 4))
+
         btn_once = ctk.CTkButton(
             action_box,
             text="🎲 1 Lần",
@@ -6842,6 +7007,22 @@ class DashboardApp(ctk.CTk):
             command=lambda s=i: ctrl.clean_moss_inventory()
         )
         btn_clean.pack(side="left", padx=(0, 4))
+
+        btn_unlock = ctk.CTkButton(
+            action_box,
+            text="🔓",
+            width=28,
+            height=26,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#f59e0b",
+            text_color="#fbbf24",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: ctrl.unlock_and_close_inventory()
+        )
+        btn_unlock.pack(side="left", padx=(0, 4))
 
         btn_sell = ctk.CTkButton(
             action_box,
@@ -6923,6 +7104,46 @@ class DashboardApp(ctk.CTk):
             else:
                 self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản nào đang kết nối để dọn rác!"))
         threading.Thread(target=_cleaner, daemon=True).start()
+
+    def close_all_moss_dialogs(self):
+        """Đóng bảng NPC Moss và thoát phiên đàm thoại trên tất cả các tài khoản đang kết nối."""
+        def _closer():
+            count = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    try:
+                        ctrl.close_moss_dialog()
+                        count += 1
+                        time.sleep(0.05)
+                    except Exception:
+                        pass
+            if count > 0:
+                self.after(0, lambda c=count: self.append_moss_log(
+                    f"🚪 Đã đóng bảng NPC Moss và mở khóa thùng đồ cho {c} tài khoản!"
+                ))
+            else:
+                self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản nào đang kết nối để đóng Moss!"))
+        threading.Thread(target=_closer, daemon=True).start()
+
+    def unlock_and_close_all_inventories(self):
+        """Mở khóa và giải phóng toàn bộ thùng đồ + nhân vật, đóng bảng Moss & hòm đồ cho tất cả tài khoản."""
+        def _unlocker():
+            count = 0
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    try:
+                        ctrl.unlock_and_close_inventory()
+                        count += 1
+                        time.sleep(0.05)
+                    except Exception:
+                        pass
+            if count > 0:
+                self.after(0, lambda c=count: self.append_moss_log(
+                    f"🔓 Đã mở khóa và giải phóng thùng đồ & nhân vật cho {c} tài khoản!"
+                ))
+            else:
+                self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản nào đang kết nối để mở khóa!"))
+        threading.Thread(target=_unlocker, daemon=True).start()
 
     def update_moss_slot_ui_state(self, slot_idx: int, is_running: bool):
         el = self.moss_ui_elements.get(slot_idx)

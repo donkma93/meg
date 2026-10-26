@@ -78,6 +78,8 @@ WM_MOUSEMOVE = 0x0200
 WM_MOUSEACTIVATE = 0x0021
 WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
+WM_RBUTTONDOWN = 0x0204
+WM_RBUTTONUP = 0x0205
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_CHAR = 0x0102
@@ -1380,8 +1382,8 @@ class UnityBackgroundHook:
         pt = POINT(client_x, client_y)
         user32.ClientToScreen(hwnd, ctypes.byref(pt))
 
-        # 1. Bật tọa độ ảo trong RAM game
-        spoof_data = struct.pack('<III', 1, pt.x, pt.y)
+        # 1. Bật tọa độ ảo trong RAM game (dùng <Iii để hỗ trợ tọa độ âm trên nhiều màn hình)
+        spoof_data = struct.pack('<Iii', 1, pt.x, pt.y)
         written = ctypes.c_size_t()
         kernel32.WriteProcessMemory(self.handle, ctypes.c_void_p(self.alloc_addr), spoof_data, 12, ctypes.byref(written))
 
@@ -1393,6 +1395,39 @@ class UnityBackgroundHook:
         time.sleep(max(duration_ms, 25) / 1000.0)
 
         user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+
+        # 3. Tắt tọa độ ảo, trả lại chuột hệ thống
+        time.sleep(0.02)
+        deact_data = struct.pack('<I', 0)
+        kernel32.WriteProcessMemory(self.handle, ctypes.c_void_p(self.alloc_addr), deact_data, 4, ctypes.byref(written))
+        return True
+
+    def send_right_click(self, hwnd: int, client_x: int, client_y: int, duration_ms: int = 40) -> bool:
+        """
+        Gửi Right-Click ngầm (Tung chiêu Skill / Chọn mục tiêu) không chạm chuột vật lý:
+        - Bơm tọa độ pixel đích vào RAM game (đón đầu GetCursorPos của Unity).
+        - Gửi PostMessage WM_RBUTTONDOWN/UP.
+        - Không SetCursorPos, không cướp tiêu điểm!
+        """
+        if not self.is_ready or not self.handle or not self.alloc_addr:
+            return False
+
+        pt = POINT(client_x, client_y)
+        user32.ClientToScreen(hwnd, ctypes.byref(pt))
+
+        # 1. Bật tọa độ ảo trong RAM game
+        spoof_data = struct.pack('<Iii', 1, pt.x, pt.y)
+        written = ctypes.c_size_t()
+        kernel32.WriteProcessMemory(self.handle, ctypes.c_void_p(self.alloc_addr), spoof_data, 12, ctypes.byref(written))
+
+        # 2. Gửi PostMessage ngầm hoàn toàn
+        lparam = ((client_y & 0xFFFF) << 16) | (client_x & 0xFFFF)
+        user32.PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam)
+        user32.PostMessageW(hwnd, WM_RBUTTONDOWN, 2, lparam)
+
+        time.sleep(max(duration_ms, 30) / 1000.0)
+
+        user32.PostMessageW(hwnd, WM_RBUTTONUP, 0, lparam)
 
         # 3. Tắt tọa độ ảo, trả lại chuột hệ thống
         time.sleep(0.02)
@@ -1544,6 +1579,41 @@ class BackgroundInputSimulator:
         user32.SendMessageW(hwnd, WM_SETCURSOR, hwnd, (WM_MOUSEMOVE << 16) | HTCLIENT)
 
         # 4. Trả con trỏ chuột về vị trí cũ ngay lập tức
+        user32.SetCursorPos(orig_pt.x, orig_pt.y)
+        return True
+
+    @classmethod
+    def micro_sync_right_click(cls, hwnd: int, client_x: int, client_y: int, duration_ms: int = 35) -> bool:
+        """
+        Micro-Sync Right Click cho Unity Engine (Tung Skill nhắm chuẩn vào quái):
+        - Nhảy vị trí chuột sang tọa độ quái trong 30ms để GetCursorPos() của Unity nhận diện.
+        - Phục hồi vị trí chuột vật lý của người dùng ngay lập tức.
+        """
+        ensure_desktop_attached()
+        orig_pt = POINT()
+        user32.GetCursorPos(ctypes.byref(orig_pt))
+
+        target_pt = POINT(client_x, client_y)
+        user32.ClientToScreen(hwnd, ctypes.byref(target_pt))
+
+        user32.SetCursorPos(target_pt.x, target_pt.y)
+
+        lparam = cls.make_lparam(client_x, client_y)
+        screen_lparam = cls.make_lparam(target_pt.x, target_pt.y)
+
+        user32.SendMessageW(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
+        user32.SendMessageW(hwnd, WM_SETFOCUS, 0, 0)
+        user32.SendMessageW(hwnd, WM_NCHITTEST, 0, screen_lparam)
+        user32.SendMessageW(hwnd, WM_SETCURSOR, hwnd, (WM_RBUTTONDOWN << 16) | HTCLIENT)
+
+        user32.PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam)
+        user32.PostMessageW(hwnd, WM_RBUTTONDOWN, 2, lparam)
+
+        time.sleep(max(duration_ms, 25) / 1000.0)
+
+        user32.PostMessageW(hwnd, WM_RBUTTONUP, 0, lparam)
+        user32.SendMessageW(hwnd, WM_SETCURSOR, hwnd, (WM_MOUSEMOVE << 16) | HTCLIENT)
+
         user32.SetCursorPos(orig_pt.x, orig_pt.y)
         return True
 

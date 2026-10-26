@@ -78,7 +78,7 @@ def find_megamu_pids() -> List[int]:
     return pids
 
 
-def clean_junk_for_pid(pid: int, method: str = "both") -> Dict[str, Any]:
+def clean_junk_for_pid(pid: int, method: str = "both", include_extended: bool = True, max_junk_level: int = 4) -> Dict[str, Any]:
     """Dọn đồ rác cho 1 client MEGAMU qua PID."""
     eng = MegDirectEngine.get_engine(pid)
     if not eng:
@@ -86,7 +86,7 @@ def clean_junk_for_pid(pid: int, method: str = "both") -> Dict[str, Any]:
     if not eng.is_ready:
         if not eng.attach():
             return {"cleaned": 0, "error": f"Không thể attach vào PID {pid}"}
-    return eng.clean_inventory_junk(method=method)
+    return eng.clean_inventory_junk(method=method, include_extended=include_extended, max_junk_level=max_junk_level)
 
 
 class InventoryTrashCleanerApp:
@@ -223,11 +223,44 @@ class InventoryTrashCleanerApp:
 
         self.lbl_inv_stats = ctk.CTkLabel(
             st_inner,
-            text="Thùng đồ: 64 ô | Trống: -- | Đồ rác cần vứt: -- | Đồ bảo tồn: --",
+            text="Tổng ô: -- | Trống: -- | Đồ rác cần vứt: -- | Đồ bảo tồn: --",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#10b981"
         )
         self.lbl_inv_stats.pack(side="right")
+
+        # Tùy chọn lọc & phạm vi dọn
+        st_opts = ctk.CTkFrame(self.stats_card, fg_color="transparent")
+        st_opts.pack(fill="x", padx=12, pady=(0, 6))
+
+        self.chk_extended = ctk.CTkCheckBox(
+            st_opts,
+            text="Bao gồm Ba Lô Mở Rộng (MR1 & MR2)",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f8fafc",
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            command=self.scan_inventory
+        )
+        self.chk_extended.pack(side="left", padx=(0, 16))
+        self.chk_extended.select()
+
+        ctk.CTkLabel(
+            st_opts,
+            text="Lọc cấp độ rác:",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8"
+        ).pack(side="left", padx=(0, 6))
+
+        self.level_combo = ctk.CTkOptionMenu(
+            st_opts,
+            values=["Đồ thường +0..+4 (Mặc định)", "Đồ thường +0..+6 (Moss / Sự kiện)"],
+            width=210,
+            height=26,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=lambda _: self.scan_inventory()
+        )
+        self.level_combo.pack(side="left")
 
         # 4. Bảng danh sách vật phẩm trong hòm đồ
         list_container = ctk.CTkFrame(self.root, fg_color="#141722", corner_radius=8, border_width=1, border_color="#202430")
@@ -343,28 +376,45 @@ class InventoryTrashCleanerApp:
         cur_x = p_info.get("tileX", p_info.get("x", 0))
         cur_y = p_info.get("tileY", p_info.get("y", 0))
 
-        inv = eng.get_inventory_summary()
+        include_ext = bool(self.chk_extended.get()) if hasattr(self, "chk_extended") else True
+        level_str = self.level_combo.get() if hasattr(self, "level_combo") else ""
+        max_junk_lvl = 6 if "+6" in level_str else 4
+
+        inv = eng.get_inventory_summary(max_junk_level=max_junk_lvl)
         if not inv or inv.get("error"):
             self.log(f"❌ Không thể đọc hòm đồ PID {self.selected_pid}: {inv.get('error') if inv else 'None'}")
             return
 
         zen = int(inv.get("zen", 0))
         free = int(inv.get("free", 64))
-        junk_cnt = int(inv.get("junkCount", 0))
-        kept_cnt = int(inv.get("keptCount", 0))
+        raw_junk_slots = inv.get("junkSlots", [])
+        raw_kept_slots = inv.get("keptSlots", [])
+        total_slots = int(inv.get("total", 64))
+
+        if not include_ext:
+            junk_slots = [j for j in raw_junk_slots if j.get("slot", 0) < 76]
+            kept_slots = [k for k in raw_kept_slots if k.get("slot", 0) < 76]
+            total_slots = min(total_slots, 64)
+            used_main = len([k for k in raw_kept_slots if k.get("slot", 0) < 76]) + len(junk_slots)
+            free = max(0, 64 - used_main)
+        else:
+            junk_slots = raw_junk_slots
+            kept_slots = raw_kept_slots
+
+        junk_cnt = len(junk_slots)
+        kept_cnt = len(kept_slots)
 
         self.lbl_char_info.configure(
             text=f"Nhân vật: {c_name} | PID: {self.selected_pid} | Tọa độ: ({cur_x}, {cur_y}) | Zen: {zen:,}"
         )
         self.lbl_inv_stats.configure(
-            text=f"Trống: {free}/64 | Đồ rác cần vứt: {junk_cnt} | Đồ giữ lại: {kept_cnt}"
+            text=f"Tổng: {total_slots} ô | Trống: {free} | Đồ rác cần vứt: {junk_cnt} | Đồ giữ lại: {kept_cnt}"
         )
 
         # Xóa danh sách cũ
         for widget in self.scroll_items.winfo_children():
             widget.destroy()
 
-        junk_slots = inv.get("junkSlots", [])
         if junk_cnt == 0:
             lbl_empty = ctk.CTkLabel(
                 self.scroll_items,
@@ -376,7 +426,7 @@ class InventoryTrashCleanerApp:
             self.log(f"✅ Hòm đồ {c_name} sạch sẽ (còn {free} ô trống, không có đồ rác).")
             return
 
-        self.log(f"📦 Đã quét hòm đồ {c_name}: Phát hiện {junk_cnt} món đồ thừa cần vứt!")
+        self.log(f"📦 Đã quét hòm đồ {c_name}: Phát hiện {junk_cnt} món đồ thừa cần vứt (Mở rộng: {'Bật' if include_ext else 'Tắt'}, Max cấp: +{max_junk_lvl})!")
 
         for item in junk_slots:
             slot = item.get("slot", 0)
@@ -384,15 +434,16 @@ class InventoryTrashCleanerApp:
             lvl = item.get("level", 0)
             sec = idx // 512
             sec_name = SECTION_NAMES.get(sec, f"Loại #{sec}")
+            it_name = item.get("name") or sec_name
 
             row = ctk.CTkFrame(self.scroll_items, fg_color="#181c26", height=32, corner_radius=4)
             row.pack(fill="x", pady=2, padx=2)
 
             slot_str = f"MR1 {slot:02d}" if 76 <= slot < 108 else (f"MR2 {slot:02d}" if 108 <= slot < 140 else f"Slot {slot:02d}")
             ctk.CTkLabel(row, text=slot_str, width=70, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left", padx=2)
-            ctk.CTkLabel(row, text=sec_name, width=210, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#f8fafc").pack(side="left", padx=2)
+            ctk.CTkLabel(row, text=it_name, width=210, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#f8fafc").pack(side="left", padx=2)
             ctk.CTkLabel(row, text=f"+{lvl}", width=80, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=2)
-            ctk.CTkLabel(row, text="Đồ thường (+0..+4 không tính năng)", width=200, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=2)
+            ctk.CTkLabel(row, text=f"Đồ thường (+0..+{max_junk_lvl} không tính năng)", width=200, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=2)
             ctk.CTkLabel(row, text="🗑️ Rác (Vứt)", width=110, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#ef4444").pack(side="left", padx=2)
 
             btn_del = ctk.CTkButton(
@@ -417,20 +468,21 @@ class InventoryTrashCleanerApp:
         res = eng.trash_inventory_slot(slot)
         if isinstance(res, dict):
             if res.get("ok"):
-                self.log(f"🗑️ Đã gửi lệnh vứt đồ tại ô Slot {slot:02d} ra đất!")
-                self.root.after(400, self.scan_inventory)
+                self.log(f"🗑️ Đã gửi lệnh vứt đồ tại ô Slot {slot:02d} ra đất! (Xác nhận ô đã dọn sạch)")
+                self.root.after(600, self.scan_inventory)
             else:
                 err = res.get("err") or res.get("error", "unknown")
                 self.log(f"⚠️ Không thể vứt đồ Slot {slot:02d}: {err}")
-                if err == "no_coord":
-                    self.log("   → Nhân vật chưa có tọa độ! Hãy để nhân vật di chuyển trước.")
+                if err == "safe_zone_or_obstacle":
+                    self.log("   → Server từ chối lệnh vứt đồ! Nguyên nhân: Nhân vật đang đứng trong KHU AN TOÀN (Làng Lorencia/Noria...) hoặc đứng sát tường/vật cản. Hãy di chuyển nhân vật ra ngoài cổng làng trước khi vứt!")
+                elif err == "no_coord":
+                    self.log("   → Nhân vật chưa có tọa độ! Hãy để nhân vật di chuyển 1 bước trước.")
                 elif err == "no_native_fn":
                     self.log("   → Offset inv_trash_item chưa load được. Kiểm tra megamu_offsets.json.")
         else:
-            # Backward compat: bool return
             if res:
                 self.log(f"🗑️ Đã vứt Slot {slot:02d}!")
-                self.root.after(400, self.scan_inventory)
+                self.root.after(600, self.scan_inventory)
             else:
                 self.log(f"⚠️ Không thể vứt đồ tại ô Slot {slot:02d}.")
 
@@ -439,15 +491,19 @@ class InventoryTrashCleanerApp:
             self.log("⚠️ Chưa chọn client để dọn rác!")
             return
 
+        include_ext = bool(self.chk_extended.get()) if hasattr(self, "chk_extended") else True
+        level_str = self.level_combo.get() if hasattr(self, "level_combo") else ""
+        max_junk_lvl = 6 if "+6" in level_str else 4
+
         def _do_clean():
-            self.log(f"🧹 Bắt đầu vứt toàn bộ đồ thừa cho PID {self.selected_pid}...")
+            self.log(f"🧹 Bắt đầu vứt toàn bộ đồ thừa cho PID {self.selected_pid} (Ba Lô MR: {'Bật' if include_ext else 'Tắt'}, Max cấp: +{max_junk_lvl})...")
             eng = MegDirectEngine.get_engine(self.selected_pid)
             if not eng:
                 self.log("❌ Không tìm thấy engine!")
                 return
             if not eng.is_ready:
                 eng.attach()
-            res = eng.clean_inventory_junk(method="trash")
+            res = eng.clean_inventory_junk(method="trash", include_extended=include_ext, max_junk_level=max_junk_lvl)
             cleaned = res.get("cleaned", 0)
             failed  = res.get("failed", 0)
             err     = res.get("error", "")
@@ -456,9 +512,9 @@ class InventoryTrashCleanerApp:
             elif cleaned > 0:
                 self.log(f"🎉 Đã vứt thành công {cleaned} món đồ thừa! (Thất bại: {failed}) Toàn bộ đồ giá trị và ngọc đã được giữ lại an toàn.")
             else:
-                self.log(f"ℹ️ Không có món đồ rác nào được vứt (Hòm đồ đã sạch hoặc không có Coord).")
+                self.log(f"ℹ️ Không có món đồ rác nào được vứt (Hòm đồ đã sạch hoặc lệnh vứt bị chặn).")
                 if failed > 0:
-                    self.log(f"   → {failed} slot thất bại - có thể do nhân vật chưa di chuyển (để game tải Coord).")
+                    self.log(f"   → {failed} slot thất bại: Lưu ý nếu nhân vật đứng trong LÀNG (Safe Zone), Server MU cấm vứt đồ ra đất. Hãy bước ra ngoài cổng làng!")
             self.root.after(600, self.scan_inventory)
 
         threading.Thread(target=_do_clean, daemon=True).start()
@@ -469,10 +525,14 @@ class InventoryTrashCleanerApp:
             self.log("⚠️ Không có client MEGAMU nào đang chạy!")
             return
 
+        include_ext = bool(self.chk_extended.get()) if hasattr(self, "chk_extended") else True
+        level_str = self.level_combo.get() if hasattr(self, "level_combo") else ""
+        max_junk_lvl = 6 if "+6" in level_str else 4
+
         def _clean_all():
             total = 0
             for pid in pids:
-                res = clean_junk_for_pid(pid, method="trash")
+                res = clean_junk_for_pid(pid, method="trash", include_extended=include_ext, max_junk_level=max_junk_lvl)
                 cnt = res.get("cleaned", 0)
                 total += cnt
                 self.log(f"🧹 PID {pid}: Đã dọn {cnt} món đồ thừa.")
