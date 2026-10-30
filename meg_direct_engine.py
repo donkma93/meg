@@ -100,9 +100,10 @@ DEFAULT_OFFSETS = {
     "item_storage_drop": "0x222CD00",
     "merchant_sell_item": "0x2743520",
     "slot_quick_action": "0x23E24A0",
-    "window_show": "0x258FBC0",
-    "window_hide": "0x25986B0",
-    "window_set_state": "0x2589E10",
+    "item_storage_move": "0x22317E0",
+    "window_show": "0x25EFD90",
+    "window_hide": "0x25F8B80",
+    "window_set_state": "0x25EA7C0",
     "moss_roll": "0x27A9760",
     "moss_open": "0x25EA7C0",
     "moss_roll_handler": "0x27A6230",
@@ -557,6 +558,14 @@ try {
         nativeSlotQuickAction = new NativeFunction(baseAddr.add(sqaOff), 'void', ['pointer', 'pointer']);
     }
 } catch (eSQA) {}
+
+var nativeItemStorageMove = null;
+try {
+    var ismOff = off('__ITEM_STORAGE_MOVE__');
+    if (!ismOff.isNull()) {
+        nativeItemStorageMove = new NativeFunction(baseAddr.add(ismOff), 'void', ['pointer', 'int', 'int', 'int', 'int', 'pointer']);
+    }
+} catch (eISM) {}
 
 var nativeInvTrashItem = null;
 try {
@@ -3543,6 +3552,74 @@ rpc.exports = {
         return false;
     },
 
+    autoStackJewels: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) return JSON.stringify({ ok: false, error: "no_player" });
+            var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+            if (inv.isNull()) return JSON.stringify({ ok: false, error: "no_inv" });
+            var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+            if (itemsArr.isNull()) return JSON.stringify({ ok: false, error: "no_items" });
+
+            var maxSlot = 204;
+            try {
+                var arrLen = itemsArr.add(0x18).readS32();
+                if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+            } catch (eLen) {}
+
+            var STACKABLE_IDS = [7182, 7183, 7184, 7185, 7186, 7206, 7207, 7208, 7280];
+            var groups = {};
+            for (var s = 12; s < maxSlot; s++) {
+                var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                if (!itemPtr.isNull()) {
+                    var idx = readItemIndex(itemPtr);
+                    var itName = getItemName(itemPtr);
+                    var isJewel = (STACKABLE_IDS.indexOf(idx) !== -1);
+                    if (!isJewel && itName && itName.length > 0) {
+                        var lower = itName.toLowerCase();
+                        if (lower.indexOf("jewel") !== -1 || lower.indexOf("gemstone") !== -1 || lower.indexOf("refining stone") !== -1) {
+                            isJewel = true;
+                        }
+                    }
+                    if (isJewel) {
+                        var gKey = (idx > 0) ? String(idx) : itName;
+                        if (!groups[gKey]) groups[gKey] = [];
+                        groups[gKey].push({ slot: s, ptr: itemPtr, name: itName, id: idx });
+                    }
+                }
+            }
+
+            var mergedCount = 0;
+            var details = [];
+            for (var k in groups) {
+                var list = groups[k];
+                if (list.length > 1) {
+                    var target = list[0];
+                    for (var i = 1; i < list.length; i++) {
+                        var source = list[i];
+                        if (nativeItemStorageMove !== null) {
+                            try {
+                                nativeItemStorageMove(source.ptr, 0, source.slot, 0, target.slot, ptr(0));
+                                mergedCount++;
+                                var jName = source.name || target.name || ("Jewel " + k);
+                                details.push({ key: k, name: jName, from: source.slot, to: target.slot });
+                                try { Thread.sleep(0.15); } catch (eSl) {}
+                            } catch (eM) {
+                                details.push({ err: String(eM), from: source.slot, to: target.slot });
+                            }
+                        } else {
+                            details.push({ err: "nativeItemStorageMove_null" });
+                        }
+                    }
+                }
+            }
+            return JSON.stringify({ ok: true, merged: mergedCount, details: details });
+        } catch (eG) {
+            return JSON.stringify({ ok: false, error: String(eG) });
+        }
+    },
+
     enterDevil: function(targetLevel, slot) {
         try {
             ensureThreadAttached();
@@ -4568,9 +4645,10 @@ class MegDirectEngine:
             "__ITEM_STORAGE_DROP__": str(self.offsets.get("item_storage_drop") or DEFAULT_OFFSETS.get("item_storage_drop", "0x222CD00")),
             "__MERCHANT_SELL_ITEM__": str(self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2743520")),
             "__SLOT_QUICK_ACTION__": str(self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x23E24A0")),
-            "__WINDOW_SHOW__": str(self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x258FBC0")),
-            "__WINDOW_HIDE__": str(self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x25986B0")),
-            "__WINDOW_SET_STATE__": str(self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x2589E10")),
+            "__ITEM_STORAGE_MOVE__": str(self.offsets.get("item_storage_move") or DEFAULT_OFFSETS.get("item_storage_move", "0x22317E0")),
+            "__WINDOW_SHOW__": str(self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x25EFD90")),
+            "__WINDOW_HIDE__": str(self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x25F8B80")),
+            "__WINDOW_SET_STATE__": str(self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x25EA7C0")),
             "__MOSS_ROLL__": str(self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x27A9760")),
             "__MOSS_OPEN__": str(self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x25EA7C0")),
             "__MOSS_ROLL_HANDLER__": str(self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x27A6230")),
@@ -5730,6 +5808,18 @@ class MegDirectEngine:
             except Exception:
                 pass
         return False
+
+    def auto_stack_jewels(self) -> Dict[str, Any]:
+        """Tự động tìm và gom các ô ngọc lẻ trong hòm đồ (Bless, Soul, Chaos, Life, Creation, Harmony...) về chung một ô."""
+        if self.is_ready:
+            try:
+                res_str = self._call("autoStackJewels")
+                if res_str:
+                    return json.loads(res_str)
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi auto_stack_jewels: {e}")
+                return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": "not_ready"}
 
     def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None) -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Devil Square (không cần click NPC)."""

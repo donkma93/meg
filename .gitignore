@@ -38,3 +38,4 @@ nuitka-crash-report.xml
 dist_installer/
 installer_staging/
 
+dump_new/

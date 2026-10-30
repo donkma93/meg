@@ -183,7 +183,7 @@ ensure_desktop_attached()
 # IL2CPP RVA & Offsets (GameAssembly.dll)
 # ==============================================================================
 
-GAME_TYPE_INFO_RVA = 0x54A9808
+GAME_TYPE_INFO_RVA = 0x553B900 # Đồng bộ megamu_offsets.json mới nhất
 KLASS_STATIC_FIELDS_OFFSET = 0xB8
 GAME_STATIC_INSTANCE_OFFSET = 0x8
 GAME_PLAYER_OFFSET = 0x208
