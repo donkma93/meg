@@ -322,13 +322,79 @@ class MemoryScanner:
 
     def _open_process(self) -> bool:
         try:
-            self.hProc = self.k32.OpenProcess(0x0410, False, self.pid)  # PROCESS_VM_READ | PROCESS_QUERY_INFORMATION
+            # PROCESS_ALL_ACCESS (0x1F0FFF) hoặc PROCESS_VM_READ | PROCESS_QUERY_INFORMATION (0x0410)
+            self.hProc = self.k32.OpenProcess(0x1F0FFF, False, self.pid)
+            if not self.hProc:
+                self.hProc = self.k32.OpenProcess(0x0410, False, self.pid)
             if not self.hProc:
                 return False
             self.base_addr = self._get_module_base("gameassembly.dll")
-            return self.base_addr != 0
+            return bool(self.base_addr)
         except Exception:
             return False
+
+    def read_gremory_case_items(self) -> List[Dict[str, Any]]:
+        """Đọc danh sách vật phẩm quà tặng hiện có trong Hộp Quà Gremory Case (phím K) trực tiếp từ RAM."""
+        items = []
+        if not self.hProc or not self.base_addr:
+            return items
+        try:
+            type_info = self.read_ptr(self.base_addr + 0x553B900)
+            if not type_info: return items
+            static_fields = self.read_ptr(type_info + 0xB8)
+            if not static_fields: return items
+            game_inst = self.read_ptr(static_fields + 0x08)
+            if not game_inst: return items
+            gremory_case = self.read_ptr(game_inst + 0x138)
+            if not gremory_case: return items
+            dict_ptr = self.read_ptr(gremory_case + 0x20)
+            if not dict_ptr: return items
+
+            outer_entries = self.read_ptr(dict_ptr + 0x18)
+            outer_count = self.read_i32(dict_ptr + 0x20)
+            if not outer_entries or outer_count <= 0: return items
+
+            tab_names = {0: "Tài khoản (Account)", 1: "Nhân vật (Character)", 2: "Mobile", 3: "Personal Store"}
+            for t in range(min(outer_count, 4)):
+                e_addr = outer_entries + 0x20 + t * 24
+                if self.read_i32(e_addr) < 0: continue
+                tab_type = self.read_i32(e_addr + 8)
+                sub_dict = self.read_ptr(e_addr + 16)
+                if not sub_dict: continue
+
+                sub_entries = self.read_ptr(sub_dict + 0x18)
+                arr_len = self.read_i32(sub_entries + 0x18) if sub_entries else 0
+                if not sub_entries or arr_len <= 0: continue
+
+                for i in range(arr_len):
+                    se_addr = sub_entries + 0x20 + i * 24
+                    if self.read_i32(se_addr) < 0: continue
+                    item_info = self.read_ptr(se_addr + 16)
+                    if not item_info: continue
+
+                    st = self.read_i32(item_info + 0x10)
+                    src = self.read_i32(item_info + 0x14)
+                    guid = self.read_i32(item_info + 0x18)
+                    item_obj = self.read_ptr(item_info + 0x20)
+                    item_code = 0
+                    if item_obj:
+                        b1 = self.read_u8(item_obj + 0x60)
+                        b2 = self.read_u8(item_obj + 0x61)
+                        item_code = b1 | (b2 << 8)
+
+                    items.append({
+                        "ptr": hex(item_info),
+                        "ptr_int": item_info,
+                        "tab": tab_type,
+                        "tab_name": tab_names.get(tab_type, f"Tab {tab_type}"),
+                        "storage_type": st,
+                        "reward_source": src,
+                        "guid": guid,
+                        "item_code": item_code
+                    })
+        except Exception:
+            pass
+        return items
 
     def _get_module_base(self, target_module: str) -> int:
         try:

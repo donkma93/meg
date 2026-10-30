@@ -153,7 +153,12 @@ DEFAULT_OFFSETS = {
     "ui_moss_window": "0x1C8",
     "ui_merchant_window": "0x198",
     "ui_inventory_window": "0x188",
-    "ui_warehouse_window": "0x288"
+    "ui_warehouse_window": "0x288",
+    "ui_gremory_window": "0x168",
+    "gremory_type_info": "0x553B900",
+    "gremory_claim_item": "0xFD85C0",
+    "gremory_instance_offset": "0x138",
+    "gremory_dict_offset": "0x20"
 }
 
 FRIDA_AGENT_JS = r"""
@@ -3568,55 +3573,156 @@ rpc.exports = {
                 if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
             } catch (eLen) {}
 
-            var STACKABLE_IDS = [7182, 7183, 7184, 7185, 7186, 7206, 7207, 7208, 7280];
-            var groups = {};
+            var JEWEL_MAP = {
+                7182: "chaos",
+                7183: "bless",
+                7184: "soul",
+                7185: "life",
+                7186: "creation",
+                7206: "guardian",
+                7207: "harmony",
+                7280: "gem"
+            };
+
+            var counts = {
+                bless: 0,
+                soul: 0,
+                life: 0,
+                chaos: 0,
+                creation: 0,
+                guardian: 0,
+                harmony: 0,
+                gem: 0
+            };
+            var itemsFound = [];
+
             for (var s = 12; s < maxSlot; s++) {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                 if (!itemPtr.isNull()) {
                     var idx = readItemIndex(itemPtr);
                     var itName = getItemName(itemPtr);
-                    var isJewel = (STACKABLE_IDS.indexOf(idx) !== -1);
-                    if (!isJewel && itName && itName.length > 0) {
+                    var jewelType = JEWEL_MAP[idx] || null;
+                    if (!jewelType && itName && itName.length > 0) {
                         var lower = itName.toLowerCase();
-                        if (lower.indexOf("jewel") !== -1 || lower.indexOf("gemstone") !== -1 || lower.indexOf("refining stone") !== -1) {
-                            isJewel = true;
-                        }
+                        if (lower.indexOf("bless") !== -1) jewelType = "bless";
+                        else if (lower.indexOf("soul") !== -1) jewelType = "soul";
+                        else if (lower.indexOf("life") !== -1) jewelType = "life";
+                        else if (lower.indexOf("chaos") !== -1) jewelType = "chaos";
+                        else if (lower.indexOf("creation") !== -1) jewelType = "creation";
+                        else if (lower.indexOf("guardian") !== -1) jewelType = "guardian";
+                        else if (lower.indexOf("harmony") !== -1) jewelType = "harmony";
+                        else if (lower.indexOf("gemstone") !== -1 || lower.indexOf("gem") !== -1) jewelType = "gem";
                     }
-                    if (isJewel) {
-                        var gKey = (idx > 0) ? String(idx) : itName;
-                        if (!groups[gKey]) groups[gKey] = [];
-                        groups[gKey].push({ slot: s, ptr: itemPtr, name: itName, id: idx });
+
+                    if (jewelType) {
+                        counts[jewelType] = (counts[jewelType] || 0) + 1;
+                        itemsFound.push({ slot: s, type: jewelType, name: itName, id: idx });
                     }
                 }
             }
 
-            var mergedCount = 0;
+            // Sắp xếp các viên ngọc lẻ rải rác dồn về các ô trống liền kề nhau
+            // QUY TẮC SỐNG CÒN: Chỉ di chuyển vào ô THẬT SỰ TRỐNG (null), tuyệt đối không đè ô để bảo toàn 100% ngọc!
+            var movedCount = 0;
             var details = [];
-            for (var k in groups) {
-                var list = groups[k];
-                if (list.length > 1) {
-                    var target = list[0];
-                    for (var i = 1; i < list.length; i++) {
-                        var source = list[i];
-                        if (nativeItemStorageMove !== null) {
-                            try {
-                                nativeItemStorageMove(source.ptr, 0, source.slot, 0, target.slot, ptr(0));
-                                mergedCount++;
-                                var jName = source.name || target.name || ("Jewel " + k);
-                                details.push({ key: k, name: jName, from: source.slot, to: target.slot });
-                                try { Thread.sleep(0.15); } catch (eSl) {}
-                            } catch (eM) {
-                                details.push({ err: String(eM), from: source.slot, to: target.slot });
-                            }
-                        } else {
-                            details.push({ err: "nativeItemStorageMove_null" });
+            if (nativeItemStorageMove !== null && itemsFound.length > 1) {
+                // Sắp xếp theo loại ngọc để cùng loại nằm cạnh nhau
+                itemsFound.sort(function(a, b) {
+                    if (a.type !== b.type) return a.type.localeCompare(b.type);
+                    return a.slot - b.slot;
+                });
+
+                var baseSlot = itemsFound[0].slot;
+                var currentDest = baseSlot;
+
+                for (var i = 1; i < itemsFound.length; i++) {
+                    var source = itemsFound[i];
+                    var targetSlot = -1;
+                    // Tìm ô trống tiếp theo trong khoảng hòm đồ chính (slot 12 - 75)
+                    for (var testSlot = currentDest + 1; testSlot < 76; testSlot++) {
+                        var testPtr = itemsArr.add(0x20 + testSlot * 8).readPointer();
+                        if (testPtr.isNull()) {
+                            targetSlot = testSlot;
+                            break;
                         }
+                    }
+
+                    if (targetSlot !== -1 && targetSlot < source.slot) {
+                        var targetCheck = itemsArr.add(0x20 + targetSlot * 8).readPointer();
+                        // Kiểm tra kép: BẮT BUỘC ô đích PHẢI LÀ NULL (TRỐNG)
+                        if (targetCheck.isNull()) {
+                            try {
+                                nativeItemStorageMove(source.ptr, 0, source.slot, 0, targetSlot, ptr(0));
+                                movedCount++;
+                                details.push({ name: source.name || source.type, from: source.slot, to: targetSlot });
+                                currentDest = targetSlot;
+                                Thread.sleep(0.12);
+                            } catch (eM) {}
+                        }
+                    } else if (source.slot > currentDest) {
+                        currentDest = source.slot;
                     }
                 }
             }
-            return JSON.stringify({ ok: true, merged: mergedCount, details: details });
+
+            return JSON.stringify({ ok: true, counts: counts, totalJewels: itemsFound.length, moved: movedCount, details: details });
         } catch (eG) {
             return JSON.stringify({ ok: false, error: String(eG) });
+        }
+    },
+
+    claimGremoryCaseItems: function() {
+        try {
+            ensureThreadAttached();
+            var base = Process.findModuleByName('GameAssembly.dll').base;
+            var typeInfo = base.add(ptr('0x553B900')).readPointer();
+            if (typeInfo.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "typeInfo_null" });
+            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+            if (staticFields.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "staticFields_null" });
+            var gameInst = staticFields.add(ptr('0x08')).readPointer();
+            if (gameInst.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "gameInst_null" });
+            var gremoryCase = gameInst.add(ptr('0x138')).readPointer();
+            if (gremoryCase.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "gremoryCase_null" });
+            var dictPtr = gremoryCase.add(ptr('0x20')).readPointer();
+            if (dictPtr.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "dictPtr_null" });
+
+            var claimFunc = new NativeFunction(base.add(ptr('0xFD85C0')), 'void', ['pointer', 'pointer']);
+            var outerEntries = dictPtr.add(ptr('0x18')).readPointer();
+            var outerCount = dictPtr.add(ptr('0x20')).readS32();
+            var claimedCount = 0;
+            var claimedItems = [];
+
+            for (var t = 0; t < outerCount; t++) {
+                var oEntry = outerEntries.add(0x20 + t * 24);
+                if (oEntry.readS32() < 0) continue;
+                var subDict = oEntry.add(16).readPointer();
+                if (subDict.isNull()) continue;
+
+                var subEntries = subDict.add(ptr('0x18')).readPointer();
+                if (subEntries.isNull()) continue;
+                var arrLen = subEntries.add(ptr('0x18')).readS32();
+
+                for (var i = 0; i < arrLen; i++) {
+                    var sEntry = subEntries.add(0x20 + i * 24);
+                    if (sEntry.readS32() < 0) continue;
+                    var itemInfo = sEntry.add(16).readPointer();
+                    if (itemInfo.isNull()) continue;
+
+                    var itemObj = itemInfo.add(ptr('0x20')).readPointer();
+                    var itemCode = 0;
+                    if (!itemObj.isNull()) {
+                        try { itemCode = itemObj.add(ptr('0x60')).readU16(); } catch (eCode) {}
+                    }
+
+                    claimFunc(itemInfo, ptr(0));
+                    claimedCount++;
+                    claimedItems.push({ code: itemCode });
+                    Thread.sleep(0.08);
+                }
+            }
+            return JSON.stringify({ ok: true, success: true, claimed: claimedCount, items: claimedItems });
+        } catch (e) {
+            return JSON.stringify({ ok: false, success: false, claimed: 0, error: String(e) });
         }
     },
 
@@ -4697,6 +4803,9 @@ class MegDirectEngine:
             "__UI_MERCHANT_WINDOW__": str(self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x198")),
             "__UI_INVENTORY_WINDOW__": str(self.offsets.get("ui_inventory_window") or DEFAULT_OFFSETS.get("ui_inventory_window", "0x188")),
             "__UI_WAREHOUSE_WINDOW__": str(self.offsets.get("ui_warehouse_window") or DEFAULT_OFFSETS.get("ui_warehouse_window", "0x288")),
+            "__GREMORY_INSTANCE_GETTER__": str(self.offsets.get("gremory_instance_getter") or DEFAULT_OFFSETS.get("gremory_instance_getter", "0x109AC80")),
+            "__GREMORY_CLAIM_ITEM__": str(self.offsets.get("gremory_claim_item") or DEFAULT_OFFSETS.get("gremory_claim_item", "0xFD85C0")),
+            "__GREMORY_TYPE_INFO__": str(self.offsets.get("gremory_type_info") or DEFAULT_OFFSETS.get("gremory_type_info", "0x553B900")),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -5798,28 +5907,171 @@ class MegDirectEngine:
         return False
 
     def is_mirror_event_map(self) -> bool:
-        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (Map ID 65-68) hay không."""
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (Map ID 65-68) hay không (Hỗ trợ cả Frida Hook và Zero-Injection RAM)."""
+        # 1. Thử qua Frida / Fast Telemetry nếu engine đã hook
         if self.is_ready:
             try:
-                tele = self.get_player_info()
+                tele = self.get_player_info(max_age=0.5, allow_blocking=False)
                 if tele and "mapId" in tele and tele["mapId"] >= 0:
-                    return tele["mapId"] in (65, 66, 67, 68)
-                return bool(self._call("isMirrorEventMap"))
+                    if tele["mapId"] in (65, 66, 67, 68):
+                        return True
+                res = self._call("isMirrorEventMap")
+                if res:
+                    return True
             except Exception:
                 pass
+
+        # 2. Fallback Win32 ReadProcessMemory trực tiếp (100% hoạt động dù Frida chưa attach)
+        try:
+            info = self.read_player_info_via_ram()
+            if info and "mapId" in info and info["mapId"] in (65, 66, 67, 68):
+                return True
+        except Exception:
+            pass
+
+        # 3. Fallback MemoryScanner nếu có
+        try:
+            if self.pid and psutil and psutil.pid_exists(self.pid):
+                from test_entity_radar import MemoryScanner
+                sc = MemoryScanner(self.pid)
+                if sc and sc.base_addr:
+                    sd = sc.scan_radar(radius=5.0)
+                    m_info = sd.get("map", {})
+                    mid = m_info.get("id", -1)
+                    if mid in (65, 66, 67, 68):
+                        return True
+        except Exception:
+            pass
+
         return False
 
-    def auto_stack_jewels(self) -> Dict[str, Any]:
-        """Tự động tìm và gom các ô ngọc lẻ trong hòm đồ (Bless, Soul, Chaos, Life, Creation, Harmony...) về chung một ô."""
+    def claim_gremory_case_items(self) -> Dict[str, Any]:
+        """Tự động nhận toàn bộ vật phẩm / quà tặng đang lưu trong Hộp Quà Gremory Case (phím K) về hòm đồ chính."""
+        hwnd = self.get_hwnd()
+        if not hwnd and not self.is_ready:
+            return {"ok": False, "success": False, "claimed": 0, "error": "not_ready"}
+
+        # 1. Thử qua Frida Hook (0xFD85C0) nếu quà đã được đồng bộ sẵn trong RAM
         if self.is_ready:
             try:
-                res_str = self._call("autoStackJewels")
+                res_str = self._call("claimGremoryCaseItems")
                 if res_str:
-                    return json.loads(res_str)
+                    res = json.loads(res_str) if isinstance(res_str, str) else res_str
+                    if res.get("claimed", 0) > 0:
+                        return res
             except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi auto_stack_jewels: {e}")
-                return {"ok": False, "error": str(e)}
-        return {"ok": False, "error": "not_ready"}
+                _safe_log(f"[MegDirectEngine] Lỗi claimGremoryCaseItems via Frida (thử 1): {e}")
+
+        # 2. Mở Hộp Quà Gremory bằng phím 'K' (0x4B) để game gửi packet C1:4F:01 lên Server tải danh sách quà về client
+        if hwnd:
+            try:
+                self.send_background_key(hwnd, 0x1B, duration_s=0.04)
+                time.sleep(0.15)
+                self.send_background_key(hwnd, 0x4B, duration_s=0.06)
+                time.sleep(0.65)
+            except Exception:
+                pass
+
+        # 3. Sau khi mở hộp K, thử lại nhận qua Frida Native Hook (RVA 0xFD85C0)
+        if self.is_ready:
+            for _ in range(2):
+                try:
+                    res_str = self._call("claimGremoryCaseItems")
+                    if res_str:
+                        res = json.loads(res_str) if isinstance(res_str, str) else res_str
+                        if res.get("claimed", 0) > 0:
+                            if hwnd:
+                                time.sleep(0.2)
+                                self.send_background_key(hwnd, 0x1B, duration_s=0.05)
+                            return res
+                except Exception as e:
+                    _safe_log(f"[MegDirectEngine] Lỗi claimGremoryCaseItems via Frida (thử 2): {e}")
+                time.sleep(0.3)
+
+        # 4. Thao tác Phím K (Background PostMessage) an toàn 100%
+        if hwnd:
+            try:
+
+                cw, ch = 1024, 768
+                try:
+                    import ctypes.wintypes
+                    rect = ctypes.wintypes.RECT()
+                    if ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
+                        cw = max(800, rect.right - rect.left)
+                        ch = max(600, rect.bottom - rect.top)
+                except Exception:
+                    pass
+
+                # Tọa độ nút 'Nhận quà' của các hàng item trong Gremory Case
+                base_rx = cw // 2 + int(175 * (cw / 1024.0))
+                start_ry = ch // 2 - int(115 * (ch / 768.0))
+                row_h = int(48 * (ch / 768.0))
+
+                claimed = 0
+                for row in range(5):
+                    btn_y = start_ry + row * row_h
+                    self.send_background_click(hwnd, base_rx, btn_y, duration_ms=40)
+                    time.sleep(0.18)
+                    self.send_background_key(hwnd, 0x0D, duration_s=0.04) # VK_RETURN
+                    time.sleep(0.12)
+                    self.send_background_key(hwnd, 0x20, duration_s=0.04) # VK_SPACE
+                    time.sleep(0.12)
+                    claimed += 1
+
+                # Click tiếp hàng đầu tiên (row 0) thêm 3 lần vì khi nhận xong thì các hàng dưới trôi lên hàng 0
+                for _ in range(3):
+                    self.send_background_click(hwnd, base_rx, start_ry, duration_ms=40)
+                    time.sleep(0.18)
+                    self.send_background_key(hwnd, 0x0D, duration_s=0.04)
+                    time.sleep(0.12)
+                    self.send_background_key(hwnd, 0x20, duration_s=0.04)
+                    time.sleep(0.12)
+
+                time.sleep(0.3)
+                self.send_background_key(hwnd, 0x1B, duration_s=0.05) # VK_ESCAPE
+                return {"ok": True, "success": True, "claimed": claimed, "method": "background_input"}
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi background input claim Gremory: {e}")
+
+        return {"ok": False, "success": False, "claimed": 0, "error": "not_ready"}
+
+    def auto_stack_jewels(self) -> Dict[str, Any]:
+        """
+        Tự động kiểm tra và gom ngọc an toàn 100% bằng hệ thống đóng gói server-side (/pack bless/soul/chaos/life 10/20/30).
+        Tuyệt đối không di chuyển đè ô trong hòm đồ để triệt tiêu vĩnh viễn rủi ro mất ngọc!
+        """
+        if not self.is_ready:
+            try:
+                self.attach()
+                time.sleep(0.3)
+            except Exception:
+                pass
+        if not self.is_ready:
+            return {"ok": False, "error": "not_ready"}
+
+        try:
+            res_str = self._call("autoStackJewels")
+            if not res_str:
+                return {"ok": False, "error": "scan_failed"}
+            res = json.loads(res_str) if isinstance(res_str, str) else res_str
+            if not res.get("ok"):
+                return res
+
+            counts = res.get("counts", {})
+            moved = res.get("moved", 0)
+            details = res.get("details", [])
+            total_jewels = res.get("totalJewels", 0)
+
+            return {
+                "ok": True,
+                "counts": counts,
+                "moved": moved,
+                "details": details,
+                "total_jewels": total_jewels
+            }
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi auto_stack_jewels: {e}")
+            return {"ok": False, "error": str(e)}
 
     def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None) -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Devil Square (không cần click NPC)."""
@@ -6044,4 +6296,8 @@ class MegDirectEngine:
 
 
 atexit.register(MegDirectEngine.cleanup_all)
+
+# Module-level convenience export
+send_background_key = MegDirectEngine.send_background_key
+
 

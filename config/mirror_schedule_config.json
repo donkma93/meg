@@ -1,7 +1,9 @@
 {
   "schedule": {
-    "auto_schedule": true,
+    "auto_schedule": false,
     "auto_prep_before": true,
+    "auto_lifecycle": true,
+    "auto_gremory": true,
     "prefire_sec": 5.0,
     "interval_hours": 2,
     "prep_minutes_before": 5,

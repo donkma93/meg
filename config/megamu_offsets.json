@@ -99,5 +99,10 @@
     "ui_moss_window": "0x1C8",
     "ui_merchant_window": "0x198",
     "ui_inventory_window": "0x188",
-    "ui_warehouse_window": "0x288"
+    "ui_warehouse_window": "0x288",
+    "ui_gremory_window": "0x168",
+    "gremory_type_info": "0x553B900",
+    "gremory_claim_item": "0xFD85C0",
+    "gremory_instance_offset": "0x138",
+    "gremory_dict_offset": "0x20"
 }
