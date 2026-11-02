@@ -421,6 +421,14 @@ class UiIconFactory:
             d.line([(cx, int(ch * 0.55)), (cx, int(ch * 0.88))], fill=color, width=lw)
             d.line([(cx, int(ch * 0.70)), (cx + int(cw * 0.16), int(ch * 0.70))], fill=color, width=lw)
             d.line([(cx, int(ch * 0.84)), (cx + int(cw * 0.14), int(ch * 0.84))], fill=color, width=lw)
+        elif name in ("pin", "location", "marker"):
+            cx, cy = cw // 2, int(ch * 0.38)
+            r = int(cw * 0.26)
+            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
+            poly = [(cx - r, cy), (cx + r, cy), (cx, int(ch * 0.88))]
+            d.polygon(poly, fill=color)
+            inner_r = int(r * 0.42)
+            d.ellipse([cx - inner_r, cy - inner_r, cx + inner_r, cy + inner_r], fill="#181c26")
 
         res_img = im.resize(size, Image.Resampling.LANCZOS)
         ctk_img = ctk.CTkImage(light_image=res_img, dark_image=res_img, size=size)
@@ -462,6 +470,7 @@ class ModernOptionMenu(ctk.CTkFrame):
         kwargs.pop("dropdown_text_color", None)
         kwargs.pop("anchor", None)
 
+        c_radius = kwargs.pop("corner_radius", 5)
         super().__init__(
             master,
             width=width,
@@ -469,7 +478,7 @@ class ModernOptionMenu(ctk.CTkFrame):
             fg_color=fg_color,
             border_width=1,
             border_color="#242b3a",
-            corner_radius=0,
+            corner_radius=c_radius,
             **kwargs
         )
         self.pack_propagate(False)
@@ -674,6 +683,136 @@ class ModernOptionMenu(ctk.CTkFrame):
             super().configure(**kwargs)
 
 # ==============================================================================
+# HỆ THỐNG TOOLTIP HIỆN ĐẠI (MODERN SLEEK TOOLTIP SYSTEM)
+# ==============================================================================
+class ModernToolTip:
+    """
+    Hệ thống tooltip nổi hiện đại phong cách Dark Theme:
+    - Bo góc, viền sắc nét, hiển thị mượt mà không rung lắc.
+    - Tự động canh lề và chống tràn màn hình (Screen Boundary Protection).
+    - Tự động hủy khi chuột rời khỏi hoặc khi người dùng click chuột.
+    - Hỗ trợ cả CustomTkinter lẫn Tkinter thuần.
+    """
+    def __init__(self, widget, text: str, delay_ms: int = 250):
+        self.widget = widget
+        self.text = text
+        self.delay_ms = delay_ms
+        self.tipwindow = None
+        self.after_id = None
+
+        self._bind_events(widget)
+
+    def _bind_events(self, w):
+        try:
+            w.bind("<Enter>", self._on_enter, add="+")
+            w.bind("<Leave>", self._on_leave, add="+")
+            w.bind("<ButtonPress>", self._on_leave, add="+")
+            if hasattr(w, "_canvas") and w._canvas:
+                w._canvas.bind("<Enter>", self._on_enter, add="+")
+                w._canvas.bind("<Leave>", self._on_leave, add="+")
+                w._canvas.bind("<ButtonPress>", self._on_leave, add="+")
+            if hasattr(w, "_text_label") and w._text_label:
+                w._text_label.bind("<Enter>", self._on_enter, add="+")
+                w._text_label.bind("<Leave>", self._on_leave, add="+")
+                w._text_label.bind("<ButtonPress>", self._on_leave, add="+")
+            if hasattr(w, "_lbl") and w._lbl:
+                w._lbl.bind("<Enter>", self._on_enter, add="+")
+                w._lbl.bind("<Leave>", self._on_leave, add="+")
+                w._lbl.bind("<ButtonPress>", self._on_leave, add="+")
+        except Exception:
+            pass
+
+    def _on_enter(self, event=None):
+        self._unschedule()
+        if self.text:
+            try:
+                self.after_id = self.widget.after(self.delay_ms, self._show_tip)
+            except Exception:
+                pass
+
+    def _on_leave(self, event=None):
+        self._unschedule()
+        self._hide_tip()
+
+    def _unschedule(self):
+        aid = self.after_id
+        self.after_id = None
+        if aid:
+            try:
+                self.widget.after_cancel(aid)
+            except Exception:
+                pass
+
+    def _show_tip(self):
+        if not self.text:
+            return
+        self._hide_tip()
+        try:
+            root_x = self.widget.winfo_rootx()
+            root_y = self.widget.winfo_rooty()
+            w_h = self.widget.winfo_height()
+            x = root_x + 8
+            y = root_y + w_h + 6
+
+            import tkinter as tk
+            self.tipwindow = tw = tk.Toplevel(self.widget)
+            tw.wm_overrideredirect(True)
+            tw.attributes("-topmost", True)
+
+            border_frame = tk.Frame(tw, bg="#334155", bd=1)
+            border_frame.pack(fill="both", expand=True)
+
+            inner_frame = tk.Frame(border_frame, bg="#0b0f19")
+            inner_frame.pack(fill="both", expand=True, padx=1, pady=1)
+
+            lbl = tk.Label(
+                inner_frame,
+                text=self.text,
+                justify=tk.LEFT,
+                bg="#0b0f19",
+                fg="#f1f5f9",
+                font=("Segoe UI", 9),
+                padx=9,
+                pady=6
+            )
+            lbl.pack()
+
+            tw.update_idletasks()
+            tip_w = tw.winfo_reqwidth()
+            tip_h = tw.winfo_reqheight()
+            screen_w = self.widget.winfo_screenwidth()
+            screen_h = self.widget.winfo_screenheight()
+
+            if x + tip_w > screen_w - 12:
+                x = screen_w - tip_w - 12
+            if x < 12:
+                x = 12
+            if y + tip_h > screen_h - 45:
+                y = root_y - tip_h - 6
+                if y < 12:
+                    y = 12
+
+            tw.wm_geometry(f"+{x}+{y}")
+        except Exception:
+            self.tipwindow = None
+
+    def _hide_tip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            try:
+                tw.destroy()
+            except Exception:
+                pass
+
+    def update_text(self, new_text: str):
+        self.text = new_text
+
+def add_tooltip(widget, text: str, delay_ms: int = 250) -> ModernToolTip:
+    """Gắn tooltip chỉ dẫn hiện đại vào widget."""
+    return ModernToolTip(widget, text, delay_ms=delay_ms)
+
+# ==============================================================================
 # BẢNG DỊCH NGÔN NGỮ (I18N)
 # ==============================================================================
 I18N = {
@@ -689,7 +828,7 @@ I18N = {
         "remove": "Xóa",
         "col_no": "STT",
         "col_char_pid": "Nhân vật / PID",
-        "col_route_preset": "Tuyến đường cấu hình",
+        "col_route_preset": "Cấu hình & Cấp độ",
         "col_coordinates": "Tọa độ",
         "col_status": "Trạng thái",
         "col_actions": "Thao tác",
@@ -1410,6 +1549,8 @@ class ConfigPersistenceManager:
                             s_int = int(s_str)
                             res[s_int] = {
                                 "auto_devil": bool(conf.get("auto_devil", False)),
+                                "devil_min_resets": int(conf.get("devil_min_resets", 0)),
+                                "devil_max_resets": int(conf.get("devil_max_resets", 9999)),
                                 "auto_reset": bool(conf.get("auto_reset", False)),
                                 "auto_add_point": bool(conf.get("auto_add_point", False)),
                                 "reset_level": int(conf.get("reset_level", 400)),
@@ -1428,6 +1569,8 @@ class ConfigPersistenceManager:
         cls,
         slot_idx: int,
         auto_devil: bool = False,
+        devil_min_resets: int = 0,
+        devil_max_resets: int = 9999,
         auto_reset: bool = False,
         auto_add_point: bool = False,
         reset_level: int = 400,
@@ -1442,6 +1585,8 @@ class ConfigPersistenceManager:
                 stat_ratio = cur.get(slot_idx, {}).get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
             cur[slot_idx] = {
                 "auto_devil": bool(auto_devil),
+                "devil_min_resets": int(devil_min_resets),
+                "devil_max_resets": int(devil_max_resets if int(devil_max_resets) > 0 else 9999),
                 "auto_reset": bool(auto_reset),
                 "auto_add_point": bool(auto_add_point),
                 "reset_level": int(reset_level),
@@ -1491,6 +1636,7 @@ class SlotController:
         self.moss_running: bool = False
         self.moss_worker_thread: Optional[threading.Thread] = None
         self.moss_paused_worker: bool = False
+        self.moss_initial_slots: set = set()
 
         # Cấu hình Double Goer (Mirror) riêng cho Slot này
         self.mirror_enabled: bool = True
@@ -1510,6 +1656,9 @@ class SlotController:
 
         # Cấu hình Devil Square & Auto Reset & Point riêng cho Slot này
         self.auto_devil: bool = False
+        self.devil_min_resets: int = 0
+        self.devil_max_resets: int = 9999
+        self.current_resets: int = 0
         self.auto_reset: bool = False
         self.auto_add_point: bool = False
         self.reset_level: int = 400
@@ -1522,6 +1671,10 @@ class SlotController:
             if self.slot_idx in evt_cfgs:
                 s_evt = evt_cfgs[self.slot_idx]
                 self.auto_devil = bool(s_evt.get("auto_devil", False))
+                self.devil_min_resets = int(s_evt.get("devil_min_resets", 0))
+                self.devil_max_resets = int(s_evt.get("devil_max_resets", 9999))
+                if self.devil_max_resets <= 0:
+                    self.devil_max_resets = 9999
                 self.auto_reset = bool(s_evt.get("auto_reset", False))
                 self.auto_add_point = bool(s_evt.get("auto_add_point", False))
                 self.reset_level = int(s_evt.get("reset_level", 400))
@@ -1763,6 +1916,9 @@ class SlotController:
         # Đọc cấu hình tươi mới 100% từ file đĩa JSON!
         cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
         cfg["auto_devil"] = self.auto_devil
+        cfg["devil_min_resets"] = self.devil_min_resets
+        cfg["devil_max_resets"] = self.devil_max_resets
+        cfg["resets"] = self.current_resets
         cfg["auto_reset"] = self.auto_reset
         cfg["auto_add_point"] = self.auto_add_point
         cfg["reset_level"] = self.reset_level
@@ -1995,6 +2151,13 @@ class SlotController:
                         self.class_code = CLASS_ID_TO_CODE.get(cid, "")
                 except Exception:
                     pass
+            if "resets" in p_info:
+                try:
+                    r_val = int(p_info.get("resets", 0))
+                    if r_val > 0:
+                        self.current_resets = r_val
+                except Exception:
+                    pass
 
             self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code)
         elif self.char_name != "---" or self.level != "---":
@@ -2101,7 +2264,7 @@ class SlotController:
                 try:
                     init_inv = eng.get_inventory_summary(category=self.moss_category)
                     if init_inv and not init_inv.get("error"):
-                        for item in init_inv.get("keptSlots", []) + init_inv.get("junkSlots", []):
+                        for item in init_inv.get("keptSlots", []):
                             s_num = item.get("slot")
                             if s_num is not None:
                                 self.moss_initial_slots.add(int(s_num))
@@ -2249,7 +2412,7 @@ class SlotController:
                             try:
                                 c_res = eng.clean_inventory_junk(
                                     "trash",
-                                    protected_slots=list(self.moss_initial_slots),
+                                    protected_slots=list(getattr(self, "moss_initial_slots", None) or []),
                                     category=self.moss_category,
                                     include_extended=True,
                                     max_junk_level=6
@@ -2465,6 +2628,9 @@ class SlotController:
                 pass
             eng.close_moss()
             eng.unlock_character_and_inventory()
+            time.sleep(0.15)
+            if hasattr(eng, "is_moss_open") and eng.is_moss_open():
+                eng.close_moss()
             self.app.append_moss_log(
                 f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚪 Đã đóng bảng Moss & mở khóa thùng đồ (phím V/I/Esc)."
             )
@@ -2510,16 +2676,16 @@ class SlotController:
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi giải phóng thùng đồ: {e}")
             return False
 
-    def clean_moss_inventory(self):
-        """Dọn dẹp các món đồ rác trong hòm đồ chính của riêng slot này."""
-        def _runner():
+    def clean_moss_inventory(self, method: str = "trash", category: int = -1, run_in_thread: bool = False, force_clean: bool = True) -> int:
+        """Dọn dẹp / ném tại chỗ các món đồ rác trong hòm đồ chính của riêng slot này."""
+        def _runner() -> int:
             if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
                 self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-                return
+                return 0
             eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
             if not eng:
                 self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!")
-                return
+                return 0
             if not eng.is_ready:
                 eng.attach()
             try:
@@ -2527,22 +2693,55 @@ class SlotController:
                 eng.close_moss()
                 eng.unlock_character_and_inventory()
                 time.sleep(0.3)
+                if hasattr(eng, "is_moss_open") and eng.is_moss_open():
+                    eng.close_moss()
+                    time.sleep(0.2)
 
-                # 2. Nếu đang ở Thành Elbeland (nơi Server cấm vứt đồ ra đất)
-                # Tự động kích hoạt bán đồ rác an toàn tại NPC Silvia/Rhea để dọn sạch thùng đồ
-                self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 💡 Đang ở Thành Elbeland (Server cấm vứt đồ ra đất). Tự động kích hoạt bán đồ rác tại thương nhân Silvia..."
+                # 2. Thực hiện ném đồ rác tại chỗ (category=-1 nghĩa là dọn sạch mọi đồ rác thường +0..+6 trong hòm đồ)
+                # (bảo vệ tuyệt đối đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)
+                c_res = eng.clean_inventory_junk(
+                    str(method),
+                    protected_slots=[] if force_clean else list(getattr(self, "moss_initial_slots", None) or []),
+                    category=category,
+                    include_extended=True,
+                    max_junk_level=6
                 )
-                self.sell_moss_items_at_merchant(eng)
+                cleaned = int(c_res.get("cleaned", 0)) if isinstance(c_res, dict) else 0
+                total_junk = int(c_res.get("totalJunk", 0)) if isinstance(c_res, dict) else 0
+                failed = int(c_res.get("failed", 0)) if isinstance(c_res, dict) else 0
+                err_msg = c_res.get("error", "") if isinstance(c_res, dict) else ""
+
+                if cleaned > 0:
+                    self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã ném tại chỗ thành công {cleaned}/{total_junk or cleaned} món đồ rác (Bảo tồn đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)!"
+                    )
+                elif total_junk > 0:
+                    self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Đã phát hiện {total_junk} món đồ rác nhưng máy chủ chưa cho phép rơi ra đất! Lưu ý: Nếu nhân vật đứng trong Làng / Event Square / Khu an toàn (Safe Zone), Server MU cấm ném đồ ra đất. Hãy di chuyển ra ngoài cổng làng."
+                    )
+                elif err_msg:
+                    self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Lỗi ném đồ: {err_msg}"
+                    )
+                else:
+                    self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Thùng đồ không có món đồ rác nào cần ném (hoặc đã sạch)."
+                    )
+                return cleaned
             except Exception as e:
-                self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi dọn đồ: {e}")
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi ném đồ tại chỗ: {e}")
+                return 0
             finally:
                 try:
                     eng.unlock_character_and_inventory()
                 except Exception:
                     pass
 
-        threading.Thread(target=_runner, daemon=True).start()
+        if run_in_thread:
+            threading.Thread(target=_runner, daemon=True).start()
+            return 0
+        else:
+            return _runner()
 
     def sell_moss_items_at_merchant(self, eng=None) -> bool:
         """
@@ -2562,6 +2761,9 @@ class SlotController:
             eng.close_moss()
             eng.unlock_character_and_inventory()
             time.sleep(0.4)
+            if hasattr(eng, "is_moss_open") and eng.is_moss_open():
+                eng.close_moss()
+                time.sleep(0.2)
 
             # Điểm đích trước mặt thương nhân Silvia: ô (44, 229) Elbeland
             target_rhea_x, target_rhea_y = 44, 229
@@ -4095,7 +4297,7 @@ class DashboardApp(ctk.CTk):
             "border_width": 1,
             "border_color": "#2c3345",
             "text_color": "#f1f5f9",
-            "corner_radius": 0,
+            "corner_radius": 6,
             "height": 32
         }
 
@@ -4108,11 +4310,17 @@ class DashboardApp(ctk.CTk):
             image=UiIconFactory.get("link", color="#38bdf8", size=(14, 14)),
             compound="left",
             text=f" {tr('connect_all')}",
-            width=120,
+            width=124,
             command=self.connect_all,
             **btn_bar_style
         )
+        self.btn_connect_all.configure(border_color="#0284c7", hover_color="#0369a1")
         self.btn_connect_all.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            self.btn_connect_all,
+            "🔗 Kết nối tất cả (Connect All)\n"
+            "Tự động quét và kết nối tất cả các cửa sổ MEGAMU đang mở vào các Slot còn trống."
+        )
 
         self.btn_team5 = ctk.CTkButton(
             t_left,
@@ -4124,6 +4332,11 @@ class DashboardApp(ctk.CTk):
             **btn_bar_style
         )
         self.btn_team5.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            self.btn_team5,
+            "👥 Gán Team 5\n"
+            "Tự động gán 5 cửa sổ MEGAMU đầu tiên vào Slot 01 - 05 để lập nhóm tổ đội nhanh."
+        )
 
         self.btn_refresh = ctk.CTkButton(
             t_left,
@@ -4134,7 +4347,15 @@ class DashboardApp(ctk.CTk):
             command=self.refresh_games,
             **btn_bar_style
         )
-        self.btn_refresh.pack(side="left", padx=(0, 6))
+        self.btn_refresh.pack(side="left", padx=(0, 8))
+        add_tooltip(
+            self.btn_refresh,
+            "🔄 Làm mới Game\n"
+            "Quét lại toàn bộ danh sách tiến trình MEGAMU.exe trên hệ thống để cập nhật danh sách chọn."
+        )
+
+        # Phân tách nhóm nút
+        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=20).pack(side="left", padx=(2, 8))
 
         self.btn_add_slot = ctk.CTkButton(
             t_left,
@@ -4146,6 +4367,7 @@ class DashboardApp(ctk.CTk):
             **btn_bar_style
         )
         self.btn_add_slot.pack(side="left", padx=(0, 6))
+        add_tooltip(self.btn_add_slot, "➕ Thêm Slot\nThêm một hàng quản lý tài khoản mới vào bảng.")
 
         self.btn_remove_slot = ctk.CTkButton(
             t_left,
@@ -4156,18 +4378,27 @@ class DashboardApp(ctk.CTk):
             command=self.remove_last_slot,
             **btn_bar_style
         )
-        self.btn_remove_slot.pack(side="left")
+        self.btn_remove_slot.pack(side="left", padx=(0, 8))
+        add_tooltip(self.btn_remove_slot, "➖ Bớt Slot\nXóa bớt một hàng quản lý tài khoản ở cuối bảng.")
+
+        # Phân tách nhóm tiện ích
+        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=20).pack(side="left", padx=(2, 8))
 
         self.btn_stack_jewels = ctk.CTkButton(
             t_left,
             image=UiIconFactory.get("bolt", color="#a855f7", size=(13, 13)),
             compound="left",
             text=" 💎 Gom Ngọc",
-            width=110,
+            width=115,
             command=self.stack_all_jewels,
             **btn_bar_style
         )
-        self.btn_stack_jewels.pack(side="left", padx=(6, 0))
+        self.btn_stack_jewels.pack(side="left")
+        add_tooltip(
+            self.btn_stack_jewels,
+            "💎 Gom Ngọc Toàn Bộ (Stack Jewels)\n"
+            "Tự động gộp tất cả các viên ngọc lẻ (Bless, Soul, Chaos, Life...) trong thùng đồ của mọi tài khoản thành từng cụm 10/20/30 viên."
+        )
 
 
 
@@ -4234,18 +4465,46 @@ class DashboardApp(ctk.CTk):
     # TAB 1: DANH SÁCH TÀI KHOẢN (ACCOUNTS TAB)
     # ==========================================================================
     def build_accounts_view(self):
+        # Thanh hướng dẫn nhanh (Quick Tips Banner) cho người dùng mới
+        tip_banner = ctk.CTkFrame(
+            self.panel_accounts,
+            fg_color="#101522",
+            border_width=1,
+            border_color="#1e293b",
+            corner_radius=6,
+            height=32
+        )
+        tip_banner.pack(fill="x", padx=12, pady=(6, 4))
+
+        tip_lbl_icon = ctk.CTkLabel(
+            tip_banner,
+            text="💡",
+            font=ctk.CTkFont(size=12),
+            text_color="#facc15"
+        )
+        tip_lbl_icon.pack(side="left", padx=(10, 4), pady=3)
+
+        tip_lbl_text = ctk.CTkLabel(
+            tip_banner,
+            text="Quy trình nhanh: 1. [🔗 Kết nối tất cả]  ➔  2. Chọn Cấu hình  ➔  3. Bấm [▶ Chạy]. Rê chuột vào [DS] [RS] [PT] để xem giải thích. Nhấp Chuột Phải vào dòng để mở Menu Thao Tác Nhanh.",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8",
+            anchor="w"
+        )
+        tip_lbl_text.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=3)
+
         # Header bảng cố định ở trên
         tbl_header = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=32)
-        tbl_header.pack(fill="x", padx=12, pady=(10, 4))
+        tbl_header.pack(fill="x", padx=12, pady=(4, 4))
 
         self.col_header_labels = []
         col_defs = [
             ("col_no", 45, "w"),
-            ("col_char_pid", 230, "w"),
+            ("col_char_pid", 225, "w"),
             ("col_route_preset", 220, "w"),
-            ("col_coordinates", 160, "center"),
-            ("col_status", 130, "center"),
-            ("col_actions", 200, "center")
+            ("col_coordinates", 145, "center"),
+            ("col_status", 125, "center"),
+            ("col_actions", 215, "center")
         ]
 
         for k, w, anc in col_defs:
@@ -4276,21 +4535,53 @@ class DashboardApp(ctk.CTk):
             self.create_slot_row(i)
 
     def create_slot_row(self, i: int):
-        """Tạo 1 dòng giao diện cho Slot thứ i theo đúng ảnh thiết kế."""
+        """Tạo 1 dòng giao diện cho Slot thứ i theo phong cách hiện đại, trực quan, thân thiện."""
         ctrl = self.controllers[i - 1]
-        row_frame = ctk.CTkFrame(self.accounts_scroll_frame, fg_color="#141722", height=54, corner_radius=0)
+        row_frame = ctk.CTkFrame(
+            self.accounts_scroll_frame,
+            fg_color="#131722",
+            height=54,
+            corner_radius=6,
+            border_width=1,
+            border_color="#1e2433"
+        )
         row_frame.pack(fill="x", padx=4, pady=3)
 
-        # Cột 1: No. (01, 02...)
-        slot_lbl = ctk.CTkLabel(
+        # Hiệu ứng hover cho toàn dòng
+        def _on_row_enter(e):
+            try:
+                row_frame.configure(fg_color="#171c2a")
+            except Exception:
+                pass
+
+        def _on_row_leave(e):
+            try:
+                row_frame.configure(fg_color="#131722")
+            except Exception:
+                pass
+
+        row_frame.bind("<Enter>", _on_row_enter, add="+")
+        row_frame.bind("<Leave>", _on_row_leave, add="+")
+
+        # Cột 1: STT dạng Badge bo góc nổi bật
+        slot_badge = ctk.CTkFrame(
             row_frame,
+            fg_color="#1a2030",
+            corner_radius=5,
+            width=36,
+            height=28
+        )
+        slot_badge.pack(side="left", padx=(8, 4))
+        slot_badge.pack_propagate(False)
+
+        slot_lbl = ctk.CTkLabel(
+            slot_badge,
             text=f"{i:02d}",
-            width=45,
-            anchor="w",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             text_color="#94a3b8"
         )
-        slot_lbl.pack(side="left", padx=(10, 4))
+        slot_lbl.pack(expand=True)
+        add_tooltip(slot_badge, f"Slot #{i:02d} - Chuột phải vào đây để mở Menu Lệnh Nhanh.")
 
         # Cột 2: Character/PID
         options = ["--"]
@@ -4329,11 +4620,13 @@ class DashboardApp(ctk.CTk):
             fg_color="#181c26",
             border_color="#242b3a",
             hover_color="#222736",
+            corner_radius=5,
             command=lambda val, s=i: self.on_slot_pid_selected(s, val),
             on_open=lambda s=i: self.on_proc_combo_opened(s),
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
         )
         proc_combo.pack(side="left", padx=4)
+        add_tooltip(proc_combo, f"Gán tài khoản MEGAMU cho Slot #{i:02d}.\nNhấp vào để chọn hoặc tự động làm mới danh sách game đang mở.")
 
         # Cột 3: Target Route Preset (Multi-tier: Master LV 450 / Progress / EXP)
         route_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=220)
@@ -4351,10 +4644,12 @@ class DashboardApp(ctk.CTk):
             height=24,
             fg_color="#181c26",
             hover_color="#222736",
+            corner_radius=4,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=lambda val, s=i: self.on_slot_profile_selected(s, val)
         )
         preset_combo.pack(side="left")
+        add_tooltip(preset_combo, "Tuyến đường chạy bãi quái & bản đồ tự động cho slot này (Định hình trong tab Cấu hình)")
 
         lvl_str = f"LV {ctrl.level}" if ctrl.level != "---" else "LV --"
         lvl_lbl = ctk.CTkLabel(
@@ -4364,12 +4659,13 @@ class DashboardApp(ctk.CTk):
             text_color="#94a3b8"
         )
         lvl_lbl.pack(side="right")
+        add_tooltip(lvl_lbl, "Cấp độ hiện tại và số lần Reset (rr) của nhân vật")
 
         prog_bar = ctk.CTkProgressBar(
             route_box,
             width=210,
             height=5,
-            corner_radius=0,
+            corner_radius=2,
             fg_color="#232836",
             progress_color="#38bdf8"
         )
@@ -4387,6 +4683,7 @@ class DashboardApp(ctk.CTk):
             anchor="w"
         )
         exp_lbl.pack(side="left")
+        add_tooltip(exp_lbl, "Tiến độ điểm kinh nghiệm (EXP hiện tại / EXP cần lên cấp)")
 
         pts_init = f"⭐ {ctrl.points:,} pts" if ctrl.points > 0 else "⭐ 0 pts"
         pts_color = "#10b981" if ctrl.points > 0 else "#64748b"
@@ -4398,18 +4695,27 @@ class DashboardApp(ctk.CTk):
             anchor="e"
         )
         pts_lbl.pack(side="right")
+        add_tooltip(pts_lbl, "Điểm tiềm năng (Point) chưa phân bổ. Bật nút [PT] bên phải để bot tự động cộng theo cấu hình.")
 
-        # Cột 4: Coordinates (Rounded container with coordinates and dropdown arrow)
+        # Cột 4: Coordinates (Rounded container with coordinates and location pin)
         coords_frame = ctk.CTkFrame(
             row_frame,
             fg_color="#181c26",
-            border_width=0,
-            corner_radius=0,
+            border_width=1,
+            border_color="#242b3a",
+            corner_radius=5,
             width=140,
             height=30
         )
         coords_frame.pack(side="left", padx=6)
         coords_frame.pack_propagate(False)
+
+        pin_icon = ctk.CTkLabel(
+            coords_frame,
+            text="",
+            image=UiIconFactory.get("pin", color="#38bdf8", size=(11, 11))
+        )
+        pin_icon.pack(side="left", padx=(8, 2))
 
         coords_lbl = ctk.CTkLabel(
             coords_frame,
@@ -4417,13 +4723,8 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#f1f5f9"
         )
-        coords_lbl.pack(side="left", padx=(10, 0), expand=True)
-
-        ctk.CTkLabel(
-            coords_frame,
-            text="",
-            image=UiIconFactory.get("chevron_down", color="#64748b", size=(10, 10))
-        ).pack(side="right", padx=(0, 8))
+        coords_lbl.pack(side="left", fill="both", expand=True, padx=(2, 8))
+        add_tooltip(coords_frame, f"[Slot #{i:02d}] Tọa độ thời gian thực (X, Y) của nhân vật trong game.")
 
         # Cột 5: Status (Text mặc định, hỗ trợ click để kết nối lại)
         status_lbl = ctk.CTkLabel(
@@ -4436,6 +4737,13 @@ class DashboardApp(ctk.CTk):
         )
         status_lbl.pack(side="left", padx=6)
         status_lbl.bind("<Button-1>", lambda e, s=i: self.on_slot_status_clicked(s))
+        add_tooltip(
+            status_lbl,
+            f"[Slot #{i:02d}] Trạng thái hoạt động:\n"
+            "• 'Đang chạy' (Xanh lá): Bot đang tự động đánh và theo dõi nhân vật.\n"
+            "• 'Idle' (Xám): Đang tạm dừng.\n"
+            "• 'Mất kết nối' / 'Game đã đóng' (Đỏ): Nhấp chuột trái vào đây để tự động kết nối lại game!"
+        )
 
         # Chuột phải vào dòng mở menu tiện ích
         import tkinter as tk
@@ -4462,6 +4770,8 @@ class DashboardApp(ctk.CTk):
                 menu.add_command(label="🔄 Thực hiện /reset ngay", command=lambda: self.on_quick_reset(s))
                 menu.add_command(label="🛠️ Cài đặt tỷ lệ Point & Reset...", command=lambda: self.open_slot_stat_ratio_dialog(s))
                 menu.add_separator()
+                menu.add_command(label="🗑️ Ném đồ rác tại chỗ (Slot này)", command=lambda s=s: self.controllers[s - 1].clean_moss_inventory(run_in_thread=True))
+                menu.add_command(label="💰 Bán đồ rác tại NPC Silvia", command=lambda s=s: self.controllers[s - 1].sell_moss_inventory())
                 menu.add_command(label="💎 Tự động Gom Ngọc slot này", command=lambda s=s: threading.Thread(target=self.controllers[s - 1].auto_stack_jewels, daemon=True).start())
                 menu.add_separator()
                 menu.add_command(label="❌ Ngắt kết nối", command=lambda: self.controllers[s - 1].detach())
@@ -4469,7 +4779,7 @@ class DashboardApp(ctk.CTk):
             except Exception:
                 pass
 
-        for _w in (row_frame, slot_lbl, status_lbl, coords_frame, coords_lbl):
+        for _w in (row_frame, slot_lbl, slot_badge, status_lbl, coords_frame, coords_lbl, pin_icon):
             _w.bind("<Button-3>", lambda e, s=i: _show_slot_ctx(e, s))
 
         # Cột 6: Actions (Play/Stop | DS | RS | PT | Configure | Slot Logs)
@@ -4477,9 +4787,9 @@ class DashboardApp(ctk.CTk):
         actions_box.pack(side="left", padx=4)
 
         act_btn_style = {
-            "width": 28,
+            "width": 30,
             "height": 28,
-            "corner_radius": 0,
+            "corner_radius": 5,
             "fg_color": "#181c26",
             "hover_color": "#242b3a",
             "border_width": 1,
@@ -4494,15 +4804,20 @@ class DashboardApp(ctk.CTk):
             **act_btn_style
         )
         btn_toggle.pack(side="left", padx=2)
+        add_tooltip(
+            btn_toggle,
+            f"[Slot #{i:02d}] ▶ Chạy / ⏹ Dừng Auto\n"
+            "Bắt đầu hoặc tạm dừng chế độ tự động đánh quái và chạy chặng cho tài khoản này."
+        )
 
         # Nút Devil Square (DS)
         btn_devil = ctk.CTkButton(
             actions_box,
             text="DS",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=28,
+            width=30,
             height=28,
-            corner_radius=0,
+            corner_radius=5,
             fg_color="#4c0519" if ctrl.auto_devil else "#181c26",
             text_color="#f43f5e" if ctrl.auto_devil else "#64748b",
             border_width=1,
@@ -4511,15 +4826,23 @@ class DashboardApp(ctk.CTk):
             command=lambda s=i: self.on_toggle_slot_devil(s)
         )
         btn_devil.pack(side="left", padx=2)
+        add_tooltip(
+            btn_devil,
+            f"[Slot #{i:02d}] 😈 Auto Devil Square (DS)\n"
+            "Tự động chạy tới NPC Charon và vào sự kiện Devil Square khi đến giờ mở cửa.\n"
+            "• Click để Bật/Tắt\n"
+            "• Bấm [⚙] để chỉnh mốc Reset cho phép đi DS\n"
+            "• Click Chuột Phải vào dòng để 'Đi Devil Square ngay lập tức'"
+        )
 
         # Nút Auto Reset (RS)
         btn_reset = ctk.CTkButton(
             actions_box,
             text="RS",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=28,
+            width=30,
             height=28,
-            corner_radius=0,
+            corner_radius=5,
             fg_color="#064e3b" if ctrl.auto_reset else "#181c26",
             text_color="#10b981" if ctrl.auto_reset else "#64748b",
             border_width=1,
@@ -4528,15 +4851,22 @@ class DashboardApp(ctk.CTk):
             command=lambda s=i: self.on_toggle_slot_reset(s)
         )
         btn_reset.pack(side="left", padx=2)
+        add_tooltip(
+            btn_reset,
+            f"[Slot #{i:02d}] 🔄 Auto Reset (RS)\n"
+            f"Tự động gõ lệnh /reset khi nhân vật đạt đủ Level (hiện tại: LV {ctrl.reset_level}).\n"
+            "• Click để Bật/Tắt\n"
+            "• Bấm [⚙] bên cạnh để thay đổi mốc Level Reset"
+        )
 
         # Nút Auto Cộng Point (PT)
         btn_point = ctk.CTkButton(
             actions_box,
             text="PT",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=28,
+            width=30,
             height=28,
-            corner_radius=0,
+            corner_radius=5,
             fg_color="#075985" if ctrl.auto_add_point else "#181c26",
             text_color="#38bdf8" if ctrl.auto_add_point else "#64748b",
             border_width=1,
@@ -4545,6 +4875,14 @@ class DashboardApp(ctk.CTk):
             command=lambda s=i: self.on_toggle_slot_point(s)
         )
         btn_point.pack(side="left", padx=2)
+        add_tooltip(
+            btn_point,
+            f"[Slot #{i:02d}] ⭐ Auto Cộng Point (PT)\n"
+            "⚠️ Lưu ý: 'PT' là POINT (Điểm tiềm năng), KHÔNG phải Party!\n"
+            "Tự động phân bổ điểm tiềm năng theo tỷ lệ cấu hình.\n"
+            "• Click để Bật/Tắt\n"
+            "• Bấm [⚙] bên cạnh để cài đặt tỷ lệ cộng (Str, Agi, Vit, Ene, Cmd)"
+        )
 
         btn_cfg = ctk.CTkButton(
             actions_box,
@@ -4554,6 +4892,11 @@ class DashboardApp(ctk.CTk):
             **act_btn_style
         )
         btn_cfg.pack(side="left", padx=2)
+        add_tooltip(
+            btn_cfg,
+            f"[Slot #{i:02d}] ⚙️ Cài đặt Slot & Tỷ lệ Point\n"
+            "Mở hộp thoại thiết lập tỷ lệ cộng Point, cấp độ Reset và phạm vi Devil Square cho Slot này."
+        )
 
         btn_log = ctk.CTkButton(
             actions_box,
@@ -4563,6 +4906,11 @@ class DashboardApp(ctk.CTk):
             **act_btn_style
         )
         btn_log.pack(side="left", padx=2)
+        add_tooltip(
+            btn_log,
+            f"[Slot #{i:02d}] 📋 Xem Nhật Ký (Logs)\n"
+            "Mở tab nhật ký chi tiết riêng của Slot này để theo dõi tiến trình và lỗi."
+        )
 
         # Lưu references để cập nhật
         self.slot_ui_elements[i] = {
@@ -7109,7 +7457,7 @@ class DashboardApp(ctk.CTk):
 
         btn_clean_all = ctk.CTkButton(
             tb_row2,
-            text="🧹 Dọn Rác",
+            text="🗑️ Ném Tại Chỗ",
             height=26,
             corner_radius=0,
             fg_color="#1e293b",
@@ -7121,6 +7469,21 @@ class DashboardApp(ctk.CTk):
             command=self.clean_all_moss_inventories
         )
         btn_clean_all.pack(side="left", padx=(0, 6))
+
+        btn_sell_all = ctk.CTkButton(
+            tb_row2,
+            text="💰 Bán Silvia",
+            height=26,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#10b981",
+            text_color="#34d399",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=self.sell_all_moss_inventories
+        )
+        btn_sell_all.pack(side="left", padx=(0, 6))
 
         btn_move_all = ctk.CTkButton(
             tb_row2,
@@ -7150,7 +7513,22 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=11),
             command=self.open_all_moss_npc
         )
-        btn_open_all.pack(side="left")
+        btn_open_all.pack(side="left", padx=(0, 6))
+
+        btn_close_all = ctk.CTkButton(
+            tb_row2,
+            text="🚪 Đóng NPC",
+            height=26,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#64748b",
+            text_color="#cbd5e1",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=self.close_all_moss_dialogs
+        )
+        btn_close_all.pack(side="left")
 
         # 3. BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
         table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
@@ -7163,12 +7541,12 @@ class DashboardApp(ctk.CTk):
         headers = [
             ("Quay Moss", 95, "w"),
             ("Nº", 35, "w"),
-            ("Tài khoản / PID", 180, "w"),
-            ("Vật Phẩm Quay (Config)", 190, "w"),
+            ("Tài khoản / PID", 175, "w"),
+            ("Vật Phẩm Quay (Config)", 185, "w"),
             ("Delay", 70, "center"),
-            ("Đã Quay", 75, "center"),
-            ("Trạng Thái", 120, "center"),
-            ("Thao Tác", 190, "center"),
+            ("Đã Quay", 70, "center"),
+            ("Trạng Thái", 115, "center"),
+            ("Thao Tác", 220, "center"),
         ]
         for title, w, anc in headers:
             ctk.CTkLabel(
@@ -7338,14 +7716,14 @@ class DashboardApp(ctk.CTk):
         )
         status_lbl.pack(side="left", padx=4)
 
-        # Cột 8: Thao tác (3 nút tinh gọn: Auto, Mở, 1 Lần)
-        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=190)
+        # Cột 8: Thao tác (4 nút: Auto, Mở, 1 Lần, Ném tại chỗ)
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=220)
         action_box.pack(side="left", padx=4)
 
         btn_toggle = ctk.CTkButton(
             action_box,
             text="▶️ Auto",
-            width=58,
+            width=54,
             height=26,
             corner_radius=0,
             fg_color="#059669",
@@ -7354,12 +7732,12 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda s=i: self.toggle_moss_slot_auto(s)
         )
-        btn_toggle.pack(side="left", padx=(0, 4))
+        btn_toggle.pack(side="left", padx=(0, 3))
 
         btn_open = ctk.CTkButton(
             action_box,
             text="🚪 Mở",
-            width=46,
+            width=44,
             height=26,
             corner_radius=0,
             fg_color="#1e293b",
@@ -7370,12 +7748,12 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda s=i: ctrl.open_moss_npc()
         )
-        btn_open.pack(side="left", padx=(0, 4))
+        btn_open.pack(side="left", padx=(0, 3))
 
         btn_once = ctk.CTkButton(
             action_box,
             text="🎲 1 Lần",
-            width=56,
+            width=50,
             height=26,
             corner_radius=0,
             fg_color="#1e293b",
@@ -7386,7 +7764,41 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda s=i: ctrl.roll_moss_once()
         )
-        btn_once.pack(side="left")
+        btn_once.pack(side="left", padx=(0, 3))
+
+        btn_drop = ctk.CTkButton(
+            action_box,
+            text="🗑️ Ném",
+            width=48,
+            height=26,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#ef4444",
+            text_color="#f87171",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=lambda s=i: ctrl.clean_moss_inventory(run_in_thread=True)
+        )
+        btn_drop.pack(side="left")
+
+        def _show_moss_ctx(event, s_idx):
+            try:
+                ctrl_item = self.controllers[s_idx - 1]
+                m_menu = tk.Menu(self, tearoff=0, bg="#181c26", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
+                m_menu.add_command(label=f"🗑️ Ném đồ rác tại chỗ (Slot {s_idx:02d})", command=lambda: ctrl_item.clean_moss_inventory(run_in_thread=True))
+                m_menu.add_command(label=f"💰 Bán đồ rác tại NPC Silvia (Slot {s_idx:02d})", command=lambda: ctrl_item.sell_moss_inventory())
+                m_menu.add_separator()
+                m_menu.add_command(label="🚪 Mở bảng Moss NPC", command=lambda: ctrl_item.open_moss_npc())
+                m_menu.add_command(label="🚪 Đóng bảng Moss NPC", command=lambda: ctrl_item.close_moss_dialog())
+                m_menu.add_command(label="🔓 Mở khóa kẹt thùng đồ & Moss", command=lambda: ctrl_item.unlock_and_close_inventory())
+                m_menu.add_command(label="🚶 Chạy về NPC Moss (22, 225)", command=lambda: ctrl_item.move_to_moss_elbeland())
+                m_menu.tk_popup(event.x_root, event.y_root)
+            except Exception:
+                pass
+
+        for _mw in (row_frame, no_lbl, char_lbl, rolls_lbl, status_lbl):
+            _mw.bind("<Button-3>", lambda e, s=i: _show_moss_ctx(e, s))
 
         # Lưu UI cache
         self.moss_ui_elements[i] = {
@@ -7402,6 +7814,7 @@ class DashboardApp(ctk.CTk):
             "btn_toggle": btn_toggle,
             "btn_open": btn_open,
             "btn_once": btn_once,
+            "btn_drop": btn_drop,
         }
 
     def on_moss_slot_enabled_toggled(self, slot_idx: int):
@@ -7511,25 +7924,50 @@ class DashboardApp(ctk.CTk):
         self.append_moss_log(f"🧹 Đã {status_txt} tính năng Tự Động Dọn Rác cho tất cả các Slot!")
 
     def clean_all_moss_inventories(self):
-        """Tự động dọn toàn bộ vật phẩm rác trong hòm đồ cho các tài khoản ĐÃ TÍCH CHỌN."""
+        """Tự động ném tại chỗ toàn bộ vật phẩm rác trong hòm đồ cho các tài khoản ĐÃ TÍCH CHỌN."""
         def _cleaner():
+            count_acc = 0
             total_cleaned = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "moss_enabled", True):
+                    continue
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    try:
+                        cleaned = ctrl.clean_moss_inventory(method="trash", category=-1, run_in_thread=False)
+                        total_cleaned += (cleaned or 0)
+                        count_acc += 1
+                    except Exception as e:
+                        self.append_moss_log(f"[Slot {ctrl.slot_idx:02d}] ❌ Lỗi ném rác tại chỗ: {e}")
+                    time.sleep(0.1)
+            if count_acc > 0:
+                self.after(0, lambda: self.append_moss_log(
+                    f"🗑️ Đã hoàn tất ném đồ tại chỗ cho {count_acc} tài khoản: Đã ném {total_cleaned} món đồ rác (Bảo tồn đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)!"
+                ))
+            else:
+                self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản đã chọn nào đang kết nối để ném rác!"))
+        threading.Thread(target=_cleaner, daemon=True).start()
+
+    def sell_all_moss_inventories(self):
+        """Kích hoạt bán đồ tại Silvia Elbeland cho các tài khoản ĐÃ TÍCH CHỌN."""
+        def _seller():
             count_acc = 0
             for ctrl in self.controllers:
                 if not getattr(ctrl, "moss_enabled", True):
                     continue
                 if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
-                    cleaned = ctrl.clean_moss_inventory()
-                    total_cleaned += cleaned
-                    count_acc += 1
-                    time.sleep(0.08)
+                    try:
+                        ctrl.sell_moss_inventory()
+                        count_acc += 1
+                    except Exception as e:
+                        self.append_moss_log(f"[Slot {ctrl.slot_idx:02d}] ❌ Lỗi bán đồ: {e}")
+                    time.sleep(0.5)
             if count_acc > 0:
-                self.after(0, lambda: self.append_moss_log(
-                    f"🧹 Đã hoàn tất dọn rác {count_acc} tài khoản đã chọn: Đã dọn {total_cleaned} món đồ rác!"
+                self.after(0, lambda c=count_acc: self.append_moss_log(
+                    f"💰 Đã kích hoạt tiến trình bán đồ tại Silvia cho {c} tài khoản đã chọn!"
                 ))
             else:
-                self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản đã chọn nào đang kết nối để dọn rác!"))
-        threading.Thread(target=_cleaner, daemon=True).start()
+                self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản đã chọn nào đang kết nối!"))
+        threading.Thread(target=_seller, daemon=True).start()
 
     def close_all_moss_dialogs(self):
         """Đóng bảng NPC Moss trên các tài khoản ĐÃ TÍCH CHỌN."""
@@ -9936,13 +10374,21 @@ class DashboardApp(ctk.CTk):
         ConfigPersistenceManager.save_event_config(
             slot_idx=slot_idx,
             auto_devil=ctrl.auto_devil,
+            devil_min_resets=ctrl.devil_min_resets,
+            devil_max_resets=ctrl.devil_max_resets,
             auto_reset=ctrl.auto_reset,
             auto_add_point=ctrl.auto_add_point,
             reset_level=ctrl.reset_level,
+            stat_mode=ctrl.stat_mode,
+            custom_class=ctrl.custom_class,
             stat_ratio=ctrl.stat_ratio
         )
         if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
-            ctrl.worker.update_config({"auto_devil": ctrl.auto_devil})
+            ctrl.worker.update_config({
+                "auto_devil": ctrl.auto_devil,
+                "devil_min_resets": ctrl.devil_min_resets,
+                "devil_max_resets": ctrl.devil_max_resets
+            })
 
         el = self.slot_ui_elements.get(slot_idx)
         if el and el.get("btn_devil"):
@@ -10356,7 +10802,22 @@ class DashboardApp(ctk.CTk):
             fg_color="#e11d48",
             hover_color="#be123c"
         )
-        chk_ds.pack(anchor="w", padx=12, pady=(0, 10))
+        chk_ds.pack(anchor="w", padx=12, pady=(0, 6))
+
+        row_ds_rs = ctk.CTkFrame(ds_card, fg_color="transparent")
+        row_ds_rs.pack(fill="x", padx=12, pady=(0, 10))
+
+        ctk.CTkLabel(row_ds_rs, text="Áp dụng khi Reset từ:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left")
+        ent_ds_min_rs = ctk.CTkEntry(row_ds_rs, width=50, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
+        ent_ds_min_rs.pack(side="left", padx=(6, 4))
+        ent_ds_min_rs.insert(0, str(getattr(ctrl, "devil_min_resets", 0)))
+
+        ctk.CTkLabel(row_ds_rs, text="đến", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left", padx=4)
+        ent_ds_max_rs = ctk.CTkEntry(row_ds_rs, width=55, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
+        ent_ds_max_rs.pack(side="left", padx=4)
+        ent_ds_max_rs.insert(0, str(getattr(ctrl, "devil_max_resets", 9999)))
+
+        ctk.CTkLabel(row_ds_rs, text="Reset (0 - 9999 = Mọi mốc)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#64748b").pack(side="left", padx=6)
 
         # 2. Reset Section
         rs_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
@@ -10582,9 +11043,15 @@ class DashboardApp(ctk.CTk):
                 ctrl.stat_mode = "auto_class"
                 ctrl.custom_class = sel_code
                 ctrl.stat_ratio = new_r
+                d_min_rs = int(ent_ds_min_rs.get().strip() or 0)
+                d_max_rs = int(ent_ds_max_rs.get().strip() or 9999)
+                ctrl.devil_min_resets = d_min_rs
+                ctrl.devil_max_resets = d_max_rs
                 ConfigPersistenceManager.save_event_config(
                     slot_idx=slot_idx,
                     auto_devil=var_ds.get(),
+                    devil_min_resets=d_min_rs,
+                    devil_max_resets=d_max_rs,
                     auto_reset=var_rs.get(),
                     auto_add_point=var_stat.get(),
                     reset_level=int(ent_rs_lvl.get().strip() or 400),
@@ -10662,6 +11129,10 @@ class DashboardApp(ctk.CTk):
 
                 fresh_profiles = ConfigPersistenceManager.load_class_stat_profiles()
 
+                d_min_rs = int(ent_ds_min_rs.get().strip() or 0)
+                d_max_rs = int(ent_ds_max_rs.get().strip() or 9999)
+                ctrl.devil_min_resets = d_min_rs
+                ctrl.devil_max_resets = d_max_rs
                 ctrl.auto_devil = new_ds
                 ctrl.auto_reset = new_rs
                 ctrl.auto_add_point = new_stat
@@ -10673,6 +11144,8 @@ class DashboardApp(ctk.CTk):
                 ConfigPersistenceManager.save_event_config(
                     slot_idx=slot_idx,
                     auto_devil=new_ds,
+                    devil_min_resets=d_min_rs,
+                    devil_max_resets=d_max_rs,
                     auto_reset=new_rs,
                     auto_add_point=new_stat,
                     reset_level=new_rs_lvl,
@@ -10684,6 +11157,8 @@ class DashboardApp(ctk.CTk):
                 if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
                     ctrl.worker.update_config({
                         "auto_devil": new_ds,
+                        "devil_min_resets": d_min_rs,
+                        "devil_max_resets": d_max_rs,
                         "auto_reset": new_rs,
                         "auto_add_point": new_stat,
                         "reset_level": new_rs_lvl,
@@ -10811,11 +11286,22 @@ class DashboardApp(ctk.CTk):
                 except Exception:
                     lvl_num = 0
                 if lvl_num > 0:
+                    rs_cnt = getattr(ctrl, "current_resets", 0)
+                    if rs_cnt <= 0 and ctrl.assigned_pid:
+                        try:
+                            from meg_navigator import ProcessMemoryReader
+                            if hasattr(ProcessMemoryReader, "read_character_resets"):
+                                rs_cnt = ProcessMemoryReader.read_character_resets(ctrl.assigned_pid) or 0
+                        except Exception:
+                            rs_cnt = 0
+                    if rs_cnt > 0:
+                        ctrl.current_resets = rs_cnt
                     if el.get("lvl_lbl"):
+                        rr_suffix = f" ({rs_cnt}rr)" if rs_cnt > 0 else ""
                         if lvl_num >= 400:
-                            el["lvl_lbl"].configure(text=f"M.LV {lvl_num}", text_color="#38bdf8")
+                            el["lvl_lbl"].configure(text=f"M.LV {lvl_num}{rr_suffix}", text_color="#38bdf8")
                         else:
-                            el["lvl_lbl"].configure(text=f"LV {lvl_num}", text_color="#94a3b8")
+                            el["lvl_lbl"].configure(text=f"LV {lvl_num}{rr_suffix}", text_color="#94a3b8")
                     if el.get("prog_bar"):
                         ratio = min(1.0, max(0.05, (lvl_num % 400) / 400.0 if lvl_num >= 400 else lvl_num / 400.0))
                         el["prog_bar"].set(ratio)

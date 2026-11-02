@@ -777,6 +777,74 @@ class ProcessMemoryReader:
         return None
 
     @classmethod
+    def read_character_resets(cls, pid: int) -> Optional[int]:
+        r"""
+        Đọc số lần Reset nhân vật hiện tại:
+        1. Phân tích Window Title regex r'\((\d+)(?:/(\d+)rr)?\)' (group 2) hoặc r'(\d+)\s*rr'
+        2. Fallback đọc RAM IL2CPP tại player_ptr + 0x2B4 (LocalCharacterBody.ResetCount: ObscuredInt)
+        """
+        # 1. Trích xuất từ Window Title (Title client MEGAMU luôn cập nhật realtime)
+        import re
+        windows = WindowHelper.get_unity_windows()
+        for p, hwnd, title, w, h in windows:
+            if p == pid and title:
+                m = re.search(r'\((\d+)(?:/(\d+)rr)?\)', title)
+                if m and m.group(2):
+                    try:
+                        return int(m.group(2))
+                    except Exception:
+                        pass
+                m2 = re.search(r'(\d+)\s*rr', title, re.IGNORECASE)
+                if m2:
+                    try:
+                        return int(m2.group(1))
+                    except Exception:
+                        pass
+
+        # 2. Đọc từ RAM IL2CPP (player_ptr + 0x2B4: ObscuredInt)
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not handle:
+            return None
+
+        try:
+            base = cls.get_module_base(pid)
+            if not base:
+                return None
+
+            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            if not type_info:
+                return None
+
+            static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return None
+
+            game_instance = cls.read_ptr(handle, static_fields + GAME_STATIC_INSTANCE_OFFSET)
+            if not game_instance:
+                return None
+
+            player_ptr = cls.read_ptr(handle, game_instance + GAME_PLAYER_OFFSET)
+            if not player_ptr:
+                return None
+
+            # ResetCount là ObscuredInt tại player_ptr + 0x2B4
+            # 0x0: hash, 0x4: hiddenValue, 0x8: currentCryptoKey
+            hidden_val = cls.read_u32(handle, player_ptr + 0x2B4 + 0x4)
+            crypto_key = cls.read_u32(handle, player_ptr + 0x2B4 + 0x8)
+            if hidden_val is not None and crypto_key is not None:
+                decrypted = hidden_val ^ crypto_key
+                if 0 <= decrypted <= 100000:
+                    return decrypted
+            fake_val = cls.read_u32(handle, player_ptr + 0x2B4 + 0xC)
+            if fake_val is not None and 0 <= fake_val <= 100000:
+                return fake_val
+            return None
+        except Exception:
+            return None
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
     def read_character_name(cls, pid: int) -> Optional[str]:
         """
         Đọc tên nhân vật:

@@ -39,3 +39,5 @@ dist_installer/
 installer_staging/
 
 dump_new/
+
+dump_current/

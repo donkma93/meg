@@ -2,6 +2,8 @@
   "slots": {
     "1": {
       "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
       "auto_reset": false,
       "auto_add_point": false,
       "reset_level": 400,
