@@ -106,6 +106,8 @@ def run_nuitka_build():
         "--include-module=meg_navigator",
         "--include-module=meg_trash_cleaner",
         "--include-module=meg_crash_tracer",
+        "--include-module=meg_rea_hunter",
+        "--include-module=test_entity_radar",
         "--include-raw-dir=native_bin=native_bin",
         "--include-data-file=megamu_dashboard_icon.ico=megamu_dashboard_icon.ico",
         "--include-data-file=megamu_dashboard_logo.png=megamu_dashboard_logo.png",

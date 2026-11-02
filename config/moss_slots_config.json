@@ -63,12 +63,20 @@
   },
   "schedule": {
     "auto_schedule": false,
-    "auto_move_before": false,
+    "auto_move_before": true,
     "times": [
       "00:15",
       "06:15",
       "12:15",
       "18:15"
     ]
-  }
+  },
+  "selected_slots": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ]
 }

@@ -3277,7 +3277,7 @@ rpc.exports = {
             }
 
             var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
-            var intMs = (intervalMs !== undefined && parseInt(intervalMs) >= 40) ? parseInt(intervalMs) : 60;
+            var intMs = (intervalMs !== undefined && parseInt(intervalMs) >= 20) ? parseInt(intervalMs) : 35;
             var maxDur = (maxDurationMs !== undefined && parseInt(maxDurationMs) >= 1000) ? parseInt(maxDurationMs) : 15000;
 
             cleanupNativeTurbo();
@@ -3292,14 +3292,12 @@ rpc.exports = {
                 entered: false
             };
 
-            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms) - Đồng bộ 100% với hàm Vào Mirror
+            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms) - Tối ưu 1 packet chuẩn 0xBF:0x0E duy nhất
             if (nativeMirrorEnterAlt !== null) {
                 try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
+            } else {
+                sendMirrorEnterPacket(relSlot);
             }
-            if (nativeMirrorEnter !== null) {
-                try { nativeMirrorEnter(relSlot); } catch (eNE1) {}
-            }
-            sendMirrorEnterPacket(relSlot);
             _nativeMirrorTurboStats.packetsSent += 1;
 
             _nativeMirrorTurboTimer = setInterval(function() {
@@ -3337,14 +3335,12 @@ rpc.exports = {
                         return;
                     }
 
-                    // --- BƯỚC 3: GỌI NATIVE ENTRY VÀ BẮN PACKET CƯỚP CỔNG (ĐỒNG BỘ 100% VỚI PHẦN VÀO CỬA) ---
+                    // --- BƯỚC 3: GỌI NATIVE ENTRY VÀ BẮN PACKET CƯỚP CỔNG (Tối ưu 1 packet chuẩn 0xBF:0x0E duy nhất) ---
                     if (nativeMirrorEnterAlt !== null) {
                         try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot); } catch (eNEA) {}
+                    } else {
+                        sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
                     }
-                    if (nativeMirrorEnter !== null) {
-                        try { nativeMirrorEnter(_nativeMirrorTurboStats.relSlot); } catch (eNE1) {}
-                    }
-                    sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
                     _nativeMirrorTurboStats.packetsSent += 1;
 
                 } catch (eLoop) {}
@@ -3444,11 +3440,9 @@ rpc.exports = {
                 var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
                 if (nativeMirrorEnterAlt !== null) {
                     try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
+                } else {
+                    sendMirrorEnterPacket(relSlot);
                 }
-                if (nativeMirrorEnter !== null) {
-                    try { nativeMirrorEnter(relSlot); } catch (eNE1) {}
-                }
-                sendMirrorEnterPacket(relSlot);
                 return JSON.stringify({
                     success: true,
                     slot: itemSlot,
