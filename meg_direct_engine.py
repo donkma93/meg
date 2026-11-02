@@ -3740,6 +3740,7 @@ rpc.exports = {
                     if (dur >= 1 && dur <= 100) return dur;
                 } catch (eD) {}
                 try {
+                    // Level field tai offset 0x10
                     var lv = itemPtr.add(0x10).readS32();
                     if (lv >= 1 && lv <= 100) return lv;
                 } catch (eL) {}
@@ -3784,10 +3785,11 @@ rpc.exports = {
             var totalJewelsFound = 0;
 
             // =========================================================================
-            // HAM XU LY GHEP NGOC DUNG CHUNG CHO CA THUNG DO KHO & HOM DO NHAN VAT
+            // HAM XU LY GHEP NGOC DUNG CHUNG CHO TUNG VUNG LUU TRU
+            // (Thung do Kho Chinh, Thung do Kho Mo Rong, Hom do Nhan vat)
             // =========================================================================
             function consolidateStorage(storageName, storageFlag, slotsDict, minSlot, maxSlots) {
-                // Xac dinh danh sach o trong
+                // Xac dinh danh sach o trong trong khoang [minSlot, maxSlots)
                 var emptySlots = [];
                 for (var s = minSlot; s < maxSlots; s++) {
                     if (!slotsDict[s]) emptySlots.push(s);
@@ -3839,7 +3841,7 @@ rpc.exports = {
 
                             try {
                                 // Goi nativeItemStorageMove:
-                                // storageFlag = 2 cho Thung do Kho, 0 cho Hom do Nhan vat
+                                // storageFlag = 2 cho Thung do Kho (Chinh & Mo Rong), 0 cho Hom do Nhan vat
                                 nativeItemStorageMove(src.ptr, storageFlag, src.slot, storageFlag, target.slot, ptr(0));
 
                                 totalMoved++;
@@ -3877,7 +3879,7 @@ rpc.exports = {
 
                     // XU LY PHAN DU QUA 100v:
                     // Neu sau khi ghep, o cuoi cung con ngoc le nam o vi tri qua xa (> slot dau + 1),
-                    // va co o trong phia truoc -> uu tien don ve o trong phia truoc de gon gang
+                    // va co o trong phia truoc trong cung vung luu tru -> uu tien don ve o trong phia truoc de gon gang
                     if (targetIdx < group.length) {
                         var leftover = group[targetIdx];
                         if (leftover.count > 0 && emptySlots.length > 0) {
@@ -3912,10 +3914,60 @@ rpc.exports = {
                 }
             }
 
+            // Ham ho tro doc cac o tu 1 ItemStorage bat ky (MainStorage hoac ExtStorage)
+            function readStorageComponent(storagePtr, targetDict, baseStartSlot, maxSlotLimit) {
+                if (!storagePtr || storagePtr.isNull()) return;
+                try {
+                    var startIdx = baseStartSlot;
+                    try {
+                        var stIdx = storagePtr.add(0x28).readS32();
+                        if (stIdx >= 0 && stIdx <= 240) startIdx = stIdx;
+                    } catch (eSt) {}
+
+                    var cellsDict = storagePtr.add(ptr('0x38')).readPointer();
+                    if (!cellsDict.isNull()) {
+                        var cEntries = cellsDict.add(ptr('0x18')).readPointer();
+                        var cCount = cellsDict.add(ptr('0x20')).readS32();
+                        if (!cEntries.isNull() && cCount > 0 && cCount <= 240) {
+                            for (var ci = 0; ci < cCount; ci++) {
+                                try {
+                                    var cent = cEntries.add(0x20 + ci * 24);
+                                    var slotObj = cent.add(0x18).readPointer();
+                                    if (!slotObj.isNull()) {
+                                        var sNum = slotObj.add(ptr('0x20')).readS32();
+                                        var realSlot = sNum;
+                                        if (realSlot < startIdx) realSlot += startIdx;
+                                        if (realSlot >= baseStartSlot && realSlot < maxSlotLimit) {
+                                            var itObj = slotObj.add(ptr('0x48')).readPointer();
+                                            if (!itObj.isNull()) {
+                                                var idx = readItemIndex(itObj);
+                                                var nm = getItemName(itObj) || "";
+                                                var jType = getJewelType(idx, nm);
+                                                var cnt = readJewelCount(itObj);
+                                                targetDict[realSlot] = {
+                                                    slot: realSlot,
+                                                    ptr: itObj,
+                                                    id: idx,
+                                                    name: nm,
+                                                    count: cnt,
+                                                    type: jType
+                                                };
+                                            }
+                                        }
+                                    }
+                                } catch (eC) {}
+                            }
+                        }
+                    }
+                } catch (eS) {}
+            }
+
             // =========================================================================
-            // 2. QUET THUNG DO KHO (WAREHOUSE - storageFlag = 2)
+            // 2. QUET THUNG DO KHO (CHINH: 0..119 & MO RONG: 120..239)
             // =========================================================================
-            var warehouseSlots = {};
+            var mainWarehouseSlots = {};
+            var extWarehouseSlots = {};
+
             try {
                 if (nativeGetGameUI !== null) {
                     var gui = nativeGetGameUI();
@@ -3923,37 +3975,20 @@ rpc.exports = {
                         var whOff = off('__UI_WAREHOUSE_WINDOW__');
                         var whWin = whOff.isNull() ? gui.add(ptr('0x288')).readPointer() : gui.add(whOff).readPointer();
                         if (!whWin.isNull()) {
-                            // Phuong an A: Doc qua MWarehouseWindow.MainStorage (offset 0x58 -> Cells 0x38)
+                            // A. Doc Thung do Kho Chinh qua MainStorage (offset 0x58, slots 0..119)
                             try {
                                 var mainStorage = whWin.add(ptr('0x58')).readPointer();
-                                if (!mainStorage.isNull()) {
-                                    var cellsDict = mainStorage.add(ptr('0x38')).readPointer();
-                                    if (!cellsDict.isNull()) {
-                                        var cEntries = cellsDict.add(ptr('0x18')).readPointer();
-                                        var cCount = cellsDict.add(ptr('0x20')).readS32();
-                                        for (var ci = 0; ci < cCount && ci < 240; ci++) {
-                                            try {
-                                                var cent = cEntries.add(0x20 + ci * 24);
-                                                var slotObj = cent.add(0x18).readPointer();
-                                                if (!slotObj.isNull()) {
-                                                    var sNum = slotObj.add(ptr('0x20')).readS32();
-                                                    var itObj = slotObj.add(ptr('0x48')).readPointer();
-                                                    if (sNum >= 0 && sNum < 120 && !itObj.isNull()) {
-                                                        var idx = readItemIndex(itObj);
-                                                        var nm = getItemName(itObj) || "";
-                                                        var jType = getJewelType(idx, nm);
-                                                        var cnt = readJewelCount(itObj);
-                                                        warehouseSlots[sNum] = { slot: sNum, ptr: itObj, id: idx, name: nm, count: cnt, type: jType };
-                                                    }
-                                                }
-                                            } catch (eC) {}
-                                        }
-                                    }
-                                }
-                            } catch (eWhA) {}
+                                readStorageComponent(mainStorage, mainWarehouseSlots, 0, 120);
+                            } catch (eWhMain) {}
 
-                            // Phuong an B: Doc qua WarehouseWindow.Items (Dictionary tai offset 0x30)
-                            if (Object.keys(warehouseSlots).length === 0) {
+                            // B. Doc Thung do Kho Mo Rong qua ExtStorage (offset 0x60, slots 120..239)
+                            try {
+                                var extStorage = whWin.add(ptr('0x60')).readPointer();
+                                readStorageComponent(extStorage, extWarehouseSlots, 120, 240);
+                            } catch (eWhExt) {}
+
+                            // C. Du phong doc toan bo 240 slots qua WarehouseWindow.Items (offset 0x30)
+                            if (Object.keys(mainWarehouseSlots).length === 0 || Object.keys(extWarehouseSlots).length === 0) {
                                 try {
                                     var dictPtr = whWin.add(ptr('0x30')).readPointer();
                                     if (!dictPtr.isNull()) {
@@ -3966,37 +4001,46 @@ rpc.exports = {
                                                 var k2 = ent.add(0x10).readS32();
                                                 var v1 = ent.add(0x10).readPointer();
                                                 var v2 = ent.add(0x18).readPointer();
-                                                var key = (k2 >= 0 && k2 < 120) ? k2 : k1;
+                                                var key = (k2 >= 0 && k2 < 240) ? k2 : k1;
                                                 var val = (!v2.isNull()) ? v2 : v1;
-                                                if (key >= 0 && key < 120 && !val.isNull()) {
+                                                if (key >= 0 && key < 240 && !val.isNull()) {
                                                     var idx2 = readItemIndex(val);
                                                     var nm2 = getItemName(val) || "";
                                                     var jType2 = getJewelType(idx2, nm2);
                                                     var cnt2 = readJewelCount(val);
                                                     if (jType2) {
-                                                        warehouseSlots[key] = { slot: key, ptr: val, id: idx2, name: nm2, count: cnt2, type: jType2 };
+                                                        if (key < 120 && !mainWarehouseSlots[key]) {
+                                                            mainWarehouseSlots[key] = { slot: key, ptr: val, id: idx2, name: nm2, count: cnt2, type: jType2 };
+                                                        } else if (key >= 120 && key < 240 && !extWarehouseSlots[key]) {
+                                                            extWarehouseSlots[key] = { slot: key, ptr: val, id: idx2, name: nm2, count: cnt2, type: jType2 };
+                                                        }
                                                     }
                                                 }
-                                            } catch (eWhB) {}
+                                            } catch (eWhBDict) {}
                                         }
                                     }
-                                } catch (eWhBDict) {}
+                                } catch (eWhB) {}
                             }
                         }
                     }
                 }
             } catch (eWH) {}
 
-            // Thuc hien ghep ngoc Thung do Kho neu co ngoc
-            if (Object.keys(warehouseSlots).length > 0) {
-                consolidateStorage("Warehouse", 2, warehouseSlots, 0, 120);
+            // Thuc hien ghep ngoc Thung do Kho Chinh (slots 0..119)
+            if (Object.keys(mainWarehouseSlots).length > 0) {
+                consolidateStorage("Thùng đồ chính", 2, mainWarehouseSlots, 0, 120);
+            }
+
+            // Thuc hien ghep ngoc Thung do Kho Mo Rong (slots 120..239)
+            if (Object.keys(extWarehouseSlots).length > 0) {
+                consolidateStorage("Thùng đồ mở rộng", 2, extWarehouseSlots, 120, 240);
             }
 
             // =========================================================================
-            // 3. QUET HOM DO / TUI DO NHAN VAT (PLAYER INVENTORY - storageFlag = 0)
+            // 3. QUET HOM DO & TUI DO MO RONG NHAN VAT (PLAYER INVENTORY: 12..203)
             // =========================================================================
             var inventorySlots = {};
-            var invMaxSlot = 76; // Mac dinh hom do chinh 12..75
+            var invMaxSlot = 204; // Mac dinh quet toan bo tui do chinh & mo rong (12..203)
             try {
                 var p = getPlayerPtr();
                 if (!p.isNull()) {
@@ -4026,9 +4070,9 @@ rpc.exports = {
                 }
             } catch (eInv) {}
 
-            // Thuc hien ghep ngoc Hom do Nhan vat neu co ngoc
+            // Thuc hien ghep ngoc Hom do & Tui do mo rong nhan vat (storageFlag = 0)
             if (Object.keys(inventorySlots).length > 0) {
-                consolidateStorage("Inventory", 0, inventorySlots, 12, invMaxSlot);
+                consolidateStorage("Hòm đồ nhân vật", 0, inventorySlots, 12, invMaxSlot);
             }
 
             return JSON.stringify({
