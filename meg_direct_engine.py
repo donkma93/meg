@@ -3713,114 +3713,333 @@ rpc.exports = {
     autoStackJewels: function() {
         try {
             ensureThreadAttached();
-            var p = getPlayerPtr();
-            if (p.isNull()) return JSON.stringify({ ok: false, error: "no_player" });
-            var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
-            if (inv.isNull()) return JSON.stringify({ ok: false, error: "no_inv" });
-            var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
-            if (itemsArr.isNull()) return JSON.stringify({ ok: false, error: "no_items" });
 
-            var maxSlot = 204;
-            try {
-                var arrLen = itemsArr.add(0x18).readS32();
-                if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
-            } catch (eLen) {}
-
-            var JEWEL_MAP = {
-                7182: "chaos",
-                7183: "bless",
-                7184: "soul",
-                7185: "life",
-                7186: "creation",
-                7206: "guardian",
-                7207: "harmony",
-                7280: "gem"
+            // =========================================================================
+            // 1. CAU HINH NGOC CO THE GHEP (STACKABLE JEWELS)
+            // =========================================================================
+            // Chi cac ngoc trong danh sach nay moi duoc phep gom va ghep lai voi nhau.
+            // TUYET DOI BO QUA: Jewel of Darkness va tat ca cac loai ngoc / vat pham khac!
+            var COMBINABLE_JEWEL_MAP = {
+                7182: "Chaos",
+                7183: "Bless",
+                7184: "Soul",
+                7185: "Life",
+                7186: "Creation",
+                7206: "Guardian",
+                7207: "Harmony",
+                7280: "Gemstone"
             };
+            var MAX_STACK = 100; // Gioi han toi da 100 vien (100v) tren 1 o
 
-            var counts = {
-                bless: 0,
-                soul: 0,
-                life: 0,
-                chaos: 0,
-                creation: 0,
-                guardian: 0,
-                harmony: 0,
-                gem: 0
-            };
-            var itemsFound = [];
-
-            for (var s = 12; s < maxSlot; s++) {
-                var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
-                if (!itemPtr.isNull()) {
-                    var idx = readItemIndex(itemPtr);
-                    var itName = getItemName(itemPtr);
-                    var jewelType = JEWEL_MAP[idx] || null;
-                    if (!jewelType && itName && itName.length > 0) {
-                        var lower = itName.toLowerCase();
-                        if (lower.indexOf("bless") !== -1) jewelType = "bless";
-                        else if (lower.indexOf("soul") !== -1) jewelType = "soul";
-                        else if (lower.indexOf("life") !== -1) jewelType = "life";
-                        else if (lower.indexOf("chaos") !== -1) jewelType = "chaos";
-                        else if (lower.indexOf("creation") !== -1) jewelType = "creation";
-                        else if (lower.indexOf("guardian") !== -1) jewelType = "guardian";
-                        else if (lower.indexOf("harmony") !== -1) jewelType = "harmony";
-                        else if (lower.indexOf("gemstone") !== -1 || lower.indexOf("gem") !== -1) jewelType = "gem";
-                    }
-
-                    if (jewelType) {
-                        counts[jewelType] = (counts[jewelType] || 0) + 1;
-                        itemsFound.push({ slot: s, type: jewelType, name: itName, id: idx });
-                    }
-                }
+            // Ham ho tro doc so luong ngoc (stack count) tu item pointer
+            function readJewelCount(itemPtr) {
+                if (!itemPtr || itemPtr.isNull()) return 1;
+                try {
+                    // Durability tai offset 0x1C trong GFEFNEHFNEI (chuan so luong vat pham stack trong MU)
+                    var dur = itemPtr.add(0x1C).readS32();
+                    if (dur >= 1 && dur <= 100) return dur;
+                } catch (eD) {}
+                try {
+                    var lv = itemPtr.add(0x10).readS32();
+                    if (lv >= 1 && lv <= 100) return lv;
+                } catch (eL) {}
+                try {
+                    var f40 = itemPtr.add(0x40).readS32();
+                    if (f40 >= 1 && f40 <= 100) return f40;
+                } catch (eF) {}
+                return 1;
             }
 
-            // Sắp xếp các viên ngọc lẻ rải rác dồn về các ô trống liền kề nhau
-            // QUY TẮC SỐNG CÒN: Chỉ di chuyển vào ô THẬT SỰ TRỐNG (null), tuyệt đối không đè ô để bảo toàn 100% ngọc!
-            var movedCount = 0;
-            var details = [];
-            if (nativeItemStorageMove !== null && itemsFound.length > 1) {
-                // Sắp xếp theo loại ngọc để cùng loại nằm cạnh nhau
-                itemsFound.sort(function(a, b) {
-                    if (a.type !== b.type) return a.type.localeCompare(b.type);
-                    return a.slot - b.slot;
-                });
+            // Ham kiem tra ngoc co the ghep hay khong
+            function getJewelType(idx, name) {
+                var nmL = (name || "").toLowerCase();
+                // BAO VE TUYET DOI: Loai tru Jewel of Darkness va cac ngoc khong ghep duoc
+                if (nmL.indexOf("darkness") !== -1) return null;
+                if (nmL.indexOf("dark") !== -1) return null;
+                if (nmL.indexOf("elevation") !== -1) return null;
+                if (nmL.indexOf("extension") !== -1) return null;
 
-                var baseSlot = itemsFound[0].slot;
-                var currentDest = baseSlot;
+                if (COMBINABLE_JEWEL_MAP[idx]) return COMBINABLE_JEWEL_MAP[idx];
 
-                for (var i = 1; i < itemsFound.length; i++) {
-                    var source = itemsFound[i];
-                    var targetSlot = -1;
-                    // Tìm ô trống tiếp theo trong khoảng hòm đồ chính (slot 12 - 75)
-                    for (var testSlot = currentDest + 1; testSlot < 76; testSlot++) {
-                        var testPtr = itemsArr.add(0x20 + testSlot * 8).readPointer();
-                        if (testPtr.isNull()) {
-                            targetSlot = testSlot;
-                            break;
-                        }
-                    }
+                // Nhan dang bo sung qua ten (neu index bi lech do version table)
+                if (nmL.indexOf("bless") !== -1) return "Bless";
+                if (nmL.indexOf("soul") !== -1) return "Soul";
+                if (nmL.indexOf("life") !== -1) return "Life";
+                if (nmL.indexOf("chaos") !== -1) return "Chaos";
+                if (nmL.indexOf("creation") !== -1) return "Creation";
+                if (nmL.indexOf("guardian") !== -1) return "Guardian";
+                if (nmL.indexOf("harmony") !== -1) return "Harmony";
+                if (nmL.indexOf("gemstone") !== -1 || nmL.indexOf("gem of") !== -1) return "Gemstone";
 
-                    if (targetSlot !== -1 && targetSlot < source.slot) {
-                        var targetCheck = itemsArr.add(0x20 + targetSlot * 8).readPointer();
-                        // Kiểm tra kép: BẮT BUỘC ô đích PHẢI LÀ NULL (TRỐNG)
-                        if (targetCheck.isNull()) {
+                return null;
+            }
+
+            if (nativeItemStorageMove === null) {
+                return JSON.stringify({ ok: false, error: "no_native_move_fn" });
+            }
+
+            var totalMoved = 0;
+            var allDetails = [];
+            var totalCounts = {};
+            var totalJewelsFound = 0;
+
+            // =========================================================================
+            // HAM XU LY GHEP NGOC DUNG CHUNG CHO CA THUNG DO KHO & HOM DO NHAN VAT
+            // =========================================================================
+            function consolidateStorage(storageName, storageFlag, slotsDict, minSlot, maxSlots) {
+                // Xac dinh danh sach o trong
+                var emptySlots = [];
+                for (var s = minSlot; s < maxSlots; s++) {
+                    if (!slotsDict[s]) emptySlots.push(s);
+                }
+
+                // Nhom cac ngoc co ID trung nhau
+                var groups = {};
+                for (var sKey in slotsDict) {
+                    var it = slotsDict[sKey];
+                    if (!it.type) continue; // Bo qua vat pham khong phai ngoc ghep
+
+                    if (!groups[it.id]) groups[it.id] = [];
+                    groups[it.id].push(it);
+
+                    totalCounts[it.type] = (totalCounts[it.type] || 0) + it.count;
+                    totalJewelsFound += it.count;
+                }
+
+                // Thuc hien ghep ngoc cho tung nhom ID
+                for (var jId in groups) {
+                    var group = groups[jId];
+                    if (group.length <= 1) continue; // Chi co 1 o ngoc nay -> khong can ghep
+
+                    // Sap xep tang dan theo so thu tu o (slot)
+                    group.sort(function(a, b) { return a.slot - b.slot; });
+
+                    var targetIdx = 0;
+
+                    for (var srcIdx = 1; srcIdx < group.length; srcIdx++) {
+                        var src = group[srcIdx];
+                        if (src.count <= 0) continue;
+
+                        while (src.count > 0 && targetIdx < srcIdx) {
+                            var target = group[targetIdx];
+                            var spaceInTarget = MAX_STACK - target.count;
+
+                            if (spaceInTarget <= 0) {
+                                // O dich hien tai da day 100 vien -> chuyen sang vi tri ngoc tiep theo
+                                targetIdx++;
+                                continue;
+                            }
+
+                            // KIEM TRA AN TOAN TUYET DOI TRUOC KHI GHEP:
+                            if (!src.ptr || src.ptr.isNull() || !target.ptr || target.ptr.isNull()) break;
+                            if (src.id !== target.id) break; // Khac loai ngoc -> KHONG BAO GIO GHEP
+                            if (src.slot === target.slot) break;
+
+                            var toMove = Math.min(src.count, spaceInTarget);
+
                             try {
-                                nativeItemStorageMove(source.ptr, 0, source.slot, 0, targetSlot, ptr(0));
-                                movedCount++;
-                                details.push({ name: source.name || source.type, from: source.slot, to: targetSlot });
-                                currentDest = targetSlot;
-                                Thread.sleep(0.12);
-                            } catch (eM) {}
+                                // Goi nativeItemStorageMove:
+                                // storageFlag = 2 cho Thung do Kho, 0 cho Hom do Nhan vat
+                                nativeItemStorageMove(src.ptr, storageFlag, src.slot, storageFlag, target.slot, ptr(0));
+
+                                totalMoved++;
+                                allDetails.push({
+                                    storage: storageName,
+                                    type: src.type,
+                                    name: src.name,
+                                    fromSlot: src.slot,
+                                    toSlot: target.slot,
+                                    amount: toMove,
+                                    targetTotal: target.count + toMove
+                                });
+
+                                target.count += toMove;
+                                src.count -= toMove;
+
+                                try { Thread.sleep(0.18); } catch (eSleep) {}
+                            } catch (eMove) {
+                                // Gap loi native -> dung an toan ngay lap tuc de bao ve ngoc
+                                break;
+                            }
+
+                            if (target.count >= MAX_STACK) {
+                                // O dich da dat du 100 vien (100v) -> chuyen sang vi tri tiep theo
+                                targetIdx++;
+                            }
                         }
-                    } else if (source.slot > currentDest) {
-                        currentDest = source.slot;
+
+                        // Neu nguon da ghep het -> o tro thanh o trong
+                        if (src.count <= 0) {
+                            emptySlots.push(src.slot);
+                            delete slotsDict[src.slot];
+                        }
+                    }
+
+                    // XU LY PHAN DU QUA 100v:
+                    // Neu sau khi ghep, o cuoi cung con ngoc le nam o vi tri qua xa (> slot dau + 1),
+                    // va co o trong phia truoc -> uu tien don ve o trong phia truoc de gon gang
+                    if (targetIdx < group.length) {
+                        var leftover = group[targetIdx];
+                        if (leftover.count > 0 && emptySlots.length > 0) {
+                            emptySlots.sort(function(a, b) { return a - b; });
+                            var firstEmpty = -1;
+                            for (var e = 0; e < emptySlots.length; e++) {
+                                if (emptySlots[e] >= minSlot && emptySlots[e] < leftover.slot && !slotsDict[emptySlots[e]]) {
+                                    firstEmpty = emptySlots[e];
+                                    break;
+                                }
+                            }
+                            if (firstEmpty >= minSlot && firstEmpty < leftover.slot) {
+                                try {
+                                    nativeItemStorageMove(leftover.ptr, storageFlag, leftover.slot, storageFlag, firstEmpty, ptr(0));
+                                    totalMoved++;
+                                    allDetails.push({
+                                        storage: storageName,
+                                        type: leftover.type,
+                                        name: leftover.name,
+                                        fromSlot: leftover.slot,
+                                        toSlot: firstEmpty,
+                                        action: "relocate_to_empty"
+                                    });
+                                    emptySlots.push(leftover.slot);
+                                    leftover.slot = firstEmpty;
+                                    slotsDict[firstEmpty] = leftover;
+                                    try { Thread.sleep(0.18); } catch (eSl2) {}
+                                } catch (eReloc) {}
+                            }
+                        }
                     }
                 }
             }
 
-            return JSON.stringify({ ok: true, counts: counts, totalJewels: itemsFound.length, moved: movedCount, details: details });
-        } catch (eG) {
-            return JSON.stringify({ ok: false, error: String(eG) });
+            // =========================================================================
+            // 2. QUET THUNG DO KHO (WAREHOUSE - storageFlag = 2)
+            // =========================================================================
+            var warehouseSlots = {};
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var whOff = off('__UI_WAREHOUSE_WINDOW__');
+                        var whWin = whOff.isNull() ? gui.add(ptr('0x288')).readPointer() : gui.add(whOff).readPointer();
+                        if (!whWin.isNull()) {
+                            // Phuong an A: Doc qua MWarehouseWindow.MainStorage (offset 0x58 -> Cells 0x38)
+                            try {
+                                var mainStorage = whWin.add(ptr('0x58')).readPointer();
+                                if (!mainStorage.isNull()) {
+                                    var cellsDict = mainStorage.add(ptr('0x38')).readPointer();
+                                    if (!cellsDict.isNull()) {
+                                        var cEntries = cellsDict.add(ptr('0x18')).readPointer();
+                                        var cCount = cellsDict.add(ptr('0x20')).readS32();
+                                        for (var ci = 0; ci < cCount && ci < 240; ci++) {
+                                            try {
+                                                var cent = cEntries.add(0x20 + ci * 24);
+                                                var slotObj = cent.add(0x18).readPointer();
+                                                if (!slotObj.isNull()) {
+                                                    var sNum = slotObj.add(ptr('0x20')).readS32();
+                                                    var itObj = slotObj.add(ptr('0x48')).readPointer();
+                                                    if (sNum >= 0 && sNum < 120 && !itObj.isNull()) {
+                                                        var idx = readItemIndex(itObj);
+                                                        var nm = getItemName(itObj) || "";
+                                                        var jType = getJewelType(idx, nm);
+                                                        var cnt = readJewelCount(itObj);
+                                                        warehouseSlots[sNum] = { slot: sNum, ptr: itObj, id: idx, name: nm, count: cnt, type: jType };
+                                                    }
+                                                }
+                                            } catch (eC) {}
+                                        }
+                                    }
+                                }
+                            } catch (eWhA) {}
+
+                            // Phuong an B: Doc qua WarehouseWindow.Items (Dictionary tai offset 0x30)
+                            if (Object.keys(warehouseSlots).length === 0) {
+                                try {
+                                    var dictPtr = whWin.add(ptr('0x30')).readPointer();
+                                    if (!dictPtr.isNull()) {
+                                        var entries = dictPtr.add(ptr('0x18')).readPointer();
+                                        var count = dictPtr.add(ptr('0x20')).readS32();
+                                        for (var di = 0; di < count && di < 240; di++) {
+                                            try {
+                                                var ent = entries.add(0x20 + di * 24);
+                                                var k1 = ent.add(0x8).readS32();
+                                                var k2 = ent.add(0x10).readS32();
+                                                var v1 = ent.add(0x10).readPointer();
+                                                var v2 = ent.add(0x18).readPointer();
+                                                var key = (k2 >= 0 && k2 < 120) ? k2 : k1;
+                                                var val = (!v2.isNull()) ? v2 : v1;
+                                                if (key >= 0 && key < 120 && !val.isNull()) {
+                                                    var idx2 = readItemIndex(val);
+                                                    var nm2 = getItemName(val) || "";
+                                                    var jType2 = getJewelType(idx2, nm2);
+                                                    var cnt2 = readJewelCount(val);
+                                                    if (jType2) {
+                                                        warehouseSlots[key] = { slot: key, ptr: val, id: idx2, name: nm2, count: cnt2, type: jType2 };
+                                                    }
+                                                }
+                                            } catch (eWhB) {}
+                                        }
+                                    }
+                                } catch (eWhBDict) {}
+                            }
+                        }
+                    }
+                }
+            } catch (eWH) {}
+
+            // Thuc hien ghep ngoc Thung do Kho neu co ngoc
+            if (Object.keys(warehouseSlots).length > 0) {
+                consolidateStorage("Warehouse", 2, warehouseSlots, 0, 120);
+            }
+
+            // =========================================================================
+            // 3. QUET HOM DO / TUI DO NHAN VAT (PLAYER INVENTORY - storageFlag = 0)
+            // =========================================================================
+            var inventorySlots = {};
+            var invMaxSlot = 76; // Mac dinh hom do chinh 12..75
+            try {
+                var p = getPlayerPtr();
+                if (!p.isNull()) {
+                    var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                    if (!inv.isNull()) {
+                        var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                        if (!itemsArr.isNull()) {
+                            try {
+                                var arrLen = itemsArr.add(0x18).readS32();
+                                if (arrLen > 12 && arrLen <= 204) invMaxSlot = arrLen;
+                            } catch (eLen) {}
+
+                            for (var s = 12; s < invMaxSlot; s++) {
+                                try {
+                                    var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                                    if (!itemPtr.isNull()) {
+                                        var invIdx = readItemIndex(itemPtr);
+                                        var invNm = getItemName(itemPtr) || "";
+                                        var invJType = getJewelType(invIdx, invNm);
+                                        var invCnt = readJewelCount(itemPtr);
+                                        inventorySlots[s] = { slot: s, ptr: itemPtr, id: invIdx, name: invNm, count: invCnt, type: invJType };
+                                    }
+                                } catch (eIt) {}
+                            }
+                        }
+                    }
+                }
+            } catch (eInv) {}
+
+            // Thuc hien ghep ngoc Hom do Nhan vat neu co ngoc
+            if (Object.keys(inventorySlots).length > 0) {
+                consolidateStorage("Inventory", 0, inventorySlots, 12, invMaxSlot);
+            }
+
+            return JSON.stringify({
+                ok: true,
+                counts: totalCounts,
+                totalJewels: totalJewelsFound,
+                moved: totalMoved,
+                details: allDetails
+            });
+        } catch (eTop) {
+            return JSON.stringify({ ok: false, error: String(eTop) });
         }
     },
 
@@ -6240,8 +6459,13 @@ class MegDirectEngine:
 
     def auto_stack_jewels(self) -> Dict[str, Any]:
         """
-        Tự động kiểm tra và gom ngọc an toàn 100% bằng hệ thống đóng gói server-side (/pack bless/soul/chaos/life 10/20/30).
-        Tuyệt đối không di chuyển đè ô trong hòm đồ để triệt tiêu vĩnh viễn rủi ro mất ngọc!
+        Gom và ghép ngọc trong thùng đồ (Warehouse):
+        - Đọc toàn bộ danh sách vật phẩm trong thùng đồ (WarehouseWindow).
+        - Nhận diện các ngọc có cùng ID (Bless, Soul, Life, Chaos, Creation, Guardian, Harmony, Gemstone).
+        - Ghép ngọc cùng ID thành 1 stack tại vị trí đầu tiên của ngọc đó trên thùng đồ.
+        - Giới hạn tối đa 100 viên (100v) mỗi ô. Khi quá 100v, chuyển sang vị trí ngọc tiếp theo hoặc đặt vào ô trống.
+        - Tuyệt đối bảo toàn 100% ngọc (kiểm tra an toàn kép trước mọi thao tác di chuyển/ghép).
+        - Bỏ qua nguyên trạng các ngọc không ghép được (như Jewel of Darkness).
         """
         if not self.is_ready:
             try:
@@ -6273,7 +6497,7 @@ class MegDirectEngine:
                 "total_jewels": total_jewels
             }
         except Exception as e:
-            _safe_log(f"[MegDirectEngine] Lỗi auto_stack_jewels: {e}")
+            _safe_log(f"[MegDirectEngine] Loi auto_stack_jewels: {e}")
             return {"ok": False, "error": str(e)}
 
     def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None) -> Dict[str, Any]:
