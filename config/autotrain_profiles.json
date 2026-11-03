@@ -20,7 +20,7 @@
                 "stages": [
                     {
                         "min_level": 1,
-                        "max_level": 29,
+                        "max_level": 400,
                         "map_name": "Lorencia",
                         "x": 8,
                         "y": 134
@@ -371,31 +371,17 @@
                 "stages": [
                     {
                         "min_level": 1,
-                        "max_level": 79,
-                        "map_name": "Noria",
-                        "x": 170,
-                        "y": 110
+                        "max_level": 39,
+                        "map_name": "Lorencia",
+                        "x": 8,
+                        "y": 134
                     },
                     {
-                        "min_level": 80,
-                        "max_level": 159,
-                        "map_name": "Devias 4",
-                        "x": 80,
-                        "y": 151
-                    },
-                    {
-                        "min_level": 160,
-                        "max_level": 319,
-                        "map_name": "Tarkan 1",
-                        "x": 130,
-                        "y": 120
-                    },
-                    {
-                        "min_level": 320,
+                        "min_level": 40,
                         "max_level": 400,
-                        "map_name": "Aida 2",
-                        "x": 210,
-                        "y": 200
+                        "map_name": "Dungeon 2",
+                        "x": 218,
+                        "y": 116
                     }
                 ]
             }

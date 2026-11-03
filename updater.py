@@ -66,7 +66,7 @@ def _get_auth_headers() -> Dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
     return {}
 
-def check_for_updates(current_version: str = "v1.5.4") -> Dict[str, Any]:
+def check_for_updates(current_version: str = "v1.5.5") -> Dict[str, Any]:
     """
     Kiểm tra phiên bản mới nhất từ GitHub Releases hoặc Tags.
     Trả về dict chi tiết gồm: has_update, latest_version, release_notes, download_url...
@@ -219,19 +219,53 @@ def download_file_with_progress(
                 pass
         return False
 
+def get_current_executable_path() -> Path:
+    """Xác định đường dẫn file .exe gốc đang chạy một cách chính xác tuyệt đối."""
+    # 1. Nuitka onefile: Biến môi trường NUITKA_ORIGINAL_ARGV0 lưu đúng đường dẫn file .exe gốc
+    orig_argv0 = os.environ.get("NUITKA_ORIGINAL_ARGV0")
+    if orig_argv0 and os.path.isfile(orig_argv0):
+        return Path(orig_argv0).resolve()
+
+    # 2. Nuitka onefile: Thư mục chứa binary gốc
+    onefile_dir = os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+    if onefile_dir and os.path.isdir(onefile_dir):
+        for name in ("MEGAMU Auto Train Dashboard.exe", "MEGAMU.Auto.Train.Dashboard.exe"):
+            cand = Path(onefile_dir) / name
+            if cand.is_file():
+                return cand.resolve()
+
+    # 3. Qua sys.argv[0] nếu không nằm trong thư mục Temp
+    if sys.argv and sys.argv[0]:
+        cand = Path(sys.argv[0]).resolve()
+        if cand.is_file() and "temp" not in str(cand).lower():
+            return cand
+
+    # 4. Qua sys.executable nếu là file .exe và không nằm trong Temp
+    if sys.executable:
+        cand = Path(sys.executable).resolve()
+        if cand.is_file() and "temp" not in str(cand).lower() and cand.name.lower().endswith(".exe"):
+            return cand
+
+    # 5. Fallback qua Release_MEGAMU_Secure hoặc thư mục hiện tại
+    base = Path(__file__).resolve().parent
+    cand_sec = base / "Release_MEGAMU_Secure" / "MEGAMU Auto Train Dashboard.exe"
+    if cand_sec.is_file():
+        return cand_sec.resolve()
+
+    cand_local = base / "MEGAMU Auto Train Dashboard.exe"
+    if cand_local.is_file():
+        return cand_local.resolve()
+
+    return Path(sys.executable).resolve()
+
 def apply_exe_update_and_restart(new_file_path: Path, current_exe_path: Optional[Path] = None):
     """
     Tạo script batch chạy ngầm để ghi đè file .exe hiện tại và khởi động lại phiên bản mới.
+    Đảm bảo diệt sạch tiến trình cũ (cả parent lẫn child), retry vòng lặp ghi đè và khởi động lại chuẩn xác.
     """
     if current_exe_path is None:
-        if getattr(sys, "frozen", False):
-            current_exe_path = Path(sys.executable).resolve()
-        else:
-            cand1 = Path(__file__).resolve().parent / "Release_MEGAMU" / "MEGAMU Auto Train Dashboard.exe"
-            cand2 = Path(__file__).resolve().parent / "MEGAMU Auto Train Dashboard.exe"
-            current_exe_path = cand1 if cand1.exists() else cand2
+        current_exe_path = get_current_executable_path()
 
-    # Neu file tai ve la file .zip, giai nen de tim file .exe ben trong
     actual_exe_source = new_file_path
     if str(new_file_path).lower().endswith(".zip"):
         try:
@@ -240,39 +274,72 @@ def apply_exe_update_and_restart(new_file_path: Path, current_exe_path: Optional
             extract_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(str(new_file_path), "r") as zf:
                 zf.extractall(str(extract_dir))
-            # Tim file .exe ben trong
-            found_exe = None
             for p in extract_dir.rglob("*.exe"):
-                found_exe = p
+                actual_exe_source = p
                 break
-            if found_exe:
-                actual_exe_source = found_exe
         except Exception as ez:
             print(f"[Updater] Lỗi giải nén gói cập nhật zip: {ez}", flush=True)
 
-    pid = os.getpid()
-    bat_file = current_exe_path.parent / "apply_update.bat"
+    child_pid = os.getpid()
+    parent_pid = os.environ.get("NUITKA_ONEFILE_PARENT", "")
+    target_name = current_exe_path.name
+
+    import tempfile
+    temp_dir = Path(tempfile.gettempdir())
+    bat_file = temp_dir / "meg_apply_update.bat"
+
+    kill_parent_cmd = f'taskkill /f /pid {parent_pid} >nul 2>&1' if parent_pid else ':: no parent pid'
 
     bat_content = f"""@echo off
 chcp 65001 >nul
-echo Dang cap nhat MEGAMU Auto Train Dashboard...
+title Dang cap nhat MEGAMU Auto Train Dashboard...
+echo ==============================================================================
+echo   HE THONG TU DONG NANG CAP PHIEN BAN - MEGAMU AUTO TRAIN DASHBOARD
+echo ==============================================================================
+echo.
+echo Dang dong cac tien trinh cu dang chay...
+
+:: 1. Dong cac tien trinh cu (Child va Parent bootstrap)
+taskkill /f /pid {child_pid} >nul 2>&1
+{kill_parent_cmd}
+taskkill /f /im "{target_name}" >nul 2>&1
+
+:: 2. Vong lap cho file het khoa va tien hanh ghi de (toi da 20 giay)
+set RETRIES=0
+:WAIT_RETRY
+timeout /t 1 /nobreak >nul
+echo Dang ghi de phien ban moi: "{current_exe_path}"...
+copy /y "{actual_exe_source}" "{current_exe_path}" >nul 2>&1
+if %ERRORLEVEL% EQU 0 goto UPDATE_SUCCESS
+
+set /a RETRIES+=1
+if %RETRIES% GEQ 20 goto UPDATE_FAILED
+echo File dang duoc he thong dong, thu lai (%RETRIES%/20)...
+goto WAIT_RETRY
+
+:UPDATE_SUCCESS
+echo.
+echo [THANH CONG] Da cap nhat thanh cong phien ban moi!
+echo Dang khoi dong lai chuong trinh...
 timeout /t 1 /nobreak >nul
 
-:: Cho tien trinh cu ket thuc
-taskkill /f /pid {pid} >nul 2>&1
-timeout /t 1 /nobreak >nul
+:: Xoa file download tam
+del /f /q "{new_file_path}" >nul 2>&1
 
-:: Ghi de file .exe moi
-copy /y "{actual_exe_source}" "{current_exe_path}" >nul
+:: Khoi dong lai phien ban moi
+start "" "{current_exe_path}"
 
-:: Neu thanh cong thi xoa file download tam
-if exist "{current_exe_path}" (
-    del /f /q "{new_file_path}" >nul 2>&1
-    start "" "{current_exe_path}"
-)
+:: Xoa file batch tam nay
+(goto) 2>nul & del "%~f0"
+exit
 
-:: Xoa chinh script batch nay
-del "%~f0" >nul 2>&1
+:UPDATE_FAILED
+echo.
+echo [THAT BAI] Khong the ghi de file "{current_exe_path}".
+echo Co the file dang bi khoa boi tien trinh khac hoac can quyen Administrator.
+echo File cap nhat da duoc luu tai: "{actual_exe_source}"
+pause
+(goto) 2>nul & del "%~f0"
 exit
 """
     try:

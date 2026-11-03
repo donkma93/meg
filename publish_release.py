@@ -38,7 +38,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.4"
+    return "v1.5.5"
 
 def get_github_token() -> str:
     p = subprocess.Popen(
@@ -154,22 +154,22 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Tính năng mới trong bản {version}:
-- **Tối ưu Hóa Toàn Diện Màn Hình Quản Lý Tài Khoản (Accounts Tab):**
-  - Bổ sung thanh Hướng Dẫn Nhanh (Quick Tips Banner) với chu trình 3 bước trực quan: Mở Game -> [Kết nối tất cả] -> Chọn Cấu hình -> [▶ Chạy].
-  - Tích hợp hệ thống Tooltip thông minh (`ModernToolTip`): Rê chuột vào bất kỳ nút bấm hoặc trường dữ liệu nào ([DS], [RS], [PT], Cài đặt, Nhật ký, Tọa độ, STT...) đều hiển thị giải thích chi tiết chức năng và hướng dẫn sử dụng.
-  - Phân định rõ ràng nút `[PT]` là **Point** (Tự động cộng điểm tiềm năng Str/Agi/Vit/Ene theo tỷ lệ cấu hình), giải tỏa triệt để hiểu lầm phổ biến với Party.
-  - Cải tiến Cột Tọa độ: Thay thế biểu tượng mũi tên bằng icon định vị `📍` kèm tọa độ thời gian thực của nhân vật.
-  - Giao diện Card bo góc hiện đại (`corner_radius=6`), phân tách rõ ràng và có hiệu ứng hover mượt mà.
-  - Menu Chuột Phải tiện ích toàn diện trên toàn bộ dòng tài khoản (Kết nối lại, Reset ngay, Gom ngọc, Ném đồ rác, Bán đồ rác...).
-- **Hoàn Thiện Triệt Để Tính Năng Ném Đồ Rác Tại Chỗ (Moss The Gambler):**
-  - Cập nhật chuẩn xác toàn bộ cấu trúc & Offsets từ bản phân tích dịch ngược GameAssembly mới nhất (17/10/2026): `player_inventory` (0x1B0), `gs_send` (0x11F9280), `get_config` (0x107B360), `get_user_2fa` (0x1077980).
-  - Loại bỏ hoàn toàn lỗi lệch chỉ số ô (s - 12) trong gói tin gửi đi.
-  - Cơ chế bảo vệ đồ nghiêm ngặt: Giữ lại 100% đồ quý (Exc, Socket, Set thần, Ruud, Divine, ngọc và đồ >= +7).
-- **Khắc Phục Các Lỗi Runtime & Ổn Định Hệ Thống:**
-  - Sửa lỗi NameError `info` khi cập nhật cấu hình Reset.
-  - Sửa lỗi TypeError `NoneType` khi tính toán số lượng đồ rác đã dọn.
-  - Cải tiến cơ chế quản lý bộ nhớ Frida & IPC không gây xung đột VirtualAllocEx.
-- **Tự Động Cập Nhật Trực Tiếp (Auto-Updater):** Tự động phát hiện phiên bản {version} và cập nhật ghi đè file .exe an toàn cho người dùng.
+- **Nâng cấp tính năng '👥 Gán toàn bộ' (Linh hoạt mọi số lượng game):**
+  - Chuyển đổi nút 'Gán Team 5' thành nút '👥 Gán toàn bộ' thông minh.
+  - Tự động nhận diện và gán toàn bộ cửa sổ MEGAMU đang mở (bất kể 1, 2, 3, 4, 5, 6, 7, 8... game) vào các slot tương ứng.
+  - Tự động mở rộng thêm số slot nếu số game vượt quá số slot hiện có (trong phạm vi bản quyền), gán chính xác PID và tên nhân vật.
+- **Sửa Triệt Để Lỗi Tràn Bộ Nhớ & Xung Đột Phân Quyền (VirtualAllocEx 0x00000005):**
+  - Loại bỏ hoàn toàn lệnh gọi native nguy hiểm 0x123ECB0 gây crash luồng game Access Violation 0xC0000005.
+  - Chuyển sang đọc trực tiếp chuỗi Unicode struct TableItem trong RAM an toàn 100%, không bao giờ gây sập luồng Frida (triệt tiêu lỗi 'script has been destroyed').
+  - Dọn sạch session và script cũ trước khi kết nối lại, kèm bộ đệm chống spam re-attach.
+  - Tối ưu cấp phát bộ nhớ cố định (chỉ cấp phát 1 lần ở phạm vi global), không cấp phát mới trong vòng lặp.
+- **Hoàn Thiện Bộ Lọc & Ném Đồ Rác Moss The Gambler:**
+  - Ưu tiên đọc Item Index trực tiếp tại offset +0x60 (khớp lệnh x86-64 0x1175310 mov eax, [rcx+0x60]).
+  - Loại bỏ từ khóa nhầm lẫn 'divine' / 'nữ thần' trong bộ lọc bảo vệ để không chặn nhầm Nỏ Nữ Thần thường +0..+6 khi quay nỏ.
+  - Hỗ trợ nút 'Ném Tại Chỗ' bypass kiểm tra snapshot để ném sạch đồ rác tồn đọng.
+- **Tối Ưu Giao Diện & Tự Động Cập Nhật Trực Tiếp (Auto-Updater):**
+  - Tích hợp kiểm soát độ dài log chống phình to RAM khi treo máy lâu ngày.
+  - Tự động phát hiện phiên bản {version} và cập nhật ghi đè file .exe an toàn cho người dùng.
 
 ---
 ### Tải về:

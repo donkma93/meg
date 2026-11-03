@@ -1028,29 +1028,12 @@ function ensureDropAllowed() {
     return ok;
 }
 
-var nativeGetItemName = null;
-try {
-    nativeGetItemName = new NativeFunction(baseAddr.add(ptr('0x123ECB0')), 'pointer', ['pointer', 'bool', 'pointer']);
-} catch (eNm) {}
-
 function getItemName(itemPtr) {
     if (!itemPtr || itemPtr.isNull()) return "";
     try {
-        if (nativeGetItemName !== null) {
-            var sPtr = nativeGetItemName(itemPtr, 1, ptr(0));
-            if (!sPtr.isNull()) {
-                var len = sPtr.add(0x10).readS32();
-                if (len > 0 && len < 200) {
-                    var str = sPtr.add(0x14).readUtf16String(len);
-                    if (str && str.length > 0) return str;
-                }
-            }
-        }
-    } catch (e1) {}
-    try {
         var te = itemPtr.add(0x58).readPointer();
         if (!te.isNull()) {
-            var offsets = [0x38, 0x30, 0x28, 0x20, 0x40, 0x48, 0x50];
+            var offsets = [0x28, 0x30, 0x38, 0x20, 0x40, 0x48, 0x50];
             for (var i = 0; i < offsets.length; i++) {
                 var sPtr = te.add(offsets[i]).readPointer();
                 if (!sPtr.isNull()) {
@@ -1069,16 +1052,21 @@ function getItemName(itemPtr) {
 function readItemIndex(itemPtr) {
     if (!itemPtr || itemPtr.isNull()) return -1;
     var idx = -1;
+    // Priority 1: Direct Item Index at +0x60 (0x1175310 mov eax, [rcx+0x60])
+    try {
+        idx = itemPtr.add(0x60).readS32();
+        if (idx >= 0 && idx < 65536) return idx;
+    } catch (e0) {}
+
+    // Priority 2: From TableItem (+0x58)
     try {
         var te = itemPtr.add(0x58).readPointer();
         if (!te.isNull()) {
-            // Priority 1: TableItem.HKLAHJEGHML (+0x68) = Index
             try {
                 var fieldIdx = te.add(0x68).readS32();
                 if (fieldIdx >= 0 && fieldIdx < 65536) return fieldIdx;
             } catch (eF) {}
 
-            // Priority 2: (Section * 512 + Type) from TableItem (+0x58, +0x5C)
             try {
                 var sec = te.add(0x58).readS32();
                 var type = te.add(0x5C).readS32();
@@ -1089,12 +1077,6 @@ function readItemIndex(itemPtr) {
             } catch (eST) {}
         }
     } catch (e1) {}
-
-    // Priority 3: Fallback from Item (+0x60)
-    try {
-        idx = itemPtr.add(0x60).readS32();
-        if (idx >= 0 && idx < 65536) return idx;
-    } catch (e2) {}
 
     return -1;
 }
@@ -1194,11 +1176,9 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
     var name = getItemName(itemPtr).toLowerCase();
     if (name.length > 0) {
         var keywords = [
-            "divine", "divino", "divina", "archangel", "arcanjo", "thiên sứ", "nữ thần",
+            "archangel", "arcanjo", "thiên sứ",
             "dragon", "dragao", "dragão", "rồng",
             "bloodangel", "darkangel", "holyangel", "awakening", "blue eye", "silver heart", "manticore", "brilliant", "apocalypse", "lightning", "ruud"
-
-
         ];
         for (var k = 0; k < keywords.length; k++) {
             if (name.indexOf(keywords[k]) !== -1) {
@@ -1394,7 +1374,7 @@ function dispatchHelperAction(act) {
     return false;
 }
 
-var coordBuf = Memory.alloc(64);
+// coordBuf da duoc khoi tao 1 lan duy nhat o pham vi global tren dau script
 var cachedCoordKlass = ptr(0);
 var shuttingDown = false;
 var pendingMoveTarget = null;
@@ -5346,28 +5326,7 @@ class MegDirectEngine:
                 self.session = None
             return False
 
-        if frida is None:
-            _safe_log("[MegDirectEngine] Thư viện frida chưa được cài đặt trong môi trường python.")
-            return False
 
-        try:
-            self.session = frida.attach(self.pid)
-            try:
-                self.session.on("detached", self._on_detached)
-            except Exception:
-                pass
-            js_code = self._generate_js()
-            self.script = self.session.create_script(js_code)
-            self.script.on("message", self._on_message)
-            self.script.load()
-            self.is_ready = True
-            trace_frida_event("ATTACH_SUCCESS", f"Đã kết nối Frida session thành công tới PID {self.pid}", pid=self.pid)
-            return True
-        except Exception as e:
-            trace_frida_event("ATTACH_ERROR", f"Lỗi attach Frida tới PID {self.pid}: {e}", pid=self.pid, level="ERROR")
-            _safe_log(f"[MegDirectEngine] Lỗi attach Frida tới PID {self.pid}: {e}")
-            self.is_ready = False
-            return False
 
     def _call(self, func_name: str, *args, timeout: float = 4.0) -> Any:
         with self._rpc_lock:

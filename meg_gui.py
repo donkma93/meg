@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MEGAMU Auto Train Dashboard - v1.5.4
+MEGAMU Auto Train Dashboard - v1.5.5
 ====================================
 Giao diện hoàn chỉnh và thuật toán chuẩn 100% khớp MEGAMU Auto Train Dashboard gốc:
 - Giao diện 3 tab: 10 Tài khoản | Cấu hình | Nhật ký
@@ -96,7 +96,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.5.4"
+APP_VERSION = "v1.5.5"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -822,7 +822,7 @@ I18N = {
         "logs": "Nhật ký",
         "text_config": "Mở thư mục",
         "connect_all": "Kết nối tất cả",
-        "assign_team5": "Gán Team 5",
+        "assign_team5": "Gán toàn bộ",
         "refresh_games": "Làm mới Game",
         "add": "Thêm",
         "remove": "Xóa",
@@ -894,7 +894,7 @@ I18N = {
         "logs": "Logs",
         "text_config": "Text config",
         "connect_all": "Connect All",
-        "assign_team5": "Assign Team 5",
+        "assign_team5": "Assign All",
         "refresh_games": "Refresh Game",
         "add": "Add",
         "remove": "Remove",
@@ -966,7 +966,7 @@ I18N = {
         "logs": "Registros",
         "text_config": "Arquivos config",
         "connect_all": "Conectar Todos",
-        "assign_team5": "Atribuir Time 5",
+        "assign_team5": "Atribuir Todos",
         "refresh_games": "Atualizar Jogos",
         "add": "Adicionar",
         "remove": "Remover",
@@ -4324,18 +4324,18 @@ class DashboardApp(ctk.CTk):
 
         self.btn_team5 = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("gear", color="#cbd5e1", size=(14, 14)),
+            image=UiIconFactory.get("user", color="#38bdf8", size=(14, 14)),
             compound="left",
             text=f" {tr('assign_team5')}",
-            width=125,
-            command=self.assign_team5,
+            width=130,
+            command=self.assign_all,
             **btn_bar_style
         )
         self.btn_team5.pack(side="left", padx=(0, 6))
         add_tooltip(
             self.btn_team5,
-            "👥 Gán Team 5\n"
-            "Tự động gán 5 cửa sổ MEGAMU đầu tiên vào Slot 01 - 05 để lập nhóm tổ đội nhanh."
+            "👥 Gán toàn bộ (Assign All)\n"
+            "Tự động quét và gán toàn bộ các cửa sổ game MEGAMU đang mở vào các ô Slot trống (hỗ trợ linh hoạt 3, 4, 5, 6, 7, 8... tài khoản cùng lúc)."
         )
 
         self.btn_refresh = ctk.CTkButton(
@@ -11374,99 +11374,70 @@ class DashboardApp(ctk.CTk):
         self.log_message(f"Đã làm mới: Phát hiện {len(self.detected_games)} cửa sổ MEGAMU.exe.", "INFO")
 
     def assign_all(self):
-        """Gán tất cả tiến trình MEGAMU vào các Slot trống hoặc slot bị mất kết nối."""
+        """Gán toàn bộ các tiến trình MEGAMU đang mở vào các Slot trống (hỗ trợ linh hoạt 1, 2, 3, 4, 5, 6, 7, 8... tài khoản)."""
         self.refresh_games()
         # Chỉ coi PID là đã gán nếu PID đó thực sự đang tồn tại trên Windows
         assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)}
         available_pids = [p for p in self.detected_games if p not in assigned_pids]
 
-        assigned_count = 0
-        for ctrl in self.controllers:
-            is_dead_or_empty = (not ctrl.assigned_pid) or (not psutil.pid_exists(ctrl.assigned_pid))
-            if is_dead_or_empty and available_pids:
-                pid = available_pids.pop(0)
-                ctrl.attach_pid(pid)
-                # Cập nhật dropdown
-                el = self.slot_ui_elements.get(ctrl.slot_idx)
-                if el:
-                    title = self.detected_games.get(pid, "")
-                    char_name = character_name_from_window_title(title)
-                    if not char_name:
-                        try:
-                            from meg_navigator import ProcessMemoryReader
-                            char_name = ProcessMemoryReader.read_character_name(pid) or ""
-                        except Exception:
-                            pass
-                    if not char_name and ctrl.char_name and ctrl.char_name != "---":
-                        char_name = ctrl.char_name
-                    disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
-                    el["proc_var"].set(disp)
-                assigned_count += 1
-
-        self.update_header_stats()
-        self.log_message(f"Gán tất cả: Đã gán {assigned_count} tài khoản vào bảng.", "SUCCESS")
-
-    def assign_team5(self):
-        """Gán 5 tài khoản vào 1 Team còn trống."""
-        if license_client and not license_client.is_license_valid():
-            try:
-                from tkinter import messagebox
-                messagebox.showwarning(
-                    "Khóa Chức Năng",
-                    "Chức năng gán Team đã bị khóa vì bản quyền chưa được kích hoạt hoặc đã hết hạn!\n\nVui lòng kích hoạt bản quyền để sử dụng."
-                )
-            except Exception:
-                pass
-            self.open_license_dialog()
-            return
-
-        self.refresh_games()
-        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)}
-        available_pids = [p for p in self.detected_games if p not in assigned_pids]
-
-        if len(available_pids) < 1:
+        if not available_pids:
             self.log_message("Không có tiến trình MEGAMU nào chưa được gán.", "WARNING")
             return
 
-        # Tìm nhóm 5 slot (Team 1, Team 2, Team 3...) còn trống nhiều nhất
-        groups = []
-        n = len(self.controllers)
-        for i in range(0, n, 5):
-            groups.append((i + 1, min(i + 5, n)))
+        lic_data = license_client.load_license_data() if license_client else {}
+        is_valid = license_client.is_license_valid() if license_client else False
+        max_allowed = int(lic_data.get("max_slots", 5 if not is_valid else 10))
 
-        target_slots = None
-        for g_start, g_end in groups:
-            empty_slots = [c for c in self.controllers if g_start <= c.slot_idx <= g_end and (not c.assigned_pid or not psutil.pid_exists(c.assigned_pid))]
-            if len(empty_slots) >= min(5, len(available_pids)):
-                target_slots = empty_slots
+        # 1. Tìm các slot trống hiện có
+        target_slots = [c for c in self.controllers if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid)]
+        target_slots.sort(key=lambda c: c.slot_idx)
+
+        # 2. Nếu số game cần gán nhiều hơn số slot trống hiện tại -> tự động mở thêm slot mới (nếu chưa vượt giới hạn bản quyền)
+        while len(target_slots) < len(available_pids) and len(self.controllers) < max_allowed and len(self.controllers) < MAX_SLOTS:
+            cur_len = len(self.controllers)
+            self.add_new_slot()
+            if len(self.controllers) > cur_len:
+                new_ctrl = self.controllers[-1]
+                target_slots.append(new_ctrl)
+            else:
                 break
 
-        if not target_slots:
-            target_slots = [c for c in self.controllers if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid)]
-
-        count = 0
-        for ctrl in target_slots[:5]:
-            if available_pids:
-                pid = available_pids.pop(0)
-                ctrl.attach_pid(pid)
-                el = self.slot_ui_elements.get(ctrl.slot_idx)
-                if el:
-                    title = self.detected_games.get(pid, "")
-                    char_name = character_name_from_window_title(title)
-                    if not char_name:
-                        try:
-                            from meg_navigator import ProcessMemoryReader
-                            char_name = ProcessMemoryReader.read_character_name(pid) or ""
-                        except Exception:
-                            pass
-                    if not char_name and ctrl.char_name and ctrl.char_name != "---":
-                        char_name = ctrl.char_name
-                    disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
-                    el["proc_var"].set(disp)
-                count += 1
+        assigned_count = 0
+        for pid in list(available_pids):
+            if not target_slots:
+                break
+            ctrl = target_slots.pop(0)
+            ctrl.attach_pid(pid)
+            # Cập nhật dropdown
+            el = self.slot_ui_elements.get(ctrl.slot_idx)
+            if el:
+                title = self.detected_games.get(pid, "")
+                char_name = character_name_from_window_title(title)
+                if not char_name:
+                    try:
+                        from meg_navigator import ProcessMemoryReader
+                        char_name = ProcessMemoryReader.read_character_name(pid) or ""
+                    except Exception:
+                        pass
+                if not char_name and ctrl.char_name and ctrl.char_name != "---":
+                    char_name = ctrl.char_name
+                disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
+                el["proc_var"].set(disp)
+            assigned_count += 1
 
         self.update_header_stats()
-        self.log_message(f"Gán Team 5: Đã gán thành công {count} tài khoản.", "SUCCESS")
+        remaining = len(available_pids) - assigned_count
+        if remaining > 0:
+            self.log_message(
+                f"Gán toàn bộ: Đã gán thành công {assigned_count} tài khoản. Còn lại {remaining} game chưa gán do đạt giới hạn gói bản quyền ({max_allowed} slot).",
+                "WARNING"
+            )
+        else:
+            self.log_message(f"Gán toàn bộ: Đã gán thành công toàn bộ {assigned_count} tài khoản vào các Slot.", "SUCCESS")
+
+    def assign_team5(self):
+        """Gán toàn bộ tài khoản vào các Slot (alias cho assign_all)."""
+        return self.assign_all()
 
     def stack_all_jewels(self):
         """Tự động gom ngọc cho toàn bộ tài khoản đang kết nối."""

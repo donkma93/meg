@@ -15,7 +15,7 @@
   "stages": [
     {
       "min_level": 1,
-      "max_level": 29,
+      "max_level": 400,
       "map_name": "Lorencia",
       "x": 8,
       "y": 134
