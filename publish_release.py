@@ -159,7 +159,7 @@ if __name__ == "__main__":
   - Hỗ trợ lựa chọn 3 chế độ vé: Tự động (ưu tiên Master), Chỉ vé Thường (DS 1-7), Chỉ vé Master (Master DS).
   - Nguyên tắc an toàn 100%: Chỉ ngưng Auto Train ngoài bãi khi ĐÃ VÀO MAP DEVIL thành công. Nếu chưa đủ Reset hoặc không có vé hợp lệ, 100% tiếp tục cắm bãi train quái bình thường. Nếu hết giờ mở cổng (:30) mà không vào được, lập tức tự động quay lại bãi train cày quái ngay.
 - **Tinh Gọn Giao Diện Toolbar & Bổ Sung Nút Master Toggle Chạy / Dừng Tất Cả:**
-  - Chuyển đổi toàn bộ thanh Toolbar thành các nút **Icon-Only** siêu gọn ($36 \times 30\text{px}$), loại bỏ hoàn toàn tình trạng tràn viền, chèn chữ hay che khuất nút.
+  - Chuyển đổi toàn bộ thanh Toolbar thành các nút **Icon-Only** siêu gọn (36x30 px), loại bỏ hoàn toàn tình trạng tràn viền, chèn chữ hay che khuất nút.
   - Tích hợp khung chú thích Tooltip chi tiết bằng tiếng Việt khi rê chuột (Hover) vào từng icon.
   - Gộp nút Chạy/Dừng thành **1 nút Master Toggle duy nhất**:
     - Khi tất cả đang dừng: hiển thị `[ ▶ ]` màu xanh lục (Bật tất cả).
