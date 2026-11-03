@@ -25,7 +25,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.3"
+    return "v1.5.4"
 
 def get_github_token() -> str:
     p = subprocess.Popen(
@@ -141,12 +141,22 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Tính năng mới trong bản {version}:
-- **Cập nhật GameAssembly Offsets Mới Nhất:** Tương thích 100% với phiên bản MEGAMU mới (Chat, MLocationFrame Helper Start/Stop, Moss, Mirror, Devil Square).
-- **Khắc phục Triệt để Lỗi Vứt Đồ & Bảo vệ Trang bị:** Sửa hoàn toàn lỗi tính toán slot (s - 12) khi dọn rác; bổ sung guard cứng bảo vệ 100% trang bị đang mặc (slots 0..11).
-- **Bộ lọc An toàn Nâng cao:** Tự động bảo vệ và giữ lại đồ Ruud, Archangel, Ancient (Đồ Thần), Socket, Harmony, Hoàn Hảo (Exc) và đồ cấp độ từ +5 trở lên.
-- **Tối ưu hóa Quy trình Auto Devil Square:** Nhận diện chính xác cả vé thường (7187) lẫn vé master (6702); tự động di chuyển tiếp cận NPC Charon tại tọa độ (225, 52) Event Square và phát thông báo ingame khi cổng đóng.
-- **Tối ưu Đa luồng Dashboard GUI:** Chuyển toàn bộ tác vụ quét game, đồng bộ telemetry và Bật/Tắt hàng loạt sang chạy ngầm (async background thread), loại bỏ hoàn toàn hiện tượng đơ/lag giao diện.
-- **Tự động Cập nhật Trực tiếp (Auto-Updater):** Tự động phát hiện phiên bản mới và cập nhật ghi đè file .exe an toàn cho người dùng.
+- **Tối ưu Hóa Toàn Diện Màn Hình Quản Lý Tài Khoản (Accounts Tab):**
+  - Bổ sung thanh Hướng Dẫn Nhanh (Quick Tips Banner) với chu trình 3 bước trực quan: Mở Game -> [Kết nối tất cả] -> Chọn Cấu hình -> [▶ Chạy].
+  - Tích hợp hệ thống Tooltip thông minh (`ModernToolTip`): Rê chuột vào bất kỳ nút bấm hoặc trường dữ liệu nào ([DS], [RS], [PT], Cài đặt, Nhật ký, Tọa độ, STT...) đều hiển thị giải thích chi tiết chức năng và hướng dẫn sử dụng.
+  - Phân định rõ ràng nút `[PT]` là **Point** (Tự động cộng điểm tiềm năng Str/Agi/Vit/Ene theo tỷ lệ cấu hình), giải tỏa triệt để hiểu lầm phổ biến với Party.
+  - Cải tiến Cột Tọa độ: Thay thế biểu tượng mũi tên bằng icon định vị `📍` kèm tọa độ thời gian thực của nhân vật.
+  - Giao diện Card bo góc hiện đại (`corner_radius=6`), phân tách rõ ràng và có hiệu ứng hover mượt mà.
+  - Menu Chuột Phải tiện ích toàn diện trên toàn bộ dòng tài khoản (Kết nối lại, Reset ngay, Gom ngọc, Ném đồ rác, Bán đồ rác...).
+- **Hoàn Thiện Triệt Để Tính Năng Ném Đồ Rác Tại Chỗ (Moss The Gambler):**
+  - Cập nhật chuẩn xác toàn bộ cấu trúc & Offsets từ bản phân tích dịch ngược GameAssembly mới nhất (17/10/2026): `player_inventory` (0x1B0), `gs_send` (0x11F9280), `get_config` (0x107B360), `get_user_2fa` (0x1077980).
+  - Loại bỏ hoàn toàn lỗi lệch chỉ số ô (s - 12) trong gói tin gửi đi.
+  - Cơ chế bảo vệ đồ nghiêm ngặt: Giữ lại 100% đồ quý (Exc, Socket, Set thần, Ruud, Divine, ngọc và đồ >= +7).
+- **Khắc Phục Các Lỗi Runtime & Ổn Định Hệ Thống:**
+  - Sửa lỗi NameError `info` khi cập nhật cấu hình Reset.
+  - Sửa lỗi TypeError `NoneType` khi tính toán số lượng đồ rác đã dọn.
+  - Cải tiến cơ chế quản lý bộ nhớ Frida & IPC không gây xung đột VirtualAllocEx.
+- **Tự Động Cập Nhật Trực Tiếp (Auto-Updater):** Tự động phát hiện phiên bản {version} và cập nhật ghi đè file .exe an toàn cho người dùng.
 
 ---
 ### Tải về:
