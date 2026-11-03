@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MEGAMU Auto Train Dashboard - v1.5.5
+MEGAMU Auto Train Dashboard - v1.5.6
 ====================================
 Giao diện hoàn chỉnh và thuật toán chuẩn 100% khớp MEGAMU Auto Train Dashboard gốc:
 - Giao diện 3 tab: 10 Tài khoản | Cấu hình | Nhật ký
@@ -96,7 +96,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.5.5"
+APP_VERSION = "v1.5.6"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -401,6 +401,39 @@ class UiIconFactory:
                 (int(cw * 0.52), int(ch * 0.44))
             ]
             d.polygon(poly, fill=color)
+        elif name in ("fire", "flame"):
+            poly = [
+                (int(cw * 0.50), int(ch * 0.10)),
+                (int(cw * 0.65), int(ch * 0.28)),
+                (int(cw * 0.82), int(ch * 0.52)),
+                (int(cw * 0.80), int(ch * 0.76)),
+                (int(cw * 0.62), int(ch * 0.92)),
+                (int(cw * 0.38), int(ch * 0.92)),
+                (int(cw * 0.20), int(ch * 0.76)),
+                (int(cw * 0.18), int(ch * 0.52)),
+                (int(cw * 0.35), int(ch * 0.28)),
+                (int(cw * 0.44), int(ch * 0.42)),
+            ]
+            d.polygon(poly, fill=color)
+        elif name in ("gem", "diamond"):
+            poly = [
+                (int(cw * 0.28), int(ch * 0.20)),
+                (int(cw * 0.72), int(ch * 0.20)),
+                (int(cw * 0.90), int(ch * 0.46)),
+                (int(cw * 0.50), int(ch * 0.88)),
+                (int(cw * 0.10), int(ch * 0.46))
+            ]
+            d.polygon(poly, fill=color)
+            d.line([(int(cw * 0.28), int(ch * 0.20)), (int(cw * 0.50), int(ch * 0.88))], fill=color, width=lw)
+            d.line([(int(cw * 0.72), int(ch * 0.20)), (int(cw * 0.50), int(ch * 0.88))], fill=color, width=lw)
+            d.line([(int(cw * 0.10), int(ch * 0.46)), (int(cw * 0.90), int(ch * 0.46))], fill=color, width=lw)
+        elif name in ("users", "team"):
+            hr1 = int(cw * 0.13)
+            d.ellipse([int(cw * 0.65) - hr1, int(ch * 0.16), int(cw * 0.65) + hr1, int(ch * 0.16) + 2 * hr1], fill=color)
+            d.pieslice([int(cw * 0.45), int(ch * 0.46), int(cw * 0.85), int(ch * 0.96)], start=180, end=360, fill=color)
+            hr2 = int(cw * 0.15)
+            d.ellipse([int(cw * 0.35) - hr2, int(ch * 0.20), int(cw * 0.35) + hr2, int(ch * 0.20) + 2 * hr2], fill=color)
+            d.pieslice([int(cw * 0.12), int(ch * 0.52), int(cw * 0.58), int(ch * 1.05)], start=180, end=360, fill=color)
         elif name in ("dice", "gift", "game"):
             d.rounded_rectangle([int(cw * 0.20), int(ch * 0.20), int(cw * 0.80), int(ch * 0.80)], radius=int(2 * scale), outline=color, width=lw)
             d.line([(int(cw * 0.50), int(ch * 0.20)), (int(cw * 0.50), int(ch * 0.80))], fill=color, width=lw)
@@ -1551,6 +1584,7 @@ class ConfigPersistenceManager:
                                 "auto_devil": bool(conf.get("auto_devil", False)),
                                 "devil_min_resets": int(conf.get("devil_min_resets", 0)),
                                 "devil_max_resets": int(conf.get("devil_max_resets", 9999)),
+                                "devil_ticket_type": str(conf.get("devil_ticket_type", "auto")),
                                 "auto_reset": bool(conf.get("auto_reset", False)),
                                 "auto_add_point": bool(conf.get("auto_add_point", False)),
                                 "reset_level": int(conf.get("reset_level", 400)),
@@ -1571,6 +1605,7 @@ class ConfigPersistenceManager:
         auto_devil: bool = False,
         devil_min_resets: int = 0,
         devil_max_resets: int = 9999,
+        devil_ticket_type: str = "auto",
         auto_reset: bool = False,
         auto_add_point: bool = False,
         reset_level: int = 400,
@@ -1587,6 +1622,7 @@ class ConfigPersistenceManager:
                 "auto_devil": bool(auto_devil),
                 "devil_min_resets": int(devil_min_resets),
                 "devil_max_resets": int(devil_max_resets if int(devil_max_resets) > 0 else 9999),
+                "devil_ticket_type": str(devil_ticket_type or "auto"),
                 "auto_reset": bool(auto_reset),
                 "auto_add_point": bool(auto_add_point),
                 "reset_level": int(reset_level),
@@ -1658,6 +1694,7 @@ class SlotController:
         self.auto_devil: bool = False
         self.devil_min_resets: int = 0
         self.devil_max_resets: int = 9999
+        self.devil_ticket_type: str = "auto"
         self.current_resets: int = 0
         self.auto_reset: bool = False
         self.auto_add_point: bool = False
@@ -1675,6 +1712,7 @@ class SlotController:
                 self.devil_max_resets = int(s_evt.get("devil_max_resets", 9999))
                 if self.devil_max_resets <= 0:
                     self.devil_max_resets = 9999
+                self.devil_ticket_type = str(s_evt.get("devil_ticket_type", "auto"))
                 self.auto_reset = bool(s_evt.get("auto_reset", False))
                 self.auto_add_point = bool(s_evt.get("auto_add_point", False))
                 self.reset_level = int(s_evt.get("reset_level", 400))
@@ -1918,6 +1956,7 @@ class SlotController:
         cfg["auto_devil"] = self.auto_devil
         cfg["devil_min_resets"] = self.devil_min_resets
         cfg["devil_max_resets"] = self.devil_max_resets
+        cfg["devil_ticket_type"] = getattr(self, "devil_ticket_type", "auto")
         cfg["resets"] = self.current_resets
         cfg["auto_reset"] = self.auto_reset
         cfg["auto_add_point"] = self.auto_add_point
@@ -4285,34 +4324,32 @@ class DashboardApp(ctk.CTk):
         self._active_panel = None
 
         # ----------------------------------------------------------------------
-        # 4. ACTION TOOLBAR (Nằm gọn bên trong panel_accounts, chống giật lag)
+        # 4. ACTION TOOLBAR (Tinh gọn chuẩn Icon-Only siêu hiện đại, chống tràn màn hình)
         # ----------------------------------------------------------------------
-        self.toolbar_frame = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=40)
-        self.toolbar_frame.pack(fill="x", padx=10, pady=(8, 4))
+        self.toolbar_frame = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=38)
+        self.toolbar_frame.pack(fill="x", padx=10, pady=(6, 4))
 
-        btn_bar_style = {
-            "font": ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+        icon_btn_style = {
+            "width": 36,
+            "height": 30,
+            "corner_radius": 6,
             "fg_color": "#181c26",
             "hover_color": "#242b3a",
             "border_width": 1,
             "border_color": "#2c3345",
-            "text_color": "#f1f5f9",
-            "corner_radius": 6,
-            "height": 32
+            "text": ""
         }
 
-        # Trái
+        # Nhóm bên trái
         t_left = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
         t_left.pack(side="left")
 
+        # 1. Kết nối tất cả (Link Icon)
         self.btn_connect_all = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("link", color="#38bdf8", size=(14, 14)),
-            compound="left",
-            text=f" {tr('connect_all')}",
-            width=124,
+            image=UiIconFactory.get("link", color="#38bdf8", size=(16, 16)),
             command=self.connect_all,
-            **btn_bar_style
+            **icon_btn_style
         )
         self.btn_connect_all.configure(border_color="#0284c7", hover_color="#0369a1")
         self.btn_connect_all.pack(side="left", padx=(0, 6))
@@ -4322,15 +4359,14 @@ class DashboardApp(ctk.CTk):
             "Tự động quét và kết nối tất cả các cửa sổ MEGAMU đang mở vào các Slot còn trống."
         )
 
+        # 2. Gán toàn bộ (Users Icon)
         self.btn_team5 = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("user", color="#38bdf8", size=(14, 14)),
-            compound="left",
-            text=f" {tr('assign_team5')}",
-            width=130,
+            image=UiIconFactory.get("users", color="#38bdf8", size=(16, 16)),
             command=self.assign_all,
-            **btn_bar_style
+            **icon_btn_style
         )
+        self.btn_team5.configure(border_color="#0284c7", hover_color="#0369a1")
         self.btn_team5.pack(side="left", padx=(0, 6))
         add_tooltip(
             self.btn_team5,
@@ -4338,61 +4374,71 @@ class DashboardApp(ctk.CTk):
             "Tự động quét và gán toàn bộ các cửa sổ game MEGAMU đang mở vào các ô Slot trống (hỗ trợ linh hoạt 3, 4, 5, 6, 7, 8... tài khoản cùng lúc)."
         )
 
+        # 3. Làm mới game (Refresh Icon)
         self.btn_refresh = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(14, 14)),
-            compound="left",
-            text=f" {tr('refresh_games')}",
-            width=130,
+            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(16, 16)),
             command=self.refresh_games,
-            **btn_bar_style
+            **icon_btn_style
         )
-        self.btn_refresh.pack(side="left", padx=(0, 8))
+        self.btn_refresh.pack(side="left", padx=(0, 6))
         add_tooltip(
             self.btn_refresh,
-            "🔄 Làm mới Game\n"
+            "🔄 Làm mới Game (Refresh)\n"
             "Quét lại toàn bộ danh sách tiến trình MEGAMU.exe trên hệ thống để cập nhật danh sách chọn."
         )
 
-        # Phân tách nhóm nút
-        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=20).pack(side="left", padx=(2, 8))
+        # Phân tách nhóm 1
+        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=18).pack(side="left", padx=(2, 8))
 
+        # 4. Thêm Slot (Plus Icon)
         self.btn_add_slot = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("plus", color="#4ade80", size=(13, 13)),
-            compound="left",
-            text=" Thêm Slot",
-            width=105,
+            image=UiIconFactory.get("plus", color="#4ade80", size=(16, 16)),
             command=self.add_new_slot,
-            **btn_bar_style
+            **icon_btn_style
         )
+        self.btn_add_slot.configure(border_color="#14532d", hover_color="#14532d")
         self.btn_add_slot.pack(side="left", padx=(0, 6))
-        add_tooltip(self.btn_add_slot, "➕ Thêm Slot\nThêm một hàng quản lý tài khoản mới vào bảng.")
+        add_tooltip(self.btn_add_slot, "➕ Thêm Slot (Add Slot)\nThêm một hàng quản lý tài khoản mới vào bảng.")
 
+        # 5. Bớt Slot (Minus Icon)
         self.btn_remove_slot = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("minus", color="#f87171", size=(13, 13)),
-            compound="left",
-            text=" Bớt Slot",
-            width=85,
+            image=UiIconFactory.get("minus", color="#f87171", size=(16, 16)),
             command=self.remove_last_slot,
-            **btn_bar_style
+            **icon_btn_style
         )
-        self.btn_remove_slot.pack(side="left", padx=(0, 8))
-        add_tooltip(self.btn_remove_slot, "➖ Bớt Slot\nXóa bớt một hàng quản lý tài khoản ở cuối bảng.")
+        self.btn_remove_slot.configure(border_color="#7f1d1d", hover_color="#7f1d1d")
+        self.btn_remove_slot.pack(side="left", padx=(0, 6))
+        add_tooltip(self.btn_remove_slot, "➖ Bớt Slot (Remove Slot)\nXóa bớt một hàng quản lý tài khoản ở cuối bảng.")
 
-        # Phân tách nhóm tiện ích
-        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=20).pack(side="left", padx=(2, 8))
+        # Phân tách nhóm 2
+        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=18).pack(side="left", padx=(2, 8))
 
+        # 6. Cài đặt Devil (Fire Icon)
+        self.btn_devil_config = ctk.CTkButton(
+            t_left,
+            image=UiIconFactory.get("fire", color="#f43f5e", size=(16, 16)),
+            command=self.open_devil_global_config_dialog,
+            **icon_btn_style
+        )
+        self.btn_devil_config.configure(fg_color="#2a1215", border_color="#be123c", hover_color="#451218")
+        self.btn_devil_config.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            self.btn_devil_config,
+            "🔥 Cài đặt Devil Square (DS)\n"
+            "Thiết lập mốc Reset bắt đầu đi Devil và loại vé (Vé Thường / Vé Master) cho toàn bộ tài khoản."
+        )
+
+        # 7. Gom ngọc (Gem Icon)
         self.btn_stack_jewels = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("bolt", color="#a855f7", size=(13, 13)),
-            compound="left",
-            text=" 💎 Gom Ngọc",
-            width=115,
+            image=UiIconFactory.get("gem", color="#c084fc", size=(16, 16)),
             command=self.stack_all_jewels,
-            **btn_bar_style
+            **icon_btn_style
         )
+        self.btn_stack_jewels.configure(fg_color="#1e1528", border_color="#7e22ce", hover_color="#3b1d54")
         self.btn_stack_jewels.pack(side="left")
         add_tooltip(
             self.btn_stack_jewels,
@@ -4400,30 +4446,39 @@ class DashboardApp(ctk.CTk):
             "Tự động gộp tất cả các viên ngọc lẻ (Bless, Soul, Chaos, Life...) trong thùng đồ của mọi tài khoản thành từng cụm 10/20/30 viên."
         )
 
-
-
-
         self.btn_trim_ram = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("bolt", color="#facc15", size=(13, 13)),
-            compound="left",
-            text=f" {tr('ram_trim_now')}",
-            width=120,
+            image=UiIconFactory.get("bolt", color="#facc15", size=(14, 14)),
             command=self.quick_trim_ram,
-            **btn_bar_style
+            **icon_btn_style
         )
-        # self.btn_trim_ram.pack(side="left", padx=(6, 0)) # Tạm ẩn theo yêu cầu
+        # self.btn_trim_ram.pack(side="left", padx=(6, 0)) # Tạm ẩn
 
         self.btn_quick_autologin = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("key", color="#c084fc", size=(13, 13)),
-            compound="left",
-            text=" 🚀 Auto Login",
-            width=115,
+            image=UiIconFactory.get("key", color="#c084fc", size=(14, 14)),
             command=lambda: self.switch_tab("autologin"),
-            **btn_bar_style
+            **icon_btn_style
         )
-        # self.btn_quick_autologin.pack(side="left", padx=(6, 0)) # Tạm ẩn theo yêu cầu
+        # self.btn_quick_autologin.pack(side="left", padx=(6, 0)) # Tạm ẩn
+
+        # Nhóm bên phải: Nút Master Chạy/Dừng Tất Cả gộp 1 nút thông minh (Toggle)
+        t_right = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
+        t_right.pack(side="right")
+
+        self.btn_master_run = ctk.CTkButton(
+            t_right,
+            image=UiIconFactory.get("play", color="#6ee7b7", size=(16, 16)),
+            command=self.on_master_auto_toggle,
+            **icon_btn_style
+        )
+        self.btn_master_run.configure(fg_color="#064e3b", hover_color="#047857", border_color="#059669")
+        self.btn_master_run.pack(side="right")
+        add_tooltip(
+            self.btn_master_run,
+            "▶ Chạy Tất Cả (Start All)\n"
+            "Tất cả tài khoản đang dừng. Nhấp vào đây để khởi động Auto cho toàn bộ."
+        )
 
         self.build_accounts_view()
         self.build_profiles_view()
@@ -4486,7 +4541,7 @@ class DashboardApp(ctk.CTk):
 
         tip_lbl_text = ctk.CTkLabel(
             tip_banner,
-            text="Quy trình nhanh: 1. [🔗 Kết nối tất cả]  ➔  2. Chọn Cấu hình  ➔  3. Bấm [▶ Chạy]. Rê chuột vào [DS] [RS] [PT] để xem giải thích. Nhấp Chuột Phải vào dòng để mở Menu Thao Tác Nhanh.",
+            text="💡 Hướng dẫn nhanh: 1. [🔗 Kết nối tất cả] (hoặc [👥 Gán toàn bộ]) ➔ 2. Chọn Cấu hình chặng ➔ 3. Bấm [▶ Chạy Tất Cả]. Click [🔥 DS] [🔄 RS] [⭐ PT] để bật/tắt nhanh các tính năng tự động.",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#94a3b8",
             anchor="w"
@@ -4504,7 +4559,7 @@ class DashboardApp(ctk.CTk):
             ("col_route_preset", 220, "w"),
             ("col_coordinates", 145, "center"),
             ("col_status", 125, "center"),
-            ("col_actions", 215, "center")
+            ("col_actions", 260, "center")
         ]
 
         for k, w, anc in col_defs:
@@ -4782,12 +4837,120 @@ class DashboardApp(ctk.CTk):
         for _w in (row_frame, slot_lbl, slot_badge, status_lbl, coords_frame, coords_lbl, pin_icon):
             _w.bind("<Button-3>", lambda e, s=i: _show_slot_ctx(e, s))
 
-        # Cột 6: Actions (Play/Stop | DS | RS | PT | Configure | Slot Logs)
+        # Cột 6: Actions (Play/Stop | [🔥 DS] [🔄 RS] [⭐ PT] | [⚙] [📋])
         actions_box = ctk.CTkFrame(row_frame, fg_color="transparent")
         actions_box.pack(side="left", padx=4)
 
-        act_btn_style = {
-            "width": 30,
+        # 1. Nút Play/Stop chính
+        btn_toggle = ctk.CTkButton(
+            actions_box,
+            text="",
+            image=UiIconFactory.get("play", color="#38bdf8", size=(12, 12)),
+            width=34,
+            height=28,
+            corner_radius=5,
+            fg_color="#181c26",
+            hover_color="#242b3a",
+            border_width=1,
+            border_color="#2b3244",
+            command=lambda s=i: self.on_slot_auto_toggle(s)
+        )
+        btn_toggle.pack(side="left", padx=(2, 4))
+        add_tooltip(
+            btn_toggle,
+            f"[Slot #{i:02d}] ▶ Chạy / ⏹ Dừng Auto\n"
+            "Bắt đầu hoặc tạm dừng chế độ tự động đánh quái và chạy chặng cho tài khoản này."
+        )
+
+        # Vách ngăn phân tách nhóm 1
+        ctk.CTkFrame(actions_box, fg_color="#222736", width=1, height=18).pack(side="left", padx=(1, 4))
+
+        # 2. Nhóm 3 Switch tính năng trực quan: [🔥 DS] [🔄 RS] [⭐ PT]
+        # Nút Devil Square (DS)
+        btn_devil = ctk.CTkButton(
+            actions_box,
+            text="🔥 DS",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            width=42,
+            height=28,
+            corner_radius=5,
+            fg_color="#4c0519" if ctrl.auto_devil else "#141824",
+            text_color="#f43f5e" if ctrl.auto_devil else "#64748b",
+            border_width=1,
+            border_color="#e11d48" if ctrl.auto_devil else "#2b3244",
+            hover_color="#881337" if ctrl.auto_devil else "#1e2433",
+            command=lambda s=i: self.on_toggle_slot_devil(s)
+        )
+        btn_devil.pack(side="left", padx=2)
+        _t_val = getattr(ctrl, "devil_ticket_type", "auto")
+        _t_txt = "Chỉ vé Master" if _t_val == "master" else ("Chỉ vé Thường" if _t_val == "normal" else "Tự động")
+        add_tooltip(
+            btn_devil,
+            f"[Slot #{i:02d}] 🔥 Auto Devil Square (DS)\n"
+            f"• Trạng thái: {'BẬT' if ctrl.auto_devil else 'TẮT'}\n"
+            f"• Điều kiện: Bắt đầu đi khi đạt từ >= {ctrl.devil_min_resets} Reset trở lên\n"
+            f"• Loại vé: {_t_txt}\n"
+            "• Tự động vào DS khi mở cổng (:27 - :30 giờ lẻ)\n"
+            "• Chỉ bỏ Auto Train khi đã vào map DS thành công\n"
+            "• Chưa đủ Reset hoặc không có vé: Tự động tiếp tục cắm bãi train\n"
+            "• Click để Bật/Tắt | Bấm [🔥 Cài đặt Devil] trên thanh công cụ để chỉnh chung\n"
+            "• Click Chuột Phải vào dòng để 'Đi Devil Square ngay lập tức'"
+        )
+
+        # Nút Auto Reset (RS)
+        btn_reset = ctk.CTkButton(
+            actions_box,
+            text="🔄 RS",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            width=42,
+            height=28,
+            corner_radius=5,
+            fg_color="#064e3b" if ctrl.auto_reset else "#141824",
+            text_color="#10b981" if ctrl.auto_reset else "#64748b",
+            border_width=1,
+            border_color="#059669" if ctrl.auto_reset else "#2b3244",
+            hover_color="#047857" if ctrl.auto_reset else "#1e2433",
+            command=lambda s=i: self.on_toggle_slot_reset(s)
+        )
+        btn_reset.pack(side="left", padx=2)
+        add_tooltip(
+            btn_reset,
+            f"[Slot #{i:02d}] 🔄 Auto Reset (RS)\n"
+            f"• Trạng thái: {'BẬT' if ctrl.auto_reset else 'TẮT'}\n"
+            f"• Điều kiện: Tự động gõ lệnh /reset khi nhân vật đạt Level {ctrl.reset_level}\n"
+            "• Click để Bật/Tắt | Bấm [⚙] bên cạnh để thay đổi mốc Level Reset"
+        )
+
+        # Nút Auto Cộng Point (PT)
+        btn_point = ctk.CTkButton(
+            actions_box,
+            text="⭐ PT",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            width=42,
+            height=28,
+            corner_radius=5,
+            fg_color="#075985" if ctrl.auto_add_point else "#141824",
+            text_color="#38bdf8" if ctrl.auto_add_point else "#64748b",
+            border_width=1,
+            border_color="#0284c7" if ctrl.auto_add_point else "#2b3244",
+            hover_color="#0369a1" if ctrl.auto_add_point else "#1e2433",
+            command=lambda s=i: self.on_toggle_slot_point(s)
+        )
+        btn_point.pack(side="left", padx=2)
+        add_tooltip(
+            btn_point,
+            f"[Slot #{i:02d}] ⭐ Auto Cộng Point (PT)\n"
+            f"• Trạng thái: {'BẬT' if ctrl.auto_add_point else 'TẮT'}\n"
+            "• Lưu ý: 'PT' là POINT (Điểm tiềm năng), KHÔNG phải Party!\n"
+            "• Tự động phân bổ điểm tiềm năng theo tỷ lệ cấu hình.\n"
+            "• Click để Bật/Tắt | Bấm [⚙] bên cạnh để cài đặt tỷ lệ cộng"
+        )
+
+        # Vách ngăn phân tách nhóm 2
+        ctk.CTkFrame(actions_box, fg_color="#222736", width=1, height=18).pack(side="left", padx=(4, 2))
+
+        act_tool_style = {
+            "width": 28,
             "height": 28,
             "corner_radius": 5,
             "fg_color": "#181c26",
@@ -4796,100 +4959,12 @@ class DashboardApp(ctk.CTk):
             "border_color": "#2b3244"
         }
 
-        btn_toggle = ctk.CTkButton(
-            actions_box,
-            text="",
-            image=UiIconFactory.get("play", color="#38bdf8", size=(11, 11)),
-            command=lambda s=i: self.on_slot_auto_toggle(s),
-            **act_btn_style
-        )
-        btn_toggle.pack(side="left", padx=2)
-        add_tooltip(
-            btn_toggle,
-            f"[Slot #{i:02d}] ▶ Chạy / ⏹ Dừng Auto\n"
-            "Bắt đầu hoặc tạm dừng chế độ tự động đánh quái và chạy chặng cho tài khoản này."
-        )
-
-        # Nút Devil Square (DS)
-        btn_devil = ctk.CTkButton(
-            actions_box,
-            text="DS",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=30,
-            height=28,
-            corner_radius=5,
-            fg_color="#4c0519" if ctrl.auto_devil else "#181c26",
-            text_color="#f43f5e" if ctrl.auto_devil else "#64748b",
-            border_width=1,
-            border_color="#e11d48" if ctrl.auto_devil else "#2b3244",
-            hover_color="#881337" if ctrl.auto_devil else "#242b3a",
-            command=lambda s=i: self.on_toggle_slot_devil(s)
-        )
-        btn_devil.pack(side="left", padx=2)
-        add_tooltip(
-            btn_devil,
-            f"[Slot #{i:02d}] 😈 Auto Devil Square (DS)\n"
-            "Tự động chạy tới NPC Charon và vào sự kiện Devil Square khi đến giờ mở cửa.\n"
-            "• Click để Bật/Tắt\n"
-            "• Bấm [⚙] để chỉnh mốc Reset cho phép đi DS\n"
-            "• Click Chuột Phải vào dòng để 'Đi Devil Square ngay lập tức'"
-        )
-
-        # Nút Auto Reset (RS)
-        btn_reset = ctk.CTkButton(
-            actions_box,
-            text="RS",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=30,
-            height=28,
-            corner_radius=5,
-            fg_color="#064e3b" if ctrl.auto_reset else "#181c26",
-            text_color="#10b981" if ctrl.auto_reset else "#64748b",
-            border_width=1,
-            border_color="#059669" if ctrl.auto_reset else "#2b3244",
-            hover_color="#047857" if ctrl.auto_reset else "#242b3a",
-            command=lambda s=i: self.on_toggle_slot_reset(s)
-        )
-        btn_reset.pack(side="left", padx=2)
-        add_tooltip(
-            btn_reset,
-            f"[Slot #{i:02d}] 🔄 Auto Reset (RS)\n"
-            f"Tự động gõ lệnh /reset khi nhân vật đạt đủ Level (hiện tại: LV {ctrl.reset_level}).\n"
-            "• Click để Bật/Tắt\n"
-            "• Bấm [⚙] bên cạnh để thay đổi mốc Level Reset"
-        )
-
-        # Nút Auto Cộng Point (PT)
-        btn_point = ctk.CTkButton(
-            actions_box,
-            text="PT",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=30,
-            height=28,
-            corner_radius=5,
-            fg_color="#075985" if ctrl.auto_add_point else "#181c26",
-            text_color="#38bdf8" if ctrl.auto_add_point else "#64748b",
-            border_width=1,
-            border_color="#0284c7" if ctrl.auto_add_point else "#2b3244",
-            hover_color="#0369a1" if ctrl.auto_add_point else "#242b3a",
-            command=lambda s=i: self.on_toggle_slot_point(s)
-        )
-        btn_point.pack(side="left", padx=2)
-        add_tooltip(
-            btn_point,
-            f"[Slot #{i:02d}] ⭐ Auto Cộng Point (PT)\n"
-            "⚠️ Lưu ý: 'PT' là POINT (Điểm tiềm năng), KHÔNG phải Party!\n"
-            "Tự động phân bổ điểm tiềm năng theo tỷ lệ cấu hình.\n"
-            "• Click để Bật/Tắt\n"
-            "• Bấm [⚙] bên cạnh để cài đặt tỷ lệ cộng (Str, Agi, Vit, Ene, Cmd)"
-        )
-
         btn_cfg = ctk.CTkButton(
             actions_box,
             text="",
             image=UiIconFactory.get("gear", color="#94a3b8", size=(13, 13)),
-            command=lambda s=i: self.jump_to_config_tab(s),
-            **act_btn_style
+            command=lambda s=i: self.open_slot_stat_ratio_dialog(s),
+            **act_tool_style
         )
         btn_cfg.pack(side="left", padx=2)
         add_tooltip(
@@ -4903,7 +4978,7 @@ class DashboardApp(ctk.CTk):
             text="",
             image=UiIconFactory.get("file", color="#94a3b8", size=(13, 13)),
             command=lambda s=i: self.jump_to_slot_logs(s),
-            **act_btn_style
+            **act_tool_style
         )
         btn_log.pack(side="left", padx=2)
         add_tooltip(
@@ -10376,6 +10451,7 @@ class DashboardApp(ctk.CTk):
             auto_devil=ctrl.auto_devil,
             devil_min_resets=ctrl.devil_min_resets,
             devil_max_resets=ctrl.devil_max_resets,
+            devil_ticket_type=getattr(ctrl, "devil_ticket_type", "auto"),
             auto_reset=ctrl.auto_reset,
             auto_add_point=ctrl.auto_add_point,
             reset_level=ctrl.reset_level,
@@ -10609,7 +10685,8 @@ class DashboardApp(ctk.CTk):
                 except Exception:
                     pass
 
-            res = eng.enter_devil()
+            t_pref = getattr(ctrl, "devil_ticket_type", "auto")
+            res = eng.enter_devil(ticket_preference=t_pref)
             ds_lvl = "?"
             if isinstance(res, dict):
                 ds_lvl = res.get("ds_level") or res.get("dsLevel") or "?"
@@ -10706,6 +10783,230 @@ class DashboardApp(ctk.CTk):
         else:
             self.log_message(f"[Slot {slot_idx:02d}] Gửi lệnh /reset thất bại: {err_msg}", "WARNING")
 
+    def open_devil_global_config_dialog(self):
+        """Mở cửa sổ cấu hình tập trung cho tính năng Auto Devil Square (DS)."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Cài Đặt Tự Động Đi Devil Square (DS)")
+        dlg.geometry("520x470")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        # Tiêu đề
+        header_frame = ctk.CTkFrame(dlg, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
+        header_frame.pack(fill="x", padx=16, pady=(16, 10))
+
+        title_lbl = ctk.CTkLabel(
+            header_frame,
+            text="🔥 CẤU HÌNH TỰ ĐỘNG THAM GIA DEVIL SQUARE (DS)",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#f43f5e"
+        )
+        title_lbl.pack(anchor="w", padx=14, pady=(10, 4))
+
+        sub_lbl = ctk.CTkLabel(
+            header_frame,
+            text="Thiết lập số Reset bắt đầu đi Devil và loại vé. Áp dụng ngay cho toàn bộ tài khoản.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8"
+        )
+        sub_lbl.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Thân hộp thoại
+        body = ctk.CTkFrame(dlg, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+
+        # 1. Bật / Tắt chung
+        var_enable_all = ctk.BooleanVar(value=any(getattr(c, "auto_devil", False) for c in self.controllers))
+        chk_enable = ctk.CTkCheckBox(
+            body,
+            text="Kích hoạt Tự Động Đi Devil Square cho toàn bộ tài khoản",
+            variable=var_enable_all,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f1f5f9",
+            fg_color="#e11d48",
+            hover_color="#be123c"
+        )
+        chk_enable.pack(anchor="w", padx=16, pady=(14, 10))
+
+        # 2. Điều kiện Reset: "Bao nhiêu Reset thì mới bắt đầu đi Devil?"
+        rs_frame = ctk.CTkFrame(body, fg_color="#0e1117", corner_radius=6, border_width=1, border_color="#1e2433")
+        rs_frame.pack(fill="x", padx=16, pady=(0, 10))
+
+        rs_label_title = ctk.CTkLabel(
+            rs_frame,
+            text="🎯 ĐIỀU KIỆN SỐ RESET ĐỂ BẮT ĐẦU ĐI DEVIL:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8"
+        )
+        rs_label_title.pack(anchor="w", padx=12, pady=(8, 4))
+
+        rs_input_row = ctk.CTkFrame(rs_frame, fg_color="transparent")
+        rs_input_row.pack(fill="x", padx=12, pady=(0, 4))
+
+        ctk.CTkLabel(
+            rs_input_row,
+            text="Bắt đầu đi Devil khi đạt từ:",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#cbd5e1"
+        ).pack(side="left")
+
+        first_min_rs = getattr(self.controllers[0], "devil_min_resets", 0) if self.controllers else 0
+        ent_min_rs = ctk.CTkEntry(
+            rs_input_row,
+            width=65,
+            height=28,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            justify="center"
+        )
+        ent_min_rs.pack(side="left", padx=(8, 6))
+        ent_min_rs.insert(0, str(first_min_rs))
+
+        ctk.CTkLabel(
+            rs_input_row,
+            text="Reset trở lên",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#facc15"
+        ).pack(side="left")
+
+        rs_note = ctk.CTkLabel(
+            rs_frame,
+            text="💡 Dưới số Reset này: Nhân vật sẽ KHÔNG đi Devil mà chỉ cắm bãi Auto Train.\n"
+                 "   Khi đạt từ số Reset này trở lên: Mới tự động tham gia Devil khi mở cổng.",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#94a3b8",
+            justify="left"
+        )
+        rs_note.pack(anchor="w", padx=12, pady=(0, 8))
+
+        # 3. Lựa chọn loại vé
+        ticket_frame = ctk.CTkFrame(body, fg_color="#0e1117", corner_radius=6, border_width=1, border_color="#1e2433")
+        ticket_frame.pack(fill="x", padx=16, pady=(0, 10))
+
+        ctk.CTkLabel(
+            ticket_frame,
+            text="🎫 LOẠI VÉ SỬ DỤNG:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8"
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
+        ticket_row = ctk.CTkFrame(ticket_frame, fg_color="transparent")
+        ticket_row.pack(fill="x", padx=12, pady=(0, 8))
+
+        t_opts = [
+            "🎫 Tự động (Ưu tiên Vé Master)",
+            "🎫 Chỉ đi Vé Thường (DS 1 - 7)",
+            "🎫 Chỉ đi Vé Master (Master DS)"
+        ]
+        curr_t = getattr(self.controllers[0], "devil_ticket_type", "auto") if self.controllers else "auto"
+        sel_t = t_opts[0]
+        if curr_t == "master":
+            sel_t = t_opts[2]
+        elif curr_t == "normal":
+            sel_t = t_opts[1]
+
+        cbo_ticket = ctk.CTkOptionMenu(
+            ticket_row,
+            values=t_opts,
+            width=260,
+            height=28,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#1e293b",
+            button_color="#334155"
+        )
+        cbo_ticket.set(sel_t)
+        cbo_ticket.pack(side="left")
+
+        # 4. Thông tin lịch trình & Nguyên tắc an toàn
+        info_frame = ctk.CTkFrame(body, fg_color="#080c14", corner_radius=6, border_width=1, border_color="#1a202c")
+        info_frame.pack(fill="x", padx=16, pady=(0, 8))
+
+        info_lbl = ctk.CTkLabel(
+            info_frame,
+            text="⏰ Lịch mở cổng MEGAMU: 2 tiếng/lần vào giờ lẻ (:27 - :30) • 12 đợt/ngày.\n"
+                 "🛡️ Nguyên tắc an toàn: Chỉ ngưng train khi ĐÃ VÀO MAP DEVIL thành công.\n"
+                 "   Nếu chưa đủ Reset, không có vé hoặc không vào được: tiếp tục cắm bãi train.",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#94a3b8",
+            justify="left"
+        )
+        info_lbl.pack(anchor="w", padx=10, pady=6)
+
+        # Nút Lưu
+        btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
+        btn_box.pack(fill="x", padx=16, pady=(0, 14))
+
+        def _save_devil_global():
+            try:
+                en = var_enable_all.get()
+                m_rs = int(ent_min_rs.get().strip() or 0)
+                t_str = cbo_ticket.get()
+                t_pref = "master" if ("Master" in t_str and "Chỉ" in t_str) else ("normal" if ("Thường" in t_str and "Chỉ" in t_str) else "auto")
+
+                for c in self.controllers:
+                    c.auto_devil = en
+                    c.devil_min_resets = m_rs
+                    c.devil_max_resets = 9999
+                    c.devil_ticket_type = t_pref
+                    ConfigPersistenceManager.save_event_config(
+                        slot_idx=c.slot_idx,
+                        auto_devil=en,
+                        devil_min_resets=m_rs,
+                        devil_max_resets=9999,
+                        devil_ticket_type=t_pref,
+                        auto_reset=c.auto_reset,
+                        auto_add_point=c.auto_add_point,
+                        reset_level=c.reset_level,
+                        stat_mode=c.stat_mode,
+                        custom_class=c.custom_class,
+                        stat_ratio=c.stat_ratio
+                    )
+                    if c.worker and c.worker.running and hasattr(c.worker, 'update_config'):
+                        c.worker.update_config({
+                            "auto_devil": en,
+                            "devil_min_resets": m_rs,
+                            "devil_max_resets": 9999,
+                            "devil_ticket_type": t_pref
+                        })
+                    el = self.slot_ui_elements.get(c.slot_idx)
+                    if el and el.get("btn_devil"):
+                        if en:
+                            el["btn_devil"].configure(fg_color="#4c0519", text_color="#f43f5e", border_color="#e11d48", hover_color="#881337")
+                        else:
+                            el["btn_devil"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
+
+                st = "BẬT" if en else "TẮT"
+                t_lbl = "Vé Master" if t_pref == "master" else ("Vé Thường" if t_pref == "normal" else "Tự động")
+                self.log_message(f"🔥 Đã cập nhật Auto Devil: [{st}] | Bắt đầu đi từ: >= {m_rs} Reset | Loại vé: {t_lbl} cho toàn bộ tài khoản!", "SUCCESS")
+                from tkinter import messagebox
+                messagebox.showinfo("Thành Công", f"Đã lưu cấu hình Devil Square cho toàn bộ tài khoản:\n• Trạng thái: {st}\n• Bắt đầu đi từ: >= {m_rs} Reset\n• Loại vé: {t_lbl}", parent=dlg)
+                dlg.destroy()
+            except Exception as ex:
+                from tkinter import messagebox
+                messagebox.showerror("Lỗi", f"Không thể lưu cấu hình: {ex}", parent=dlg)
+
+        btn_save = ctk.CTkButton(
+            btn_box,
+            text="💾 Áp Dụng Cho Tất Cả Tài Khoản",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            height=34,
+            fg_color="#e11d48",
+            hover_color="#be123c",
+            command=_save_devil_global
+        )
+        btn_save.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        btn_cancel = ctk.CTkButton(
+            btn_box,
+            text="Đóng",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            height=34,
+            width=90,
+            fg_color="#27272a",
+            hover_color="#3f3f46",
+            command=dlg.destroy
+        )
+        btn_cancel.pack(side="right")
+
     def open_slot_stat_ratio_dialog(self, slot_idx: int):
         """Mở cửa sổ cấu hình Tự Động Đi Devil Square, Tự Động Reset & Chỉ số Point theo từng Class."""
         ctrl = self.controllers[slot_idx - 1]
@@ -10784,7 +11085,7 @@ class DashboardApp(ctk.CTk):
 
         ds_sub = ctk.CTkLabel(
             ds_card,
-            text="Tự động warp sang Event Square & vào cửa DS không cần click NPC khi mở cổng (:25 - :30 giờ lẻ).",
+            text="Tự động warp sang Event Square & vào cửa DS khi mở cổng (:27 - :30 giờ lẻ).",
             font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color="#94a3b8",
             wraplength=460,
@@ -10802,22 +11103,123 @@ class DashboardApp(ctk.CTk):
             fg_color="#e11d48",
             hover_color="#be123c"
         )
-        chk_ds.pack(anchor="w", padx=12, pady=(0, 6))
+        chk_ds.pack(anchor="w", padx=12, pady=(0, 8))
 
+        # Hàng điều kiện Reset bắt đầu đi Devil (CHỈ THEO RESET, KHÔNG THEO LEVEL)
         row_ds_rs = ctk.CTkFrame(ds_card, fg_color="transparent")
-        row_ds_rs.pack(fill="x", padx=12, pady=(0, 10))
+        row_ds_rs.pack(fill="x", padx=12, pady=(0, 6))
 
-        ctk.CTkLabel(row_ds_rs, text="Áp dụng khi Reset từ:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left")
-        ent_ds_min_rs = ctk.CTkEntry(row_ds_rs, width=50, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
-        ent_ds_min_rs.pack(side="left", padx=(6, 4))
+        ctk.CTkLabel(row_ds_rs, text="Bắt đầu đi Devil khi đạt từ:", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left")
+        ent_ds_min_rs = ctk.CTkEntry(row_ds_rs, width=65, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), justify="center")
+        ent_ds_min_rs.pack(side="left", padx=(8, 6))
         ent_ds_min_rs.insert(0, str(getattr(ctrl, "devil_min_resets", 0)))
 
-        ctk.CTkLabel(row_ds_rs, text="đến", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left", padx=4)
-        ent_ds_max_rs = ctk.CTkEntry(row_ds_rs, width=55, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
-        ent_ds_max_rs.pack(side="left", padx=4)
-        ent_ds_max_rs.insert(0, str(getattr(ctrl, "devil_max_resets", 9999)))
+        ctk.CTkLabel(row_ds_rs, text="Reset trở lên", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#facc15").pack(side="left")
 
-        ctk.CTkLabel(row_ds_rs, text="Reset (0 - 9999 = Mọi mốc)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#64748b").pack(side="left", padx=6)
+        # Ẩn entry max reset (mặc định 9999)
+        ent_ds_max_rs = ctk.CTkEntry(row_ds_rs, width=1, height=1)
+        ent_ds_max_rs.insert(0, "9999")
+
+        # Hàng lựa chọn loại vé
+        row_ds_ticket = ctk.CTkFrame(ds_card, fg_color="transparent")
+        row_ds_ticket.pack(fill="x", padx=12, pady=(0, 8))
+
+        ctk.CTkLabel(row_ds_ticket, text="Loại vé sử dụng:", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left")
+        ticket_options = [
+            "🎫 Tự động (Ưu tiên Vé Master)",
+            "🎫 Chỉ đi Vé Thường (DS 1 - 7)",
+            "🎫 Chỉ đi Vé Master (Master DS)"
+        ]
+        curr_t_val = getattr(ctrl, "devil_ticket_type", "auto")
+        init_t_choice = ticket_options[0]
+        if curr_t_val == "master":
+            init_t_choice = ticket_options[2]
+        elif curr_t_val == "normal":
+            init_t_choice = ticket_options[1]
+
+        cbo_ds_ticket = ctk.CTkOptionMenu(
+            row_ds_ticket,
+            values=ticket_options,
+            width=245,
+            height=26,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#1e293b",
+            button_color="#334155"
+        )
+        cbo_ds_ticket.set(init_t_choice)
+        cbo_ds_ticket.pack(side="left", padx=(8, 0))
+
+        # Khung lưu ý nguyên tắc an toàn Auto Train
+        ds_notice_frame = ctk.CTkFrame(ds_card, fg_color="#0b1120", corner_radius=6, border_width=1, border_color="#1e293b")
+        ds_notice_frame.pack(fill="x", padx=12, pady=(0, 8))
+        ds_notice_lbl = ctk.CTkLabel(
+            ds_notice_frame,
+            text="⏰ Lịch mở cổng MEGAMU: 2 tiếng/lần vào giờ lẻ (:27 - :30) • 12 đợt/ngày.\n"
+                 "🛡️ Nguyên tắc an toàn: Chỉ ngưng cày quái khi ĐÃ VÀO MAP DEVIL thành công.\n"
+                 "   Nếu chưa đủ Reset, không có vé hoặc không vào được: tiếp tục cắm bãi train.",
+            font=ctk.CTkFont(family="Segoe UI", size=9),
+            text_color="#94a3b8",
+            justify="left"
+        )
+        ds_notice_lbl.pack(anchor="w", padx=8, pady=6)
+
+        # Nút áp dụng nhanh cấu hình Devil cho toàn bộ các Slot
+        def _apply_devil_to_all_slots():
+            try:
+                new_ds_val = var_ds.get()
+                m_rs = int(ent_ds_min_rs.get().strip() or 0)
+                M_rs = int(ent_ds_max_rs.get().strip() or 9999)
+                t_choice = cbo_ds_ticket.get()
+                t_pref = "master" if ("Master" in t_choice and "Chỉ" in t_choice) else ("normal" if ("Thường" in t_choice and "Chỉ" in t_choice) else "auto")
+                for c in self.controllers:
+                    c.auto_devil = new_ds_val
+                    c.devil_min_resets = m_rs
+                    c.devil_max_resets = M_rs
+                    c.devil_ticket_type = t_pref
+                    ConfigPersistenceManager.save_event_config(
+                        slot_idx=c.slot_idx,
+                        auto_devil=new_ds_val,
+                        devil_min_resets=m_rs,
+                        devil_max_resets=M_rs,
+                        devil_ticket_type=t_pref,
+                        auto_reset=c.auto_reset,
+                        auto_add_point=c.auto_add_point,
+                        reset_level=c.reset_level,
+                        stat_mode=c.stat_mode,
+                        custom_class=c.custom_class,
+                        stat_ratio=c.stat_ratio
+                    )
+                    if c.worker and c.worker.running and hasattr(c.worker, 'update_config'):
+                        c.worker.update_config({
+                            "auto_devil": new_ds_val,
+                            "devil_min_resets": m_rs,
+                            "devil_max_resets": M_rs,
+                            "devil_ticket_type": t_pref
+                        })
+                    el = self.slot_ui_elements.get(c.slot_idx)
+                    if el and el.get("btn_devil"):
+                        if new_ds_val:
+                            el["btn_devil"].configure(fg_color="#4c0519", text_color="#f43f5e", border_color="#e11d48", hover_color="#881337")
+                        else:
+                            el["btn_devil"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
+                st = "BẬT" if new_ds_val else "TẮT"
+                t_label = "Vé Master" if t_pref == "master" else ("Vé Thường" if t_pref == "normal" else "Tự động")
+                self.log_message(f"👥 Đã áp dụng Cấu hình Devil Square [{st} | RS: {m_rs}-{M_rs} | {t_label}] cho toàn bộ {len(self.controllers)} slot!", "SUCCESS")
+                messagebox.showinfo("Thành Công", f"Đã áp dụng cấu hình Devil Square cho tất cả {len(self.controllers)} slot:\n• Trạng thái: {st}\n• Mốc Reset: {m_rs} - {M_rs}\n• Loại vé: {t_label}", parent=dlg)
+            except Exception as e_all:
+                messagebox.showerror("Lỗi", f"Không thể áp dụng cho tất cả slot: {e_all}", parent=dlg)
+
+        btn_apply_devil_all = ctk.CTkButton(
+            ds_card,
+            text="👥 Áp dụng cấu hình Devil này cho TẤT CẢ các slot",
+            height=26,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            fg_color="#4c0519",
+            hover_color="#881337",
+            text_color="#f43f5e",
+            command=_apply_devil_to_all_slots
+        )
+        btn_apply_devil_all.pack(fill="x", padx=12, pady=(0, 10))
 
         # 2. Reset Section
         rs_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
@@ -11131,8 +11533,11 @@ class DashboardApp(ctk.CTk):
 
                 d_min_rs = int(ent_ds_min_rs.get().strip() or 0)
                 d_max_rs = int(ent_ds_max_rs.get().strip() or 9999)
+                t_ch = cbo_ds_ticket.get()
+                d_pref = "master" if ("Master" in t_ch and "Chỉ" in t_ch) else ("normal" if ("Thường" in t_ch and "Chỉ" in t_ch) else "auto")
                 ctrl.devil_min_resets = d_min_rs
                 ctrl.devil_max_resets = d_max_rs
+                ctrl.devil_ticket_type = d_pref
                 ctrl.auto_devil = new_ds
                 ctrl.auto_reset = new_rs
                 ctrl.auto_add_point = new_stat
@@ -11146,6 +11551,7 @@ class DashboardApp(ctk.CTk):
                     auto_devil=new_ds,
                     devil_min_resets=d_min_rs,
                     devil_max_resets=d_max_rs,
+                    devil_ticket_type=d_pref,
                     auto_reset=new_rs,
                     auto_add_point=new_stat,
                     reset_level=new_rs_lvl,
@@ -11159,6 +11565,7 @@ class DashboardApp(ctk.CTk):
                         "auto_devil": new_ds,
                         "devil_min_resets": d_min_rs,
                         "devil_max_resets": d_max_rs,
+                        "devil_ticket_type": d_pref,
                         "auto_reset": new_rs,
                         "auto_add_point": new_stat,
                         "reset_level": new_rs_lvl,
@@ -11247,11 +11654,11 @@ class DashboardApp(ctk.CTk):
                 btn = el["btn_toggle"]
                 if is_on:
                     btn.configure(
-                        image=UiIconFactory.get("stop", color="#ffffff", size=(11, 11)),
+                        image=UiIconFactory.get("stop", color="#ffffff", size=(12, 12)),
                         text="",
-                        fg_color="#2563eb",
-                        hover_color="#1d4ed8",
-                        border_color="#3b82f6"
+                        fg_color="#dc2626",
+                        hover_color="#b91c1c",
+                        border_color="#ef4444"
                     )
                 else:
                     btn.configure(
@@ -11263,8 +11670,10 @@ class DashboardApp(ctk.CTk):
                     )
         try:
             self.after(0, _apply)
+            self.after(0, self.update_master_run_button)
         except Exception:
             _apply()
+            self.update_master_run_button()
 
     def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str, points: Optional[int] = None, class_code: Optional[str] = None):
         def _apply():
@@ -11501,6 +11910,54 @@ class DashboardApp(ctk.CTk):
         else:
             self.log_message("Kết nối tất cả: Không tìm thấy tài khoản MEGAMU nào để kết nối.", "WARNING")
 
+    def on_master_auto_toggle(self):
+        """Bật hoặc Dừng toàn bộ tài khoản tùy theo trạng thái hoạt động hiện tại (1 nút thông minh)."""
+        any_running = any(c.worker and c.worker.running for c in self.controllers) or any(c.auto_requested for c in self.controllers)
+        if any_running:
+            self.stop_all()
+        else:
+            self.start_all()
+
+    def update_master_run_button(self):
+        """Cập nhật icon, màu sắc và tooltip của nút master Chạy/Dừng Tất Cả theo thời gian thực."""
+        if not hasattr(self, "btn_master_run") or self.btn_master_run is None:
+            return
+        def _apply():
+            try:
+                any_running = any(c.worker and c.worker.running for c in self.controllers) or any(c.auto_requested for c in self.controllers)
+                if any_running:
+                    # Đang có ít nhất 1 tài khoản chạy -> Hiển thị icon Dừng (Màu đỏ nổi bật)
+                    self.btn_master_run.configure(
+                        image=UiIconFactory.get("stop", color="#ffffff", size=(16, 16)),
+                        fg_color="#dc2626",
+                        hover_color="#b91c1c",
+                        border_color="#ef4444"
+                    )
+                    add_tooltip(
+                        self.btn_master_run,
+                        "⏹ Dừng Tất Cả (Stop All)\n"
+                        "Hiện có tài khoản đang chạy Auto. Nhấp vào đây để tạm dừng toàn bộ."
+                    )
+                else:
+                    # Tất cả đều đang dừng -> Hiển thị icon Chạy (Màu xanh lục nổi bật)
+                    self.btn_master_run.configure(
+                        image=UiIconFactory.get("play", color="#6ee7b7", size=(16, 16)),
+                        fg_color="#064e3b",
+                        hover_color="#047857",
+                        border_color="#059669"
+                    )
+                    add_tooltip(
+                        self.btn_master_run,
+                        "▶ Chạy Tất Cả (Start All)\n"
+                        "Tất cả tài khoản đang dừng. Nhấp vào đây để khởi động Auto cho toàn bộ."
+                    )
+            except Exception:
+                pass
+        try:
+            self.after(0, _apply)
+        except Exception:
+            _apply()
+
     def start_all(self):
         """Bật Auto cho tất cả các slot có game."""
         if getattr(self, "is_update_mandatory", False):
@@ -11604,17 +12061,17 @@ class DashboardApp(ctk.CTk):
         if hasattr(self, "btn_text_cfg"):
             self.btn_text_cfg.configure(text=tr("text_config"))
 
-        # 2. Action Toolbar buttons
+        # 2. Action Toolbar buttons (Duy trì icon-only, cập nhật tooltip đa ngôn ngữ)
         if hasattr(self, "btn_connect_all"):
-            self.btn_connect_all.configure(text=f" {tr('connect_all')}")
+            add_tooltip(self.btn_connect_all, f"🔗 {tr('connect_all')}\nTự động quét và kết nối tất cả các cửa sổ MEGAMU đang mở.")
         if hasattr(self, "btn_team5"):
-            self.btn_team5.configure(text=f" {tr('assign_team5')}")
+            add_tooltip(self.btn_team5, f"👥 {tr('assign_team5')}\nTự động quét và gán toàn bộ các cửa sổ game MEGAMU vào các slot trống.")
         if hasattr(self, "btn_refresh"):
-            self.btn_refresh.configure(text=f" {tr('refresh_games')}")
+            add_tooltip(self.btn_refresh, f"🔄 {tr('refresh_games')}\nQuét lại toàn bộ danh sách tiến trình MEGAMU.exe trên hệ thống.")
         if hasattr(self, "btn_add_slot"):
-            self.btn_add_slot.configure(text=f" {tr('add')}")
+            add_tooltip(self.btn_add_slot, f"➕ {tr('add')} Slot\nThêm một hàng quản lý tài khoản mới vào bảng.")
         if hasattr(self, "btn_remove_slot"):
-            self.btn_remove_slot.configure(text=f" {tr('remove')}")
+            add_tooltip(self.btn_remove_slot, f"➖ {tr('remove')} Slot\nXóa bớt một hàng quản lý tài khoản ở cuối bảng.")
         if hasattr(self, "btn_trim_ram"):
             self.btn_trim_ram.configure(text=f" {tr('ram_trim_now')}")
         if hasattr(self, "btn_ram_optimize_all"):
@@ -11782,6 +12239,9 @@ class DashboardApp(ctk.CTk):
         if hasattr(self, "tab_accounts_btn"):
             self.tab_accounts_btn.configure(text=f" {tr('characters')} ({num_slots})")
 
+        # Đồng bộ trạng thái nút master Chạy / Dừng Tất Cả
+        self.update_master_run_button()
+
         # Cập nhật trạng thái khóa/mở khóa các chức năng theo bản quyền & cập nhật
         self.apply_license_lock_state()
 
@@ -11793,7 +12253,7 @@ class DashboardApp(ctk.CTk):
                 if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
                     ctrl.stop_auto(reason="Phát hiện bản cập nhật mới bắt buộc từ máy chủ", trigger_by="SYSTEM")
 
-            for btn_name in ("btn_connect_all", "btn_team5", "btn_refresh", "btn_add_slot", "btn_remove_slot", "btn_save_cfg", "btn_reload_cfg"):
+            for btn_name in ("btn_connect_all", "btn_team5", "btn_refresh", "btn_add_slot", "btn_remove_slot", "btn_master_run", "btn_save_cfg", "btn_reload_cfg"):
                 if hasattr(self, btn_name):
                     try:
                         getattr(self, btn_name).configure(state="disabled")
@@ -11880,7 +12340,7 @@ class DashboardApp(ctk.CTk):
                     ctrl.stop_auto(reason=f"Hệ thống khóa: {lic_msg}", trigger_by="SYSTEM")
 
         # 1. Khóa/mở khóa các nút thanh công cụ chính
-        for btn_name in ("btn_connect_all", "btn_team5", "btn_refresh", "btn_add_slot", "btn_remove_slot"):
+        for btn_name in ("btn_connect_all", "btn_team5", "btn_refresh", "btn_add_slot", "btn_remove_slot", "btn_master_run"):
             if hasattr(self, btn_name):
                 try:
                     getattr(self, btn_name).configure(state=state_val)

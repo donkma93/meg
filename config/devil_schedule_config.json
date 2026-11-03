@@ -1,0 +1,23 @@
+{
+  "schedule": {
+    "auto_schedule": true,
+    "gate_open_minute": 27,
+    "gate_close_minute": 30,
+    "prep_seconds_before": 30,
+    "active_hours": [
+      1,
+      3,
+      5,
+      7,
+      9,
+      11,
+      13,
+      15,
+      17,
+      19,
+      21,
+      23
+    ]
+  }
+}
+

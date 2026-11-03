@@ -4,6 +4,7 @@
       "auto_devil": false,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
       "auto_reset": false,
       "auto_add_point": false,
       "reset_level": 400,
@@ -14,6 +15,150 @@
         "agi": 0.4,
         "vit": 0.1,
         "ene": 0.0,
+        "cmd": 0.0
+      }
+    },
+    "2": {
+      "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
+      "auto_reset": false,
+      "auto_add_point": false,
+      "reset_level": 400,
+      "stat_mode": "auto_class",
+      "custom_class": "",
+      "stat_ratio": {
+        "str": 0.4,
+        "agi": 0.4,
+        "vit": 0.1,
+        "ene": 0.1,
+        "cmd": 0.0
+      }
+    },
+    "3": {
+      "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
+      "auto_reset": false,
+      "auto_add_point": false,
+      "reset_level": 400,
+      "stat_mode": "auto_class",
+      "custom_class": "",
+      "stat_ratio": {
+        "str": 0.4,
+        "agi": 0.4,
+        "vit": 0.1,
+        "ene": 0.1,
+        "cmd": 0.0
+      }
+    },
+    "4": {
+      "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
+      "auto_reset": false,
+      "auto_add_point": false,
+      "reset_level": 400,
+      "stat_mode": "auto_class",
+      "custom_class": "",
+      "stat_ratio": {
+        "str": 0.4,
+        "agi": 0.4,
+        "vit": 0.1,
+        "ene": 0.1,
+        "cmd": 0.0
+      }
+    },
+    "5": {
+      "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
+      "auto_reset": false,
+      "auto_add_point": false,
+      "reset_level": 400,
+      "stat_mode": "auto_class",
+      "custom_class": "",
+      "stat_ratio": {
+        "str": 0.4,
+        "agi": 0.4,
+        "vit": 0.1,
+        "ene": 0.1,
+        "cmd": 0.0
+      }
+    },
+    "6": {
+      "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
+      "auto_reset": false,
+      "auto_add_point": false,
+      "reset_level": 400,
+      "stat_mode": "auto_class",
+      "custom_class": "",
+      "stat_ratio": {
+        "str": 0.4,
+        "agi": 0.4,
+        "vit": 0.1,
+        "ene": 0.1,
+        "cmd": 0.0
+      }
+    },
+    "7": {
+      "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
+      "auto_reset": false,
+      "auto_add_point": false,
+      "reset_level": 400,
+      "stat_mode": "auto_class",
+      "custom_class": "",
+      "stat_ratio": {
+        "str": 0.4,
+        "agi": 0.4,
+        "vit": 0.1,
+        "ene": 0.1,
+        "cmd": 0.0
+      }
+    },
+    "8": {
+      "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
+      "auto_reset": false,
+      "auto_add_point": false,
+      "reset_level": 400,
+      "stat_mode": "auto_class",
+      "custom_class": "",
+      "stat_ratio": {
+        "str": 0.4,
+        "agi": 0.4,
+        "vit": 0.1,
+        "ene": 0.1,
+        "cmd": 0.0
+      }
+    },
+    "9": {
+      "auto_devil": false,
+      "devil_min_resets": 0,
+      "devil_max_resets": 9999,
+      "devil_ticket_type": "auto",
+      "auto_reset": false,
+      "auto_add_point": false,
+      "reset_level": 400,
+      "stat_mode": "auto_class",
+      "custom_class": "",
+      "stat_ratio": {
+        "str": 0.4,
+        "agi": 0.4,
+        "vit": 0.1,
+        "ene": 0.1,
         "cmd": 0.0
       }
     }

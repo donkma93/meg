@@ -38,7 +38,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.5"
+    return "v1.5.6"
 
 def get_github_token() -> str:
     p = subprocess.Popen(
@@ -137,7 +137,7 @@ def create_release_zip(release_dir: Path, zip_dest: Path):
                 f_path = Path(root) / f
                 name_lower = f.lower()
                 # Bao mat: khong bao gio dong goi license ca nhan, tai khoan, offsets
-                if name_lower in ("license.json", "megamu_offsets.json", "megamu_accounts.json") or name_lower.endswith(".log"):
+                if name_lower.endswith(".old") or name_lower in ("license.json", "megamu_offsets.json", "megamu_accounts.json") or name_lower.endswith(".log"):
                     continue
                 rel_path = f_path.relative_to(release_dir)
                 zf.write(str(f_path), str(rel_path))
@@ -154,27 +154,21 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Tính năng mới trong bản {version}:
-- **Nâng cấp tính năng '👥 Gán toàn bộ' (Linh hoạt mọi số lượng game):**
-  - Chuyển đổi nút 'Gán Team 5' thành nút '👥 Gán toàn bộ' thông minh.
-  - Tự động nhận diện và gán toàn bộ cửa sổ MEGAMU đang mở (bất kể 1, 2, 3, 4, 5, 6, 7, 8... game) vào các slot tương ứng.
-  - Tự động mở rộng thêm số slot nếu số game vượt quá số slot hiện có (trong phạm vi bản quyền), gán chính xác PID và tên nhân vật.
-- **Sửa Triệt Để Lỗi Tràn Bộ Nhớ & Xung Đột Phân Quyền (VirtualAllocEx 0x00000005):**
-  - Loại bỏ hoàn toàn lệnh gọi native nguy hiểm 0x123ECB0 gây crash luồng game Access Violation 0xC0000005.
-  - Chuyển sang đọc trực tiếp chuỗi Unicode struct TableItem trong RAM an toàn 100%, không bao giờ gây sập luồng Frida (triệt tiêu lỗi 'script has been destroyed').
-  - Dọn sạch session và script cũ trước khi kết nối lại, kèm bộ đệm chống spam re-attach.
-  - Tối ưu cấp phát bộ nhớ cố định (chỉ cấp phát 1 lần ở phạm vi global), không cấp phát mới trong vòng lặp.
-- **Hoàn Thiện Bộ Lọc & Ném Đồ Rác Moss The Gambler:**
-  - Ưu tiên đọc Item Index trực tiếp tại offset +0x60 (khớp lệnh x86-64 0x1175310 mov eax, [rcx+0x60]).
-  - Loại bỏ từ khóa nhầm lẫn 'divine' / 'nữ thần' trong bộ lọc bảo vệ để không chặn nhầm Nỏ Nữ Thần thường +0..+6 khi quay nỏ.
-  - Hỗ trợ nút 'Ném Tại Chỗ' bypass kiểm tra snapshot để ném sạch đồ rác tồn đọng.
-- **Tối Ưu Giao Diện & Tự Động Cập Nhật Trực Tiếp (Auto-Updater):**
-  - Tích hợp kiểm soát độ dài log chống phình to RAM khi treo máy lâu ngày.
-  - Tự động phát hiện phiên bản {version} và cập nhật ghi đè file .exe an toàn cho người dùng.
-
----
-### Tải về:
-- **`MEGAMU Auto Train Dashboard.exe`**: File chạy trực tiếp không cần cài đặt (Standalone All-in-One).
-- **`MEGAMU_Auto_Train_Dashboard_{version}.zip`**: Trọn bộ gói ứng dụng giải nén kèm thư mục cấu hình và DLL.
+- **Thiết Kế Lại Toàn Diện Auto Devil Square (Theo Mốc RESET Chuẩn Xác):**
+  - Cấu hình điều kiện tham gia Devil Square hoàn toàn dựa trên **Số Lần Reset** (ví dụ: đạt từ 50 Reset trở lên mới bắt đầu đi).
+  - Hỗ trợ lựa chọn 3 chế độ vé: Tự động (ưu tiên Master), Chỉ vé Thường (DS 1-7), Chỉ vé Master (Master DS).
+  - Nguyên tắc an toàn 100%: Chỉ ngưng Auto Train ngoài bãi khi ĐÃ VÀO MAP DEVIL thành công. Nếu chưa đủ Reset hoặc không có vé hợp lệ, 100% tiếp tục cắm bãi train quái bình thường. Nếu hết giờ mở cổng (:30) mà không vào được, lập tức tự động quay lại bãi train cày quái ngay.
+- **Tinh Gọn Giao Diện Toolbar & Bổ Sung Nút Master Toggle Chạy / Dừng Tất Cả:**
+  - Chuyển đổi toàn bộ thanh Toolbar thành các nút **Icon-Only** siêu gọn ($36 \times 30\text{px}$), loại bỏ hoàn toàn tình trạng tràn viền, chèn chữ hay che khuất nút.
+  - Tích hợp khung chú thích Tooltip chi tiết bằng tiếng Việt khi rê chuột (Hover) vào từng icon.
+  - Gộp nút Chạy/Dừng thành **1 nút Master Toggle duy nhất**:
+    - Khi tất cả đang dừng: hiển thị `[ ▶ ]` màu xanh lục (Bật tất cả).
+    - Khi có tài khoản đang chạy: tự động chuyển thành `[ ⏹ ]` màu đỏ nổi bật (Dừng tất cả).
+  - Thêm nút `[🔥]` Cài đặt Devil nhanh cho toàn bộ tài khoản ngay trên Toolbar.
+  - Tối ưu hóa cột Thao tác trên từng dòng slot: phân tách 3 cụm trực quan với icon rõ ràng: `[▶]` Auto / `[🔥 DS]` / `[🔄 RS]` / `[⭐ PT]` / `[⚙]` / `[📋]`.
+- **Độ Ổn Định & Sửa Lỗi Hệ Thống:**
+  - Tự động đồng bộ cấu hình và giải phóng bộ nhớ triệt để.
+  - Nâng cấp hệ thống Auto-Updater ghi đè trực tiếp an toàn.
 """
 
     release = create_or_get_release(token, version, title, body)

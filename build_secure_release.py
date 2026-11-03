@@ -71,6 +71,17 @@ def run_nuitka_build():
     target_exe = output_dir / "MEGAMU Auto Train Dashboard.exe"
 
     kill_running_instances()
+    if target_exe.exists():
+        try:
+            target_exe.unlink()
+        except Exception:
+            try:
+                import time
+                bak = output_dir / f"MEGAMU Auto Train Dashboard.exe.{int(time.time())}.old"
+                target_exe.rename(bak)
+                log(f"Da rename file .exe cu sang {bak.name} do dang bi khoa boi tien trinh.")
+            except Exception as e_mv:
+                log(f"Canh bao di chuyen file .exe cu: {e_mv}")
 
     # Chuẩn bị thư mục native_bin cho cờ raw-dir
     native_bin_dir = BASE_DIR / "native_bin"

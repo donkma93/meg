@@ -4122,7 +4122,7 @@ rpc.exports = {
         }
     },
 
-    enterDevil: function(targetLevel, slot) {
+    enterDevil: function(targetLevel, slot, ticketPreference) {
         try {
             ensureThreadAttached();
             var dsLevel = (targetLevel !== undefined && targetLevel !== null && parseInt(targetLevel) >= 0) ? parseInt(targetLevel) : getPlayerDevilSquareLevel();
@@ -4173,31 +4173,45 @@ rpc.exports = {
                                     }
                                 }
 
-                                // Ưu tiên vé:
-                                // Nếu là Master (dsLevel >= 6): Ưu tiên Master Ticket trước, sau đó tới Normal Matched (+7)
-                                if (dsLevel >= 6) {
+                                var pref = (ticketPreference || 'auto').toString().toLowerCase();
+                                if (pref === 'master') {
                                     if (masterMatchedSlot >= 12) {
                                         itemSlot = masterMatchedSlot;
                                         isMasterTicketUsed = true;
                                     } else if (anyMasterSlot >= 12) {
                                         itemSlot = anyMasterSlot;
                                         isMasterTicketUsed = true;
-                                    } else if (normalMatchedSlot >= 12) {
-                                        itemSlot = normalMatchedSlot;
-                                    } else if (anyTicketSlot >= 12) {
-                                        itemSlot = anyTicketSlot;
                                     }
-                                } else {
-                                    // Nhân vật thường: Ưu tiên Normal Ticket đúng cấp
+                                } else if (pref === 'normal') {
                                     if (normalMatchedSlot >= 12) {
                                         itemSlot = normalMatchedSlot;
                                     } else if (anyNormalSlot >= 12) {
                                         itemSlot = anyNormalSlot;
-                                    } else if (anyMasterSlot >= 12) {
-                                        itemSlot = anyMasterSlot;
-                                        isMasterTicketUsed = true;
-                                    } else if (anyTicketSlot >= 12) {
-                                        itemSlot = anyTicketSlot;
+                                    }
+                                } else {
+                                    if (dsLevel >= 6) {
+                                        if (masterMatchedSlot >= 12) {
+                                            itemSlot = masterMatchedSlot;
+                                            isMasterTicketUsed = true;
+                                        } else if (anyMasterSlot >= 12) {
+                                            itemSlot = anyMasterSlot;
+                                            isMasterTicketUsed = true;
+                                        } else if (normalMatchedSlot >= 12) {
+                                            itemSlot = normalMatchedSlot;
+                                        } else if (anyTicketSlot >= 12) {
+                                            itemSlot = anyTicketSlot;
+                                        }
+                                    } else {
+                                        if (normalMatchedSlot >= 12) {
+                                            itemSlot = normalMatchedSlot;
+                                        } else if (anyNormalSlot >= 12) {
+                                            itemSlot = anyNormalSlot;
+                                        } else if (anyMasterSlot >= 12) {
+                                            itemSlot = anyMasterSlot;
+                                            isMasterTicketUsed = true;
+                                        } else if (anyTicketSlot >= 12) {
+                                            itemSlot = anyTicketSlot;
+                                        }
                                     }
                                 }
                             }
@@ -6503,13 +6517,14 @@ class MegDirectEngine:
             _safe_log(f"[MegDirectEngine] Loi auto_stack_jewels: {e}")
             return {"ok": False, "error": str(e)}
 
-    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None) -> Dict[str, Any]:
+    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None, ticket_preference: str = "auto") -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Devil Square (không cần click NPC)."""
         if self.is_ready:
             try:
                 arg_lvl = int(level) if (level is not None and int(level) >= 0) else None
                 arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
-                res = self._call("enterDevil", arg_lvl, arg_slot)
+                arg_pref = str(ticket_preference or "auto")
+                res = self._call("enterDevil", arg_lvl, arg_slot, arg_pref)
                 if isinstance(res, str):
                     try:
                         res = json.loads(res)
