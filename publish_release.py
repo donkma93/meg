@@ -12,10 +12,23 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from pathlib import Path
+import time
 import subprocess
 
 REPO = "donkma93/meg"
 BASE_DIR = Path(__file__).resolve().parent
+
+def _urlopen_with_retry(req, retries=5, delay=2):
+    for attempt in range(1, retries + 1):
+        try:
+            return urllib.request.urlopen(req, timeout=60)
+        except urllib.error.HTTPError:
+            raise
+        except Exception as e:
+            if attempt == retries:
+                raise
+            print(f"[!] Network retry {attempt}/{retries} ({e}), waiting {delay}s...")
+            time.sleep(delay)
 
 def get_current_app_version() -> str:
     gui_file = BASE_DIR / "meg_gui.py"
@@ -52,7 +65,7 @@ def create_or_get_release(token: str, tag_name: str, release_title: str, release
     try:
         url = f"https://api.github.com/repos/{REPO}/releases/tags/{tag_name}"
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as resp:
+        with _urlopen_with_retry(req) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             print(f"[OK] Da ton tai Release cho tag {tag_name} (ID: {data['id']})")
             return data
@@ -75,7 +88,7 @@ def create_or_get_release(token: str, tag_name: str, release_title: str, release
         headers={**headers, "Content-Type": "application/json"},
         method="POST"
     )
-    with urllib.request.urlopen(req) as resp:
+    with _urlopen_with_retry(req) as resp:
         data = json.loads(resp.read().decode("utf-8"))
         print(f"[OK] Tao Release thanh cong! URL: {data.get('html_url')}")
         return data
@@ -100,7 +113,7 @@ def upload_asset(token: str, upload_url_tmpl: str, file_path: Path, asset_displa
     
     req = urllib.request.Request(url, data=file_bytes, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req) as resp:
+        with _urlopen_with_retry(req) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             print(f"[OK] Da tai len thanh cong: {data.get('browser_download_url')}")
             return data
