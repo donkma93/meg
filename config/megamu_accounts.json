@@ -1,5 +1,16 @@
 {
   "exe_path": "C:\\Users\\donpv\\AppData\\Local\\Programs\\MEGAMU\\bin\\MEGAMU.exe",
+  "spot_config": {
+    "auto_dispatch": true,
+    "map": "arena",
+    "x": 125,
+    "y": 125,
+    "auto_helper": true,
+    "batch_size": 5,
+    "delay_sec": 2.5,
+    "throttle_fps": true,
+    "target_fps": 15
+  },
   "accounts": [
     {
       "username": "clario",
@@ -10,7 +21,8 @@
       ],
       "server": 3,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "password": "Nammothai3"
     },
     {
       "username": "anhdontb",
@@ -77,6 +89,48 @@
       "characters_list": [
         "HiRW",
         "SpeedMoss"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry",
+      "token": "c3eb23a83a20eab7f5abaa8469463859"
+    },
+    {
+      "username": "hqneu511",
+      "nickname": "hqneu511",
+      "token": "05119b7dad5096ebcd6e7af154f3d648",
+      "character": "KANGzz",
+      "characters_list": [
+        "KANGzz"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "anhdontb3",
+      "nickname": "anhdontb3",
+      "token": "11c34f21b0c990d1fdbf5e0242c36221",
+      "character": "laclac24",
+      "characters_list": [
+        "laclac24",
+        "LacIac24",
+        "IacIac24",
+        "Iaclac24",
+        "attep"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "evilzzz",
+      "nickname": "SL_SV4",
+      "token": "c86820e7f9e11c3f83ca55f4bc99c2e2",
+      "character": "Evilzzz",
+      "characters_list": [
+        "Evilzzz",
+        "tcvn3"
       ],
       "server": 1,
       "enabled": true,

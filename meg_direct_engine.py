@@ -64,8 +64,11 @@ DEFAULT_OFFSETS = {
     "game_type_info": "0x553B900",
     "item_storage_type_info": "0x5540838",
     "mlogin_ui_type_info": "0x55286D0",
-    "mlogin_submit": "0x1C35790",
-    "mlogin_token_login": "0x1C307B0",
+    "mlogin_submit": "0x1C27DE0",
+    "mlogin_token_login": "0x1C28D20",
+    "get_scene_handler": "0x1078500",
+    "set_target_framerate": "0x458B5A0",
+    "get_target_framerate": "0x458B550",
     "set_auto_login": "0xEBF7C0",
     "move_to": "0xB893E0",
     "start_auto_move": "0xB93B10",
@@ -116,7 +119,16 @@ DEFAULT_OFFSETS = {
     "moss_roll_click": "0x27A8F90",
     "moss_window_close": "0x25986B0",
     "game_object_set_active": "0x456F2B0",
-    "component_get_game_object": "0x456AE90",
+    "component_get_game_object": "0x45C8770",
+    "runtime_class_init": "0x2E9950",
+    "get_user_account": "0x1078930",
+    "user_account_set_username": "0x1403F20",
+    "user_account_set_token": "0x14042B0",
+    "get_cs_connection": "0x107B3D0",
+    "cs_connection_connect": "0x11EF630",
+    "mlogin_set_state": "0x1C33070",
+    "auto_select_character": "0xEC6020",
+    "unit_select_character": "0x111C0F0",
     "mirror_enter": "0xF94450",
     "mirror_enter_alt": "0xF94B00",
     "mirror_npc_click": "0xF927B0",
@@ -710,11 +722,83 @@ try {
     }
 } catch (eSAL) {}
 
+var nativeRuntimeClassInit = null;
+try {
+    var rciOff = off('__RUNTIME_CLASS_INIT__');
+    if (!rciOff.isNull()) {
+        nativeRuntimeClassInit = new NativeFunction(baseAddr.add(rciOff), 'pointer', ['pointer']);
+    }
+} catch (eRCI) {}
+
+var nativeGetUserAccount = null;
+try {
+    var guaOff = off('__GET_USER_ACCOUNT__');
+    if (!guaOff.isNull()) {
+        nativeGetUserAccount = new NativeFunction(baseAddr.add(guaOff), 'pointer', []);
+    }
+} catch (eGUA) {}
+
+var nativeUserAccountSetUsername = null;
+try {
+    var uasuOff = off('__USER_ACCOUNT_SET_USERNAME__');
+    if (!uasuOff.isNull()) {
+        nativeUserAccountSetUsername = new NativeFunction(baseAddr.add(uasuOff), 'void', ['pointer', 'pointer', 'bool']);
+    }
+} catch (eUASU) {}
+
+var nativeUserAccountSetToken = null;
+try {
+    var uastOff = off('__USER_ACCOUNT_SET_TOKEN__');
+    if (!uastOff.isNull()) {
+        nativeUserAccountSetToken = new NativeFunction(baseAddr.add(uastOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eUAST) {}
+
+var nativeGetCSConnection = null;
+try {
+    var gcsOff = off('__GET_CS_CONNECTION__');
+    if (!gcsOff.isNull()) {
+        nativeGetCSConnection = new NativeFunction(baseAddr.add(gcsOff), 'pointer', []);
+    }
+} catch (eGCS) {}
+
+var nativeCSConnect = null;
+try {
+    var cscOff = off('__CS_CONNECT__');
+    if (!cscOff.isNull()) {
+        nativeCSConnect = new NativeFunction(baseAddr.add(cscOff), 'void', ['pointer', 'int']);
+    }
+} catch (eCSC) {}
+
+var nativeMLoginSetState = null;
+try {
+    var mssOff = off('__MLOGIN_SET_STATE__');
+    if (!mssOff.isNull()) {
+        nativeMLoginSetState = new NativeFunction(baseAddr.add(mssOff), 'void', ['pointer', 'int']);
+    }
+} catch (eMSS) {}
+
+var nativeAutoSelectCharacter = null;
+try {
+    var ascOff = off('__AUTO_SELECT_CHARACTER__');
+    if (!ascOff.isNull()) {
+        nativeAutoSelectCharacter = new NativeFunction(baseAddr.add(ascOff), 'bool', ['pointer', 'pointer', 'pointer']);
+    }
+} catch (eASC) {}
+
+var nativeUnitSelectCharacter = null;
+try {
+    var uscOff = off('__UNIT_SELECT_CHARACTER__');
+    if (!uscOff.isNull()) {
+        nativeUnitSelectCharacter = new NativeFunction(baseAddr.add(uscOff), 'void', ['int', 'pointer']);
+    }
+} catch (eUSC) {}
+
 var nativeMLoginSubmit = null;
 try {
     var mlsOff = off('__MLOGIN_SUBMIT__');
     if (!mlsOff.isNull()) {
-        nativeMLoginSubmit = new NativeFunction(baseAddr.add(mlsOff), 'void', ['pointer', 'pointer', 'pointer', 'bool', 'pointer']);
+        nativeMLoginSubmit = new NativeFunction(baseAddr.add(mlsOff), 'void', ['pointer', 'pointer', 'pointer', 'bool']);
     }
 } catch (eMLS) {}
 
@@ -722,9 +806,33 @@ var nativeMLoginTokenLogin = null;
 try {
     var mltOff = off('__MLOGIN_TOKEN_LOGIN__');
     if (!mltOff.isNull()) {
-        nativeMLoginTokenLogin = new NativeFunction(baseAddr.add(mltOff), 'void', ['pointer', 'pointer', 'pointer']);
+        nativeMLoginTokenLogin = new NativeFunction(baseAddr.add(mltOff), 'void', ['pointer', 'pointer']);
     }
 } catch (eMLT) {}
+
+var nativeGetSceneHandler = null;
+try {
+    var gshOff = off('__GET_SCENE_HANDLER__');
+    if (!gshOff.isNull()) {
+        nativeGetSceneHandler = new NativeFunction(baseAddr.add(gshOff), 'pointer', []);
+    }
+} catch (eGSH) {}
+
+var nativeSetTargetFps = null;
+try {
+    var stfOff = off('__SET_TARGET_FPS__');
+    if (!stfOff.isNull()) {
+        nativeSetTargetFps = new NativeFunction(baseAddr.add(stfOff), 'void', ['int']);
+    }
+} catch (eSTF) {}
+
+var nativeGetTargetFps = null;
+try {
+    var gtfOff = off('__GET_TARGET_FPS__');
+    if (!gtfOff.isNull()) {
+        nativeGetTargetFps = new NativeFunction(baseAddr.add(gtfOff), 'int', []);
+    }
+} catch (eGTF) {}
 
 var nativeGetGS = null;
 try {
@@ -1028,12 +1136,29 @@ function ensureDropAllowed() {
     return ok;
 }
 
+var nativeGetItemName = null;
+try {
+    nativeGetItemName = new NativeFunction(baseAddr.add(ptr('0x123ECB0')), 'pointer', ['pointer', 'bool', 'pointer']);
+} catch (eNm) {}
+
 function getItemName(itemPtr) {
     if (!itemPtr || itemPtr.isNull()) return "";
     try {
+        if (nativeGetItemName !== null) {
+            var sPtr = nativeGetItemName(itemPtr, 1, ptr(0));
+            if (!sPtr.isNull()) {
+                var len = sPtr.add(0x10).readS32();
+                if (len > 0 && len < 200) {
+                    var str = sPtr.add(0x14).readUtf16String(len);
+                    if (str && str.length > 0) return str;
+                }
+            }
+        }
+    } catch (e1) {}
+    try {
         var te = itemPtr.add(0x58).readPointer();
         if (!te.isNull()) {
-            var offsets = [0x28, 0x30, 0x38, 0x20, 0x40, 0x48, 0x50];
+            var offsets = [0x38, 0x30, 0x28, 0x20, 0x40, 0x48, 0x50];
             for (var i = 0; i < offsets.length; i++) {
                 var sPtr = te.add(offsets[i]).readPointer();
                 if (!sPtr.isNull()) {
@@ -1052,21 +1177,16 @@ function getItemName(itemPtr) {
 function readItemIndex(itemPtr) {
     if (!itemPtr || itemPtr.isNull()) return -1;
     var idx = -1;
-    // Priority 1: Direct Item Index at +0x60 (0x1175310 mov eax, [rcx+0x60])
-    try {
-        idx = itemPtr.add(0x60).readS32();
-        if (idx >= 0 && idx < 65536) return idx;
-    } catch (e0) {}
-
-    // Priority 2: From TableItem (+0x58)
     try {
         var te = itemPtr.add(0x58).readPointer();
         if (!te.isNull()) {
+            // Priority 1: TableItem.HKLAHJEGHML (+0x68) = Index
             try {
                 var fieldIdx = te.add(0x68).readS32();
                 if (fieldIdx >= 0 && fieldIdx < 65536) return fieldIdx;
             } catch (eF) {}
 
+            // Priority 2: (Section * 512 + Type) from TableItem (+0x58, +0x5C)
             try {
                 var sec = te.add(0x58).readS32();
                 var type = te.add(0x5C).readS32();
@@ -1077,6 +1197,12 @@ function readItemIndex(itemPtr) {
             } catch (eST) {}
         }
     } catch (e1) {}
+
+    // Priority 3: Fallback from Item (+0x60)
+    try {
+        idx = itemPtr.add(0x60).readS32();
+        if (idx >= 0 && idx < 65536) return idx;
+    } catch (e2) {}
 
     return -1;
 }
@@ -1176,9 +1302,11 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
     var name = getItemName(itemPtr).toLowerCase();
     if (name.length > 0) {
         var keywords = [
-            "archangel", "arcanjo", "thiên sứ",
+            "divine", "divino", "divina", "archangel", "arcanjo", "thiên sứ", "nữ thần",
             "dragon", "dragao", "dragão", "rồng",
             "bloodangel", "darkangel", "holyangel", "awakening", "blue eye", "silver heart", "manticore", "brilliant", "apocalypse", "lightning", "ruud"
+
+
         ];
         for (var k = 0; k < keywords.length; k++) {
             if (name.indexOf(keywords[k]) !== -1) {
@@ -1374,7 +1502,7 @@ function dispatchHelperAction(act) {
     return false;
 }
 
-// coordBuf da duoc khoi tao 1 lan duy nhat o pham vi global tren dau script
+var coordBuf = Memory.alloc(64);
 var cachedCoordKlass = ptr(0);
 var shuttingDown = false;
 var pendingMoveTarget = null;
@@ -2119,36 +2247,101 @@ try {
 
                     pal.frames++;
 
-                    // 1. Luôn cấu hình AutoLogin singleton nếu có
-                    var autoLogin = null;
-                    if (nativeGetAutoLogin !== null) {
-                        try { autoLogin = nativeGetAutoLogin(); } catch (eG) {}
-                    }
-                    if (autoLogin !== null && !autoLogin.isNull()) {
+                    // 1. Kiểm tra SceneHandler.Type (0: None/Loading, 1: Preview, 2: Login, 3: Lobby, 4: Playing)
+                    var sceneType = -1;
+                    if (nativeGetSceneHandler !== null) {
                         try {
-                            var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
-                            var chrStr = il2cpp_string_new(Memory.allocUtf8String(pal.character));
-                            if (nativeSetAutoLogin !== null) {
-                                try { nativeSetAutoLogin(autoLogin, pal.server, accStr, chrStr); } catch (eSet) {}
+                            var sh = nativeGetSceneHandler();
+                            if (!sh.isNull()) {
+                                sceneType = sh.add(0x20).readS32();
                             }
-                            autoLogin.add(0x20).writeU8(0);
-                            autoLogin.add(0x21).writeU8(0);
-                            autoLogin.add(0x22).writeU8(0);
-                            autoLogin.add(0x23).writeU8(0);
-                            autoLogin.add(0x24).writeS32(pal.server);
-                            autoLogin.add(0x28).writePointer(accStr);
-                            autoLogin.add(0x30).writePointer(chrStr);
-                        } catch (eAL) {}
+                        } catch (eSH) {}
                     }
 
-                    // 2. Tìm MLoginUI.Instance
+                    // Nếu game đang ở giai đoạn Load Scene/Splash (0 hoặc 1): Đợi game nạp xong
+                    if (sceneType < 2) {
+                        autoLoginLastStatus = { done: false, submitted: false, stage: "game_loading_scene", scene: sceneType, frames: pal.frames, account: pal.account };
+                        if (pal.frames % 60 === 0) {
+                            send({ type: "autologin_status", ok: false, stage: "game_loading_scene", scene: sceneType, frames: pal.frames, account: pal.account });
+                        }
+                        if (pal.frames > 3600) { // 60s timeout
+                            autoLoginLastStatus = { done: true, submitted: false, stage: "timeout_loading", account: pal.account };
+                            send({ type: "autologin_status", ok: false, stage: "timeout_loading", account: pal.account });
+                            pendingAutoLogin = null;
+                        }
+                        return;
+                    }
+
+                    // Scene 4 (Playing): ĐÃ VÀO THẾ GIỚI GAME!
+                    if (sceneType === 4) {
+                        pal.done = true;
+                        pal.submitted = true;
+                        autoLoginLastStatus = { done: true, submitted: true, stage: "in_game_world", scene: sceneType, account: pal.account, character: pal.character };
+                        send({ type: "autologin_status", ok: true, stage: "in_game_world", scene: sceneType, account: pal.account, character: pal.character });
+                        pendingAutoLogin = null;
+                        return;
+                    }
+
+                    // Scene 3 (Character Lobby): ĐANG Ở MÀN HÌNH CHỌN NHÂN VẬT -> CHỌN NHÂN VẬT
+                    if (sceneType === 3) {
+                        if (!pal.charSelected && pal.character) {
+                            pal.charSelected = true;
+                            try {
+                                var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
+                                var chrStr = il2cpp_string_new(Memory.allocUtf8String(pal.character));
+                                var selOk = false;
+                                if (nativeAutoSelectCharacter !== null && nativeGetAutoLogin !== null) {
+                                    var al = nativeGetAutoLogin();
+                                    if (!al.isNull()) {
+                                        selOk = nativeAutoSelectCharacter(al, accStr, chrStr);
+                                    }
+                                }
+                                if (!selOk && nativeUnitSelectCharacter !== null) {
+                                    nativeUnitSelectCharacter(0, chrStr);
+                                }
+                            } catch (eChar) {}
+                            autoLoginLastStatus = { done: false, submitted: true, stage: "selected_character", scene: sceneType, account: pal.account, character: pal.character };
+                            send({ type: "autologin_status", ok: true, stage: "selected_character", scene: sceneType, account: pal.account, character: pal.character });
+                        }
+                        return;
+                    }
+
+                    // Scene 2 (Login screen - MLoginUI):
+                    // Cấu hình AutoLogin singleton đúng 1 LẦN DUY NHẤT (Ghi trực tiếp struct không gọi LOLGHCBECAE)
+                    if (!pal.configured) {
+                        pal.configured = true;
+                        var al = null;
+                        if (nativeGetAutoLogin !== null) {
+                            try { al = nativeGetAutoLogin(); } catch (eG) {}
+                        }
+                        if (al !== null && !al.isNull()) {
+                            try {
+                                var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
+                                var chrStr = il2cpp_string_new(Memory.allocUtf8String(pal.character));
+                                al.add(0x20).writeU8(0);
+                                al.add(0x21).writeU8(0);
+                                al.add(0x22).writeU8(0);
+                                al.add(0x23).writeU8(0);
+                                al.add(0x24).writeS32(pal.server);
+                                al.add(0x28).writePointer(accStr);
+                                al.add(0x30).writePointer(chrStr);
+                            } catch (eAL) {}
+                        }
+                    }
+
+                    // Tìm MLoginUI.Instance thông qua nativeRuntimeClassInit an toàn tuyệt đối
                     var mLoginInst = null;
                     try {
                         var mTypeOff = off('__MLOGIN_UI_TYPE_INFO__');
                         if (!mTypeOff.isNull()) {
-                            var mType = baseAddr.add(mTypeOff).readPointer();
-                            if (!mType.isNull()) {
-                                var sf = mType.add(0xB8).readPointer();
+                            var klass = null;
+                            if (nativeRuntimeClassInit !== null) {
+                                klass = nativeRuntimeClassInit(baseAddr.add(mTypeOff));
+                            } else {
+                                klass = baseAddr.add(mTypeOff).readPointer();
+                            }
+                            if (klass !== null && !klass.isNull()) {
+                                var sf = klass.add(0xB8).readPointer();
                                 if (!sf.isNull()) {
                                     mLoginInst = sf.readPointer();
                                 }
@@ -2156,49 +2349,70 @@ try {
                         }
                     } catch (eType) {}
 
-                    // Nếu MLoginUI.Instance đã tồn tại (Game đã vào màn hình Login!):
-                    if (mLoginInst !== null && !mLoginInst.isNull()) {
+                    // Nếu MLoginUI.Instance đã sẵn sàng và chưa submit:
+                    if (mLoginInst !== null && !mLoginInst.isNull() && !pal.submitted && pal.frames > 30) {
                         var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
 
+                        // 1. Trường hợp có Mật khẩu: Đăng nhập bằng WebAPI Form Submit
                         if (pal.password && nativeMLoginSubmit !== null) {
+                            pal.submitted = true;
                             var pwdStr = il2cpp_string_new(Memory.allocUtf8String(pal.password));
-                            nativeMLoginSubmit(mLoginInst, accStr, pwdStr, 1, ptr(0));
-                            pal.done = true;
-                            pal.submitted = true;
-                            autoLoginLastStatus = { done: true, submitted: true, stage: "submitted_password", account: pal.account };
+                            nativeMLoginSubmit(mLoginInst, accStr, pwdStr, 1);
+                            autoLoginLastStatus = { done: false, submitted: true, stage: "submitted_password", account: pal.account };
                             send({ type: "autologin_status", ok: true, stage: "submitted_password", account: pal.account });
-                            pendingAutoLogin = null;
                             return;
-                        } else if (!pal.password && nativeMLoginTokenLogin !== null) {
-                            nativeMLoginTokenLogin(mLoginInst, accStr, ptr(0));
-                            pal.done = true;
+                        }
+                        // 2. Trường hợp Đăng nhập bằng Token Registry hoặc Tài khoản đã lưu
+                        else if (pal.token && pal.token.length > 0) {
                             pal.submitted = true;
-                            autoLoginLastStatus = { done: true, submitted: true, stage: "submitted_token", account: pal.account };
+                            var tokenStr = il2cpp_string_new(Memory.allocUtf8String(pal.token));
+
+                            if (nativeGetUserAccount !== null) {
+                                try {
+                                    var uAcc = nativeGetUserAccount();
+                                    if (!uAcc.isNull()) {
+                                        if (nativeUserAccountSetUsername !== null) {
+                                            nativeUserAccountSetUsername(uAcc, accStr, 1);
+                                        }
+                                        if (nativeUserAccountSetToken !== null) {
+                                            nativeUserAccountSetToken(uAcc, tokenStr);
+                                        }
+                                    }
+                                } catch (eUA) {}
+                            }
+
+                            try {
+                                mLoginInst.add(0x2C).writeU8(1);
+                                if (nativeMLoginSetState !== null) {
+                                    nativeMLoginSetState(mLoginInst, 1);
+                                }
+                            } catch (eSt) {}
+
+                            if (nativeGetCSConnection !== null && nativeCSConnect !== null) {
+                                try {
+                                    var cs = nativeGetCSConnection();
+                                    if (!cs.isNull()) {
+                                        nativeCSConnect(cs, -1);
+                                    }
+                                } catch (eCS) {}
+                            }
+
+                            autoLoginLastStatus = { done: false, submitted: true, stage: "submitted_token", account: pal.account };
                             send({ type: "autologin_status", ok: true, stage: "submitted_token", account: pal.account });
-                            pendingAutoLogin = null;
                             return;
-                        } else {
-                            pal.done = true;
+                        }
+                        // 3. Nếu không có password và không có token: Không làm treo UI, báo thiếu thông tin
+                        else {
                             pal.submitted = true;
-                            autoLoginLastStatus = { done: true, submitted: true, stage: "configured_autologin", account: pal.account };
-                            send({ type: "autologin_status", ok: true, stage: "configured_autologin", account: pal.account });
+                            autoLoginLastStatus = { done: true, submitted: false, stage: "need_credentials", account: pal.account, err: "Chưa cấu hình mật khẩu hoặc token registry" };
+                            send({ type: "autologin_status", ok: false, stage: "need_credentials", account: pal.account });
                             pendingAutoLogin = null;
                             return;
                         }
                     }
-
-                    autoLoginLastStatus = { done: false, submitted: false, stage: "waiting_login_screen", frames: pal.frames, account: pal.account };
-
-                    if (pal.frames % 60 === 0) {
-                        send({ type: "autologin_status", ok: false, stage: "waiting_login_screen", frames: pal.frames, account: pal.account });
-                    }
-
-                    if (pal.frames > 1800) {
-                        autoLoginLastStatus = { done: true, submitted: false, stage: "timeout", account: pal.account };
-                        send({ type: "autologin_status", ok: false, stage: "timeout", account: pal.account });
-                        pendingAutoLogin = null;
-                    }
-                } catch (eGU) {}
+                } catch (eGU) {
+                    send({ type: "log", msg: "Error in gameUpdateHook: " + eGU });
+                }
             }
         });
     }
@@ -3441,6 +3655,7 @@ rpc.exports = {
 
             _nativeMirrorTurboTimer = setInterval(function() {
                 try {
+                    ensureThreadAttached();
                     if (!_nativeMirrorTurboStats.running) {
                         cleanupNativeTurbo();
                         return;
@@ -3690,15 +3905,9 @@ rpc.exports = {
         return false;
     },
 
-    autoStackJewels: function() {
+    scanJewelsSnapshot: function() {
         try {
             ensureThreadAttached();
-
-            // =========================================================================
-            // 1. CAU HINH NGOC CO THE GHEP (STACKABLE JEWELS)
-            // =========================================================================
-            // Chi cac ngoc trong danh sach nay moi duoc phep gom va ghep lai voi nhau.
-            // TUYET DOI BO QUA: Jewel of Darkness va tat ca cac loai ngoc / vat pham khac!
             var COMBINABLE_JEWEL_MAP = {
                 7182: "Chaos",
                 7183: "Bless",
@@ -3709,18 +3918,14 @@ rpc.exports = {
                 7207: "Harmony",
                 7280: "Gemstone"
             };
-            var MAX_STACK = 100; // Gioi han toi da 100 vien (100v) tren 1 o
 
-            // Ham ho tro doc so luong ngoc (stack count) tu item pointer
             function readJewelCount(itemPtr) {
                 if (!itemPtr || itemPtr.isNull()) return 1;
                 try {
-                    // Durability tai offset 0x1C trong GFEFNEHFNEI (chuan so luong vat pham stack trong MU)
                     var dur = itemPtr.add(0x1C).readS32();
                     if (dur >= 1 && dur <= 100) return dur;
                 } catch (eD) {}
                 try {
-                    // Level field tai offset 0x10
                     var lv = itemPtr.add(0x10).readS32();
                     if (lv >= 1 && lv <= 100) return lv;
                 } catch (eL) {}
@@ -3731,18 +3936,11 @@ rpc.exports = {
                 return 1;
             }
 
-            // Ham kiem tra ngoc co the ghep hay khong
             function getJewelType(idx, name) {
                 var nmL = (name || "").toLowerCase();
-                // BAO VE TUYET DOI: Loai tru Jewel of Darkness va cac ngoc khong ghep duoc
-                if (nmL.indexOf("darkness") !== -1) return null;
-                if (nmL.indexOf("dark") !== -1) return null;
-                if (nmL.indexOf("elevation") !== -1) return null;
-                if (nmL.indexOf("extension") !== -1) return null;
-
+                if (nmL.indexOf("darkness") !== -1 || nmL.indexOf("dark") !== -1) return null;
+                if (nmL.indexOf("elevation") !== -1 || nmL.indexOf("extension") !== -1) return null;
                 if (COMBINABLE_JEWEL_MAP[idx]) return COMBINABLE_JEWEL_MAP[idx];
-
-                // Nhan dang bo sung qua ten (neu index bi lech do version table)
                 if (nmL.indexOf("bless") !== -1) return "Bless";
                 if (nmL.indexOf("soul") !== -1) return "Soul";
                 if (nmL.indexOf("life") !== -1) return "Life";
@@ -3751,7 +3949,435 @@ rpc.exports = {
                 if (nmL.indexOf("guardian") !== -1) return "Guardian";
                 if (nmL.indexOf("harmony") !== -1) return "Harmony";
                 if (nmL.indexOf("gemstone") !== -1 || nmL.indexOf("gem of") !== -1) return "Gemstone";
+                return null;
+            }
 
+            var items = [];
+            var counts = {};
+            var looseCounts = {};
+            var totalJewels = 0;
+            var whOpen = false;
+
+            // 1. Quet Thung do Kho (Chinh 0..119 & Mo Rong 120..239)
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var whOff = off('__UI_WAREHOUSE_WINDOW__');
+                        var whWin = whOff.isNull() ? gui.add(ptr('0x288')).readPointer() : gui.add(whOff).readPointer();
+                        if (!whWin.isNull()) {
+                            var whDict = {};
+                            // A. Doc qua WarehouseWindow.Items (offset 0x30)
+                            try {
+                                var dictPtr = whWin.add(ptr('0x30')).readPointer();
+                                if (!dictPtr.isNull()) {
+                                    var entries = dictPtr.add(ptr('0x18')).readPointer();
+                                    var count = dictPtr.add(ptr('0x20')).readS32();
+                                    if (!entries.isNull() && count > 0 && count <= 300) {
+                                        whOpen = true;
+                                        for (var di = 0; di < count; di++) {
+                                            try {
+                                                var ent = entries.add(0x20 + di * 24);
+                                                if (ent.readS32() < 0) continue;
+                                                var slot = ent.add(0x08).readS32();
+                                                var itemPtr = ent.add(0x10).readPointer();
+                                                if (!itemPtr.isNull() && slot >= 0 && slot < 240) {
+                                                    var idx = readItemIndex(itemPtr);
+                                                    var nm = getItemName(itemPtr) || "";
+                                                    var jType = getJewelType(idx, nm);
+                                                    if (jType) {
+                                                        var cnt = readJewelCount(itemPtr);
+                                                        whDict[slot] = { slot: slot, id: idx, name: nm, count: cnt, type: jType, storage: slot < 120 ? "Thùng đồ chính" : "Thùng đồ mở rộng" };
+                                                    }
+                                                }
+                                            } catch (eDE) {}
+                                        }
+                                    }
+                                }
+                            } catch (eWItems) {}
+
+                            // B. Doc bo sung qua MainStorage (0x58) & ExtStorage (0x60) Cells
+                            function scanCells(sPtr, bStart, bEnd, stName) {
+                                if (!sPtr || sPtr.isNull()) return;
+                                try {
+                                    var startIdx = bStart;
+                                    try { var s = sPtr.add(0x28).readS32(); if (s >= 0 && s <= 240) startIdx = s; } catch (eS) {}
+                                    var cDict = sPtr.add(ptr('0x38')).readPointer();
+                                    if (cDict.isNull()) return;
+                                    var cEnt = cDict.add(ptr('0x18')).readPointer();
+                                    var cCnt = cDict.add(ptr('0x20')).readS32();
+                                    if (cEnt.isNull() || cCnt <= 0 || cCnt > 300) return;
+                                    whOpen = true;
+                                    for (var ci = 0; ci < cCnt; ci++) {
+                                        try {
+                                            var ce = cEnt.add(0x20 + ci * 24);
+                                            if (ce.readS32() < 0) continue;
+                                            var sk = ce.add(0x08).readS32();
+                                            var so = ce.add(0x10).readPointer();
+                                            if (so.isNull()) continue;
+                                            var sn = so.add(ptr('0x20')).readS32();
+                                            var rs = sn < startIdx ? sn + startIdx : sn;
+                                            if (rs < bStart || rs >= bEnd) rs = sk;
+                                            if (rs >= bStart && rs < bEnd && !whDict[rs]) {
+                                                var io = so.add(ptr('0x48')).readPointer();
+                                                if (!io.isNull()) {
+                                                    var iIdx = readItemIndex(io);
+                                                    var iNm = getItemName(io) || "";
+                                                    var iType = getJewelType(iIdx, iNm);
+                                                    if (iType) {
+                                                        var iCnt = readJewelCount(io);
+                                                        whDict[rs] = { slot: rs, id: iIdx, name: iNm, count: iCnt, type: iType, storage: stName };
+                                                    }
+                                                }
+                                            }
+                                        } catch (eCI) {}
+                                    }
+                                } catch (eCS) {}
+                            }
+                            try { scanCells(whWin.add(ptr('0x58')).readPointer(), 0, 120, "Thùng đồ chính"); } catch (eMS) {}
+                            try { scanCells(whWin.add(ptr('0x60')).readPointer(), 120, 240, "Thùng đồ mở rộng"); } catch (eES) {}
+
+                            for (var wSlot in whDict) {
+                                var wit = whDict[wSlot];
+                                items.push(wit);
+                                counts[wit.type] = (counts[wit.type] || 0) + wit.count;
+                                if (wit.count < 100) looseCounts[wit.type] = (looseCounts[wit.type] || 0) + 1;
+                                totalJewels += wit.count;
+                            }
+                        }
+                    }
+                }
+            } catch (eWH) {}
+
+            // 2. Quet Hom do Nhan vat (12..203)
+            try {
+                var p = getPlayerPtr();
+                if (!p.isNull()) {
+                    var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                    if (!inv.isNull()) {
+                        var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                        if (!itemsArr.isNull()) {
+                            var arrLen = 204;
+                            try { var l = itemsArr.add(0x18).readS32(); if (l > 12 && l <= 204) arrLen = l; } catch (eL) {}
+                            for (var s = 12; s < arrLen; s++) {
+                                try {
+                                    var it = itemsArr.add(0x20 + s * 8).readPointer();
+                                    if (!it.isNull()) {
+                                        var idx2 = readItemIndex(it);
+                                        var nm2 = getItemName(it) || "";
+                                        var jType2 = getJewelType(idx2, nm2);
+                                        if (jType2) {
+                                            var cnt2 = readJewelCount(it);
+                                            items.push({ slot: s, id: idx2, name: nm2, count: cnt2, type: jType2, storage: "Hòm đồ nhân vật" });
+                                            counts[jType2] = (counts[jType2] || 0) + cnt2;
+                                            if (cnt2 < 100) looseCounts[jType2] = (looseCounts[jType2] || 0) + 1;
+                                            totalJewels += cnt2;
+                                        }
+                                    }
+                                } catch (eIt) {}
+                            }
+                        }
+                    }
+                }
+            } catch (eInv) {}
+
+            return JSON.stringify({
+                ok: true,
+                warehouseOpen: whOpen,
+                totalJewels: totalJewels,
+                counts: counts,
+                looseCounts: looseCounts,
+                itemCount: items.length
+            });
+        } catch (eSnap) {
+            return JSON.stringify({ ok: false, error: String(eSnap) });
+        }
+    },
+
+    stackJewelStep: function(filterType) {
+        try {
+            ensureThreadAttached();
+            if (nativeItemStorageMove === null) {
+                return JSON.stringify({ ok: false, error: "no_native_move_fn" });
+            }
+
+            var COMBINABLE_JEWEL_MAP = {
+                7182: "Chaos",
+                7183: "Bless",
+                7184: "Soul",
+                7185: "Life",
+                7186: "Creation",
+                7206: "Guardian",
+                7207: "Harmony",
+                7280: "Gemstone"
+            };
+            var MAX_STACK = 100;
+
+            function readJewelCount(itemPtr) {
+                if (!itemPtr || itemPtr.isNull()) return 1;
+                try {
+                    var dur = itemPtr.add(0x1C).readS32();
+                    if (dur >= 1 && dur <= 100) return dur;
+                } catch (eD) {}
+                try {
+                    var lv = itemPtr.add(0x10).readS32();
+                    if (lv >= 1 && lv <= 100) return lv;
+                } catch (eL) {}
+                try {
+                    var f40 = itemPtr.add(0x40).readS32();
+                    if (f40 >= 1 && f40 <= 100) return f40;
+                } catch (eF) {}
+                return 1;
+            }
+
+            function getJewelType(idx, name) {
+                var nmL = (name || "").toLowerCase();
+                if (nmL.indexOf("darkness") !== -1 || nmL.indexOf("dark") !== -1) return null;
+                if (nmL.indexOf("elevation") !== -1 || nmL.indexOf("extension") !== -1) return null;
+                if (COMBINABLE_JEWEL_MAP[idx]) return COMBINABLE_JEWEL_MAP[idx];
+                if (nmL.indexOf("bless") !== -1) return "Bless";
+                if (nmL.indexOf("soul") !== -1) return "Soul";
+                if (nmL.indexOf("life") !== -1) return "Life";
+                if (nmL.indexOf("chaos") !== -1) return "Chaos";
+                if (nmL.indexOf("creation") !== -1) return "Creation";
+                if (nmL.indexOf("guardian") !== -1) return "Guardian";
+                if (nmL.indexOf("harmony") !== -1) return "Harmony";
+                if (nmL.indexOf("gemstone") !== -1 || nmL.indexOf("gem of") !== -1) return "Gemstone";
+                return null;
+            }
+
+            var sections = [];
+            var mainWhItems = {};
+            var extWhItems = {};
+
+            // 1. Quet Thung do Kho (Chinh 0..119 & Mo Rong 120..239)
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (!gui.isNull()) {
+                        var whOff = off('__UI_WAREHOUSE_WINDOW__');
+                        var whWin = whOff.isNull() ? gui.add(ptr('0x288')).readPointer() : gui.add(whOff).readPointer();
+                        if (!whWin.isNull()) {
+                            // A. Doc qua WarehouseWindow.Items (offset 0x30)
+                            try {
+                                var dictPtr = whWin.add(ptr('0x30')).readPointer();
+                                if (!dictPtr.isNull()) {
+                                    var entries = dictPtr.add(ptr('0x18')).readPointer();
+                                    var count = dictPtr.add(ptr('0x20')).readS32();
+                                    if (!entries.isNull() && count > 0 && count <= 300) {
+                                        for (var di = 0; di < count; di++) {
+                                            try {
+                                                var ent = entries.add(0x20 + di * 24);
+                                                if (ent.readS32() < 0) continue;
+                                                var slot = ent.add(0x08).readS32();
+                                                var itemPtr = ent.add(0x10).readPointer();
+                                                if (!itemPtr.isNull() && slot >= 0 && slot < 240) {
+                                                    var idx = readItemIndex(itemPtr);
+                                                    var nm = getItemName(itemPtr) || "";
+                                                    var jType = getJewelType(idx, nm);
+                                                    if (jType && (!filterType || jType === filterType)) {
+                                                        var cnt = readJewelCount(itemPtr);
+                                                        var itObj = { slot: slot, ptr: itemPtr, id: idx, name: nm, count: cnt, type: jType };
+                                                        if (slot < 120) {
+                                                            if (!mainWhItems[slot]) mainWhItems[slot] = itObj;
+                                                        } else {
+                                                            if (!extWhItems[slot]) extWhItems[slot] = itObj;
+                                                        }
+                                                    }
+                                                }
+                                            } catch (eDE) {}
+                                        }
+                                    }
+                                }
+                            } catch (eWItems) {}
+
+                            // B. Doc bo sung qua MainStorage (0x58) & ExtStorage (0x60) Cells
+                            function scanCellsToDict(sPtr, outDict, bStart, bEnd) {
+                                if (!sPtr || sPtr.isNull()) return;
+                                try {
+                                    var startIdx = bStart;
+                                    try { var s = sPtr.add(0x28).readS32(); if (s >= 0 && s <= 240) startIdx = s; } catch (eS) {}
+                                    var cDict = sPtr.add(ptr('0x38')).readPointer();
+                                    if (cDict.isNull()) return;
+                                    var cEnt = cDict.add(ptr('0x18')).readPointer();
+                                    var cCnt = cDict.add(ptr('0x20')).readS32();
+                                    if (cEnt.isNull() || cCnt <= 0 || cCnt > 300) return;
+                                    for (var ci = 0; ci < cCnt; ci++) {
+                                        try {
+                                            var ce = cEnt.add(0x20 + ci * 24);
+                                            if (ce.readS32() < 0) continue;
+                                            var sk = ce.add(0x08).readS32();
+                                            var so = ce.add(0x10).readPointer();
+                                            if (so.isNull()) continue;
+                                            var sn = so.add(ptr('0x20')).readS32();
+                                            var rs = sn < startIdx ? sn + startIdx : sn;
+                                            if (rs < bStart || rs >= bEnd) rs = sk;
+                                            if (rs >= bStart && rs < bEnd && !outDict[rs]) {
+                                                var io = so.add(ptr('0x48')).readPointer();
+                                                if (!io.isNull()) {
+                                                    var iIdx = readItemIndex(io);
+                                                    var iNm = getItemName(io) || "";
+                                                    var iType = getJewelType(iIdx, iNm);
+                                                    if (iType && (!filterType || iType === filterType)) {
+                                                        var iCnt = readJewelCount(io);
+                                                        outDict[rs] = { slot: rs, ptr: io, id: iIdx, name: iNm, count: iCnt, type: iType };
+                                                    }
+                                                }
+                                            }
+                                        } catch (eCI) {}
+                                    }
+                                } catch (eCS) {}
+                            }
+                            try { scanCellsToDict(whWin.add(ptr('0x58')).readPointer(), mainWhItems, 0, 120); } catch (eMS) {}
+                            try { scanCellsToDict(whWin.add(ptr('0x60')).readPointer(), extWhItems, 120, 240); } catch (eES) {}
+                        }
+                    }
+                }
+            } catch (eWH) {}
+
+            var mainWhList = [];
+            for (var mKey in mainWhItems) mainWhList.push(mainWhItems[mKey]);
+            if (mainWhList.length > 0) sections.push({ name: "Thùng đồ chính", flag: 2, items: mainWhList });
+
+            var extWhList = [];
+            for (var eKey in extWhItems) extWhList.push(extWhItems[eKey]);
+            if (extWhList.length > 0) sections.push({ name: "Thùng đồ mở rộng", flag: 2, items: extWhList });
+
+            // 2. Quet Hom do Nhan vat (12..203)
+            var invItems = [];
+            try {
+                var p = getPlayerPtr();
+                if (!p.isNull()) {
+                    var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                    if (!inv.isNull()) {
+                        var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                        if (!itemsArr.isNull()) {
+                            var arrLen = 204;
+                            try { var l = itemsArr.add(0x18).readS32(); if (l > 12 && l <= 204) arrLen = l; } catch (eL) {}
+                            for (var s = 12; s < arrLen; s++) {
+                                try {
+                                    var it = itemsArr.add(0x20 + s * 8).readPointer();
+                                    if (!it.isNull()) {
+                                        var idx2 = readItemIndex(it);
+                                        var nm2 = getItemName(it) || "";
+                                        var jType2 = getJewelType(idx2, nm2);
+                                        if (jType2 && (!filterType || jType2 === filterType)) {
+                                            var cnt2 = readJewelCount(it);
+                                            invItems.push({ slot: s, ptr: it, id: idx2, name: nm2, count: cnt2, type: jType2 });
+                                        }
+                                    }
+                                } catch (eIt) {}
+                            }
+                        }
+                    }
+                }
+            } catch (eInv) {}
+            if (invItems.length > 0) sections.push({ name: "Hòm đồ nhân vật", flag: 0, items: invItems });
+
+            // 3. Tim cap ngoc cung ID de thuc hien ghep (1 buoc duy nhat)
+            for (var secIdx = 0; secIdx < sections.length; secIdx++) {
+                var sec = sections[secIdx];
+                var groups = {};
+                for (var gi = 0; gi < sec.items.length; gi++) {
+                    var itm = sec.items[gi];
+                    if (!groups[itm.id]) groups[itm.id] = [];
+                    groups[itm.id].push(itm);
+                }
+
+                for (var jId in groups) {
+                    var group = groups[jId];
+                    if (group.length <= 1) continue;
+
+                    // Sap xep tang dan theo so o
+                    group.sort(function(a, b) { return a.slot - b.slot; });
+
+                    for (var tIdx = 0; tIdx < group.length; tIdx++) {
+                        var target = group[tIdx];
+                        if (target.count >= MAX_STACK) continue;
+
+                        for (var sIdx = tIdx + 1; sIdx < group.length; sIdx++) {
+                            var src = group[sIdx];
+                            if (src.count <= 0 || src.slot === target.slot) continue;
+                            if (!src.ptr || src.ptr.isNull() || !target.ptr || target.ptr.isNull()) continue;
+                            if (src.id !== target.id) continue;
+
+                            var toMove = Math.min(src.count, MAX_STACK - target.count);
+                            try {
+                                nativeItemStorageMove(src.ptr, sec.flag, src.slot, sec.flag, target.slot, ptr(0));
+                                return JSON.stringify({
+                                    ok: true,
+                                    moved: true,
+                                    storage: sec.name,
+                                    storageFlag: sec.flag,
+                                    jewel: target.type,
+                                    name: target.name,
+                                    id: target.id,
+                                    fromSlot: src.slot,
+                                    toSlot: target.slot,
+                                    fromCount: src.count,
+                                    toCount: target.count,
+                                    amount: toMove,
+                                    targetTotal: target.count + toMove
+                                });
+                            } catch (eNativeMove) {
+                                return JSON.stringify({ ok: false, error: String(eNativeMove) });
+                            }
+                        }
+                    }
+                }
+            }
+
+            return JSON.stringify({ ok: true, moved: false, jewel: filterType });
+        } catch (eStep) {
+            return JSON.stringify({ ok: false, error: String(eStep) });
+        }
+    },
+
+    autoStackJewels: function() {
+        try {
+            ensureThreadAttached();
+            var COMBINABLE_JEWEL_MAP = {
+                7182: "Chaos",
+                7183: "Bless",
+                7184: "Soul",
+                7185: "Life",
+                7186: "Creation",
+                7206: "Guardian",
+                7207: "Harmony",
+                7280: "Gemstone"
+            };
+            var MAX_STACK = 100;
+
+            function readJewelCount(itemPtr) {
+                if (!itemPtr || itemPtr.isNull()) return 1;
+                try {
+                    var dur = itemPtr.add(0x1C).readS32();
+                    if (dur >= 1 && dur <= 100) return dur;
+                } catch (eD) {}
+                try {
+                    var lv = itemPtr.add(0x10).readS32();
+                    if (lv >= 1 && lv <= 100) return lv;
+                } catch (eL) {}
+                try {
+                    var f40 = itemPtr.add(0x40).readS32();
+                    if (f40 >= 1 && f40 <= 100) return f40;
+                } catch (eF) {}
+                return 1;
+            }
+
+            function getJewelType(idx, name) {
+                var nmL = (name || "").toLowerCase();
+                if (nmL.indexOf("darkness") !== -1 || nmL.indexOf("dark") !== -1) return null;
+                if (nmL.indexOf("elevation") !== -1 || nmL.indexOf("extension") !== -1) return null;
+                if (COMBINABLE_JEWEL_MAP[idx]) return COMBINABLE_JEWEL_MAP[idx];
+                if (nmL.indexOf("bless") !== -1) return "Bless";
+                if (nmL.indexOf("soul") !== -1) return "Soul";
+                if (nmL.indexOf("life") !== -1) return "Life";
+                if (nmL.indexOf("chaos") !== -1) return "Chaos";
+                if (nmL.indexOf("creation") !== -1) return "Creation";
+                if (nmL.indexOf("guardian") !== -1) return "Guardian";
+                if (nmL.indexOf("harmony") !== -1) return "Harmony";
+                if (nmL.indexOf("gemstone") !== -1 || nmL.indexOf("gem of") !== -1) return "Gemstone";
                 return null;
             }
 
@@ -3764,40 +4390,23 @@ rpc.exports = {
             var totalCounts = {};
             var totalJewelsFound = 0;
 
-            // =========================================================================
-            // HAM XU LY GHEP NGOC DUNG CHUNG CHO TUNG VUNG LUU TRU
-            // (Thung do Kho Chinh, Thung do Kho Mo Rong, Hom do Nhan vat)
-            // =========================================================================
-            function consolidateStorage(storageName, storageFlag, slotsDict, minSlot, maxSlots) {
-                // Xac dinh danh sach o trong trong khoang [minSlot, maxSlots)
-                var emptySlots = [];
-                for (var s = minSlot; s < maxSlots; s++) {
-                    if (!slotsDict[s]) emptySlots.push(s);
-                }
-
-                // Nhom cac ngoc co ID trung nhau
+            function consolidateStorage(storageName, storageFlag, slotsDict) {
                 var groups = {};
                 for (var sKey in slotsDict) {
                     var it = slotsDict[sKey];
-                    if (!it.type) continue; // Bo qua vat pham khong phai ngoc ghep
-
+                    if (!it.type) continue;
                     if (!groups[it.id]) groups[it.id] = [];
                     groups[it.id].push(it);
-
                     totalCounts[it.type] = (totalCounts[it.type] || 0) + it.count;
                     totalJewelsFound += it.count;
                 }
 
-                // Thuc hien ghep ngoc cho tung nhom ID
                 for (var jId in groups) {
                     var group = groups[jId];
-                    if (group.length <= 1) continue; // Chi co 1 o ngoc nay -> khong can ghep
-
-                    // Sap xep tang dan theo so thu tu o (slot)
+                    if (group.length <= 1) continue;
                     group.sort(function(a, b) { return a.slot - b.slot; });
 
                     var targetIdx = 0;
-
                     for (var srcIdx = 1; srcIdx < group.length; srcIdx++) {
                         var src = group[srcIdx];
                         if (src.count <= 0) continue;
@@ -3805,25 +4414,16 @@ rpc.exports = {
                         while (src.count > 0 && targetIdx < srcIdx) {
                             var target = group[targetIdx];
                             var spaceInTarget = MAX_STACK - target.count;
-
                             if (spaceInTarget <= 0) {
-                                // O dich hien tai da day 100 vien -> chuyen sang vi tri ngoc tiep theo
                                 targetIdx++;
                                 continue;
                             }
-
-                            // KIEM TRA AN TOAN TUYET DOI TRUOC KHI GHEP:
                             if (!src.ptr || src.ptr.isNull() || !target.ptr || target.ptr.isNull()) break;
-                            if (src.id !== target.id) break; // Khac loai ngoc -> KHONG BAO GIO GHEP
-                            if (src.slot === target.slot) break;
+                            if (src.id !== target.id || src.slot === target.slot) break;
 
                             var toMove = Math.min(src.count, spaceInTarget);
-
                             try {
-                                // Goi nativeItemStorageMove:
-                                // storageFlag = 2 cho Thung do Kho (Chinh & Mo Rong), 0 cho Hom do Nhan vat
                                 nativeItemStorageMove(src.ptr, storageFlag, src.slot, storageFlag, target.slot, ptr(0));
-
                                 totalMoved++;
                                 allDetails.push({
                                     storage: storageName,
@@ -3834,117 +4434,18 @@ rpc.exports = {
                                     amount: toMove,
                                     targetTotal: target.count + toMove
                                 });
-
                                 target.count += toMove;
                                 src.count -= toMove;
-
-                                try { Thread.sleep(0.18); } catch (eSleep) {}
+                                try { Thread.sleep(0.2); } catch (eSleep) {}
                             } catch (eMove) {
-                                // Gap loi native -> dung an toan ngay lap tuc de bao ve ngoc
                                 break;
                             }
-
-                            if (target.count >= MAX_STACK) {
-                                // O dich da dat du 100 vien (100v) -> chuyen sang vi tri tiep theo
-                                targetIdx++;
-                            }
-                        }
-
-                        // Neu nguon da ghep het -> o tro thanh o trong
-                        if (src.count <= 0) {
-                            emptySlots.push(src.slot);
-                            delete slotsDict[src.slot];
-                        }
-                    }
-
-                    // XU LY PHAN DU QUA 100v:
-                    // Neu sau khi ghep, o cuoi cung con ngoc le nam o vi tri qua xa (> slot dau + 1),
-                    // va co o trong phia truoc trong cung vung luu tru -> uu tien don ve o trong phia truoc de gon gang
-                    if (targetIdx < group.length) {
-                        var leftover = group[targetIdx];
-                        if (leftover.count > 0 && emptySlots.length > 0) {
-                            emptySlots.sort(function(a, b) { return a - b; });
-                            var firstEmpty = -1;
-                            for (var e = 0; e < emptySlots.length; e++) {
-                                if (emptySlots[e] >= minSlot && emptySlots[e] < leftover.slot && !slotsDict[emptySlots[e]]) {
-                                    firstEmpty = emptySlots[e];
-                                    break;
-                                }
-                            }
-                            if (firstEmpty >= minSlot && firstEmpty < leftover.slot) {
-                                try {
-                                    nativeItemStorageMove(leftover.ptr, storageFlag, leftover.slot, storageFlag, firstEmpty, ptr(0));
-                                    totalMoved++;
-                                    allDetails.push({
-                                        storage: storageName,
-                                        type: leftover.type,
-                                        name: leftover.name,
-                                        fromSlot: leftover.slot,
-                                        toSlot: firstEmpty,
-                                        action: "relocate_to_empty"
-                                    });
-                                    emptySlots.push(leftover.slot);
-                                    leftover.slot = firstEmpty;
-                                    slotsDict[firstEmpty] = leftover;
-                                    try { Thread.sleep(0.18); } catch (eSl2) {}
-                                } catch (eReloc) {}
-                            }
+                            if (target.count >= MAX_STACK) targetIdx++;
                         }
                     }
                 }
             }
 
-            // Ham ho tro doc cac o tu 1 ItemStorage bat ky (MainStorage hoac ExtStorage)
-            function readStorageComponent(storagePtr, targetDict, baseStartSlot, maxSlotLimit) {
-                if (!storagePtr || storagePtr.isNull()) return;
-                try {
-                    var startIdx = baseStartSlot;
-                    try {
-                        var stIdx = storagePtr.add(0x28).readS32();
-                        if (stIdx >= 0 && stIdx <= 240) startIdx = stIdx;
-                    } catch (eSt) {}
-
-                    var cellsDict = storagePtr.add(ptr('0x38')).readPointer();
-                    if (!cellsDict.isNull()) {
-                        var cEntries = cellsDict.add(ptr('0x18')).readPointer();
-                        var cCount = cellsDict.add(ptr('0x20')).readS32();
-                        if (!cEntries.isNull() && cCount > 0 && cCount <= 240) {
-                            for (var ci = 0; ci < cCount; ci++) {
-                                try {
-                                    var cent = cEntries.add(0x20 + ci * 24);
-                                    var slotObj = cent.add(0x18).readPointer();
-                                    if (!slotObj.isNull()) {
-                                        var sNum = slotObj.add(ptr('0x20')).readS32();
-                                        var realSlot = sNum;
-                                        if (realSlot < startIdx) realSlot += startIdx;
-                                        if (realSlot >= baseStartSlot && realSlot < maxSlotLimit) {
-                                            var itObj = slotObj.add(ptr('0x48')).readPointer();
-                                            if (!itObj.isNull()) {
-                                                var idx = readItemIndex(itObj);
-                                                var nm = getItemName(itObj) || "";
-                                                var jType = getJewelType(idx, nm);
-                                                var cnt = readJewelCount(itObj);
-                                                targetDict[realSlot] = {
-                                                    slot: realSlot,
-                                                    ptr: itObj,
-                                                    id: idx,
-                                                    name: nm,
-                                                    count: cnt,
-                                                    type: jType
-                                                };
-                                            }
-                                        }
-                                    }
-                                } catch (eC) {}
-                            }
-                        }
-                    }
-                } catch (eS) {}
-            }
-
-            // =========================================================================
-            // 2. QUET THUNG DO KHO (CHINH: 0..119 & MO RONG: 120..239)
-            // =========================================================================
             var mainWarehouseSlots = {};
             var extWarehouseSlots = {};
 
@@ -3955,72 +4456,48 @@ rpc.exports = {
                         var whOff = off('__UI_WAREHOUSE_WINDOW__');
                         var whWin = whOff.isNull() ? gui.add(ptr('0x288')).readPointer() : gui.add(whOff).readPointer();
                         if (!whWin.isNull()) {
-                            // A. Doc Thung do Kho Chinh qua MainStorage (offset 0x58, slots 0..119)
                             try {
-                                var mainStorage = whWin.add(ptr('0x58')).readPointer();
-                                readStorageComponent(mainStorage, mainWarehouseSlots, 0, 120);
-                            } catch (eWhMain) {}
-
-                            // B. Doc Thung do Kho Mo Rong qua ExtStorage (offset 0x60, slots 120..239)
-                            try {
-                                var extStorage = whWin.add(ptr('0x60')).readPointer();
-                                readStorageComponent(extStorage, extWarehouseSlots, 120, 240);
-                            } catch (eWhExt) {}
-
-                            // C. Du phong doc toan bo 240 slots qua WarehouseWindow.Items (offset 0x30)
-                            if (Object.keys(mainWarehouseSlots).length === 0 || Object.keys(extWarehouseSlots).length === 0) {
-                                try {
-                                    var dictPtr = whWin.add(ptr('0x30')).readPointer();
-                                    if (!dictPtr.isNull()) {
-                                        var entries = dictPtr.add(ptr('0x18')).readPointer();
-                                        var count = dictPtr.add(ptr('0x20')).readS32();
-                                        for (var di = 0; di < count && di < 240; di++) {
+                                var dictPtr = whWin.add(ptr('0x30')).readPointer();
+                                if (!dictPtr.isNull()) {
+                                    var entries = dictPtr.add(ptr('0x18')).readPointer();
+                                    var count = dictPtr.add(ptr('0x20')).readS32();
+                                    if (!entries.isNull() && count > 0 && count <= 300) {
+                                        for (var di = 0; di < count; di++) {
                                             try {
                                                 var ent = entries.add(0x20 + di * 24);
-                                                var k1 = ent.add(0x8).readS32();
-                                                var k2 = ent.add(0x10).readS32();
-                                                var v1 = ent.add(0x10).readPointer();
-                                                var v2 = ent.add(0x18).readPointer();
-                                                var key = (k2 >= 0 && k2 < 240) ? k2 : k1;
-                                                var val = (!v2.isNull()) ? v2 : v1;
-                                                if (key >= 0 && key < 240 && !val.isNull()) {
+                                                if (ent.readS32() < 0) continue;
+                                                var slot = ent.add(0x08).readS32();
+                                                var val = ent.add(0x10).readPointer();
+                                                if (!val.isNull() && slot >= 0 && slot < 240) {
                                                     var idx2 = readItemIndex(val);
                                                     var nm2 = getItemName(val) || "";
                                                     var jType2 = getJewelType(idx2, nm2);
-                                                    var cnt2 = readJewelCount(val);
                                                     if (jType2) {
-                                                        if (key < 120 && !mainWarehouseSlots[key]) {
-                                                            mainWarehouseSlots[key] = { slot: key, ptr: val, id: idx2, name: nm2, count: cnt2, type: jType2 };
-                                                        } else if (key >= 120 && key < 240 && !extWarehouseSlots[key]) {
-                                                            extWarehouseSlots[key] = { slot: key, ptr: val, id: idx2, name: nm2, count: cnt2, type: jType2 };
-                                                        }
+                                                        var cnt2 = readJewelCount(val);
+                                                        var itObj2 = { slot: slot, ptr: val, id: idx2, name: nm2, count: cnt2, type: jType2 };
+                                                        if (slot < 120) mainWarehouseSlots[slot] = itObj2;
+                                                        else extWarehouseSlots[slot] = itObj2;
                                                     }
                                                 }
-                                            } catch (eWhBDict) {}
+                                            } catch (eWhEnt) {}
                                         }
                                     }
-                                } catch (eWhB) {}
-                            }
+                                }
+                            } catch (eWhItems) {}
                         }
                     }
                 }
             } catch (eWH) {}
 
-            // Thuc hien ghep ngoc Thung do Kho Chinh (slots 0..119)
             if (Object.keys(mainWarehouseSlots).length > 0) {
-                consolidateStorage("Thùng đồ chính", 2, mainWarehouseSlots, 0, 120);
+                consolidateStorage("Thùng đồ chính", 2, mainWarehouseSlots);
             }
-
-            // Thuc hien ghep ngoc Thung do Kho Mo Rong (slots 120..239)
             if (Object.keys(extWarehouseSlots).length > 0) {
-                consolidateStorage("Thùng đồ mở rộng", 2, extWarehouseSlots, 120, 240);
+                consolidateStorage("Thùng đồ mở rộng", 2, extWarehouseSlots);
             }
 
-            // =========================================================================
-            // 3. QUET HOM DO & TUI DO MO RONG NHAN VAT (PLAYER INVENTORY: 12..203)
-            // =========================================================================
             var inventorySlots = {};
-            var invMaxSlot = 204; // Mac dinh quet toan bo tui do chinh & mo rong (12..203)
+            var invMaxSlot = 204;
             try {
                 var p = getPlayerPtr();
                 if (!p.isNull()) {
@@ -4028,11 +4505,7 @@ rpc.exports = {
                     if (!inv.isNull()) {
                         var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
                         if (!itemsArr.isNull()) {
-                            try {
-                                var arrLen = itemsArr.add(0x18).readS32();
-                                if (arrLen > 12 && arrLen <= 204) invMaxSlot = arrLen;
-                            } catch (eLen) {}
-
+                            try { var l = itemsArr.add(0x18).readS32(); if (l > 12 && l <= 204) invMaxSlot = l; } catch (eL) {}
                             for (var s = 12; s < invMaxSlot; s++) {
                                 try {
                                     var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
@@ -4040,8 +4513,10 @@ rpc.exports = {
                                         var invIdx = readItemIndex(itemPtr);
                                         var invNm = getItemName(itemPtr) || "";
                                         var invJType = getJewelType(invIdx, invNm);
-                                        var invCnt = readJewelCount(itemPtr);
-                                        inventorySlots[s] = { slot: s, ptr: itemPtr, id: invIdx, name: invNm, count: invCnt, type: invJType };
+                                        if (invJType) {
+                                            var invCnt = readJewelCount(itemPtr);
+                                            inventorySlots[s] = { slot: s, ptr: itemPtr, id: invIdx, name: invNm, count: invCnt, type: invJType };
+                                        }
                                     }
                                 } catch (eIt) {}
                             }
@@ -4050,9 +4525,8 @@ rpc.exports = {
                 }
             } catch (eInv) {}
 
-            // Thuc hien ghep ngoc Hom do & Tui do mo rong nhan vat (storageFlag = 0)
             if (Object.keys(inventorySlots).length > 0) {
-                consolidateStorage("Hòm đồ nhân vật", 0, inventorySlots, 12, invMaxSlot);
+                consolidateStorage("Hòm đồ nhân vật", 0, inventorySlots);
             }
 
             return JSON.stringify({
@@ -4122,7 +4596,7 @@ rpc.exports = {
         }
     },
 
-    enterDevil: function(targetLevel, slot, ticketPreference) {
+    enterDevil: function(targetLevel, slot) {
         try {
             ensureThreadAttached();
             var dsLevel = (targetLevel !== undefined && targetLevel !== null && parseInt(targetLevel) >= 0) ? parseInt(targetLevel) : getPlayerDevilSquareLevel();
@@ -4173,45 +4647,31 @@ rpc.exports = {
                                     }
                                 }
 
-                                var pref = (ticketPreference || 'auto').toString().toLowerCase();
-                                if (pref === 'master') {
+                                // Ưu tiên vé:
+                                // Nếu là Master (dsLevel >= 6): Ưu tiên Master Ticket trước, sau đó tới Normal Matched (+7)
+                                if (dsLevel >= 6) {
                                     if (masterMatchedSlot >= 12) {
                                         itemSlot = masterMatchedSlot;
                                         isMasterTicketUsed = true;
                                     } else if (anyMasterSlot >= 12) {
                                         itemSlot = anyMasterSlot;
                                         isMasterTicketUsed = true;
+                                    } else if (normalMatchedSlot >= 12) {
+                                        itemSlot = normalMatchedSlot;
+                                    } else if (anyTicketSlot >= 12) {
+                                        itemSlot = anyTicketSlot;
                                     }
-                                } else if (pref === 'normal') {
+                                } else {
+                                    // Nhân vật thường: Ưu tiên Normal Ticket đúng cấp
                                     if (normalMatchedSlot >= 12) {
                                         itemSlot = normalMatchedSlot;
                                     } else if (anyNormalSlot >= 12) {
                                         itemSlot = anyNormalSlot;
-                                    }
-                                } else {
-                                    if (dsLevel >= 6) {
-                                        if (masterMatchedSlot >= 12) {
-                                            itemSlot = masterMatchedSlot;
-                                            isMasterTicketUsed = true;
-                                        } else if (anyMasterSlot >= 12) {
-                                            itemSlot = anyMasterSlot;
-                                            isMasterTicketUsed = true;
-                                        } else if (normalMatchedSlot >= 12) {
-                                            itemSlot = normalMatchedSlot;
-                                        } else if (anyTicketSlot >= 12) {
-                                            itemSlot = anyTicketSlot;
-                                        }
-                                    } else {
-                                        if (normalMatchedSlot >= 12) {
-                                            itemSlot = normalMatchedSlot;
-                                        } else if (anyNormalSlot >= 12) {
-                                            itemSlot = anyNormalSlot;
-                                        } else if (anyMasterSlot >= 12) {
-                                            itemSlot = anyMasterSlot;
-                                            isMasterTicketUsed = true;
-                                        } else if (anyTicketSlot >= 12) {
-                                            itemSlot = anyTicketSlot;
-                                        }
+                                    } else if (anyMasterSlot >= 12) {
+                                        itemSlot = anyMasterSlot;
+                                        isMasterTicketUsed = true;
+                                    } else if (anyTicketSlot >= 12) {
+                                        itemSlot = anyTicketSlot;
                                     }
                                 }
                             }
@@ -4856,46 +5316,28 @@ rpc.exports = {
         return false;
     },
 
-    autoLogin: function(server, account, character, password) {
+    autoLogin: function(server, account, character, password, token) {
         try {
             ensureThreadAttached();
             var s = parseInt(server || 1);
             var acc = account ? String(account) : "";
             var chr = character ? String(character) : "";
             var pwd = (password !== undefined && password !== null) ? String(password) : "";
+            var tok = (token !== undefined && token !== null) ? String(token) : "";
 
-            // 1. Cấu hình tức thì AutoLogin singleton nếu đã có sẵn
-            var autoLogin = null;
-            if (nativeGetAutoLogin !== null) {
-                try { autoLogin = nativeGetAutoLogin(); } catch (eG) {}
-            }
-            if (autoLogin !== null && !autoLogin.isNull()) {
-                try {
-                    var accStr = il2cpp_string_new(Memory.allocUtf8String(acc));
-                    var chrStr = il2cpp_string_new(Memory.allocUtf8String(chr));
-                    if (nativeSetAutoLogin !== null) {
-                        try { nativeSetAutoLogin(autoLogin, s, accStr, chrStr); } catch (eSet) {}
-                    }
-                    autoLogin.add(0x20).writeU8(0);
-                    autoLogin.add(0x21).writeU8(0);
-                    autoLogin.add(0x22).writeU8(0);
-                    autoLogin.add(0x23).writeU8(0);
-                    autoLogin.add(0x24).writeS32(s);
-                    autoLogin.add(0x28).writePointer(accStr);
-                    autoLogin.add(0x30).writePointer(chrStr);
-                } catch (eALInit) {}
-            }
-
-            // 2. Đặt lệnh vào hàng đợi Main Thread để Game.Update thực thi chính xác và an toàn
+            // Đặt lệnh vào hàng đợi Main Thread để Game.Update thực thi chính xác và an toàn tuyệt đối
             autoLoginLastStatus = { done: false, submitted: false, stage: "queued", account: acc };
             pendingAutoLogin = {
                 server: s,
                 account: acc,
                 character: chr,
                 password: pwd,
+                token: tok,
+                configured: false,
+                submitted: false,
+                charSelected: false,
                 frames: 0,
-                done: false,
-                submitted: false
+                done: false
             };
 
             return JSON.stringify({ ok: true, server: s, account: acc, character: chr, queued: true });
@@ -4910,6 +5352,43 @@ rpc.exports = {
 
     get_auto_login_status: function() {
         return JSON.stringify(autoLoginLastStatus);
+    },
+
+    getSceneState: function() {
+        try {
+            ensureThreadAttached();
+            if (nativeGetSceneHandler !== null) {
+                var sh = nativeGetSceneHandler();
+                if (!sh.isNull()) {
+                    var sType = sh.add(0x20).readS32();
+                    var isReady = sh.add(0x3A).readU8() === 1;
+                    var worldIdx = sh.add(0x40).readS32();
+                    return JSON.stringify({ ok: true, type: sType, worldReady: isReady, worldIndex: worldIdx });
+                }
+            }
+        } catch (e) {}
+        return JSON.stringify({ ok: false, type: -1, worldReady: false, worldIndex: -1 });
+    },
+
+    setTargetFps: function(fps) {
+        try {
+            ensureThreadAttached();
+            if (nativeSetTargetFps !== null) {
+                nativeSetTargetFps(parseInt(fps));
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    },
+
+    getTargetFps: function() {
+        try {
+            ensureThreadAttached();
+            if (nativeGetTargetFps !== null) {
+                return nativeGetTargetFps();
+            }
+        } catch (e) {}
+        return -1;
     },
 
     cleanup: function() {
@@ -5096,9 +5575,10 @@ class MegDirectEngine:
             "__GAME_UPDATE__": str(self.offsets.get("game_update") or DEFAULT_OFFSETS.get("game_update", "0x10701F0")),
             "__GAME_UI_UPDATE__": str(self.offsets.get("game_ui_update") or DEFAULT_OFFSETS.get("game_ui_update", "0x1393AC0")),
             "__GAME_TYPE_INFO__": str(self.offsets.get("game_type_info") or DEFAULT_OFFSETS.get("game_type_info", "0x553B900")),
+            "__ITEM_STORAGE_TYPE_INFO__": str(self.offsets.get("item_storage_type_info") or DEFAULT_OFFSETS.get("item_storage_type_info", "0x5540838")),
             "__MLOGIN_UI_TYPE_INFO__": str(self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x55286D0")),
-            "__MLOGIN_SUBMIT__": str(self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1C35790")),
-            "__MLOGIN_TOKEN_LOGIN__": str(self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1C307B0")),
+            "__MLOGIN_SUBMIT__": str(self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1C27DE0")),
+            "__MLOGIN_TOKEN_LOGIN__": str(self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1C28D20")),
             "__SET_AUTO_LOGIN__": str(self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xEBF7C0")),
             "__MOVE_TO__": str(self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xB893E0")),
             "__START_AUTO_MOVE__": str(self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xB93B10")),
@@ -5191,6 +5671,18 @@ class MegDirectEngine:
             "__GREMORY_INSTANCE_GETTER__": str(self.offsets.get("gremory_instance_getter") or DEFAULT_OFFSETS.get("gremory_instance_getter", "0x109AC80")),
             "__GREMORY_CLAIM_ITEM__": str(self.offsets.get("gremory_claim_item") or DEFAULT_OFFSETS.get("gremory_claim_item", "0xFD85C0")),
             "__GREMORY_TYPE_INFO__": str(self.offsets.get("gremory_type_info") or DEFAULT_OFFSETS.get("gremory_type_info", "0x553B900")),
+            "__SET_TARGET_FPS__": str(self.offsets.get("set_target_framerate") or DEFAULT_OFFSETS.get("set_target_framerate", "0x458B5A0")),
+            "__GET_TARGET_FPS__": str(self.offsets.get("get_target_framerate") or DEFAULT_OFFSETS.get("get_target_framerate", "0x458B550")),
+            "__GET_SCENE_HANDLER__": str(self.offsets.get("get_scene_handler") or DEFAULT_OFFSETS.get("get_scene_handler", "0x1078500")),
+            "__RUNTIME_CLASS_INIT__": str(self.offsets.get("runtime_class_init") or DEFAULT_OFFSETS.get("runtime_class_init", "0x2E9950")),
+            "__GET_USER_ACCOUNT__": str(self.offsets.get("get_user_account") or DEFAULT_OFFSETS.get("get_user_account", "0x1078930")),
+            "__USER_ACCOUNT_SET_USERNAME__": str(self.offsets.get("user_account_set_username") or DEFAULT_OFFSETS.get("user_account_set_username", "0x1403F20")),
+            "__USER_ACCOUNT_SET_TOKEN__": str(self.offsets.get("user_account_set_token") or DEFAULT_OFFSETS.get("user_account_set_token", "0x14042B0")),
+            "__GET_CS_CONNECTION__": str(self.offsets.get("get_cs_connection") or DEFAULT_OFFSETS.get("get_cs_connection", "0x107B3D0")),
+            "__CS_CONNECT__": str(self.offsets.get("cs_connection_connect") or DEFAULT_OFFSETS.get("cs_connection_connect", "0x11EF630")),
+            "__MLOGIN_SET_STATE__": str(self.offsets.get("mlogin_set_state") or DEFAULT_OFFSETS.get("mlogin_set_state", "0x1C33070")),
+            "__AUTO_SELECT_CHARACTER__": str(self.offsets.get("auto_select_character") or DEFAULT_OFFSETS.get("auto_select_character", "0xEC6020")),
+            "__UNIT_SELECT_CHARACTER__": str(self.offsets.get("unit_select_character") or DEFAULT_OFFSETS.get("unit_select_character", "0x111C0F0")),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -5340,7 +5832,28 @@ class MegDirectEngine:
                 self.session = None
             return False
 
+        if frida is None:
+            _safe_log("[MegDirectEngine] Thư viện frida chưa được cài đặt trong môi trường python.")
+            return False
 
+        try:
+            self.session = frida.attach(self.pid)
+            try:
+                self.session.on("detached", self._on_detached)
+            except Exception:
+                pass
+            js_code = self._generate_js()
+            self.script = self.session.create_script(js_code)
+            self.script.on("message", self._on_message)
+            self.script.load()
+            self.is_ready = True
+            trace_frida_event("ATTACH_SUCCESS", f"Đã kết nối Frida session thành công tới PID {self.pid}", pid=self.pid)
+            return True
+        except Exception as e:
+            trace_frida_event("ATTACH_ERROR", f"Lỗi attach Frida tới PID {self.pid}: {e}", pid=self.pid, level="ERROR")
+            _safe_log(f"[MegDirectEngine] Lỗi attach Frida tới PID {self.pid}: {e}")
+            self.is_ready = False
+            return False
 
     def _call(self, func_name: str, *args, timeout: float = 4.0) -> Any:
         with self._rpc_lock:
@@ -6474,15 +6987,58 @@ class MegDirectEngine:
 
         return {"ok": False, "success": False, "claimed": 0, "error": "not_ready"}
 
-    def auto_stack_jewels(self) -> Dict[str, Any]:
+    def scan_jewels_info(self) -> Dict[str, Any]:
+        """Quét toàn bộ snapshot ngọc trong thùng đồ (chính & mở rộng) và hòm đồ."""
+        if not self.is_ready:
+            try:
+                self.attach()
+                time.sleep(0.3)
+            except Exception:
+                pass
+        if not self.is_ready:
+            return {"ok": False, "error": "not_ready"}
+        try:
+            res_str = self._call("scanJewelsSnapshot")
+            if not res_str:
+                return {"ok": False, "error": "scan_failed"}
+            res = json.loads(res_str) if isinstance(res_str, str) else res_str
+            return res
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi scan_jewels_info: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def stack_jewel_step(self, jewel_type: Optional[str] = None) -> Dict[str, Any]:
+        """Thực hiện 1 bước gộp ngọc cho loại jewel_type cụ thể (hoặc bất kỳ ngọc nào nếu None)."""
+        if not self.is_ready:
+            try:
+                self.attach()
+                time.sleep(0.3)
+            except Exception:
+                pass
+        if not self.is_ready:
+            return {"ok": False, "error": "not_ready"}
+        try:
+            res_str = self._call("stackJewelStep", jewel_type)
+            if not res_str:
+                return {"ok": False, "error": "call_failed"}
+            res = json.loads(res_str) if isinstance(res_str, str) else res_str
+            return res
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi stack_jewel_step: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def run_auto_stack_all_jewels(
+        self,
+        progress_cb: Optional[Callable[[str], None]] = None,
+        stop_check: Optional[Callable[[], bool]] = None
+    ) -> Dict[str, Any]:
         """
-        Gom và ghép ngọc trong thùng đồ (Warehouse):
-        - Đọc toàn bộ danh sách vật phẩm trong thùng đồ (WarehouseWindow).
-        - Nhận diện các ngọc có cùng ID (Bless, Soul, Life, Chaos, Creation, Guardian, Harmony, Gemstone).
-        - Ghép ngọc cùng ID thành 1 stack tại vị trí đầu tiên của ngọc đó trên thùng đồ.
-        - Giới hạn tối đa 100 viên (100v) mỗi ô. Khi quá 100v, chuyển sang vị trí ngọc tiếp theo hoặc đặt vào ô trống.
-        - Tuyệt đối bảo toàn 100% ngọc (kiểm tra an toàn kép trước mọi thao tác di chuyển/ghép).
-        - Bỏ qua nguyên trạng các ngọc không ghép được (như Jewel of Darkness).
+        Chạy tiến trình gom ngọc nền đa luồng cho TẤT CẢ các loại ngọc:
+        - Bless, Soul, Life, Chaos, Creation, Guardian, Harmony, Gemstone.
+        - Quét cả Thùng đồ chính (0..119), Thùng đồ mở rộng (120..239) và Hòm đồ nhân vật (12..203).
+        - Thực hiện từng bước (step-by-step) với con trỏ bộ nhớ tươi mới trước mỗi lần di chuyển.
+        - Giới hạn tối đa 100 viên (100v) mỗi ô. Tuyệt đối không để mất ngọc.
+        - Bỏ qua Jewel of Darkness và tất cả các loại ngọc không ghép được.
         """
         if not self.is_ready:
             try:
@@ -6493,38 +7049,123 @@ class MegDirectEngine:
         if not self.is_ready:
             return {"ok": False, "error": "not_ready"}
 
-        try:
-            res_str = self._call("autoStackJewels")
-            if not res_str:
-                return {"ok": False, "error": "scan_failed"}
-            res = json.loads(res_str) if isinstance(res_str, str) else res_str
-            if not res.get("ok"):
-                return res
+        COMBINABLE_TYPES = [
+            "Bless", "Soul", "Life", "Chaos", "Creation", "Guardian", "Harmony", "Gemstone"
+        ]
 
-            counts = res.get("counts", {})
-            moved = res.get("moved", 0)
-            details = res.get("details", [])
-            total_jewels = res.get("totalJewels", 0)
+        def _log(msg: str):
+            if progress_cb:
+                try:
+                    progress_cb(msg)
+                except Exception:
+                    pass
+            _safe_log(f"[AutoStackJewels] {msg}")
 
+        # 1. Quét snapshot ban đầu
+        snap = self.scan_jewels_info()
+        if not snap.get("ok"):
+            return snap
+
+        total_jewels = snap.get("totalJewels", 0)
+        counts = snap.get("counts", {})
+        loose_counts = snap.get("looseCounts", {})
+        wh_open = snap.get("warehouseOpen", False)
+
+        loc_str = "Thùng đồ & Hòm đồ" if wh_open else "Hòm đồ nhân vật"
+        if total_jewels == 0:
             return {
                 "ok": True,
-                "counts": counts,
-                "moved": moved,
-                "details": details,
-                "total_jewels": total_jewels
+                "moved": 0,
+                "total_moved": 0,
+                "total_jewels": 0,
+                "counts": {},
+                "summary": f"{loc_str} không có ngọc lẻ có thể gom."
             }
-        except Exception as e:
-            _safe_log(f"[MegDirectEngine] Loi auto_stack_jewels: {e}")
-            return {"ok": False, "error": str(e)}
 
-    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None, ticket_preference: str = "auto") -> Dict[str, Any]:
+        # Kiểm tra xem có loại ngọc nào có >= 2 ô lẻ không
+        has_loose = any(v >= 2 for v in loose_counts.values())
+        if not has_loose:
+            return {
+                "ok": True,
+                "moved": 0,
+                "total_moved": 0,
+                "total_jewels": total_jewels,
+                "counts": counts,
+                "summary": "Tất cả các ngọc đã gọn gàng."
+            }
+
+        total_moved = 0
+        details = []
+
+        # 2. Vòng lặp gom ngọc tuần tự theo từng loại ngọc
+        max_passes = 5
+        for pass_idx in range(max_passes):
+            moves_this_pass = 0
+
+            for j_type in COMBINABLE_TYPES:
+                if stop_check and stop_check():
+                    _log("⚠️ Tiến trình gom ngọc nhận lệnh dừng.")
+                    break
+
+                step_cnt = 0
+                while step_cnt < 40:
+                    if stop_check and stop_check():
+                        break
+                    res = self.stack_jewel_step(j_type)
+                    if not res.get("ok") or not res.get("moved"):
+                        break
+
+                    moves_this_pass += 1
+                    total_moved += 1
+                    step_cnt += 1
+                    details.append(res)
+
+                    st_name = res.get("storage", loc_str)
+                    j_name = res.get("name", j_type)
+                    f_slot = res.get("fromSlot", 0)
+                    t_slot = res.get("toSlot", 0)
+                    f_cnt = res.get("fromCount", 1)
+                    t_cnt = res.get("toCount", 1)
+                    tot = res.get("targetTotal", t_cnt + f_cnt)
+
+                    _log(f"💎 [{st_name}] Gom {j_name}: ô {f_slot} ({f_cnt}v) ➔ ô {t_slot} ({t_cnt}v) -> {min(100, tot)}/100v")
+                    time.sleep(0.35)
+
+            if moves_this_pass == 0 or (stop_check and stop_check()):
+                break
+
+        # 3. Quét snapshot kết quả sau khi gom
+        final_snap = self.scan_jewels_info()
+        final_counts = final_snap.get("counts", counts) if final_snap.get("ok") else counts
+        final_total = final_snap.get("totalJewels", total_jewels) if final_snap.get("ok") else total_jewels
+
+        return {
+            "ok": True,
+            "moved": total_moved,
+            "total_moved": total_moved,
+            "total_jewels": final_total,
+            "counts": final_counts,
+            "details": details
+        }
+
+    def auto_stack_jewels(self, progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """
+        Gom và ghép ngọc trong thùng đồ và hòm đồ nhân vật:
+        - Đọc toàn bộ thông tin thùng đồ (Kho chính 0..119 & Kho mở rộng 120..239) và hòm đồ nhân vật.
+        - Gom toàn bộ các loại ngọc (Bless, Soul, Life, Chaos, Creation, Guardian, Harmony, Gemstone).
+        - Ghép các ngọc có ID trùng nhau tại vị trí ô chứa ngọc, tối đa 100 viên (100v) mỗi ô.
+        - Tuyệt đối bảo toàn 100% ngọc. Bỏ qua Jewel of Darkness và các ngọc không ghép được.
+        - Chạy nền an toàn với phản hồi thời gian thực.
+        """
+        return self.run_auto_stack_all_jewels(progress_cb=progress_callback)
+
+    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None) -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Devil Square (không cần click NPC)."""
         if self.is_ready:
             try:
                 arg_lvl = int(level) if (level is not None and int(level) >= 0) else None
                 arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
-                arg_pref = str(ticket_preference or "auto")
-                res = self._call("enterDevil", arg_lvl, arg_slot, arg_pref)
+                res = self._call("enterDevil", arg_lvl, arg_slot)
                 if isinstance(res, str):
                     try:
                         res = json.loads(res)
@@ -6679,17 +7320,46 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi sell_inventory_slot: {e}")
         return False
 
-    def auto_login(self, server: int = 1, account: str = "", character: str = "", password: str = "") -> Dict[str, Any]:
-        """Gửi lệnh AutoLogin native vào GameAssembly.dll, hỗ trợ QuickSwitch và submit mật khẩu trực tiếp."""
+    def auto_login(self, server: int = 1, account: str = "", character: str = "", password: str = "", token: str = "") -> Dict[str, Any]:
+        """Gửi lệnh AutoLogin native vào GameAssembly.dll, hỗ trợ QuickSwitch, token registry và submit mật khẩu trực tiếp."""
         if self.is_ready:
             try:
-                res = self._call("autoLogin", int(server), str(account), str(character), str(password))
+                res = self._call("autoLogin", int(server), str(account), str(character), str(password), str(token))
                 if res:
                     return json.loads(res) if isinstance(res, str) else res
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi auto_login: {e}")
                 return {"ok": False, "err": str(e)}
         return {"ok": False, "err": "not_ready"}
+
+    def get_scene_state(self) -> dict:
+        """Lấy trạng thái SceneHandler hiện tại (type: 2=Login, 3=Lobby, 4=Playing, worldReady: bool, worldIndex: int)."""
+        if self.is_ready:
+            try:
+                res = self._call("getSceneState")
+                if res:
+                    return json.loads(res) if isinstance(res, str) else res
+            except Exception:
+                pass
+        return {"ok": False, "type": -1, "worldReady": False, "worldIndex": -1}
+
+    def set_target_fps(self, fps: int = 15) -> bool:
+        """Giới hạn FPS của client MEGAMU (SetTargetFrameRate) để tối ưu hóa CPU/GPU khi chạy nhiều tài khoản."""
+        if self.is_ready:
+            try:
+                return bool(self._call("setTargetFps", int(fps)))
+            except Exception:
+                pass
+        return False
+
+    def get_target_fps(self) -> int:
+        """Lấy target FPS hiện tại của client MEGAMU."""
+        if self.is_ready:
+            try:
+                return int(self._call("getTargetFps"))
+            except Exception:
+                pass
+        return -1
 
     def get_autologin_status(self) -> Dict[str, Any]:
         """Lấy trạng thái thực thi AutoLogin trên Unity Main Thread."""

@@ -153,7 +153,14 @@ CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 AUTO_STOP_LOG_FILE = BASE_DIR / "auto_stop_events.log"
 
 try:
-    from meg_crash_tracer import log_crash_trace
+    from meg_crash_tracer import (
+        log_crash_trace,
+        log_thread_exception,
+        install_global_exception_hooks,
+        register_ui_exception_callback,
+        traced_thread_scope,
+        traced_thread
+    )
 except ImportError:
     def log_crash_trace(*args, **kwargs): pass
 
@@ -2536,7 +2543,7 @@ class SlotController:
                     self.start_auto()
                 self.app.after(1000, _resume_train)
 
-        self.moss_worker_thread = threading.Thread(target=_worker, daemon=True)
+        self.moss_worker_thread = threading.Thread(target=_worker, daemon=True, name=f"Slot{self.slot_idx:02d}_MossWorker")
         self.moss_worker_thread.start()
         return True
 
@@ -3490,11 +3497,18 @@ class SlotController:
                 self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Hoàn tất"))
                 self._resume_train_after_mirror("Sự kiện Double Goer hoàn tất")
 
+            except Exception as e:
+                log_thread_exception(
+                    source=f"Slot{self.slot_idx:02d}.MirrorDungeonWorker",
+                    exc=e,
+                    thread_name=f"Slot{self.slot_idx:02d}_MirrorDungeonWorker",
+                    details=f"Char: {self.char_name}"
+                )
             finally:
                 with self._mirror_lock:
                     self._mirror_dungeon_running = False
 
-        threading.Thread(target=_dungeon_worker, daemon=True).start()
+        threading.Thread(target=_dungeon_worker, daemon=True, name=f"Slot{self.slot_idx:02d}_MirrorDungeonWorker").start()
 
     def enter_mirror(self) -> bool:
         """
@@ -3620,7 +3634,7 @@ class SlotController:
             # Khôi phục AutoTrain nếu trước đó bị tạm dừng bởi sự kiện Mirror
             self._resume_train_after_mirror("Sự kiện Double Goer hoàn tất")
 
-        self.mirror_worker_thread = threading.Thread(target=_worker, daemon=True)
+        self.mirror_worker_thread = threading.Thread(target=_worker, daemon=True, name=f"Slot{self.slot_idx:02d}_MirrorWorker")
         self.mirror_worker_thread.start()
         return True
 
@@ -3815,7 +3829,7 @@ class SlotController:
             self.mirror_sniping = False
             self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
 
-        self.mirror_snipe_thread = threading.Thread(target=_sniper, daemon=True)
+        self.mirror_snipe_thread = threading.Thread(target=_sniper, daemon=True, name=f"Slot{self.slot_idx:02d}_MirrorSniper")
         self.mirror_snipe_thread.start()
         return True
 
@@ -3840,6 +3854,12 @@ class SlotController:
 class DashboardApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+
+        # Kích hoạt bẫy ngoại lệ toàn diện 3 lớp cho mọi luồng và liên kết hiển thị log UI
+        try:
+            install_global_exception_hooks(ui_callback=self.log_message)
+        except Exception:
+            pass
 
         # Khởi tạo ngôn ngữ từ tệp ui_settings.json
         load_language_preference()
@@ -8360,7 +8380,12 @@ class DashboardApp(ctk.CTk):
                             self.move_all_to_moss_elbeland()
 
         except Exception as e:
-            pass
+            log_thread_exception(
+                source="DashboardApp._periodic_moss_scheduler",
+                exc=e,
+                thread_name="MossScheduler",
+                details="Lỗi trong chu kỳ lập lịch Moss Merchant"
+            )
 
         self.after(1000, self._periodic_moss_scheduler)
 
@@ -9652,9 +9677,12 @@ class DashboardApp(ctk.CTk):
                             pass
 
         except Exception as e:
-            import traceback
-            print(f"[ERROR _periodic_mirror_scheduler] {e}")
-            traceback.print_exc()
+            log_thread_exception(
+                source="DashboardApp._periodic_mirror_scheduler",
+                exc=e,
+                thread_name="MirrorScheduler",
+                details="Lỗi trong chu kỳ lập lịch Double Goer"
+            )
 
         finally:
             self.after(poll_interval_ms, self._periodic_mirror_scheduler)
@@ -12156,7 +12184,7 @@ class DashboardApp(ctk.CTk):
                 if self.running:
                     self.after(2500, self._periodic_game_scan)
 
-        threading.Thread(target=_scan_worker, daemon=True).start()
+        threading.Thread(target=_scan_worker, daemon=True, name="GameScanWorker").start()
 
     def _on_window_configure(self, event):
         if event.widget == self:
@@ -12184,14 +12212,19 @@ class DashboardApp(ctk.CTk):
                 for ctrl in self.controllers:
                     if ctrl.assigned_pid:
                         ctrl.sync_telemetry()
-            except Exception:
-                pass
+            except Exception as e:
+                log_thread_exception(
+                    source="DashboardApp._periodic_telemetry",
+                    exc=e,
+                    thread_name="TelemetryWorker",
+                    details="Lỗi đồng bộ dữ liệu Telemetry"
+                )
             finally:
                 self._telemetry_worker_active = False
                 if self.running:
                     self.after(500, self._periodic_telemetry)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        threading.Thread(target=_worker, daemon=True, name="TelemetryWorker").start()
 
     def _periodic_license_monitor(self):
         """Giám sát liên tục sự tồn tại của file .dll và trạng thái bản quyền theo thời gian thực (1 giây/lần)."""
@@ -12515,6 +12548,10 @@ class DashboardApp(ctk.CTk):
 
 # ==============================================================================
 def main():
+    try:
+        install_global_exception_hooks()
+    except Exception:
+        pass
     try:
         with open("gui_lifecycle.log", "a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] main() starting...\n")

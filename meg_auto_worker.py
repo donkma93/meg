@@ -26,6 +26,10 @@ except ImportError:
     psutil = None
 
 from meg_direct_engine import MegDirectEngine
+try:
+    from meg_crash_tracer import log_thread_exception
+except ImportError:
+    def log_thread_exception(*args, **kwargs): pass
 
 CLASS_ID_TO_CODE = {
     0: "DW", 1: "DK", 2: "FE", 3: "MG", 4: "DL", 5: "SU", 6: "RF", 7: "GL",
@@ -1385,7 +1389,11 @@ class AutoTrainWorker:
                 self.last_py = py
                 time.sleep(0.12)
             except Exception as e:
-                import traceback
-                print(f"[Worker Error] {traceback.format_exc()}", flush=True)
-                self._log(f"Lỗi vòng lặp worker: {e}", "WARNING")
+                log_thread_exception(
+                    source=f"AutoWorker-{self.pid}",
+                    exc=e,
+                    thread_name=f"Slot{self.slot_idx:02d}_AutoTrainWorker",
+                    details=f"Slot: {self.slot_idx}, PID: {self.pid}, Char: {self.char_name or 'N/A'}"
+                )
+                self._log(f"Lỗi vòng lặp worker: {e} -> Xem chi tiết tại auto_crash_trace.log", "ERROR")
                 time.sleep(0.5)

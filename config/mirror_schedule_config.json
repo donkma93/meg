@@ -1,6 +1,6 @@
 {
   "schedule": {
-    "auto_schedule": false,
+    "auto_schedule": true,
     "auto_prep_before": true,
     "auto_lifecycle": true,
     "auto_gremory": true,
