@@ -22,7 +22,8 @@
       "server": 3,
       "enabled": true,
       "source": "registry",
-      "password": "Nammothai3"
+      "password": "Nammothai3",
+      "token": "72838def9a78cc00e09cd1345de82811"
     },
     {
       "username": "anhdontb",
@@ -46,7 +47,8 @@
       ],
       "server": 1,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "token": "33aba18d963af5ccc77dbdc695360c27"
     },
     {
       "username": "cravr",
@@ -80,7 +82,8 @@
       ],
       "server": 1,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "token": "7d1c9c1460c8f8b4d9ec966235b44460"
     },
     {
       "username": "donnguyen",
@@ -98,7 +101,7 @@
     {
       "username": "hqneu511",
       "nickname": "hqneu511",
-      "token": "05119b7dad5096ebcd6e7af154f3d648",
+      "token": "e60c0e4f6d8b2cdf5c6bc29116a942cf",
       "character": "KANGzz",
       "characters_list": [
         "KANGzz"
@@ -126,11 +129,23 @@
     {
       "username": "evilzzz",
       "nickname": "SL_SV4",
-      "token": "c86820e7f9e11c3f83ca55f4bc99c2e2",
+      "token": "54eb78a2090bd61e4ed81b2e1de8d902",
       "character": "Evilzzz",
       "characters_list": [
         "Evilzzz",
         "tcvn3"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "6sonquy",
+      "nickname": "viettv",
+      "token": "dc33c12df62650ed4854ef21f1bcb23b",
+      "character": "Rooneyy",
+      "characters_list": [
+        "Rooneyy"
       ],
       "server": 1,
       "enabled": true,

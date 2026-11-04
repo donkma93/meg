@@ -4,37 +4,37 @@
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": false
     },
     "2": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": false
     },
     "3": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": false
     },
     "4": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": false
     },
     "5": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": false
     },
     "6": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": false
     },
     "7": {
       "category": 2,

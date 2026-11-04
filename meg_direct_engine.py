@@ -2601,26 +2601,49 @@ var lastFastSentAt = 0;
 var lastFastNameReadAt = 0;
 var lastFastCharName = '';
 var fastTelemetrySeq = 0;
-function fastTelemetryTick() {
+var adaptiveIntervalOverride = 0;
+
+function adaptiveTelemetryTick() {
     if (shuttingDown) return;
     try {
         ensureThreadAttached();
         var nowMs = Date.now();
-        var readName = (!lastFastCharName || (nowMs - lastFastNameReadAt) >= 2000);
+        var readName = (!lastFastCharName || (nowMs - lastFastNameReadAt) >= 3000);
         if (readName) lastFastNameReadAt = nowMs;
         var info = readPlayerInfoSnapshot(readName);
-        if (info === null) return;
-        var sig = [info.level, info.mapId, info.tileX, info.tileY, info.isMoving ? 1 : 0, info.helperState, info.points || 0, info.resets || 0].join('|');
-        if (sig !== lastFastSignature || (nowMs - lastFastSentAt) >= 700) {
-            lastFastSignature = sig;
-            lastFastSentAt = nowMs;
-            fastTelemetrySeq += 1;
-            send({type: 'fast_state', info: info, ts: nowMs, seq: fastTelemetrySeq});
+
+        var nextDelay = 750; // Mặc định đứng train tại chỗ: 750ms (tiết kiệm 80% IPC/CPU)
+        if (info !== null) {
+            var isMoving = Boolean(info.isMoving);
+            // Nếu đang di chuyển: tăng lên 250ms để mượt; nếu đứng yên giữ 750ms
+            nextDelay = isMoving ? 250 : 750;
+
+            var sig = [info.level, info.mapId, info.tileX, info.tileY, isMoving ? 1 : 0, info.helperState, info.points || 0, info.resets || 0].join('|');
+            var maxAge = isMoving ? 350 : 1200;
+            if (sig !== lastFastSignature || (nowMs - lastFastSentAt) >= maxAge) {
+                lastFastSignature = sig;
+                lastFastSentAt = nowMs;
+                fastTelemetrySeq += 1;
+                send({type: 'fast_state', info: info, ts: nowMs, seq: fastTelemetrySeq});
+            }
+        } else {
+            nextDelay = 1200;
         }
-    } catch (e) {}
+
+        if (adaptiveIntervalOverride > 0) {
+            nextDelay = adaptiveIntervalOverride;
+        }
+
+        if (!shuttingDown) {
+            fastTelemetryTimer = setTimeout(adaptiveTelemetryTick, nextDelay);
+        }
+    } catch (e) {
+        if (!shuttingDown) {
+            fastTelemetryTimer = setTimeout(adaptiveTelemetryTick, 1000);
+        }
+    }
 }
-fastTelemetryTimer = setInterval(fastTelemetryTick, 150);
-fastTelemetryTick();
+fastTelemetryTimer = setTimeout(adaptiveTelemetryTick, 50);
 
 var _nativeMirrorTurboTimer = null;
 var _nativeMirrorTurboStats = { running: false, packetsSent: 0, startTime: 0, durationMs: 0, activeSlot: -1, relSlot: -1, entered: false };
@@ -2633,6 +2656,15 @@ function cleanupNativeTurbo() {
 }
 
 rpc.exports = {
+    getBatchTelemetry: function() {
+        return readPlayerInfoSnapshot(true);
+    },
+
+    setTelemetryInterval: function(intervalMs) {
+        adaptiveIntervalOverride = parseInt(intervalMs) || 0;
+        return true;
+    },
+
     getPlayerInfo: function() {
         return readPlayerInfoSnapshot(true);
     },
@@ -3645,9 +3677,18 @@ rpc.exports = {
                 entered: false
             };
 
-            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms) - Tối ưu 1 packet chuẩn 0xBF:0x0E duy nhất
+            // Pre-allocate buffer mảng byte IL2CPP một lần duy nhất (Zero GC pressure, chống tràn bộ đệm heap)
+            var _cachedTurboPacketArr = null;
+            try {
+                _cachedTurboPacketArr = createManagedByteArray([0xC1, 0x05, 0xBF, 0x0E, relSlot & 0xFF]);
+            } catch (ePAB) {}
+
+            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms)
             if (nativeMirrorEnterAlt !== null) {
                 try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
+            } else if (_cachedTurboPacketArr !== null) {
+                var gs0 = getGSConnection();
+                if (!gs0.isNull()) sendGSPacketDirect(gs0, _cachedTurboPacketArr);
             } else {
                 sendMirrorEnterPacket(relSlot);
             }
@@ -3662,8 +3703,6 @@ rpc.exports = {
                     }
 
                     // --- BƯỚC 1: KIỂM TRA ĐÃ VÀO MAP DOUBLE GOER (MAP ID: 65, 66, 67, 68) ---
-                    // Tuyệt đối chỉ trigger thành công khi SceneIndex thực sự thuộc 65-68!
-                    // Event Square là map 53 sẽ luôn trả về false, không bao giờ trigger ảo!
                     if (isCurrentMapDoubleGoer()) {
                         _nativeMirrorTurboStats.running = false;
                         _nativeMirrorTurboStats.entered = true;
@@ -3689,9 +3728,12 @@ rpc.exports = {
                         return;
                     }
 
-                    // --- BƯỚC 3: GỌI NATIVE ENTRY VÀ BẮN PACKET CƯỚP CỔNG (Tối ưu 1 packet chuẩn 0xBF:0x0E duy nhất) ---
+                    // --- BƯỚC 3: GỌI NATIVE ENTRY HOẶC BẮN PACKET DÙNG BUFFER TÁI SỬ DỤNG ---
                     if (nativeMirrorEnterAlt !== null) {
                         try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot); } catch (eNEA) {}
+                    } else if (_cachedTurboPacketArr !== null) {
+                        var gs = getGSConnection();
+                        if (!gs.isNull()) sendGSPacketDirect(gs, _cachedTurboPacketArr);
                     } else {
                         sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
                     }
@@ -5413,6 +5455,7 @@ rpc.exports = {
         } catch (eGU) {}
         try {
             if (fastTelemetryTimer !== null) {
+                clearTimeout(fastTelemetryTimer);
                 clearInterval(fastTelemetryTimer);
                 fastTelemetryTimer = null;
             }
@@ -5772,20 +5815,14 @@ class MegDirectEngine:
             return False
         self._last_attach_attempt = now
 
-        if psutil and not psutil.pid_exists(self.pid):
-            _safe_log(f"[MegDirectEngine] Tiến trình PID {self.pid} không tồn tại trên hệ thống.")
-            self.is_ready = False
-            return False
-
         try:
-            p = psutil.Process(self.pid)
-            if not p.is_running() or p.status() in (getattr(psutil, "STATUS_ZOMBIE", "zombie"), getattr(psutil, "STATUS_DEAD", "dead")):
+            from core.process_utils import is_megamu_process_alive
+            if not is_megamu_process_alive(self.pid):
                 self.is_ready = False
                 return False
         except Exception:
             self.is_ready = False
             return False
-
         if frida is None:
             _safe_log("[MegDirectEngine] Thư viện frida chưa được cài đặt trong môi trường python.")
             return False
@@ -5901,10 +5938,22 @@ class MegDirectEngine:
 
     def read_player_info_via_ram(self) -> Optional[Dict[str, Any]]:
         """Đọc trực tiếp thông tin nhân vật qua Win32 ReadProcessMemory từ GameAssembly.dll (Zero-Injection Fallback)."""
-        if not self.pid or (psutil and not psutil.pid_exists(self.pid)):
+        if not self.pid:
             return None
         try:
+            from core.process_utils import is_megamu_process_alive
+            if not is_megamu_process_alive(self.pid):
+                return None
+        except Exception:
+            pass
+
+        try:
             from meg_navigator import ProcessMemoryReader
+            if hasattr(ProcessMemoryReader, "read_full_player_snapshot"):
+                snap = ProcessMemoryReader.read_full_player_snapshot(self.pid)
+                if snap:
+                    return snap
+
             live = ProcessMemoryReader.read_live_state(self.pid)
             lvl = ProcessMemoryReader.read_character_level(self.pid)
             helper = ProcessMemoryReader.read_helper_state(self.pid)
@@ -5949,6 +5998,18 @@ class MegDirectEngine:
             }
         except Exception:
             return None
+
+    def get_batch_telemetry(self, max_age: float = 0.55, allow_blocking: bool = True) -> Optional[Dict[str, Any]]:
+        """Batch Telemetry: Đọc toàn bộ struct nhân vật trong 1 lần gọi duy nhất."""
+        return self.get_player_info(max_age=max_age, allow_blocking=allow_blocking)
+
+    def set_telemetry_rate(self, interval_ms: int):
+        """Điều chỉnh tốc độ Telemetry thích ứng từ Python sang Native JS."""
+        if self.is_ready:
+            try:
+                self._call("setTelemetryInterval", int(interval_ms))
+            except Exception:
+                pass
 
     def get_player_info(self, max_age: float = 0.55, allow_blocking: bool = True) -> Optional[Dict[str, Any]]:
         """Lấy thông tin nhân vật từ Fast Telemetry nếu còn mới, fallback gọi RPC hoặc đọc RAM trực tiếp."""

@@ -930,13 +930,15 @@ class AutoTrainWorker:
                 if info_resets > 0:
                     self.current_resets = info_resets
                 elif self.current_resets <= 0:
-                    try:
-                        from meg_navigator import ProcessMemoryReader
-                        r_title = ProcessMemoryReader.read_character_resets(self.pid)
-                        if r_title is not None and r_title > 0:
-                            self.current_resets = r_title
-                    except Exception:
-                        pass
+                    if (now - getattr(self, "_last_reset_check_time", 0.0)) >= 5.0:
+                        self._last_reset_check_time = now
+                        try:
+                            from meg_navigator import ProcessMemoryReader
+                            r_title = ProcessMemoryReader.read_character_resets(self.pid)
+                            if r_title is not None and r_title > 0:
+                                self.current_resets = r_title
+                        except Exception:
+                            pass
 
                 # 1.1. Cô lập an toàn khi tạm dừng cho sự kiện hoặc đang trong map sự kiện Double Goer
                 if self.is_paused_for_event:

@@ -258,36 +258,48 @@ def get_machine_hwid() -> str:
 
 _license_lock = threading.Lock()
 _cached_license_data: Dict[str, Any] = {}
+_last_license_mtime: float = 0.0
 
 def load_license_data() -> Dict[str, Any]:
-    """Đọc dữ liệu bản quyền đã lưu từ file config/license.json (Thread-safe có fallback cache)."""
-    global _cached_license_data
+    """Đọc dữ liệu bản quyền đã lưu từ file config/license.json (Thread-safe có fallback cache và mtime check)."""
+    global _cached_license_data, _last_license_mtime
     with _license_lock:
-        if not LICENSE_FILE.exists():
-            _cached_license_data = {
-                "license_key": "",
-                "valid": False,
-                "status": "unregistered",
-                "modules": []
-            }
-            return _cached_license_data
-        for _ in range(3):
-            try:
-                content = LICENSE_FILE.read_text(encoding="utf-8")
-                if content.strip():
-                    data = json.loads(content)
-                    if isinstance(data, dict) and data.get("license_key"):
-                        _cached_license_data = data
-                        return data
-            except Exception:
-                time.sleep(0.02)
+        try:
+            if not LICENSE_FILE.exists():
+                _cached_license_data = {
+                    "license_key": "",
+                    "valid": False,
+                    "status": "unregistered",
+                    "modules": []
+                }
+                _last_license_mtime = 0.0
+                return _cached_license_data
+
+            mtime = LICENSE_FILE.stat().st_mtime
+            if _cached_license_data and mtime == _last_license_mtime:
+                return _cached_license_data
+
+            for _ in range(3):
+                try:
+                    content = LICENSE_FILE.read_text(encoding="utf-8")
+                    if content.strip():
+                        data = json.loads(content)
+                        if isinstance(data, dict) and data.get("license_key"):
+                            _cached_license_data = data
+                            _last_license_mtime = mtime
+                            return data
+                except Exception:
+                    time.sleep(0.02)
+        except Exception:
+            pass
         return _cached_license_data
 
 def save_license_data(data: Dict[str, Any]):
     """Lưu dữ liệu bản quyền vào config/license.json một cách an toàn (Atomic write)."""
-    global _cached_license_data
+    global _cached_license_data, _last_license_mtime
     with _license_lock:
         _cached_license_data = data
+        _last_license_mtime = 0.0
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         try:
             temp_file = CONFIG_DIR / "license.json.tmp"

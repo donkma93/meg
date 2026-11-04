@@ -1,3 +1,12 @@
+import sys
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -43,6 +52,16 @@ if sys.platform == "win32":
         pass
 
 import customtkinter as ctk
+from core.logger import get_logger, AsyncRingBufferLogger
+from core.system_mutex import SingleInstanceMutex
+from services import (
+    TrainService,
+    DevilService,
+    MossService,
+    MirrorService,
+    MemoryService,
+)
+from ui import MossView, MirrorView, AccountsView, ProfilesView, LogsView, RamView, AutoLoginView
 from tkinter import messagebox
 from PIL import Image, ImageTk, ImageDraw
 import psutil
@@ -316,3542 +335,78 @@ CLASS_CODE_TO_NAME = {
 PROFILE_NAMES = [f"Config {i}" for i in range(1, 11)]
  
 # ==============================================================================
-# BỘ TẠO VECTOR ICON CHẤT LƯỢNG CAO (HIGH-DPI VECTOR ICONS)
+# UI COMPONENTS (HIGH-DPI ICONS, MODERN OPTION MENU, TOOLTIPS)
 # ==============================================================================
-class UiIconFactory:
-    """Tạo vector icon mượt mà sắc nét anti-aliased chất lượng cao (High-DPI)."""
-    _cache: Dict[Tuple[str, str, Tuple[int, int]], ctk.CTkImage] = {}
-
-    @classmethod
-    def get(cls, name: str, color: str = "#cbd5e1", size: Tuple[int, int] = (16, 16)) -> ctk.CTkImage:
-        key = (name, color, size)
-        if key in cls._cache:
-            return cls._cache[key]
-
-        scale = 4
-        cw = size[0] * scale
-        ch = size[1] * scale
-        im = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-        d = ImageDraw.Draw(im)
-
-        lw = max(2, int(1.4 * scale))
-        pad = int(2.5 * scale)
-
-        if name == "play":
-            poly = [(int(cw * 0.32), int(ch * 0.22)), (int(cw * 0.78), int(ch * 0.5)), (int(cw * 0.32), int(ch * 0.78))]
-            d.polygon(poly, fill=color)
-        elif name == "stop":
-            d.rounded_rectangle([int(cw * 0.26), int(ch * 0.26), int(cw * 0.74), int(ch * 0.74)], radius=int(2 * scale), fill=color)
-        elif name == "gear":
-            r_out = int(cw * 0.38)
-            r_in = int(cw * 0.25)
-            cx, cy = cw // 2, ch // 2
-            d.ellipse([cx - r_in, cy - r_in, cx + r_in, cy + r_in], outline=color, width=lw)
-            teeth = 8
-            for i in range(teeth):
-                ang = i * (2 * math.pi / teeth)
-                x1 = cx + int(r_in * math.cos(ang))
-                y1 = cy + int(r_in * math.sin(ang))
-                x2 = cx + int(r_out * math.cos(ang))
-                y2 = cy + int(r_out * math.sin(ang))
-                d.line([(x1, y1), (x2, y2)], fill=color, width=lw)
-            hub_r = max(2, int(cw * 0.08))
-            d.ellipse([cx - hub_r, cy - hub_r, cx + hub_r, cy + hub_r], fill=color)
-        elif name == "file":
-            d.rounded_rectangle([int(cw * 0.24), int(ch * 0.15), int(cw * 0.76), int(ch * 0.85)], radius=int(2 * scale), outline=color, width=lw)
-            d.line([(int(cw * 0.36), int(ch * 0.36)), (int(cw * 0.64), int(ch * 0.36))], fill=color, width=lw)
-            d.line([(int(cw * 0.36), int(ch * 0.50)), (int(cw * 0.64), int(ch * 0.50))], fill=color, width=lw)
-            d.line([(int(cw * 0.36), int(ch * 0.64)), (int(cw * 0.52), int(ch * 0.64))], fill=color, width=lw)
-        elif name == "user":
-            cx, cy = cw // 2, ch // 2
-            hr = int(cw * 0.18)
-            d.ellipse([cx - hr, int(ch * 0.14), cx + hr, int(ch * 0.14) + 2 * hr], fill=color)
-            d.pieslice([int(cw * 0.18), int(ch * 0.46), int(cw * 0.82), int(ch * 1.10)], start=180, end=360, fill=color)
-        elif name == "link":
-            lw_link = max(2, int(1.4 * scale))
-            d.rounded_rectangle([int(cw * 0.16), int(ch * 0.32), int(cw * 0.56), int(ch * 0.68)], radius=int(3 * scale), outline=color, width=lw_link)
-            d.rounded_rectangle([int(cw * 0.44), int(ch * 0.32), int(cw * 0.84), int(ch * 0.68)], radius=int(3 * scale), outline=color, width=lw_link)
-        elif name == "refresh":
-            d.arc([int(cw * 0.2), int(ch * 0.2), int(cw * 0.8), int(ch * 0.8)], start=40, end=310, fill=color, width=lw)
-            arrow = [(int(cw * 0.76), int(ch * 0.34)), (int(cw * 0.92), int(ch * 0.18)), (int(cw * 0.66), int(ch * 0.16))]
-            d.polygon(arrow, fill=color)
-        elif name == "plus":
-            cx, cy = cw // 2, ch // 2
-            hl = int(cw * 0.28)
-            d.line([(cx, cy - hl), (cx, cy + hl)], fill=color, width=int(1.8 * scale))
-            d.line([(cx - hl, cy), (cx + hl, cy)], fill=color, width=int(1.8 * scale))
-        elif name == "minus":
-            cx, cy = cw // 2, ch // 2
-            hl = int(cw * 0.28)
-            d.line([(cx - hl, cy), (cx + hl, cy)], fill=color, width=int(1.8 * scale))
-        elif name == "chat":
-            d.rounded_rectangle([int(cw * 0.18), int(ch * 0.20), int(cw * 0.82), int(ch * 0.68)], radius=int(3 * scale), outline=color, width=lw)
-            poly = [(int(cw * 0.32), int(ch * 0.68)), (int(cw * 0.46), int(ch * 0.68)), (int(cw * 0.24), int(ch * 0.85))]
-            d.polygon(poly, fill=color)
-        elif name == "chevron_down":
-            cx, cy = cw // 2, ch // 2
-            hw = int(cw * 0.22)
-            hh = int(ch * 0.14)
-            d.line([(cx - hw, cy - hh), (cx, cy + hh)], fill=color, width=lw)
-            d.line([(cx, cy + hh), (cx + hw, cy - hh)], fill=color, width=lw)
-        elif name == "dot":
-            cx, cy = cw // 2, ch // 2
-            r = int(cw * 0.35)
-            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
-        elif name in ("bolt", "zap"):
-            poly = [
-                (int(cw * 0.54), int(ch * 0.12)),
-                (int(cw * 0.22), int(ch * 0.52)),
-                (int(cw * 0.48), int(ch * 0.52)),
-                (int(cw * 0.42), int(ch * 0.88)),
-                (int(cw * 0.78), int(ch * 0.44)),
-                (int(cw * 0.52), int(ch * 0.44))
-            ]
-            d.polygon(poly, fill=color)
-        elif name in ("fire", "flame"):
-            poly = [
-                (int(cw * 0.50), int(ch * 0.10)),
-                (int(cw * 0.65), int(ch * 0.28)),
-                (int(cw * 0.82), int(ch * 0.52)),
-                (int(cw * 0.80), int(ch * 0.76)),
-                (int(cw * 0.62), int(ch * 0.92)),
-                (int(cw * 0.38), int(ch * 0.92)),
-                (int(cw * 0.20), int(ch * 0.76)),
-                (int(cw * 0.18), int(ch * 0.52)),
-                (int(cw * 0.35), int(ch * 0.28)),
-                (int(cw * 0.44), int(ch * 0.42)),
-            ]
-            d.polygon(poly, fill=color)
-        elif name in ("gem", "diamond"):
-            poly = [
-                (int(cw * 0.28), int(ch * 0.20)),
-                (int(cw * 0.72), int(ch * 0.20)),
-                (int(cw * 0.90), int(ch * 0.46)),
-                (int(cw * 0.50), int(ch * 0.88)),
-                (int(cw * 0.10), int(ch * 0.46))
-            ]
-            d.polygon(poly, fill=color)
-            d.line([(int(cw * 0.28), int(ch * 0.20)), (int(cw * 0.50), int(ch * 0.88))], fill=color, width=lw)
-            d.line([(int(cw * 0.72), int(ch * 0.20)), (int(cw * 0.50), int(ch * 0.88))], fill=color, width=lw)
-            d.line([(int(cw * 0.10), int(ch * 0.46)), (int(cw * 0.90), int(ch * 0.46))], fill=color, width=lw)
-        elif name in ("users", "team"):
-            hr1 = int(cw * 0.13)
-            d.ellipse([int(cw * 0.65) - hr1, int(ch * 0.16), int(cw * 0.65) + hr1, int(ch * 0.16) + 2 * hr1], fill=color)
-            d.pieslice([int(cw * 0.45), int(ch * 0.46), int(cw * 0.85), int(ch * 0.96)], start=180, end=360, fill=color)
-            hr2 = int(cw * 0.15)
-            d.ellipse([int(cw * 0.35) - hr2, int(ch * 0.20), int(cw * 0.35) + hr2, int(ch * 0.20) + 2 * hr2], fill=color)
-            d.pieslice([int(cw * 0.12), int(ch * 0.52), int(cw * 0.58), int(ch * 1.05)], start=180, end=360, fill=color)
-        elif name in ("dice", "gift", "game"):
-            d.rounded_rectangle([int(cw * 0.20), int(ch * 0.20), int(cw * 0.80), int(ch * 0.80)], radius=int(2 * scale), outline=color, width=lw)
-            d.line([(int(cw * 0.50), int(ch * 0.20)), (int(cw * 0.50), int(ch * 0.80))], fill=color, width=lw)
-            d.line([(int(cw * 0.20), int(ch * 0.50)), (int(cw * 0.80), int(ch * 0.50))], fill=color, width=lw)
-        elif name in ("mirror", "sparkle", "shield"):
-            poly = [
-                (int(cw * 0.50), int(ch * 0.15)),
-                (int(cw * 0.80), int(ch * 0.25)),
-                (int(cw * 0.80), int(ch * 0.55)),
-                (int(cw * 0.50), int(ch * 0.85)),
-                (int(cw * 0.20), int(ch * 0.55)),
-                (int(cw * 0.20), int(ch * 0.25))
-            ]
-            d.polygon(poly, outline=color, width=lw)
-        elif name in ("key", "lock"):
-            cx, cy = cw // 2, ch // 2
-            d.ellipse([cx - int(cw * 0.20), int(ch * 0.15), cx + int(cw * 0.20), int(ch * 0.55)], outline=color, width=lw)
-            d.line([(cx, int(ch * 0.55)), (cx, int(ch * 0.88))], fill=color, width=lw)
-            d.line([(cx, int(ch * 0.70)), (cx + int(cw * 0.16), int(ch * 0.70))], fill=color, width=lw)
-            d.line([(cx, int(ch * 0.84)), (cx + int(cw * 0.14), int(ch * 0.84))], fill=color, width=lw)
-        elif name in ("pin", "location", "marker"):
-            cx, cy = cw // 2, int(ch * 0.38)
-            r = int(cw * 0.26)
-            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
-            poly = [(cx - r, cy), (cx + r, cy), (cx, int(ch * 0.88))]
-            d.polygon(poly, fill=color)
-            inner_r = int(r * 0.42)
-            d.ellipse([cx - inner_r, cy - inner_r, cx + inner_r, cy + inner_r], fill="#181c26")
-
-        res_img = im.resize(size, Image.Resampling.LANCZOS)
-        ctk_img = ctk.CTkImage(light_image=res_img, dark_image=res_img, size=size)
-        cls._cache[key] = ctk_img
-        return ctk_img
-
-# ==============================================================================
-# DROPDOWN HIỆN ĐẠI (MODERN OPTION MENU - FULL WIDTH & THEMED POPUP)
-# ==============================================================================
-class ModernOptionMenu(ctk.CTkFrame):
-    """
-    Dropdown menu phong cách hiện đại thay thế CTkOptionMenu:
-    - Popup mở rộng 100% khớp đúng chiều rộng nút bấm (full-width), không bị ngắn cụt.
-    - Giao diện đen sang trọng đồng bộ Dark mode, không bị viền trắng 3D của Windows Menu.
-    - Tự động đóng khi click ra ngoài hoặc chọn xong.
-    - Tích hợp 2-way binding với StringVar và hàm callback.
-    """
-    def __init__(
-        self,
-        master,
-        values: Optional[List[str]] = None,
-        variable: Optional[ctk.StringVar] = None,
-        command: Optional[Callable[[str], Any]] = None,
-        width: int = 220,
-        height: int = 32,
-        font: Optional[ctk.CTkFont] = None,
-        fg_color: str = "#181c26",
-        border_color: str = "transparent",
-        hover_color: str = "#222736",
-        text_color: str = "#f1f5f9",
-        on_open: Optional[Callable[[], Any]] = None,
-        **kwargs
-    ):
-        # Bỏ qua các tham số riêng của CTkOptionMenu nếu truyền vào
-        kwargs.pop("button_color", None)
-        kwargs.pop("button_hover_color", None)
-        kwargs.pop("dropdown_fg_color", None)
-        kwargs.pop("dropdown_hover_color", None)
-        kwargs.pop("dropdown_text_color", None)
-        kwargs.pop("anchor", None)
-
-        c_radius = kwargs.pop("corner_radius", 5)
-        super().__init__(
-            master,
-            width=width,
-            height=height,
-            fg_color=fg_color,
-            border_width=1,
-            border_color="#242b3a",
-            corner_radius=c_radius,
-            **kwargs
-        )
-        self.pack_propagate(False)
-
-        self._base_fg = fg_color
-        self._hover_bg = hover_color
-        self._text_color = text_color
-        self._font = font or ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
-        self._req_width = width
-        self._req_height = height
-        self._last_close_time = 0.0
-        self.on_open = on_open
-
-        self.values = list(values) if values else ["--"]
-        self.variable = variable or ctk.StringVar(value=self.values[0] if self.values else "--")
-        self.command = command
-        self._popup = None
-
-        # Text hiển thị giá trị hiện tại
-        self._lbl = ctk.CTkLabel(
-            self,
-            text=self.variable.get(),
-            font=self._font,
-            text_color=self._text_color,
-            anchor="w"
-        )
-        self._lbl.pack(side="left", fill="both", expand=True, padx=(10, 4))
-
-        # Vector Icon Chevron Down
-        self._chevron = ctk.CTkLabel(
-            self,
-            text="",
-            image=UiIconFactory.get("chevron_down", color="#94a3b8", size=(10, 10))
-        )
-        self._chevron.pack(side="right", padx=(0, 10))
-
-        # Đồng bộ khi biến StringVar thay đổi từ bên ngoài
-        try:
-            self.variable.trace_add("write", lambda *_: self._on_var_changed())
-        except Exception:
-            pass
-
-        # Gán sự kiện click & hover cho toàn bộ frame và label
-        for w in (self, self._lbl, self._chevron):
-            w.bind("<Button-1>", lambda e: self._toggle_popup())
-            w.bind("<Enter>", lambda e: self._on_enter())
-            w.bind("<Leave>", lambda e: self._on_leave())
-            w.configure(cursor="hand2")
-
-    def _on_enter(self):
-        self.configure(fg_color=self._hover_bg)
-
-    def _on_leave(self):
-        if not self._popup or not self._popup.winfo_exists():
-            self.configure(fg_color=self._base_fg)
-
-    def _on_var_changed(self):
-        val = self.variable.get() if self.variable else "--"
-        if hasattr(self, "_lbl") and self._lbl.winfo_exists():
-            self._lbl.configure(text=val)
-
-    def _toggle_popup(self):
-        if self._popup and self._popup.winfo_exists():
-            self._close_popup()
-            return
-        if time.time() - self._last_close_time < 0.15:
-            return
-        self._open_popup()
-
-    def _open_popup(self):
-        if callable(self.on_open):
-            try:
-                self.on_open()
-            except Exception:
-                pass
-        self._close_popup()
-        self.update_idletasks()
-        rx = self.winfo_rootx()
-        ry = self.winfo_rooty() + self.winfo_height() + 2
-        w = max(self.winfo_width(), self._req_width)
-
-        num_items = len(self.values)
-        item_h = 30
-        h = max(38, min(240, num_items * item_h + 8))
-
-        # Kiểm tra tràn đáy màn hình
-        try:
-            screen_h = self.winfo_screenheight()
-            if ry + h > screen_h - 40:
-                ry = max(10, self.winfo_rooty() - h - 2)
-        except Exception:
-            pass
-
-        self._popup = ctk.CTkToplevel(self)
-        self._popup.overrideredirect(True)
-        self._popup.attributes("-topmost", True)
-        self._popup.geometry(f"{w}x{h}+{rx}+{ry}")
-
-        outer = ctk.CTkFrame(
-            self._popup,
-            fg_color="#141722",
-            border_width=1,
-            border_color="#242b3a",
-            corner_radius=0
-        )
-        outer.pack(fill="both", expand=True)
-
-        container = outer
-        if num_items > 7:
-            container = ctk.CTkScrollableFrame(outer, fg_color="transparent", height=h - 8, corner_radius=0)
-            container.pack(fill="both", expand=True, padx=2, pady=2)
-
-        cur_val = self.variable.get()
-        for val in self.values:
-            is_active = (val == cur_val)
-            btn = ctk.CTkButton(
-                container,
-                text=f"  {val}",
-                anchor="w",
-                height=item_h - 2,
-                corner_radius=0,
-                font=self._font,
-                fg_color="#1c2436" if is_active else "transparent",
-                hover_color="#222838",
-                text_color="#38bdf8" if is_active else "#f1f5f9",
-                command=lambda v=val: self._on_select(v)
-            )
-            btn.pack(fill="x", padx=3, pady=1)
-
-        # Lắng nghe click bên ngoài thông qua root toplevel
-        try:
-            top_win = self.winfo_toplevel()
-            self._popup.after(80, lambda: top_win.bind_all("<Button-1>", self._on_global_click, add="+"))
-        except Exception:
-            pass
-
-    def _on_global_click(self, event):
-        if not self._popup or not self._popup.winfo_exists():
-            return
-        try:
-            px = self._popup.winfo_rootx()
-            py = self._popup.winfo_rooty()
-            pw = self._popup.winfo_width()
-            ph = self._popup.winfo_height()
-            if not (px <= event.x_root <= px + pw and py <= event.y_root <= py + ph):
-                self._close_popup()
-        except Exception:
-            self._close_popup()
-
-    def _close_popup(self):
-        self._last_close_time = time.time()
-        try:
-            top_win = self.winfo_toplevel()
-            top_win.unbind_all("<Button-1>")
-        except Exception:
-            pass
-        if self._popup:
-            try:
-                self._popup.destroy()
-            except Exception:
-                pass
-            self._popup = None
-        self._on_leave()
-
-    def _on_select(self, value: str):
-        self.set(value)
-        self._close_popup()
-        if self.command:
-            self.command(value)
-
-    def set(self, value: str):
-        self.variable.set(value)
-        if hasattr(self, "_lbl") and self._lbl.winfo_exists():
-            self._lbl.configure(text=value)
-
-    def get(self) -> str:
-        return self.variable.get()
-
-    def configure(self, **kwargs):
-        if "values" in kwargs:
-            self.values = list(kwargs.pop("values"))
-        if "variable" in kwargs:
-            self.variable = kwargs.pop("variable")
-            if hasattr(self, "_lbl") and self._lbl.winfo_exists() and self.variable:
-                self._lbl.configure(text=self.variable.get())
-        if "command" in kwargs:
-            self.command = kwargs.pop("command")
-        if "fg_color" in kwargs:
-            self._base_fg = kwargs.pop("fg_color")
-            super().configure(fg_color=self._base_fg)
-        if "text_color" in kwargs:
-            self._text_color = kwargs.pop("text_color")
-            if hasattr(self, "_lbl") and self._lbl.winfo_exists():
-                self._lbl.configure(text_color=self._text_color)
-        kwargs.pop("button_color", None)
-        kwargs.pop("button_hover_color", None)
-        kwargs.pop("dropdown_fg_color", None)
-        kwargs.pop("dropdown_hover_color", None)
-        kwargs.pop("dropdown_text_color", None)
-        kwargs.pop("anchor", None)
-        if kwargs:
-            super().configure(**kwargs)
-
-# ==============================================================================
-# HỆ THỐNG TOOLTIP HIỆN ĐẠI (MODERN SLEEK TOOLTIP SYSTEM)
-# ==============================================================================
-class ModernToolTip:
-    """
-    Hệ thống tooltip nổi hiện đại phong cách Dark Theme:
-    - Bo góc, viền sắc nét, hiển thị mượt mà không rung lắc.
-    - Tự động canh lề và chống tràn màn hình (Screen Boundary Protection).
-    - Tự động hủy khi chuột rời khỏi hoặc khi người dùng click chuột.
-    - Hỗ trợ cả CustomTkinter lẫn Tkinter thuần.
-    """
-    def __init__(self, widget, text: str, delay_ms: int = 250):
-        self.widget = widget
-        self.text = text
-        self.delay_ms = delay_ms
-        self.tipwindow = None
-        self.after_id = None
-
-        self._bind_events(widget)
-
-    def _bind_events(self, w):
-        try:
-            w.bind("<Enter>", self._on_enter, add="+")
-            w.bind("<Leave>", self._on_leave, add="+")
-            w.bind("<ButtonPress>", self._on_leave, add="+")
-            if hasattr(w, "_canvas") and w._canvas:
-                w._canvas.bind("<Enter>", self._on_enter, add="+")
-                w._canvas.bind("<Leave>", self._on_leave, add="+")
-                w._canvas.bind("<ButtonPress>", self._on_leave, add="+")
-            if hasattr(w, "_text_label") and w._text_label:
-                w._text_label.bind("<Enter>", self._on_enter, add="+")
-                w._text_label.bind("<Leave>", self._on_leave, add="+")
-                w._text_label.bind("<ButtonPress>", self._on_leave, add="+")
-            if hasattr(w, "_lbl") and w._lbl:
-                w._lbl.bind("<Enter>", self._on_enter, add="+")
-                w._lbl.bind("<Leave>", self._on_leave, add="+")
-                w._lbl.bind("<ButtonPress>", self._on_leave, add="+")
-        except Exception:
-            pass
-
-    def _on_enter(self, event=None):
-        self._unschedule()
-        if self.text:
-            try:
-                self.after_id = self.widget.after(self.delay_ms, self._show_tip)
-            except Exception:
-                pass
-
-    def _on_leave(self, event=None):
-        self._unschedule()
-        self._hide_tip()
-
-    def _unschedule(self):
-        aid = self.after_id
-        self.after_id = None
-        if aid:
-            try:
-                self.widget.after_cancel(aid)
-            except Exception:
-                pass
-
-    def _show_tip(self):
-        if not self.text:
-            return
-        self._hide_tip()
-        try:
-            root_x = self.widget.winfo_rootx()
-            root_y = self.widget.winfo_rooty()
-            w_h = self.widget.winfo_height()
-            x = root_x + 8
-            y = root_y + w_h + 6
-
-            import tkinter as tk
-            self.tipwindow = tw = tk.Toplevel(self.widget)
-            tw.wm_overrideredirect(True)
-            tw.attributes("-topmost", True)
-
-            border_frame = tk.Frame(tw, bg="#334155", bd=1)
-            border_frame.pack(fill="both", expand=True)
-
-            inner_frame = tk.Frame(border_frame, bg="#0b0f19")
-            inner_frame.pack(fill="both", expand=True, padx=1, pady=1)
-
-            lbl = tk.Label(
-                inner_frame,
-                text=self.text,
-                justify=tk.LEFT,
-                bg="#0b0f19",
-                fg="#f1f5f9",
-                font=("Segoe UI", 9),
-                padx=9,
-                pady=6
-            )
-            lbl.pack()
-
-            tw.update_idletasks()
-            tip_w = tw.winfo_reqwidth()
-            tip_h = tw.winfo_reqheight()
-            screen_w = self.widget.winfo_screenwidth()
-            screen_h = self.widget.winfo_screenheight()
-
-            if x + tip_w > screen_w - 12:
-                x = screen_w - tip_w - 12
-            if x < 12:
-                x = 12
-            if y + tip_h > screen_h - 45:
-                y = root_y - tip_h - 6
-                if y < 12:
-                    y = 12
-
-            tw.wm_geometry(f"+{x}+{y}")
-        except Exception:
-            self.tipwindow = None
-
-    def _hide_tip(self):
-        tw = self.tipwindow
-        self.tipwindow = None
-        if tw:
-            try:
-                tw.destroy()
-            except Exception:
-                pass
-
-    def update_text(self, new_text: str):
-        self.text = new_text
-
-def add_tooltip(widget, text: str, delay_ms: int = 250) -> ModernToolTip:
-    """Gắn tooltip chỉ dẫn hiện đại vào widget."""
-    return ModernToolTip(widget, text, delay_ms=delay_ms)
+from ui.components import (
+    UiIconFactory,
+    ModernOptionMenu,
+    ModernToolTip,
+    add_tooltip
+)
 
 # ==============================================================================
 # BẢNG DỊCH NGÔN NGỮ (I18N)
 # ==============================================================================
-I18N = {
-    "vi": {
-        "characters": "Tài khoản",
-        "configuration": "Cấu hình",
-        "logs": "Nhật ký",
-        "text_config": "Mở thư mục",
-        "connect_all": "Kết nối tất cả",
-        "assign_team5": "Gán toàn bộ",
-        "refresh_games": "Làm mới Game",
-        "add": "Thêm",
-        "remove": "Xóa",
-        "col_no": "STT",
-        "col_char_pid": "Nhân vật / PID",
-        "col_route_preset": "Cấu hình & Cấp độ",
-        "col_coordinates": "Tọa độ",
-        "col_status": "Trạng thái",
-        "col_actions": "Thao tác",
-        "edit_profile": "Sửa cấu hình:",
-        "pk_delay": "Thời gian chờ PK/Hồi sinh:",
-        "reload": "Tải lại",
-        "save_profile": "Lưu cấu hình",
-        "team_note": "Team mặc định: 1-5=C1, 6-10=C2, ... 46-50=C10. Có thể chọn cấu hình khác cho từng dòng.",
-        "show": "Hiện:",
-        "clear_view": "Xóa hiển thị",
-        "all": "Tất cả",
-        "stage_min": "Min",
-        "stage_max": "Max",
-        "stage_map": "Map",
-        "stage_x": "X",
-        "stage_y": "Y",
-        "status_running": "Đang chạy",
-        "status_moving": "Di chuyển",
-        "status_disconnected": "Mất kết nối",
-        "status_stopped": "Đã dừng",
-        "status_idle": "Chờ",
-        "total_accounts": "Tổng số tài khoản: {n}",
-        "connected": "Đã kết nối",
-        "license": "Bản quyền",
-        "expiry_label": "Hạn",
-        "header_stats": "Game: {games} | Đã kết nối: {conn}/{slots} | Auto: {auto} | Bản quyền: {license}",
-        "footer_stats": "Tổng số: {slots} Tài khoản | Đã kết nối: {conn} | Đang chạy: {auto}",
-        "lang_changed": "Đã chuyển đổi ngôn ngữ sang: {lang}",
-        "ram_optimizer": "Tối ưu RAM",
-        "ram_trim_now": "Tối ưu RAM",
-        "ram_auto_trim": "Tự động dọn RAM:",
-        "ram_active_clients": "CLIENT HOẠT ĐỘNG",
-        "ram_current_ram": "RAM ĐANG DÙNG",
-        "ram_total_saved": "TỔNG ĐÃ TIẾT KIỆM",
-        "ram_optimize_all_btn": "TỐI ƯU TOÀN BỘ MEGAMU (TRIM RAM NGAY)",
-        "moss_merchant": "Moss Merchant",
-        "moss_title": "🎰 MEGAMU MOSS THE GAMBLER • AUTO ROLL PRO",
-        "moss_subtitle": "Quay đồ may rủi tự động tại NPC Moss (Elbeland) • Hỗ trợ mở giao diện ngầm & quay đồ Zero-Focus",
-        "moss_slot": "Chọn Slot / Nhân vật:",
-        "moss_category": "Danh mục vật phẩm:",
-        "moss_delay": "Delay mỗi lượt (ms):",
-        "moss_max_rolls": "Giới hạn số lượt (0 = Vô hạn):",
-        "moss_btn_open": "Mở Giao Diện NPC",
-        "moss_btn_roll_once": "Quay Thử 1 Lần",
-        "moss_btn_start": "BẮT ĐẦU AUTO QUAY",
-        "moss_btn_stop": "DỪNG AUTO QUAY",
-        "moss_kpi_total": "TỔNG ĐÃ QUAY",
-        "moss_kpi_status": "TRẠNG THÁI",
-        "moss_kpi_cat": "DANH MỤC",
-        "moss_kpi_target": "NHÂN VẬT ĐANG CHỌN",
-        "mirror_event": "Double Goer (Mirror)",
-        "mirror_title": "🪞 MEGAMU DOUBLE GOER • MIRROR OF DIMENSIONS",
-        "mirror_subtitle": "Tự động tham gia sự kiện Gương Không Gian (Doppelganger) • Vào cửa Native & Auto Move tới NPC Lugard",
-        "mirror_btn_enter": "Vào Cửa Mirror (Native)",
-        "mirror_btn_npc": "Mở Đối Thoại NPC Lugard",
-        "mirror_btn_move": "Chạy Tới Lugard (Elbeland)",
-        "mirror_btn_start": "BẮT ĐẦU AUTO MIRROR",
-        "mirror_btn_stop": "DỪNG AUTO MIRROR"
-    },
-    "en": {
-        "characters": "Characters",
-        "configuration": "Configuration",
-        "logs": "Logs",
-        "text_config": "Text config",
-        "connect_all": "Connect All",
-        "assign_team5": "Assign All",
-        "refresh_games": "Refresh Game",
-        "add": "Add",
-        "remove": "Remove",
-        "col_no": "No.",
-        "col_char_pid": "Character / PID",
-        "col_route_preset": "Target Route Preset",
-        "col_coordinates": "Coordinates",
-        "col_status": "Status",
-        "col_actions": "Actions",
-        "edit_profile": "Edit profile:",
-        "pk_delay": "PK/Respawn delay:",
-        "reload": "Reload",
-        "save_profile": "Save Profile",
-        "team_note": "Default teams: 1-5=C1, 6-10=C2, ... 46-50=C10. You can also choose a different profile per row.",
-        "show": "Show:",
-        "clear_view": "Clear View",
-        "all": "All",
-        "stage_min": "Min",
-        "stage_max": "Max",
-        "stage_map": "Map",
-        "stage_x": "X",
-        "stage_y": "Y",
-        "status_running": "Running",
-        "status_moving": "Moving",
-        "status_disconnected": "Disconnected",
-        "status_stopped": "Stopped",
-        "status_idle": "Idle",
-        "total_accounts": "Total accounts: {n}",
-        "connected": "Connected",
-        "license": "License",
-        "expiry_label": "Exp",
-        "header_stats": "Games: {games} | Connected: {conn}/{slots} | Auto: {auto} | License: {license}",
-        "footer_stats": "Total: {slots} Accounts | Connected: {conn} | Running: {auto}",
-        "lang_changed": "Language switched to: {lang}",
-        "ram_optimizer": "RAM Optimizer",
-        "ram_trim_now": "Trim RAM",
-        "ram_auto_trim": "Auto-Trim RAM:",
-        "ram_active_clients": "ACTIVE CLIENTS",
-        "ram_current_ram": "CURRENT RAM",
-        "ram_total_saved": "TOTAL SAVED",
-        "ram_optimize_all_btn": "OPTIMIZE MEGAMU (TRIM RAM NOW)",
-        "moss_merchant": "Moss Merchant",
-        "moss_title": "🎰 MEGAMU MOSS THE GAMBLER • AUTO ROLL PRO",
-        "moss_subtitle": "Auto Gamble Item Roll at NPC Moss (Elbeland) • Zero-Focus Native Packet Dispatch",
-        "moss_slot": "Select Slot / Character:",
-        "moss_category": "Item Category:",
-        "moss_delay": "Delay per roll (ms):",
-        "moss_max_rolls": "Max Rolls (0 = Unlimited):",
-        "moss_btn_open": "Open NPC Window",
-        "moss_btn_roll_once": "Roll Once",
-        "moss_btn_start": "START AUTO ROLL",
-        "moss_btn_stop": "STOP AUTO ROLL",
-        "moss_kpi_total": "TOTAL ROLLS",
-        "moss_kpi_status": "STATUS",
-        "moss_kpi_cat": "CATEGORY",
-        "moss_kpi_target": "TARGET CHARACTER",
-        "mirror_event": "Double Goer (Mirror)",
-        "mirror_title": "🪞 MEGAMU DOUBLE GOER • MIRROR OF DIMENSIONS",
-        "mirror_subtitle": "Auto Double Goer / Doppelganger Event • Zero-Focus Native Packet & Auto Move to NPC Lugard",
-        "mirror_btn_enter": "Enter Event (Native)",
-        "mirror_btn_npc": "Talk to NPC Lugard",
-        "mirror_btn_move": "Move to Lugard (Elbeland)",
-        "mirror_btn_start": "START AUTO MIRROR",
-        "mirror_btn_stop": "STOP AUTO MIRROR"
-    },
-    "pt-BR": {
-        "characters": "Personagens",
-        "configuration": "Configurações",
-        "logs": "Registros",
-        "text_config": "Arquivos config",
-        "connect_all": "Conectar Todos",
-        "assign_team5": "Atribuir Todos",
-        "refresh_games": "Atualizar Jogos",
-        "add": "Adicionar",
-        "remove": "Remover",
-        "col_no": "Nº",
-        "col_char_pid": "Personagem / PID",
-        "col_route_preset": "Rota / Perfil",
-        "col_coordinates": "Coordenadas",
-        "col_status": "Status",
-        "col_actions": "Ações",
-        "edit_profile": "Editar perfil:",
-        "pk_delay": "Espera PK/Respawn:",
-        "reload": "Recarregar",
-        "save_profile": "Salvar Perfil",
-        "team_note": "Times padrão: 1-5=C1, 6-10=C2, ... 46-50=C10. Você có pode escolher outro perfil por linha.",
-        "show": "Mostrar:",
-        "clear_view": "Limpar Visão",
-        "all": "Todos",
-        "stage_min": "Mín",
-        "stage_max": "Máx",
-        "stage_map": "Mapa",
-        "stage_x": "X",
-        "stage_y": "Y",
-        "status_running": "Executando",
-        "status_moving": "Movendo",
-        "status_disconnected": "Desconectado",
-        "status_stopped": "Parado",
-        "status_idle": "Aguardando",
-        "total_accounts": "Total de contas: {n}",
-        "connected": "Conectados",
-        "license": "Licença",
-        "expiry_label": "Val",
-        "header_stats": "Jogos: {games} | Conectados: {conn}/{slots} | Auto: {auto} | Licença: {license}",
-        "footer_stats": "Total: {slots} Contas | Conectados: {conn} | Executando: {auto}",
-        "lang_changed": "Idioma alterado para: {lang}",
-        "ram_optimizer": "Otimizar RAM",
-        "ram_trim_now": "Otimizar RAM",
-        "ram_auto_trim": "Limpeza Automática:",
-        "ram_active_clients": "CLIENTS ATIVOS",
-        "ram_current_ram": "RAM ATUAL",
-        "ram_total_saved": "TOTAL ECONOMIZADO",
-        "ram_optimize_all_btn": "OTIMIZAR MEGAMU (TRIM RAM AGORA)",
-        "moss_merchant": "Moss Merchant",
-        "moss_title": "🎰 MEGAMU MOSS THE GAMBLER • AUTO ROLL PRO",
-        "moss_subtitle": "Giro Automático no NPC Moss (Elbeland) • Disparo Nativo Zero-Focus",
-        "moss_slot": "Selecionar Slot / Personagem:",
-        "moss_category": "Categoria de Item:",
-        "moss_delay": "Espera por giro (ms):",
-        "moss_max_rolls": "Limite de Giros (0 = Infinito):",
-        "moss_btn_open": "Abrir Janela do NPC",
-        "moss_btn_roll_once": "Girar 1 Vez",
-        "moss_btn_start": "INICIAR AUTO GIRO",
-        "moss_btn_stop": "PARAR AUTO GIRO",
-        "moss_kpi_total": "TOTAL DE GIROS",
-        "moss_kpi_status": "STATUS",
-        "moss_kpi_cat": "CATEGORIA",
-        "moss_kpi_target": "PERSONAGEM ALVO",
-        "mirror_event": "Double Goer (Mirror)",
-        "mirror_title": "🪞 MEGAMU DOUBLE GOER • MIRROR OF DIMENSIONS",
-        "mirror_subtitle": "Evento Automático Double Goer (Doppelganger) • Entrada Nativa e Auto Mover para NPC Lugard",
-        "mirror_btn_enter": "Entrar no Evento (Nativo)",
-        "mirror_btn_npc": "Falar com NPC Lugard",
-        "mirror_btn_move": "Mover para Lugard (Elbeland)",
-        "mirror_btn_start": "INICIAR AUTO MIRROR",
-        "mirror_btn_stop": "PARAR AUTO MIRROR"
-    }
-}
+from core.i18n import (
+    I18N,
+    CURRENT_LANG,
+    load_language_preference,
+    save_language_preference,
+    tr,
+)
 
-CURRENT_LANG = "vi"
+try:
+    user32 = ctypes.windll.user32
+except Exception:
+    user32 = None
 
-def load_language_preference() -> str:
-    global CURRENT_LANG
-    try:
-        if UI_SETTINGS_FILE.exists():
-            data = json.loads(UI_SETTINGS_FILE.read_text(encoding="utf-8"))
-            lang = str(data.get("language", "vi")).strip().lower()
-            for k in I18N.keys():
-                if k.lower() == lang:
-                    CURRENT_LANG = k
-                    return CURRENT_LANG
-    except Exception:
-        pass
-    CURRENT_LANG = "vi"
-    return CURRENT_LANG
-
-def save_language_preference(lang: str):
-    global CURRENT_LANG
-    for k in I18N.keys():
-        if k.lower() == lang.lower():
-            CURRENT_LANG = k
-            break
-    try:
-        data = {"language": CURRENT_LANG}
-        UI_SETTINGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
-
-def tr(key: str, **kwargs) -> str:
-    lang_dict = None
-    for k, v in I18N.items():
-        if k.lower() == CURRENT_LANG.lower():
-            lang_dict = v
-            break
-    if not lang_dict:
-        lang_dict = I18N.get("vi", {})
-    text = lang_dict.get(key, I18N.get("vi", {}).get(key, key))
-    try:
-        return text.format(**kwargs)
-    except Exception:
-        return text
-
-# ==============================================================================
-# QUẢN LÝ TIẾN TRÌNH & TIÊU ĐỀ CỬA SỔ
-# ==============================================================================
-user32 = ctypes.windll.user32
-
-def character_name_from_window_title(title: str) -> str:
-    if not title:
-        return ""
-    title = str(title).strip()
-    if "MEGAMU" not in title.upper():
-        return ""
-    import re
-    # Mẫu 1: Diradira (660/51rr) - MEGAMU Sv41 hoặc Diradira (660) - MEGAMU...
-    m1 = re.match(r"^(?P<name>[^(\-\[\]]+?)\s*(?:\([^)]+\))?\s*[-–—]\s*MEGAMU", title, re.IGNORECASE)
-    if m1:
-        name = m1.group("name").strip()
-        if name and not name.upper().startswith("MEGAMU"):
-            return name
-    # Mẫu 2: MEGAMU - Diradira (660/51rr)...
-    m2 = re.match(r"^MEGAMU\s*[-–—]\s*(?P<name>[^(\-\[\]]+)", title, re.IGNORECASE)
-    if m2:
-        name = m2.group("name").strip()
-        if name and not name.upper().startswith("MEGAMU"):
-            return name
-    # Mẫu 3: Cắt theo - MEGAMU
-    parts = re.split(r"\s*[-–—]\s*MEGAMU", title, flags=re.IGNORECASE)
-    if parts and parts[0]:
-        head = parts[0].strip()
-        if " (" in head:
-            head = head.split(" (")[0].strip()
-        if head and not head.upper().startswith("MEGAMU"):
-            return head
-    return ""
-
-def enumerate_megamu_processes() -> Dict[int, str]:
-    """Tìm tất cả tiến trình MEGAMU.exe và lấy tiêu đề cửa sổ / tên nhân vật."""
-    pids = set()
-    for p in psutil.process_iter(['pid', 'name']):
-        try:
-            if p.info['name'] and p.info['name'].lower() == 'megamu.exe':
-                pids.add(p.info['pid'])
-        except Exception:
-            pass
-
-    pid_to_title = {pid: "" for pid in pids}
-
-    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-    def enum_cb(hwnd, lparam):
-        if user32.IsWindowVisible(hwnd):
-            buf = ctypes.create_unicode_buffer(512)
-            user32.GetWindowTextW(hwnd, buf, 512)
-            title = buf.value
-            if "megamu" in title.lower():
-                pid = ctypes.c_ulong()
-                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                p_val = pid.value
-                if p_val in pid_to_title and not pid_to_title[p_val]:
-                    pid_to_title[p_val] = title
-        return True
-
-    try:
-        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
-    except Exception:
-        pass
-
-    return pid_to_title
+from core.process_utils import (
+    character_name_from_window_title,
+    enumerate_megamu_processes,
+    is_megamu_process_alive,
+    record_auto_stop_log,
+)
 
 # ==============================================================================
 # QUẢN LÝ CẤU HÌNH TRỰC TIẾP TỪ FILE (ZERO-RAM LOSS PERSISTENCE)
 # ==============================================================================
-class ConfigPersistenceManager:
-    """
-    Đảm bảo 100% tất cả các cấu hình được đọc và ghi TRỰC TIẾP từ file đĩa JSON.
-    Không lưu tạm trong RAM - Khi đóng và mở lại, mọi thiết lập đều được khôi phục nguyên vẹn.
-    """
-    _lock = threading.RLock()
-
-    @staticmethod
-    def get_fallback_config() -> Dict[str, Any]:
-        return {
-            "glide_speed": 3.5,
-            "respawn_delay": 15,
-            "map_load_delay": 1.8,
-            "level1_delay": 4.0,
-            "arrive_distance": 2.0,
-            "respawn_distance": 12.0,
-            "stuck_retry_delay": 3.5,
-            "helper_native_timeout": 4.0,
-            "helper_direct_fallback": True,
-            "stages": [
-                {"min_level": 1, "max_level": 39, "map_name": "Lorencia", "x": 70, "y": 147},
-                {"min_level": 40, "max_level": 59, "map_name": "Dungeon 2", "x": 217, "y": 115},
-                {"min_level": 60, "max_level": 159, "map_name": "Lost Tower 5", "x": 110, "y": 56},
-                {"min_level": 160, "max_level": 399, "map_name": "Aida 1", "x": 135, "y": 150}
-            ],
-            "poll_interval": 0.55,
-            "reset_confirm_seconds": 1.5,
-            "map_command_retry_delay": 4.5,
-            "map_verify_unknown_timeout": 6.0
-        }
-
-    @classmethod
-    def load_profiles_store(cls) -> Dict[str, Any]:
-        """Đọc autotrain_profiles.json trực tiếp từ ổ cứng."""
-        with cls._lock:
-            store = {}
-            if PROFILE_FILE.exists():
-                try:
-                    store = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
-                except Exception:
-                    store = {}
-            
-            if not isinstance(store, dict):
-                store = {}
-            if not isinstance(store.get("profiles"), dict):
-                store["profiles"] = {}
-            store["version"] = 2
-
-            # Đảm bảo đủ Config 1..10
-            fallback = cls.get_fallback_config()
-            for idx in range(1, 11):
-                s_idx = str(idx)
-                item = store["profiles"].get(s_idx)
-                if not isinstance(item, dict) or not isinstance(item.get("config"), dict):
-                    store["profiles"][s_idx] = {
-                        "name": f"Config {idx}",
-                        "config": json.loads(json.dumps(fallback))
-                    }
-
-            # Tự động đồng bộ nếu autotrain_megamu_config.json được chỉnh sửa mới hơn
-            root_single = Path("autotrain_megamu_config.json")
-            single_candidates = [f for f in [root_single, DEFAULT_CONFIG_FILE] if f.exists()]
-            if single_candidates:
-                latest_single = max(single_candidates, key=lambda f: f.stat().st_mtime)
-                try:
-                    p_mtime = PROFILE_FILE.stat().st_mtime if PROFILE_FILE.exists() else 0.0
-                    if latest_single.stat().st_mtime > p_mtime:
-                        s_data = json.loads(latest_single.read_text(encoding="utf-8"))
-                        if isinstance(s_data, dict) and s_data.get("stages"):
-                            store["profiles"]["1"]["config"] = s_data
-                            tmp_p = PROFILE_FILE.with_suffix(".tmp")
-                            tmp_p.write_text(json.dumps(store, indent=4, ensure_ascii=False), encoding="utf-8")
-                            tmp_p.replace(PROFILE_FILE)
-                except Exception:
-                    pass
-
-            return store
-
-    @classmethod
-    def load_single_profile(cls, profile_idx: int) -> Dict[str, Any]:
-        """Đọc riêng lẻ 1 Profile từ file autotrain_profiles.json."""
-        p_idx = max(1, min(10, int(profile_idx)))
-        store = cls.load_profiles_store()
-        cfg = store.get("profiles", {}).get(str(p_idx), {}).get("config")
-        if not cfg or not isinstance(cfg, dict):
-            cfg = cls.get_fallback_config()
-        return json.loads(json.dumps(cfg))
-
-    @classmethod
-    def save_single_profile(cls, profile_idx: int, cfg: Dict[str, Any]):
-        """Ghi trực tiếp Profile vào file autotrain_profiles.json."""
-        p_idx = max(1, min(10, int(profile_idx)))
-        with cls._lock:
-            store = cls.load_profiles_store()
-            store["profiles"][str(p_idx)] = {
-                "name": f"Config {p_idx}",
-                "config": json.loads(json.dumps(cfg))
-            }
-            # Ghi an toàn vào PROFILE_FILE
-            tmp_path = PROFILE_FILE.with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(store, indent=4, ensure_ascii=False), encoding="utf-8")
-            tmp_path.replace(PROFILE_FILE)
-
-            # Nếu là Config 1, đồng bộ luôn autotrain_megamu_config.json
-            if p_idx == 1:
-                tmp_def = DEFAULT_CONFIG_FILE.with_suffix(".tmp")
-                tmp_def.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-                tmp_def.replace(DEFAULT_CONFIG_FILE)
-
-    @classmethod
-    def get_max_license_slots(cls) -> int:
-        try:
-            if license_client:
-                is_valid = license_client.is_license_valid()
-                lic_data = license_client.load_license_data() or {}
-                if is_valid:
-                    return max(5, int(lic_data.get("max_slots", 10)))
-        except Exception:
-            pass
-        return 5
-
-    @classmethod
-    def load_slot_assignments(cls, min_slots: int = 5) -> Dict[int, int]:
-        """
-        Đọc cấu hình gán từng dòng Slot từ slot_assignments.json.
-        Mặc định 5 tài khoản ban đầu; chỉ mở rộng khi người dùng thêm và trong giới hạn License.
-        """
-        with cls._lock:
-            assignments = {}
-            if SLOT_ASSIGNMENTS_FILE.exists():
-                try:
-                    data = json.loads(SLOT_ASSIGNMENTS_FILE.read_text(encoding="utf-8"))
-                    slots_data = data.get("slots", {})
-                    for s_str, conf in slots_data.items():
-                        try:
-                            s_int = int(s_str)
-                            p_val = int(conf.get("profile", 1))
-                            if s_int >= 1 and 1 <= p_val <= 10:
-                                assignments[s_int] = p_val
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-
-            max_allowed = cls.get_max_license_slots()
-            filtered_assignments = {}
-            target_count = max(min_slots, min(len(assignments), max_allowed) if assignments else min_slots)
-            target_count = min(target_count, max_allowed)
-            for s in range(1, target_count + 1):
-                filtered_assignments[s] = assignments.get(s, 1 if s <= 5 else 2)
-
-            return filtered_assignments
-
-    @classmethod
-    def save_slot_assignment(cls, slot_idx: int, profile_idx: int):
-        """Ghi ngay lập tức gán Config của dòng slot_idx vào file."""
-        with cls._lock:
-            current = cls.load_slot_assignments()
-            current[slot_idx] = max(1, min(10, int(profile_idx)))
-            cls._write_slot_file(current)
-
-    @classmethod
-    def save_all_slot_assignments(cls, assignments: Dict[int, int]):
-        with cls._lock:
-            cls._write_slot_file(assignments)
-
-    @classmethod
-    def _write_slot_file(cls, assignments: Dict[int, int]):
-        data = {
-            "version": 1,
-            "description": "Lưu trữ lựa chọn cấu hình Config 1..10 cho từng Slot",
-            "slots": {str(k): {"profile": v} for k, v in sorted(assignments.items(), key=lambda x: int(x[0]))}
-        }
-        tmp_slot = SLOT_ASSIGNMENTS_FILE.with_suffix(".tmp")
-        tmp_slot.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp_slot.replace(SLOT_ASSIGNMENTS_FILE)
-
-    @classmethod
-    def load_moss_configs(cls) -> Dict[int, Dict[str, Any]]:
-        """Đọc cấu hình Auto Moss của từng Slot từ moss_slots_config.json."""
-        with cls._lock:
-            res = {}
-            if MOSS_CONFIG_FILE.exists():
-                try:
-                    data = json.loads(MOSS_CONFIG_FILE.read_text(encoding="utf-8"))
-                    slots_data = data.get("slots", {})
-                    for s_str, conf in slots_data.items():
-                        try:
-                            s_int = int(s_str)
-                            res[s_int] = {
-                                "category": int(conf.get("category", 0)),
-                                "delay_ms": int(conf.get("delay_ms", 1000)),
-                                "max_rolls": int(conf.get("max_rolls", 0)),
-                                "auto_clean": bool(conf.get("auto_clean", True))
-                            }
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            return res
-
-    @classmethod
-    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0, auto_clean: bool = True):
-        """Lưu cấu hình Auto Moss của riêng Slot slot_idx."""
-        with cls._lock:
-            cur = cls.load_moss_configs()
-            cur[slot_idx] = {
-                "category": int(cat),
-                "delay_ms": int(delay_ms),
-                "max_rolls": int(max_rolls),
-                "auto_clean": bool(auto_clean)
-            }
-            try:
-                store = {"slots": {str(k): v for k, v in sorted(cur.items(), key=lambda x: int(x[0]))}}
-                tmp = MOSS_CONFIG_FILE.with_suffix(".tmp")
-                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(MOSS_CONFIG_FILE)
-            except Exception:
-                pass
-
-    @classmethod
-    def save_all_moss_configs(cls, configs: Dict[int, Dict[str, Any]]):
-        """Lưu toàn bộ cấu hình Auto Moss của tất cả các Slot."""
-        with cls._lock:
-            try:
-                store = {}
-                if MOSS_CONFIG_FILE.exists():
-                    try:
-                        store = json.loads(MOSS_CONFIG_FILE.read_text(encoding="utf-8"))
-                    except Exception:
-                        pass
-                store["slots"] = {str(k): v for k, v in sorted(configs.items(), key=lambda x: int(x[0]))}
-                tmp = MOSS_CONFIG_FILE.with_suffix(".tmp")
-                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(MOSS_CONFIG_FILE)
-            except Exception:
-                pass
-
-    @classmethod
-    def load_moss_schedule_config(cls) -> Dict[str, Any]:
-        """Đọc cấu hình Lịch Trình Auto Moss (00:15, 06:15, 12:15, 18:15)."""
-        with cls._lock:
-            if MOSS_CONFIG_FILE.exists():
-                try:
-                    data = json.loads(MOSS_CONFIG_FILE.read_text(encoding="utf-8"))
-                    sched = data.get("schedule", {})
-                    sel = data.get("selected_slots", None)
-                    return {
-                        "auto_schedule": bool(sched.get("auto_schedule", True)),
-                        "auto_move_before": bool(sched.get("auto_move_before", True)),
-                        "selected_slots": sel
-                    }
-                except Exception:
-                    pass
-            return {"auto_schedule": True, "auto_move_before": True, "selected_slots": None}
-
-    @classmethod
-    def save_moss_schedule_config(cls, auto_schedule: bool = True, auto_move_before: bool = True, selected_slots: Optional[List[int]] = None):
-        """Lưu cấu hình Lịch Trình Auto Moss kèm danh sách tài khoản được chọn."""
-        with cls._lock:
-            try:
-                store = {}
-                if MOSS_CONFIG_FILE.exists():
-                    try:
-                        store = json.loads(MOSS_CONFIG_FILE.read_text(encoding="utf-8"))
-                    except Exception:
-                        pass
-                store["schedule"] = {
-                    "auto_schedule": bool(auto_schedule),
-                    "auto_move_before": bool(auto_move_before),
-                    "times": ["00:15", "06:15", "12:15", "18:15"]
-                }
-                if selected_slots is not None:
-                    store["selected_slots"] = [int(s) for s in selected_slots]
-                tmp = MOSS_CONFIG_FILE.with_suffix(".tmp")
-                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(MOSS_CONFIG_FILE)
-            except Exception:
-                pass
-
-    @classmethod
-    def load_mirror_schedule_config(cls) -> Dict[str, Any]:
-        """Đọc cấu hình Lịch Trình Auto Double Goer / Mirror (2 tiếng 1 lần từ 00:15, chuẩn bị trước 5 phút)."""
-        with cls._lock:
-            if MIRROR_CONFIG_FILE.exists():
-                try:
-                    data = json.loads(MIRROR_CONFIG_FILE.read_text(encoding="utf-8"))
-                    sched = data.get("schedule", {})
-                    sel = data.get("selected_slots", None)
-                    return {
-                        "auto_schedule": bool(sched.get("auto_schedule", True)),
-                        "auto_prep_before": bool(sched.get("auto_prep_before", True)),
-                        "auto_lifecycle": bool(sched.get("auto_lifecycle", True)),
-                        "auto_gremory": bool(sched.get("auto_gremory", True)),
-                        "prefire_sec": float(sched.get("prefire_sec", 1.2)),
-                        "selected_slots": sel
-                    }
-                except Exception:
-                    pass
-            return {"auto_schedule": True, "auto_prep_before": True, "auto_lifecycle": True, "auto_gremory": True, "prefire_sec": 1.2, "selected_slots": None}
-
-    @classmethod
-    def save_mirror_schedule_config(cls, auto_schedule: Any = True, auto_prep_before: bool = True, prefire_sec: float = 1.2, auto_lifecycle: bool = True, auto_gremory: bool = True, selected_slots: Optional[List[int]] = None):
-        """Lưu cấu hình Lịch Trình Auto Double Goer / Mirror kèm danh sách tài khoản được chọn."""
-        if isinstance(auto_schedule, dict):
-            cfg_dict = auto_schedule
-            auto_prep_before = cfg_dict.get("auto_prep_before", True)
-            prefire_sec = cfg_dict.get("prefire_sec", 1.2)
-            auto_lifecycle = cfg_dict.get("auto_lifecycle", True)
-            auto_gremory = cfg_dict.get("auto_gremory", True)
-            if selected_slots is None and "selected_slots" in cfg_dict:
-                selected_slots = cfg_dict["selected_slots"]
-            auto_schedule = cfg_dict.get("auto_schedule", True)
-        with cls._lock:
-            try:
-                store = {}
-                if MIRROR_CONFIG_FILE.exists():
-                    try:
-                        store = json.loads(MIRROR_CONFIG_FILE.read_text(encoding="utf-8"))
-                    except Exception:
-                        pass
-                store["schedule"] = {
-                    "auto_schedule": bool(auto_schedule),
-                    "auto_prep_before": bool(auto_prep_before),
-                    "auto_lifecycle": bool(auto_lifecycle),
-                    "auto_gremory": bool(auto_gremory),
-                    "prefire_sec": float(prefire_sec),
-                    "interval_hours": 2,
-                    "prep_minutes_before": 5,
-                    "times": [f"{h:02d}:15" for h in range(0, 24, 2)]
-                }
-                if selected_slots is not None:
-                    store["selected_slots"] = [int(s) for s in selected_slots]
-                tmp = MIRROR_CONFIG_FILE.with_suffix(".tmp")
-                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(MIRROR_CONFIG_FILE)
-            except Exception:
-                pass
-
-    @classmethod
-    def load_class_stat_profiles(cls) -> Dict[str, Any]:
-        """Đọc bảng cấu hình chỉ số Point của tất cả 16 Class từ class_stat_profiles.json."""
-        with cls._lock:
-            if CLASS_STAT_PROFILES_FILE.exists():
-                try:
-                    return json.loads(CLASS_STAT_PROFILES_FILE.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
-            # Fallback nếu file chưa tồn tại
-            return {
-                "DW": {"name": "Dark Wizard (Phù Thủy)", "class_id": 0, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
-                "DK": {"name": "Dark Knight (Chiến Binh)", "class_id": 1, "stat_ratio": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
-                "FE": {"name": "Fairy Elf (Tiên Nữ)", "class_id": 2, "stat_ratio": {"str": 0.15, "agi": 0.75, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
-                "MG": {"name": "Magic Gladiator (Đấu Sĩ)", "class_id": 3, "stat_ratio": {"str": 0.45, "agi": 0.35, "vit": 0.0, "ene": 0.2, "cmd": 0.0}},
-                "DL": {"name": "Dark Lord (Chúa Tể)", "class_id": 4, "stat_ratio": {"str": 0.3, "agi": 0.3, "vit": 0.0, "ene": 0.1, "cmd": 0.3}},
-                "SU": {"name": "Summoner (Thuật Sĩ)", "class_id": 5, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
-                "RF": {"name": "Rage Fighter (Thiết Binh)", "class_id": 6, "stat_ratio": {"str": 0.5, "agi": 0.2, "vit": 0.3, "ene": 0.0, "cmd": 0.0}},
-                "GL": {"name": "Grow Lancer (Thương Thủ)", "class_id": 7, "stat_ratio": {"str": 0.55, "agi": 0.35, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
-                "RW": {"name": "Rune Wizard (Phù Thủy Rune)", "class_id": 8, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
-                "SL": {"name": "Slayer (Sát Thủ)", "class_id": 9, "stat_ratio": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
-                "GC": {"name": "Gun Crusher (Pháo Thủ)", "class_id": 10, "stat_ratio": {"str": 0.1, "agi": 0.5, "vit": 0.1, "ene": 0.3, "cmd": 0.0}},
-                "KM": {"name": "Kundun Mephis", "class_id": 11, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
-                "LM": {"name": "Lemuria", "class_id": 12, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
-                "IK": {"name": "Illusion Knight (Huyễn Ảnh)", "class_id": 13, "stat_ratio": {"str": 0.4, "agi": 0.5, "vit": 0.1, "ene": 0.0, "cmd": 0.0}},
-                "AL": {"name": "Alchemist (Giả Kim)", "class_id": 14, "stat_ratio": {"str": 0.1, "agi": 0.3, "vit": 0.1, "ene": 0.5, "cmd": 0.0}},
-                "CR": {"name": "Crusher", "class_id": 15, "stat_ratio": {"str": 0.5, "agi": 0.4, "vit": 0.1, "ene": 0.0, "cmd": 0.0}}
-            }
-
-    @classmethod
-    def save_class_stat_profile(cls, class_code: str, ratio: Dict[str, float]):
-        """Lưu lại tỷ lệ Point tùy biến cho 1 Class cụ thể."""
-        with cls._lock:
-            profiles = cls.load_class_stat_profiles()
-            c_code = class_code.upper().strip()
-            if c_code in profiles:
-                profiles[c_code]["stat_ratio"] = ratio
-            else:
-                profiles[c_code] = {
-                    "name": CLASS_CODE_TO_NAME.get(c_code, c_code),
-                    "stat_ratio": ratio
-                }
-            try:
-                tmp = CLASS_STAT_PROFILES_FILE.with_suffix(".tmp")
-                tmp.write_text(json.dumps(profiles, indent=2, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(CLASS_STAT_PROFILES_FILE)
-            except Exception:
-                pass
-
-    @classmethod
-    def load_event_configs(cls) -> Dict[int, Dict[str, Any]]:
-        """Đọc cấu hình Auto Devil Square, Auto Reset & Point của từng Slot từ event_slots_config.json."""
-        with cls._lock:
-            res = {}
-            if EVENT_CONFIG_FILE.exists():
-                try:
-                    data = json.loads(EVENT_CONFIG_FILE.read_text(encoding="utf-8"))
-                    slots_data = data.get("slots", {})
-                    for s_str, conf in slots_data.items():
-                        try:
-                            s_int = int(s_str)
-                            res[s_int] = {
-                                "auto_devil": bool(conf.get("auto_devil", False)),
-                                "devil_min_resets": int(conf.get("devil_min_resets", 0)),
-                                "devil_max_resets": int(conf.get("devil_max_resets", 9999)),
-                                "devil_ticket_type": str(conf.get("devil_ticket_type", "auto")),
-                                "auto_reset": bool(conf.get("auto_reset", False)),
-                                "auto_add_point": bool(conf.get("auto_add_point", False)),
-                                "reset_level": int(conf.get("reset_level", 400)),
-                                "stat_mode": str(conf.get("stat_mode", "auto_class")),
-                                "custom_class": str(conf.get("custom_class", "")),
-                                "stat_ratio": conf.get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
-                            }
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            return res
-
-    @classmethod
-    def save_event_config(
-        cls,
-        slot_idx: int,
-        auto_devil: bool = False,
-        devil_min_resets: int = 0,
-        devil_max_resets: int = 9999,
-        devil_ticket_type: str = "auto",
-        auto_reset: bool = False,
-        auto_add_point: bool = False,
-        reset_level: int = 400,
-        stat_mode: str = "auto_class",
-        custom_class: str = "",
-        stat_ratio: Optional[Dict[str, float]] = None
-    ):
-        """Lưu cấu hình Auto Devil, Reset & Cộng Point của riêng Slot slot_idx."""
-        with cls._lock:
-            cur = cls.load_event_configs()
-            if stat_ratio is None:
-                stat_ratio = cur.get(slot_idx, {}).get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
-            cur[slot_idx] = {
-                "auto_devil": bool(auto_devil),
-                "devil_min_resets": int(devil_min_resets),
-                "devil_max_resets": int(devil_max_resets if int(devil_max_resets) > 0 else 9999),
-                "devil_ticket_type": str(devil_ticket_type or "auto"),
-                "auto_reset": bool(auto_reset),
-                "auto_add_point": bool(auto_add_point),
-                "reset_level": int(reset_level),
-                "stat_mode": str(stat_mode or "auto_class"),
-                "custom_class": str(custom_class or ""),
-                "stat_ratio": stat_ratio
-            }
-            try:
-                store = {"slots": {str(k): v for k, v in sorted(cur.items(), key=lambda x: int(x[0]))}}
-                tmp = EVENT_CONFIG_FILE.with_suffix(".tmp")
-                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
-                tmp.replace(EVENT_CONFIG_FILE)
-            except Exception:
-                pass
-
+from core.storage import ConfigPersistenceManager
 
 # ==============================================================================
 # CONTROLLER QUẢN LÝ TỪNG DÒNG TÀI KHOẢN (SLOT CONTROLLER)
 # ==============================================================================
-class SlotController:
-    """Điều khiển logic và trạng thái của từng dòng trong danh sách 10 tài khoản."""
+from core.slot_controller import SlotController
 
-    def __init__(self, slot_idx: int, app: 'DashboardApp', default_profile: int = 1):
-        self.slot_idx = slot_idx
-        self.app = app
-        self.profile_index = default_profile
-
-        self.assigned_pid: Optional[int] = None
-        self.char_name = "---"
-        self.last_known_char_name = ""
-        self.level = "---"
-        self.coords = "--,--"
-        self.status = tr("idle")
-        self.auto_requested = False
-
-        self.engine: Optional[MegDirectEngine] = None
-        self.worker: Optional[AutoTrainWorker] = None
-        self.last_sync_time = 0.0
-
-        # Cấu hình Moss Merchant riêng cho Slot này
-        self.moss_enabled: bool = True
-        self.moss_category: int = 0
-        self.moss_delay_ms: int = 1000
-        self.moss_max_rolls: int = 0
-        self.moss_auto_clean: bool = True
-        self.moss_rolls_count: int = 0
-        self.moss_running: bool = False
-        self.moss_worker_thread: Optional[threading.Thread] = None
-        self.moss_paused_worker: bool = False
-        self.moss_initial_slots: set = set()
-
-        # Cấu hình Double Goer (Mirror) riêng cho Slot này
-        self.mirror_enabled: bool = True
-        self.mirror_running: bool = False
-        self.mirror_worker_thread: Optional[threading.Thread] = None
-        self.mirror_sniping: bool = False
-        self.mirror_snipe_thread: Optional[threading.Thread] = None
-        self._mirror_lock = threading.Lock()
-        self.resume_auto_train_after_mirror: bool = False
-        self._mirror_dungeon_running: bool = False
-
-        # Điểm Point & Master Point đọc từ RAM/Engine
-        self.points: int = 0
-        self.master_points: int = 0
-        self.class_id: int = -1
-        self.class_code: str = ""
-
-        # Cấu hình Devil Square & Auto Reset & Point riêng cho Slot này
-        self.auto_devil: bool = False
-        self.devil_min_resets: int = 0
-        self.devil_max_resets: int = 9999
-        self.devil_ticket_type: str = "auto"
-        self.current_resets: int = 0
-        self.auto_reset: bool = False
-        self.auto_add_point: bool = False
-        self.reset_level: int = 400
-        self.stat_mode: str = "auto_class"
-        self.custom_class: str = ""
-        self.stat_ratio: Dict[str, float] = {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}
-
-        try:
-            evt_cfgs = ConfigPersistenceManager.load_event_configs()
-            if self.slot_idx in evt_cfgs:
-                s_evt = evt_cfgs[self.slot_idx]
-                self.auto_devil = bool(s_evt.get("auto_devil", False))
-                self.devil_min_resets = int(s_evt.get("devil_min_resets", 0))
-                self.devil_max_resets = int(s_evt.get("devil_max_resets", 9999))
-                if self.devil_max_resets <= 0:
-                    self.devil_max_resets = 9999
-                self.devil_ticket_type = str(s_evt.get("devil_ticket_type", "auto"))
-                self.auto_reset = bool(s_evt.get("auto_reset", False))
-                self.auto_add_point = bool(s_evt.get("auto_add_point", False))
-                self.reset_level = int(s_evt.get("reset_level", 400))
-                self.stat_mode = str(s_evt.get("stat_mode", "auto_class"))
-                self.custom_class = str(s_evt.get("custom_class", ""))
-                if isinstance(s_evt.get("stat_ratio"), dict):
-                    self.stat_ratio = s_evt["stat_ratio"]
-        except Exception:
-            pass
-
-    def set_profile(self, profile_idx: int):
-        """Thay đổi Profile và lưu ngay vào file JSON."""
-        old_idx = self.profile_index
-        new_idx = max(1, min(10, int(profile_idx)))
-        if old_idx == new_idx:
-            return
-        self.profile_index = new_idx
-        ConfigPersistenceManager.save_slot_assignment(self.slot_idx, self.profile_index)
-
-        # Nếu đang chạy Auto, nạp config mới từ file và update worker trực tiếp
-        if self.worker and self.worker.running:
-            cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
-            if hasattr(self.worker, 'update_config'):
-                self.worker.update_config(cfg)
-            self.app.log_message(
-                f"[Slot {self.slot_idx:02d}] Chuyển cấu hình trực tiếp: C{old_idx} -> C{self.profile_index}. Re-routing ngay!",
-                "SUCCESS"
-            )
-            self.set_status(tr("running", n=self.profile_index))
-
-    def attach_pid(self, pid: int) -> bool:
-        """Kết nối tới Game PID."""
-        if not pid or not psutil.pid_exists(pid):
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Tiến trình MEGAMU (PID {pid}) không tồn tại hoặc đã đóng!", "WARNING")
-            self.set_status(tr("game_closed"))
-            return False
-
-        # Nếu đang gán PID khác thì dọn dẹp PID cũ
-        if self.assigned_pid and self.assigned_pid != pid:
-            old_p = self.assigned_pid
-            if MegDirectEngine:
-                MegDirectEngine.release_engine(old_p)
-            self.engine = None
-
-        self.assigned_pid = pid
-
-        # Nạp tức thì tên nhân vật và level từ tiêu đề cửa sổ / RAM để hiển thị ngay lập tức
-        title = self.app.detected_games.get(pid, "")
-        t_name = character_name_from_window_title(title)
-        if not t_name:
-            try:
-                from meg_navigator import ProcessMemoryReader
-                t_name = ProcessMemoryReader.read_character_name(pid) or ""
-            except Exception:
-                pass
-        if t_name:
-            self.char_name = t_name
-            self.last_known_char_name = t_name
-
-        try:
-            from meg_navigator import ProcessMemoryReader
-            t_lvl = ProcessMemoryReader._fallback_level_from_title(pid) or ProcessMemoryReader.read_character_level(pid)
-            if t_lvl:
-                self.level = str(t_lvl)
-            live = ProcessMemoryReader.read_live_state(pid)
-            if live and live[2] is not None and live[3] is not None and (live[2] > 0 or live[3] > 0):
-                self.coords = f"{live[2]},{live[3]}"
-        except Exception:
-            pass
-
-        self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
-
-        if MegDirectEngine:
-            self.engine = MegDirectEngine.get_engine(pid)
-            if not self.engine.is_ready:
-                ok = self.engine.attach()
-                if ok:
-                    self.set_status(tr("connected_status"))
-                    self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối thành công MEGAMU (PID {pid}).", "SUCCESS")
-                else:
-                    self.set_status(tr("connected_status"))
-                    self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối MEGAMU (PID {pid}) qua chế độ RAM telemetry.", "INFO")
-            else:
-                self.set_status(tr("connected_status"))
-        else:
-            self.set_status(tr("connected_status"))
-        return True
-
-    def reconnect_game(self) -> bool:
-        """
-        Kết nối lại thông minh cho Slot khi bị mất kết nối hoặc game mở lại:
-        1. Quét mới tiến trình qua self.app.refresh_games().
-        2. Nếu self.assigned_pid còn tồn tại trên Windows -> Kết nối lại PID này.
-        3. Nếu self.assigned_pid đã chết hoặc chưa gán:
-           - Dọn dẹp engine cũ của PID chết.
-           - Tìm trong các PID chưa được gán cho slot khác:
-             + Tìm theo tên nhân vật (self.last_known_char_name hoặc self.char_name).
-             + Nếu không có tên trùng khớp, lấy PID trống đầu tiên.
-           - Gán PID mới, attach, cập nhật UI và dropdown.
-        """
-        self.app.refresh_games()
-        living_games = self.app.detected_games
-
-        # Trường hợp 1: PID hiện tại vẫn còn sống
-        if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
-            if MegDirectEngine:
-                if self.engine:
-                    ok = self.engine.reconnect()
-                else:
-                    self.engine = MegDirectEngine.get_engine(self.assigned_pid)
-                    ok = self.engine.attach()
-            else:
-                ok = True
-
-            self.sync_telemetry()
-            self.set_status(tr("connected_status"))
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Đã kết nối lại thành công MEGAMU (PID {self.assigned_pid}).", "SUCCESS")
-            return True
-
-        # Trường hợp 2: PID hiện tại đã chết hoặc rỗng -> Tìm kiếm PID mới
-        old_pid = self.assigned_pid
-        if old_pid and MegDirectEngine:
-            MegDirectEngine.release_engine(old_pid)
-        self.engine = None
-        self.assigned_pid = None
-
-        # Lấy danh sách PID đã được các slot khác gán (chỉ tính PID còn sống)
-        other_assigned_pids = {
-            c.assigned_pid for c in self.app.controllers
-            if c != self and c.assigned_pid and psutil.pid_exists(c.assigned_pid)
-        }
-        available_pids = [p for p in living_games.keys() if p not in other_assigned_pids]
-
-        if not available_pids:
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Không tìm thấy tiến trình MEGAMU mới nào đang chạy để kết nối lại.", "WARNING")
-            self.set_status(tr("game_closed"))
-            return False
-
-        # Tìm kiếm theo tên nhân vật trước đó
-        target_name = (self.last_known_char_name or (self.char_name if self.char_name != "---" else "")).strip().lower()
-        matched_pid = None
-
-        if target_name:
-            for cand_pid in available_pids:
-                cand_title = living_games.get(cand_pid, "")
-                cand_name = character_name_from_window_title(cand_title)
-                if not cand_name:
-                    try:
-                        from meg_navigator import ProcessMemoryReader
-                        cand_name = ProcessMemoryReader.read_character_name(cand_pid) or ""
-                    except Exception:
-                        pass
-                if cand_name and cand_name.strip().lower() == target_name:
-                    matched_pid = cand_pid
-                    break
-
-        if matched_pid is None:
-            matched_pid = available_pids[0]
-
-        ok = self.attach_pid(matched_pid)
-        if ok:
-            el = self.app.slot_ui_elements.get(self.slot_idx)
-            if el and el.get("proc_var"):
-                title = living_games.get(matched_pid, "")
-                cname = character_name_from_window_title(title) or self.char_name
-                disp = f"{cname} ({matched_pid})" if (cname and cname != "---") else f"MEGAMU ({matched_pid})"
-                el["proc_var"].set(disp)
-
-            self.app.update_header_stats()
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Tự động nhận diện và kết nối lại MEGAMU (PID {matched_pid}) thành công!", "SUCCESS")
-            return True
-        return False
-
-    def send_auto_login(self, server: int = 1, account: str = "", character: str = "", password: str = "") -> bool:
-        """Gửi lệnh AutoLogin native vào client MEGAMU được gán cho Slot này."""
-        if not self.engine or not self.engine.is_ready:
-            if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
-                self.attach_pid(self.assigned_pid)
-        if self.engine and self.engine.is_ready:
-            res = self.engine.auto_login(server=server, account=account, character=character, password=password)
-            if res.get("ok"):
-                self.app.log_message(f"[Slot {self.slot_idx:02d}] Đã gửi AutoLogin thành công: Server {server}, Acc '{account}', NV '{character}'", "SUCCESS")
-                return True
-            else:
-                self.app.log_message(f"[Slot {self.slot_idx:02d}] AutoLogin thất bại: {res}", "WARNING")
-        return False
-
-    def detach(self):
-        """Ngắt kết nối."""
-        self.stop_moss()
-        if hasattr(self, "stop_mirror_auto"):
-            self.stop_mirror_auto()
-        if hasattr(self, "stop_mirror_turbo_sniping"):
-            self.stop_mirror_turbo_sniping()
-        self.stop_auto(reason="Người dùng ngắt kết nối slot hoặc đổi gán game", trigger_by="MANUAL")
-        old_pid = self.assigned_pid
-        self.assigned_pid = None
-        self.char_name = "---"
-        self.level = "---"
-        self.coords = "--,--"
-        self.set_status(tr("idle"))
-        if MegDirectEngine and old_pid:
-            MegDirectEngine.release_engine(old_pid)
-        self.engine = None
-
-    def start_auto(self) -> bool:
-        if getattr(self.app, "is_update_mandatory", False):
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Không thể chạy: Có bản cập nhật mới bắt buộc! Vui lòng cập nhật chương trình.", "ERROR")
-            self.set_auto(False)
-            self.app.open_update_dialog()
-            return False
-
-        if license_client and not license_client.is_license_valid():
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Không thể chạy: Bản quyền chưa kích hoạt hoặc đã hết hạn!", "ERROR")
-            self.set_auto(False)
-            return False
-
-        if license_client and not license_client.has_license_module("train"):
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Không thể chạy: Bản quyền chưa kích hoạt Module Train Auto!", "ERROR")
-            self.set_auto(False)
-            return False
-
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            # Tự động thử kết nối lại nếu có game đang mở
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Game đang mất kết nối. Đang tự động kết nối lại...", "INFO")
-            ok_reconn = self.reconnect_game()
-            if not ok_reconn:
-                self.set_status(tr("game_closed"))
-                self.set_auto(False)
-                return False
-
-        # Tự động đồng bộ nếu người dùng vừa sửa ở Tab Editor
-        if hasattr(self.app, 'save_editor_to_file'):
-            try:
-                self.app.save_editor_to_file(silent=True)
-            except Exception:
-                pass
-
-        # Đọc cấu hình tươi mới 100% từ file đĩa JSON!
-        cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
-        cfg["auto_devil"] = self.auto_devil
-        cfg["devil_min_resets"] = self.devil_min_resets
-        cfg["devil_max_resets"] = self.devil_max_resets
-        cfg["devil_ticket_type"] = getattr(self, "devil_ticket_type", "auto")
-        cfg["resets"] = self.current_resets
-        cfg["auto_reset"] = self.auto_reset
-        cfg["auto_add_point"] = self.auto_add_point
-        cfg["reset_level"] = self.reset_level
-        cfg["stat_mode"] = self.stat_mode
-        cfg["custom_class"] = self.custom_class
-        cfg["stat_ratio"] = self.stat_ratio
-        cfg["class_profiles"] = ConfigPersistenceManager.load_class_stat_profiles()
-        stages = cfg.get("stages", [])
-        if not stages:
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] Config {self.profile_index} chưa thiết lập chặng!", "ERROR")
-            self.set_auto(False)
-            return False
-
-        stage_summary = "; ".join([
-            f"C{i+1}:Lv{s.get('min_level')}-{s.get('max_level')} {s.get('map_name')}({s.get('x')},{s.get('y')})"
-            for i, s in enumerate(stages)
-        ])
-        self.app.log_message(
-            f"[Slot {self.slot_idx:02d}] BẬT AUTO C{self.profile_index} ({len(stages)} chặng): {stage_summary}",
-            "SUCCESS"
-        )
-
-        def worker_log(msg, lvl="INFO"):
-            self.app.log_message(f"[Slot {self.slot_idx:02d}] {msg}", lvl)
-
-        def worker_progress(st, _):
-            self.set_status(st)
-
-        self.worker = AutoTrainWorker(
-            pid=self.assigned_pid,
-            stages=stages,
-            log_callback=worker_log,
-            progress_callback=worker_progress,
-            config=cfg,
-            slot_idx=self.slot_idx
-        )
-        self.worker.start()
-        self.auto_requested = True
-        self.set_auto(True)
-        self.set_status(tr("running", n=self.profile_index))
-        return True
-
-    def stop_auto(self, reason: str = "Người dùng chủ động tắt Auto", trigger_by: str = "MANUAL"):
-        worker = self.worker
-        self.worker = None
-        was_auto = self.auto_requested
-        self.auto_requested = False
-        self.set_auto(False)
-
-        if self.assigned_pid and psutil.pid_exists(self.assigned_pid):
-            self.set_status(tr("connected_status"))
-        else:
-            self.set_status(tr("idle"))
-
-        # Ghi log chi tiết nếu slot thực sự đang chạy auto
-        if was_auto or worker:
-            record_auto_stop_log(
-                slot_idx=self.slot_idx,
-                pid=self.assigned_pid,
-                char_name=self.char_name,
-                trigger_type=trigger_by,
-                reason=reason,
-                coords=self.coords,
-                level=str(self.level)
-            )
-
-            prefix = "🛑 [NGƯỜI DÙNG DỪNG]" if trigger_by.upper() == "MANUAL" else "⚠️ [HỆ THỐNG TỰ DỪNG]"
-            log_level = "WARNING" if trigger_by.upper() == "MANUAL" else "ERROR"
-            self.app.log_message(
-                f"[Slot {self.slot_idx:02d}] {prefix} {reason} (NV: '{self.char_name}', PID: {self.assigned_pid or 'N/A'}).",
-                log_level
-            )
-
-        # Chạy dọn dẹp worker thread và engine trong background để KHÔNG BAO GIỜ làm đơ (Not Responding) giao diện UI!
-        def _stop_cleanup():
-            if worker:
-                try:
-                    worker.stop(reason=reason)
-                except Exception:
-                    pass
-            eng = self.engine
-            if eng and getattr(eng, "is_ready", False):
-                try:
-                    eng.stop_helper()
-                    eng.cancel_move()
-                except Exception:
-                    pass
-
-        threading.Thread(target=_stop_cleanup, daemon=True).start()
-
-    def _pause_train_for_mirror(self, reason: str = ""):
-        """Tạm dừng AutoTrain cho Slot khi sự kiện Mirror bắt đầu."""
-        with self._mirror_lock:
-            if self.auto_requested or (self.worker and self.worker.running):
-                self.resume_auto_train_after_mirror = True
-                if self.worker and hasattr(self.worker, "pause_for_event"):
-                    self.worker.pause_for_event(reason)
-
-    def _resume_train_after_mirror(self, reason: str = ""):
-        """Khôi phục AutoTrain cho Slot sau khi sự kiện Mirror kết thúc hoặc hết thời gian chờ."""
-        with self._mirror_lock:
-            if self.resume_auto_train_after_mirror:
-                self.resume_auto_train_after_mirror = False
-                if self.worker and hasattr(self.worker, "resume_from_event"):
-                    self.worker.resume_from_event(reason)
-                if hasattr(self, "start_auto"):
-                    threading.Thread(target=self.start_auto, daemon=True).start()
-
-    def toggle_auto(self):
-        if self.auto_requested or (self.worker and self.worker.running):
-            self.stop_auto(reason="Người dùng bấm nút Tắt Auto trên dòng tài khoản", trigger_by="MANUAL")
-        else:
-            threading.Thread(target=self.start_auto, daemon=True).start()
-
-    def set_status(self, text: str):
-        self.status = text
-        self.app.update_slot_ui_status(self.slot_idx, text)
-
-    def set_auto(self, is_on: bool):
-        self.auto_requested = is_on
-        self.app.update_slot_ui_auto(self.slot_idx, is_on)
-
-    def sync_telemetry(self):
-        """Đọc RAM thông tin nhân vật hiển thị lên bảng."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            if self.assigned_pid:
-                p_closed = self.assigned_pid
-                c_closed = self.char_name
-                if self.char_name and self.char_name != "---":
-                    self.last_known_char_name = self.char_name
-                self.set_status(tr("game_closed"))
-                self.char_name = "---"
-                self.level = "---"
-                self.coords = "--,--"
-                if MegDirectEngine:
-                    MegDirectEngine.release_engine(p_closed)
-                self.engine = None
-                if self.auto_requested or self.worker:
-                    self.stop_auto(
-                        reason=f"Tiến trình game MEGAMU.exe (PID {p_closed} - {c_closed}) đã bị đóng hoặc bị văng/crash!",
-                        trigger_by="SYSTEM"
-                    )
-            return
-
-        p_info = None
-        if self.engine:
-            try:
-                p_info = self.engine.get_player_info(max_age=1.5, allow_blocking=False)
-            except Exception:
-                pass
-
-        # Fallback đọc trực tiếp RAM nếu engine chưa có thông tin
-        if not p_info:
-            try:
-                from meg_navigator import ProcessMemoryReader
-                live = ProcessMemoryReader.read_live_state(self.assigned_pid)
-                lvl = ProcessMemoryReader.read_character_level(self.assigned_pid)
-                p_info = {
-                    "level": lvl or 0,
-                    "tileX": live[2] if live and live[2] is not None else 0,
-                    "tileY": live[3] if live and live[3] is not None else 0,
-                }
-            except Exception:
-                pass
-
-        # Lấy tên nhân vật từ window title hoặc ProcessMemoryReader nếu chưa có
-        title = self.app.detected_games.get(self.assigned_pid, "")
-        t_name = character_name_from_window_title(title)
-        if not t_name:
-            try:
-                from meg_navigator import ProcessMemoryReader
-                t_name = ProcessMemoryReader.read_character_name(self.assigned_pid) or ""
-            except Exception:
-                pass
-
-        if t_name and (self.char_name == "---" or not self.char_name):
-            self.char_name = t_name
-
-        if p_info:
-            p_name = p_info.get("name", "")
-            p_lvl = p_info.get("level", 0)
-            px = p_info.get("tileX", p_info.get("x", 0))
-            py = p_info.get("tileY", p_info.get("y", 0))
-
-            if px == 0 and py == 0:
-                try:
-                    from meg_navigator import ProcessMemoryReader
-                    live = ProcessMemoryReader.read_live_state(self.assigned_pid)
-                    if live and live[2] is not None and live[3] is not None and (live[2] > 0 or live[3] > 0):
-                        px, py = live[2], live[3]
-                        p_info["tileX"] = px
-                        p_info["tileY"] = py
-                except Exception:
-                    pass
-
-            if p_name:
-                self.char_name = p_name
-            elif t_name:
-                self.char_name = t_name
-
-            if p_lvl > 0:
-                self.level = str(p_lvl)
-            elif self.level == "---":
-                try:
-                    from meg_navigator import ProcessMemoryReader
-                    t_lvl = ProcessMemoryReader._fallback_level_from_title(self.assigned_pid)
-                    if t_lvl:
-                        self.level = str(t_lvl)
-                except Exception:
-                    pass
-
-            if px > 0 or py > 0:
-                self.coords = f"{px},{py}"
-
-            if "points" in p_info:
-                try:
-                    self.points = int(p_info.get("points", 0))
-                except Exception:
-                    pass
-            if "masterPoints" in p_info:
-                try:
-                    self.master_points = int(p_info.get("masterPoints", 0))
-                except Exception:
-                    pass
-            if "classId" in p_info:
-                try:
-                    cid = int(p_info.get("classId", -1))
-                    if cid >= 0:
-                        self.class_id = cid
-                        self.class_code = CLASS_ID_TO_CODE.get(cid, "")
-                except Exception:
-                    pass
-            if "resets" in p_info:
-                try:
-                    r_val = int(p_info.get("resets", 0))
-                    if r_val > 0:
-                        self.current_resets = r_val
-                except Exception:
-                    pass
-
-            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code)
-        elif self.char_name != "---" or self.level != "---":
-            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code)
-
-    def start_moss(self) -> bool:
-        """Kích hoạt Auto Quay Moss cho riêng slot này theo cấu hình đã cài đặt."""
-        if self.moss_running:
-            return True
-
-        if license_client and not license_client.has_license_module("moss"):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Moss Merchant!")
-            return False
-
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game hoặc Game đã thoát!")
-            return False
-
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!")
-            return False
-        if not eng.is_ready:
-            eng.attach()
-
-        # 1. Tạm dừng Auto Train nếu đang chạy để tránh xung đột di chuyển / giữ bãi
-        if self.worker or self.auto_requested:
-            self.moss_paused_worker = True
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏸️ Tạm dừng Auto Train để quay Moss...")
-            self.stop_auto("Tạm dừng Auto Train để quay Moss", trigger_by="EVENT")
-            time.sleep(0.3)
-
-        # 2. Tắt MuHelper nếu đang bật để không gây gián đoạn
-        if eng.is_helper_active(force_refresh=True):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚔️ Đang tạm tắt MuHelper...")
-            eng.stop_helper()
-            time.sleep(0.2)
-
-        self.moss_running = True
-        self.app.update_moss_slot_ui_state(self.slot_idx, is_running=True)
-        cat_name = self.app.get_moss_cat_name(self.moss_category)
-        self.app.append_moss_log(
-            f"[Slot {self.slot_idx:02d} - {self.char_name}] ▶️ BẮT ĐẦU AUTO QUAY: {cat_name} | Delay {self.moss_delay_ms}ms"
-        )
-
-        def _worker():
-            consecutive_fails = 0
-
-            # 1. Quét chờ NPC Moss xuất hiện thực tế quanh Elbeland (22, 225) trước khi mở bảng
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🔍 Đang quét tìm NPC Moss thực tế tại Elbeland (22, 225)..."
-            ))
-
-            npc_ready = False
-            wait_ticks = 0
-            while self.moss_running:
-                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
-                    break
-
-                npc_info = eng.find_moss_npc() if eng else None
-                if npc_info and npc_info.get("found"):
-                    # Đã phát hiện NPC Moss xuất hiện -> Tự động click vào NPC để Server mở bảng Moss
-                    interact_res = eng.interact_moss_npc(self.moss_category) if eng else None
-                    if interact_res and interact_res.get("success"):
-                        n_name = interact_res.get("name", "Moss The Gambler")
-                        n_idx = interact_res.get("index", "?")
-                        n_x = interact_res.get("x", 22)
-                        n_y = interact_res.get("y", 225)
-                        c_str = self.app.get_moss_cat_name(self.moss_category)
-                        # Chờ Server phản hồi gói C2:30 và hoàn tất nạp danh sách vật phẩm
-                        for _ in range(20):
-                            if eng and eng.is_moss_ready():
-                                break
-                            time.sleep(0.1)
-                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, i=n_idx, x=n_x, y=n_y, cs=c_str: self.app.append_moss_log(
-                            f"[Slot {s:02d} - {c}] 🎯 NPC {n} đã xuất hiện tại ({x},{y}, ID: {i})! Đã click vào NPC mở bảng Moss ({cs}) từ Server. Bắt đầu quay..."
-                        ))
-                        npc_ready = True
-                        time.sleep(0.3)
-                        break
-                    else:
-                        err_msg = interact_res.get("error", "Unknown") if interact_res else "None"
-                        self.app.after(0, lambda s=self.slot_idx, err=err_msg: self.app.append_moss_log(
-                            f"[Slot {s:02d}] ⚠️ Đã phát hiện NPC Moss nhưng click tương tác chưa thành công ({err}), đang thử lại..."
-                        ))
-                else:
-                    wait_ticks += 1
-                    if wait_ticks % 10 == 0:
-                        self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                            f"[Slot {s:02d}] ⏳ NPC Moss chưa xuất hiện. Vẫn đang tiếp tục chờ NPC spawn để click vào..."
-                        ))
-
-                time.sleep(0.5)
-
-            if not self.moss_running or not npc_ready:
-                self.moss_running = False
-                self.app.after(0, lambda s=self.slot_idx: self.app.update_moss_slot_ui_state(s, is_running=False))
-                return
-
-            # Snapshot các ô đồ đang có sẵn trước khi bắt đầu quay để bảo vệ tuyệt đối
-            self.moss_initial_slots = set()
-            if eng and eng.is_ready:
-                try:
-                    init_inv = eng.get_inventory_summary(category=self.moss_category)
-                    if init_inv and not init_inv.get("error"):
-                        for item in init_inv.get("keptSlots", []):
-                            s_num = item.get("slot")
-                            if s_num is not None:
-                                self.moss_initial_slots.add(int(s_num))
-                        if self.moss_initial_slots:
-                            self.app.after(0, lambda s=self.slot_idx, n=len(self.moss_initial_slots): self.app.append_moss_log(
-                                f"[Slot {s:02d} - {self.char_name}] 🛡️ Đã kích hoạt vùng bảo vệ an toàn: {n} món đồ có sẵn trong hòm đồ sẽ KHÔNG BAO GIỜ bị xóa/bán!"
-                            ))
-                except Exception:
-                    pass
-
-            while self.moss_running:
-                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
-                    break
-
-                # Xác định dung lượng ô tối thiểu theo danh mục (Cung/Kiếm/Gậy/Chùy/Trượng: 8 ô; Khiên/Giáp: 6 ô; Trang sức: 2 ô)
-                cat = int(getattr(self, "moss_category", 0) or 0)
-                min_slots_needed = 8 if cat in [0, 1, 2, 3, 4] else (6 if cat in [6, 8] else 2)
-
-                # 1. Proactive auto-clean: Kiểm tra hòm đồ trước khi quay
-                if self.moss_auto_clean and eng and eng.is_ready:
-                    try:
-                        inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
-                        if inv and not inv.get("error"):
-                            free_slots = int(inv.get("free", 64))
-                            junk_count = int(inv.get("junkCount", 0))
-                            moss_plus = int(inv.get("mossPlusCount", 0))
-
-                            # Nếu còn ít ô trống và có đồ rác thường (+0..+6 thuộc danh mục Moss) -> xóa/hủy trực tiếp an toàn
-                            if free_slots < (min_slots_needed + 4) and junk_count > 0:
-                                self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác Moss..."
-                                ))
-                                c_res = eng.clean_inventory_junk(
-                                    "trash",
-                                    protected_slots=list(self.moss_initial_slots),
-                                    category=self.moss_category,
-                                    include_extended=True,
-                                    max_junk_level=6
-                                )
-                                cleaned = c_res.get("cleaned", 0)
-                                self.app.after(0, lambda s=self.slot_idx, c=cleaned: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món đồ rác Moss (Đã bảo vệ đồ Divine / Rồng / Exc / Socket / Set / May mắn / Đồ >= +7). Tiếp tục quay..."
-                                ))
-                                time.sleep(0.3)
-                                inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
-                                if inv and not inv.get("error"):
-                                    free_slots = int(inv.get("free", 64))
-                                    junk_count = int(inv.get("junkCount", 0))
-
-                            # Nếu hòm đồ đã đầy các vật phẩm quý giá -> Dừng an toàn
-                            if free_slots < min_slots_needed and junk_count == 0:
-                                self.app.after(0, lambda s=self.slot_idx, f=free_slots, req=min_slots_needed, c=cat: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] ⚠️ Hòm đồ chỉ còn {f} ô lẻ, không đủ khoảng trống {req} ô cho danh mục {self.app.get_moss_cat_name(c)}. Tự động dừng quay an toàn!"
-                                ))
-                                break
-                    except Exception:
-                        pass
-
-                if eng and not eng.is_moss_open():
-                    # Đợi một chút kiểm tra nếu người dùng vừa bấm (X) trong game hoặc giao diện vừa đóng
-                    time.sleep(0.4)
-                    if not self.moss_running:
-                        break
-                    try:
-                        eng.interact_moss_npc(self.moss_category)
-                        for _ in range(12):
-                            if not self.moss_running or eng.is_moss_open():
-                                break
-                            time.sleep(0.1)
-                    except Exception:
-                        pass
-
-                # Chụp lại trạng thái hòm đồ trước khi quay để kiểm tra item trúng thưởng
-                inv_before = None
-                if eng and eng.is_ready:
-                    try:
-                        inv_before = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
-                    except Exception:
-                        pass
-
-                ok = eng.roll_moss(self.moss_category) if eng else False
-                if ok:
-                    # Chờ ngắn để Server trả kết quả packet vật phẩm về hòm đồ
-                    time.sleep(0.35)
-
-                    # So sánh hòm đồ để tìm món đồ mới quay được (cả kept và junk)
-                    new_item_found = False
-                    new_item_desc = ""
-                    if eng and eng.is_ready and inv_before:
-                        try:
-                            inv_after = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
-                            if inv_after and not inv_after.get("error"):
-                                b_kept = {item.get("slot"): item for item in inv_before.get("keptSlots", [])}
-                                a_kept = {item.get("slot"): item for item in inv_after.get("keptSlots", [])}
-                                b_junk = {item.get("slot"): item for item in inv_before.get("junkSlots", [])}
-                                a_junk = {item.get("slot"): item for item in inv_after.get("junkSlots", [])}
-
-                                for s_idx, itm in a_kept.items():
-                                    if s_idx not in b_kept:
-                                        new_item_found = True
-                                        it_name = itm.get("name", "Vật phẩm")
-                                        it_lvl = itm.get("level", 0)
-                                        is_sp = itm.get("isSpecial", False)
-                                        is_exc = itm.get("exc", 0) > 0
-                                        is_anc = itm.get("anc", 0) > 0
-                                        is_luck = itm.get("luck", 0) > 0
-                                        tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else ("🍀 MAY MẮN!" if is_luck else f"+{it_lvl}")))
-                                        new_item_desc = f" -> 🎁 Trúng: {it_name} ({tag})"
-                                        break
-
-                                if not new_item_found:
-                                    for s_idx, itm in a_junk.items():
-                                        if s_idx not in b_junk:
-                                            new_item_found = True
-                                            it_name = itm.get("name", "Vật phẩm")
-                                            it_lvl = itm.get("level", 0)
-                                            new_item_desc = f" -> 🗑️ Nhận: {it_name} (+{it_lvl})"
-                                            break
-                        except Exception:
-                            pass
-
-                    if new_item_found:
-                        consecutive_fails = 0
-                        self.moss_rolls_count += 1
-                        r_num = self.moss_rolls_count
-
-                        def _update_ui(s=self.slot_idx, r=r_num, c=self.moss_category, desc=new_item_desc):
-                            self.app.update_moss_slot_rolls(s, r)
-                            c_str = self.app.get_moss_cat_name(c)
-                            self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}{desc}")
-                        self.app.after(0, _update_ui)
-                    else:
-                        # Server KHÔNG gửi item về (Hòm đồ đầy không đủ khối trống, hoặc hết Zen)
-                        consecutive_fails += 1
-                        # Giải phóng LoadingImage ngay lập tức trên game client
-                        try:
-                            if eng and eng.is_ready:
-                                eng.reset_moss_ui(self.moss_category)
-                        except Exception:
-                            pass
-
-                        # Thử dọn rác an toàn nếu được bật
-                        if self.moss_auto_clean and eng and eng.is_ready:
-                            try:
-                                c_res = eng.clean_inventory_junk(
-                                    "trash",
-                                    protected_slots=list(getattr(self, "moss_initial_slots", None) or []),
-                                    category=self.moss_category,
-                                    include_extended=True,
-                                    max_junk_level=6
-                                )
-                                cleaned_items = c_res.get("cleaned", 0)
-                                if cleaned_items > 0:
-                                    self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
-                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss khi bị đầy (an toàn). Thử quay tiếp..."
-                                    ))
-                                    time.sleep(0.3)
-                                    consecutive_fails = 0
-                                    continue
-                            except Exception:
-                                pass
-
-                        if consecutive_fails >= 2:
-                            self.app.after(0, lambda s=self.slot_idx, c=cat, req=min_slots_needed: self.app.append_moss_log(
-                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Server không trả vật phẩm (Hòm đồ đầy không đủ khối {req} ô cho {self.app.get_moss_cat_name(c)} hoặc hết Zen). Tự động dừng quay và đóng bảng Moss an toàn!"
-                            ))
-                            break
-                        else:
-                            self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Lượt quay chưa nhận được vật phẩm (đang kiểm tra lại hòm đồ và giải phóng giao diện)..."
-                            ))
-                            time.sleep(0.5)
-                else:
-                    consecutive_fails += 1
-                    # Nếu quay không thành công, giải phóng giao diện
-                    try:
-                        if eng and eng.is_ready:
-                            eng.reset_moss_ui(self.moss_category)
-                    except Exception:
-                        pass
-
-                    # Kiểm tra xem NPC Moss còn xuất hiện trong thế giới hay đã biến mất (hết giờ sự kiện)
-                    npc_check = eng.find_moss_npc() if eng else None
-                    if not npc_check or not npc_check.get("found"):
-                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                            f"[Slot {s:02d} - {c}] 🛑 NPC Moss đã biến mất khỏi game (hết thời gian sự kiện). Tự động dừng quay an toàn!"
-                        ))
-                        break
-
-                    # Nếu NPC vẫn còn, thử click lại vào NPC để khôi phục phiên giao dịch Server
-                    try:
-                        eng.interact_moss_npc(self.moss_category)
-                        time.sleep(0.3)
-                    except Exception:
-                        pass
-
-                    if consecutive_fails >= 3:
-                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công 3 lần liên tiếp (Hòm đầy không còn rác, không đủ Zen, hoặc nhân vật chưa đứng gần NPC Moss)."))
-                        time.sleep(1.0)
-                    else:
-                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công (Hòm đầy, không đủ Zen, hoặc phiên NPC bị ngắt)."))
-
-                if self.moss_max_rolls > 0 and self.moss_rolls_count >= self.moss_max_rolls:
-                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] 🏁 Đã hoàn thành đủ {self.moss_max_rolls} lượt."))
-                    break
-
-                # Sleep an toàn chia nhỏ
-                slept = 0
-                step = 0.05
-                target = max(0.4, self.moss_delay_ms / 1000.0)
-                while self.moss_running and slept < target:
-                    time.sleep(step)
-                    slept += step
-
-            self.moss_running = False
-            if eng and eng.is_ready:
-                try:
-                    eng.reset_moss_ui(self.moss_category)
-                    eng.close_moss()
-                except Exception:
-                    pass
-            self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
-
-            # Khôi phục Auto Train nếu trước đó bị tạm dừng bởi sự kiện Moss
-            if getattr(self, "moss_paused_worker", False):
-                self.moss_paused_worker = False
-                def _resume_train():
-                    self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔄 Tự động khôi phục Auto Train quay lại bãi train...")
-                    self.start_auto()
-                self.app.after(1000, _resume_train)
-
-        self.moss_worker_thread = threading.Thread(target=_worker, daemon=True, name=f"Slot{self.slot_idx:02d}_MossWorker")
-        self.moss_worker_thread.start()
-        return True
-
-    def stop_moss(self):
-        """Dừng Auto Quay Moss cho riêng slot này và đóng cửa sổ giải phóng tài nguyên."""
-        if self.moss_running:
-            self.moss_running = False
-            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-            if eng and eng.is_ready:
-                try:
-                    eng.reset_moss_ui(self.moss_category)
-                    eng.close_moss()
-                except Exception:
-                    pass
-            self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False)
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Quay Moss và đóng giao diện an toàn.")
-
-            # Khôi phục Auto Train nếu trước đó bị tạm dừng bởi sự kiện Moss
-            if getattr(self, "moss_paused_worker", False):
-                self.moss_paused_worker = False
-                def _resume_train_stop():
-                    self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔄 Tự động khôi phục Auto Train quay lại bãi train...")
-                    self.start_auto()
-                self.app.after(1000, _resume_train_stop)
-
-    def roll_moss_once(self) -> bool:
-        """Quay thử 1 lần cho riêng slot này (Yêu cầu phải có NPC Moss xuất hiện)."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-
-        # Kiểm tra xem NPC Moss có xuất hiện không
-        npc_info = eng.find_moss_npc()
-        if not npc_info or not npc_info.get("found"):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225)! Không thể quay thử.")
-            return False
-
-        # Nếu chưa mở hoặc chưa nạp danh sách từ Server, kích hoạt tương tác NPC trước
-        if not eng.is_moss_open():
-            try:
-                eng.interact_moss_npc(self.moss_category)
-                for _ in range(10):
-                    time.sleep(0.1)
-                    if eng.is_moss_open():
-                        break
-            except Exception:
-                pass
-        ok = eng.roll_moss(self.moss_category)
-        if ok:
-            self.moss_rolls_count += 1
-            self.app.update_moss_slot_rolls(self.slot_idx, self.moss_rolls_count)
-            c_str = self.app.get_moss_cat_name(self.moss_category)
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎲 Quay 1 lần thành công: {c_str} (Lượt #{self.moss_rolls_count})")
-            return True
-        else:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Quay 1 lần thất bại.")
-            return False
-
-    def open_moss_npc(self) -> bool:
-        """Tương tác/click vào NPC Moss thực tế trong thế giới game để mở bảng Moss từ Server."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-
-        # 1. Quét tìm NPC Moss thực tế xuất hiện quanh Elbeland (22, 225)
-        npc_info = eng.find_moss_npc()
-        if not npc_info or not npc_info.get("found"):
-            self.app.append_moss_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225). Phải có NPC Moss xuất hiện mới mở bảng!"
-            )
-            return False
-
-        # 2. Click tương tác trực tiếp với NPC Moss để Server gửi dữ liệu và mở bảng hợp lệ
-        res = eng.interact_moss_npc(self.moss_category)
-        if res and res.get("success"):
-            c_str = self.app.get_moss_cat_name(self.moss_category)
-            n_name = res.get("name", "Moss The Gambler")
-            n_idx = res.get("index", "?")
-            n_x = res.get("x", 22)
-            n_y = res.get("y", 225)
-            # Chờ Server phản hồi và hoàn tất khởi tạo danh sách vật phẩm (tối đa 1.5 giây)
-            ready = False
-            for _ in range(15):
-                time.sleep(0.1)
-                if eng.is_moss_ready():
-                    ready = True
-                    break
-            if ready:
-                self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Đã click vào NPC {n_name} ({n_x},{n_y}) -> Bảng Moss ({c_str}) đã nạp thành công từ Server, sẵn sàng quay!"
-                )
-            else:
-                self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Đã click vào NPC {n_name} ({n_x},{n_y}) -> Đã gửi yêu cầu đối thoại lên Server."
-                )
-            return True
-        else:
-            err = res.get("error", "Unknown") if res else "Failed"
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Tương tác click NPC Moss thất bại: {err}")
-            return False
-
-    def close_moss_dialog(self) -> bool:
-        """Đóng bảng NPC Moss và thoát phiên đối thoại để mở khóa thùng đồ."""
-        if self.moss_running:
-            self.stop_moss()
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-        try:
-            try:
-                eng.reset_moss_ui(self.moss_category)
-            except Exception:
-                pass
-            eng.close_moss()
-            eng.unlock_character_and_inventory()
-            time.sleep(0.15)
-            if hasattr(eng, "is_moss_open") and eng.is_moss_open():
-                eng.close_moss()
-            self.app.append_moss_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚪 Đã đóng bảng Moss & mở khóa thùng đồ (phím V/I/Esc)."
-            )
-            return True
-        except Exception as e:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi đóng Moss: {e}")
-            return False
-
-    def unlock_inventory(self) -> bool:
-        """Mở khóa và giải phóng toàn bộ trạng thái kẹt/treo của thùng đồ và nhân vật."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-        try:
-            ok = eng.unlock_character_and_inventory()
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔓 Đã mở khóa và giải phóng toàn bộ thùng đồ & nhân vật thành công!")
-            return bool(ok)
-        except Exception as e:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi mở khóa thùng đồ: {e}")
-            return False
-
-    def unlock_and_close_inventory(self) -> bool:
-        """Mở khóa và đóng ngay thùng đồ + bảng Moss nếu đang bị treo/kẹt."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-        try:
-            eng.unlock_character_and_inventory()
-            eng.close_inventory()
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔓 Đã giải phóng toàn bộ treo/kẹt & đóng thùng đồ + Moss thành công!")
-            return True
-        except Exception as e:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi giải phóng thùng đồ: {e}")
-            return False
-
-    def clean_moss_inventory(self, method: str = "trash", category: int = -1, run_in_thread: bool = False, force_clean: bool = True) -> int:
-        """Dọn dẹp / ném tại chỗ các món đồ rác trong hòm đồ chính của riêng slot này."""
-        def _runner() -> int:
-            if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!")
-                return 0
-            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-            if not eng:
-                self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!")
-                return 0
-            if not eng.is_ready:
-                eng.attach()
-            try:
-                # 1. Đảm bảo đóng bảng Moss & mở khóa thùng đồ & nhân vật trước tiên
-                eng.close_moss()
-                eng.unlock_character_and_inventory()
-                time.sleep(0.3)
-                if hasattr(eng, "is_moss_open") and eng.is_moss_open():
-                    eng.close_moss()
-                    time.sleep(0.2)
-
-                # 2. Thực hiện ném đồ rác tại chỗ (category=-1 nghĩa là dọn sạch mọi đồ rác thường +0..+6 trong hòm đồ)
-                # (bảo vệ tuyệt đối đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)
-                c_res = eng.clean_inventory_junk(
-                    str(method),
-                    protected_slots=[] if force_clean else list(getattr(self, "moss_initial_slots", None) or []),
-                    category=category,
-                    include_extended=True,
-                    max_junk_level=6
-                )
-                cleaned = int(c_res.get("cleaned", 0)) if isinstance(c_res, dict) else 0
-                total_junk = int(c_res.get("totalJunk", 0)) if isinstance(c_res, dict) else 0
-                failed = int(c_res.get("failed", 0)) if isinstance(c_res, dict) else 0
-                err_msg = c_res.get("error", "") if isinstance(c_res, dict) else ""
-
-                if cleaned > 0:
-                    self.app.append_moss_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã ném tại chỗ thành công {cleaned}/{total_junk or cleaned} món đồ rác (Bảo tồn đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)!"
-                    )
-                elif total_junk > 0:
-                    self.app.append_moss_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Đã phát hiện {total_junk} món đồ rác nhưng máy chủ chưa cho phép rơi ra đất! Lưu ý: Nếu nhân vật đứng trong Làng / Event Square / Khu an toàn (Safe Zone), Server MU cấm ném đồ ra đất. Hãy di chuyển ra ngoài cổng làng."
-                    )
-                elif err_msg:
-                    self.app.append_moss_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Lỗi ném đồ: {err_msg}"
-                    )
-                else:
-                    self.app.append_moss_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Thùng đồ không có món đồ rác nào cần ném (hoặc đã sạch)."
-                    )
-                return cleaned
-            except Exception as e:
-                self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi ném đồ tại chỗ: {e}")
-                return 0
-            finally:
-                try:
-                    eng.unlock_character_and_inventory()
-                except Exception:
-                    pass
-
-        if run_in_thread:
-            threading.Thread(target=_runner, daemon=True).start()
-            return 0
-        else:
-            return _runner()
-
-    def sell_moss_items_at_merchant(self, eng=None) -> bool:
-        """
-        Tự động di chuyển ra NPC Rhea (29, 235 Elbeland) bán đồ Moss +5..+7 khi thùng đồ bị đầy,
-        sau đó quay lại bệ NPC Moss (22, 225) và mở lại bảng tiếp tục quay.
-        Bảo vệ tuyệt đối: Đồ Divine, Đồ Rồng, Hoàn Hảo, Socket, Set Thần, Ngọc/Vé sự kiện/Cánh/Sách phép, Đồ >= +8.
-        """
-        if not eng:
-            if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                return False
-            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng or not eng.is_ready:
-            return False
-
-        try:
-            # Đóng bảng Moss & mở khóa nhân vật trước khi di chuyển để tránh kẹt trạng thái giao diện
-            eng.close_moss()
-            eng.unlock_character_and_inventory()
-            time.sleep(0.4)
-            if hasattr(eng, "is_moss_open") and eng.is_moss_open():
-                eng.close_moss()
-                time.sleep(0.2)
-
-            # Điểm đích trước mặt thương nhân Silvia: ô (44, 229) Elbeland
-            target_rhea_x, target_rhea_y = 44, 229
-
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Silvia ({target_rhea_x}, {target_rhea_y}) để dọn bán đồ rác..."
-            ))
-
-            # BƯỚC 1: Di chuyển tới Rhea (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
-            reached_rhea = False
-            for attempt in range(2):
-                eng.start_auto_move(target_rhea_x, target_rhea_y, helper=False)
-                start_t = time.time()
-                while time.time() - start_t < 12.0:
-                    time.sleep(0.4)
-                    if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
-                        eng.stop_auto_move()
-                        return False
-
-                    p_info = eng.get_player_info()
-                    if p_info:
-                        px = p_info.get("x", 0) or p_info.get("tileX", 0)
-                        py = p_info.get("y", 0) or p_info.get("tileY", 0)
-                        if px > 0 and py > 0:
-                            # Nếu đã đứng trong bán kính 3 ô tính từ Rhea (29, 235)
-                            dist = max(abs(px - target_rhea_x), abs(py - target_rhea_y))
-                            if dist <= 3:
-                                reached_rhea = True
-                                break
-
-                if reached_rhea:
-                    break
-                else:
-                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, a=attempt+1: self.app.append_moss_log(
-                        f"[Slot {s:02d} - {c}] ⏳ Chưa tới được Silvia (lần {a}/2), đang tiếp tục bước tới..."
-                    ))
-
-            # Dừng bước di chuyển và đứng yên hoàn toàn trước khi nói chuyện với NPC
-            eng.stop_auto_move()
-            time.sleep(0.5)
-
-            p_info = eng.get_player_info()
-            px = p_info.get("x", 0) if p_info else 0
-            py = p_info.get("y", 0) if p_info else 0
-
-            # BƯỚC 2: Tìm và tương tác với NPC Rhea
-            npc_found = eng.find_merchant_npc()
-            npc_name = "Merchant Rhea"
-            if npc_found and npc_found.get("found"):
-                npc_name = npc_found.get("name", "Merchant Rhea")
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=npc_name, nx=npc_found.get('x'), ny=npc_found.get('y'): self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 🎯 Đã tiếp cận NPC {n} tại ({nx}, {ny}). Đang mở giao dịch bán đồ..."
-                ))
-            else:
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 🤝 Đang mở đối thoại với NPC Rhea tại ({px}, {py})..."
-                ))
-
-            # Gọi native tương tác đối thoại với NPC
-            interact_res = eng.interact_merchant_npc()
-            # Chờ Server phản hồi gói tin mở giao dịch Shop
-            time.sleep(1.2)
-            if isinstance(interact_res, dict) and not interact_res.get("success", False):
-                err_name = interact_res.get("error", "UNKNOWN")
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, err=err_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] ⚠️ Không thể kết nối đối thoại với NPC ({err}). Hủy lượt bán này."
-                ))
-                eng.close_merchant_npc()
-                return False
-
-            # BƯỚC 3: Gửi lệnh bán các món đồ rác thường (+0..+7, bảo vệ +8+, Divine, Rồng, Exc, Anc, Sock, Ngọc)
-            s_res = eng.sell_moss_plus_items()
-            sold_count = s_res.get("sold", 0) if isinstance(s_res, dict) else 0
-            sold_items = s_res.get("items", []) if isinstance(s_res, dict) else []
-
-            if sold_count > 0:
-                summary_names = [f"{it.get('name', 'Item')}+{it.get('level', 0)}" for it in sold_items[:6]]
-                sum_text = ", ".join(summary_names)
-                if len(sold_items) > 6:
-                    sum_text += f" ... (+{len(sold_items)-6} món khác)"
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cnt=sold_count, st=sum_text: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ rác ({st})!"
-                ))
-            else:
-                err_code = s_res.get("error") if isinstance(s_res, dict) else None
-                cand_cnt = s_res.get("candidates", 0) if isinstance(s_res, dict) else 0
-                if err_code == "server_not_confirm":
-                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cc=cand_cnt: self.app.append_moss_log(
-                        f"[Slot {s:02d} - {c}] ⚠️ Phát hiện {cc} món đồ rác nhưng Server chưa phản hồi giao dịch bán đồ (Shop Rhea chưa sẵn sàng). Sẽ thử lại ở lượt sau."
-                    ))
-                else:
-                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                        f"[Slot {s:02d} - {c}] ℹ️ Không phát hiện món đồ rác nào cần bán (hoặc đã dọn sạch)."
-                    ))
-            time.sleep(0.4)
-
-            # Đóng phiên giao dịch Shop tại Rhea (gửi C1:31 và dọn WindowHandler)
-            eng.close_merchant_npc()
-            eng.unlock_character_and_inventory()
-            time.sleep(0.4)
-
-            # BƯỚC 4: Di chuyển quay lại bệ NPC Moss (22, 225)
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Đang quay trở lại bệ NPC Moss (22, 225)..."
-            ))
-
-            reached_moss = False
-            for attempt2 in range(2):
-                eng.start_auto_move(22, 225, helper=False)
-                start_t2 = time.time()
-                while time.time() - start_t2 < 12.0:
-                    time.sleep(0.4)
-                    if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
-                        eng.stop_auto_move()
-                        return False
-
-                    p_info = eng.get_player_info()
-                    if p_info:
-                        px = p_info.get("x", 0) or p_info.get("tileX", 0)
-                        py = p_info.get("y", 0) or p_info.get("tileY", 0)
-                        if px > 0 and py > 0 and max(abs(px - 22), abs(py - 225)) <= 3:
-                            reached_moss = True
-                            break
-
-                if reached_moss:
-                    break
-
-            eng.stop_auto_move()
-            time.sleep(0.6)
-
-            # BƯỚC 5: Tương tác lại với NPC Moss để khôi phục phiên quay thưởng
-            eng.interact_moss_npc(self.moss_category)
-            time.sleep(0.5)
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🎰 Đã kết nối lại NPC Moss (22, 225). Tiếp tục quay thưởng!"
-            ))
-            return True
-        except Exception as e:
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name, err=str(e): self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] ⚠️ Lỗi trong quá trình tự động đi bán đồ Moss: {err}"
-            ))
-            return False
-        finally:
-            try:
-                eng.unlock_character_and_inventory()
-            except Exception:
-                pass
-
-    def sell_moss_inventory(self):
-        """Kích hoạt thủ công tiến trình đi bán đồ Moss +5..+7 tại NPC Leah trên luồng riêng."""
-        self._manual_selling = True
-        def _run():
-            try:
-                self.sell_moss_items_at_merchant()
-            finally:
-                self._manual_selling = False
-        threading.Thread(target=_run, daemon=True).start()
-
-    def move_to_moss_elbeland(self) -> bool:
-        """Tự động chuyển map Elbeland và di chuyển tới tọa độ NPC Moss Merchant (22, 225)."""
-        def _exec():
-            if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game!"))
-                return
-            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-            if not eng:
-                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Không tìm thấy Direct Engine!"))
-                return
-            if not eng.is_ready:
-                eng.attach()
-
-            # 1. Tạm dừng Auto Train nếu đang chạy để tránh xung đột di chuyển / giữ bãi
-            if self.worker or self.auto_requested:
-                self.moss_paused_worker = True
-                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏸️ Tạm dừng Auto Train để tham gia sự kiện Moss..."))
-                self.stop_auto("Tạm dừng Auto Train tham gia sự kiện Moss Merchant", trigger_by="EVENT")
-                time.sleep(0.3)
-
-            # 2. Tắt MuHelper trước khi chuyển map nếu đang chạy (MEGAMU cấm warp khi Helper đang đánh)
-            if eng.is_helper_active(force_refresh=True):
-                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚔️ Tạm tắt MuHelper để chuyển map về Elbeland..."))
-                eng.stop_helper()
-                time.sleep(0.3)
-
-            self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland..."))
-            eng.send_chat("/move Elbeland")
-
-            time.sleep(2.0)
-            self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."))
-            eng.start_auto_move(22, 225, helper=False)
-            time.sleep(3.5)
-            self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đã đến tọa độ (22, 225). Sẵn sàng chờ NPC Moss xuất hiện để click mở bảng..."))
-
-        threading.Thread(target=_exec, daemon=True).start()
-        return True
-
-    def auto_stack_jewels(self) -> Dict[str, Any]:
-        """Tự động gom gọn các ô ngọc lẻ trong hòm đồ cho Slot này."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            return {"ok": False, "error": "not_connected"}
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return {"ok": False, "error": "no_engine"}
-        if not eng.is_ready:
-            eng.attach()
-
-        res = eng.auto_stack_jewels()
-        if not res.get("ok", False):
-            err_msg = res.get("error", "Unknown")
-            self.app.after(0, lambda: self.app.append_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Lỗi gom ngọc: {err_msg}"
-            ))
-            return res
-
-        moved = res.get("moved", 0)
-        details = res.get("details", [])
-        total_jewels = res.get("total_jewels", 0)
-        counts = res.get("counts", {})
-        if moved > 0:
-            names = set(d.get("name") for d in details if d.get("name"))
-            names_str = f" ({', '.join(names)})" if names else ""
-            self.app.after(0, lambda: self.app.append_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] 💎 ĐÃ SẮP XẾP & DỒN GỌN {moved} VIÊN NGỌC{names_str} VÀO CÁC Ô TRỐNG LIỀN KỀ (Bảo toàn 100% ngọc)!"
-            ))
-        elif total_jewels > 0:
-            self.app.after(0, lambda: self.app.append_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] 💎 {total_jewels} viên ngọc trong hòm đồ đã nằm ở vị trí liền kề gọn gàng, không cần dồn thêm."
-            ))
-        else:
-            self.app.after(0, lambda: self.app.append_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] 💎 Hòm đồ không có ngọc lẻ."
-            ))
-        return res
-
-    def check_mirror_ticket(self) -> Dict[str, Any]:
-        """Kiểm tra xem slot này có vé Mirror of Dimensions (item 7279) trong hòm đồ không."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            return {"hasTicket": False, "count": 0, "slots": [], "error": "not_connected"}
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return {"hasTicket": False, "count": 0, "slots": [], "error": "no_engine"}
-        if not eng.is_ready:
-            eng.attach()
-        info = eng.get_mirror_ticket_info()
-        if info.get("hasTicket") and info.get("slots"):
-            self.cached_mirror_ticket_slot = int(info["slots"][0])
-        return info
-
-    def prepare_mirror_event(self) -> bool:
-        """Giai đoạn chuẩn bị trước 5 phút: Tắt helper, chuyển về Event Map / Lugard, và kiểm tra vé."""
-        def _exec():
-            if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                return
-            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-            if not eng:
-                return
-            if not eng.is_ready:
-                eng.attach()
-
-            # 1. Tạm dừng Auto Helper / đánh quái ngoài bãi
-            try:
-                if eng.is_helper_active():
-                    eng.stop_helper()
-            except Exception:
-                pass
-
-            # 2. Dịch chuyển về Event Map & di chuyển sát chân Lugard (229, 22)
-            self.move_to_event_map()
-            time.sleep(0.3)
-            self.move_to_lugard()
-
-            # 3. Chờ client ổn định sau chuyển map rồi kiểm tra vé trong túi đồ (poll tối đa 3.5s)
-            t_info = {}
-            for _ in range(7):
-                time.sleep(0.5)
-                t_info = eng.get_mirror_ticket_info()
-                if t_info.get("hasTicket") or t_info.get("hasOnlySign"):
-                    break
-            if t_info.get("hasTicket"):
-                if t_info.get("slots"):
-                    self.cached_mirror_ticket_slot = int(t_info["slots"][0])
-                details = t_info.get("details", [])
-                main_slots = [d["slot"] for d in details if not d.get("isExtended")]
-                ext_slots = [d["slot"] for d in details if d.get("isExtended")]
-                loc_parts = []
-                if main_slots:
-                    loc_parts.append(f"Hòm chính ô [{', '.join(str(s) for s in main_slots)}]")
-                if ext_slots:
-                    loc_parts.append(f"Ba lô phụ ô [{', '.join(str(s) for s in ext_slots)}]")
-                loc_str = " • ".join(loc_parts) if loc_parts else f"ô [{', '.join(str(s) for s in t_info.get('slots', []))}]"
-                self.app.after(0, lambda: self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ✅ Đã sẵn sàng {t_info.get('count')} vé Mirror ({loc_str})!"
-                ))
-            elif t_info.get("hasOnlySign"):
-                signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
-                self.app.after(0, lambda: self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CHÚ Ý: Tìm thấy Mảnh Vé Sign of Dimensions tại ô [{signs_str}], chưa ghép thành vé Mirror hoàn chỉnh!"
-                ))
-            else:
-                self.app.after(0, lambda: self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CẢNH BÁO: Chưa tìm thấy vé Mirror of Dimensions (Item 7279) trong hòm đồ (đã quét ô 12-203)!"
-                ))
-
-        threading.Thread(target=_exec, daemon=True).start()
-        return True
-
-    def move_to_lugard(self) -> bool:
-        """Di chuyển nhân vật đến sát vị trí NPC Lugard (229, 22 tại Event Square hoặc 49, 216 tại Elbeland)."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng or not eng.is_ready:
-            return False
-        try:
-            pinfo = eng.get_player_info()
-            if pinfo:
-                cmap = pinfo.get("mapId", -1)
-                # Map 53: Event Square, Map 40: Event Square VIP
-                if cmap in (53, 40):
-                    return eng.move_to(229, 22)
-                elif cmap == 51: # Elbeland
-                    return eng.move_to(49, 216)
-                else:
-                    eng.send_chat("/m ev")
-                    time.sleep(0.5)
-                    return eng.move_to(229, 22)
-        except Exception:
-            pass
-        return True
-
-    def move_to_event_map(self) -> bool:
-        """Chuyển sang bản đồ Event Square (/m ev) nếu nhân vật đang ở map khác."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng or not eng.is_ready:
-            return False
-        try:
-            pinfo = eng.get_player_info()
-            if pinfo:
-                cmap = pinfo.get("mapId", -1)
-                # Map 53: Event Square, Map 40: Event Square VIP/Alt, Map 65-68: Double Goer
-                if cmap in (53, 40, 65, 66, 67, 68):
-                    return True
-            eng.send_chat("/m ev")
-            time.sleep(0.4)
-            return True
-        except Exception:
-            return False
-
-    move_to_lugard_elbeland = move_to_lugard
-
-    def click_mirror_npc(self) -> bool:
-        """Kích hoạt đối thoại NPC Lugard trong Game thật tại vị trí hiện tại (đứng yên, không di chuyển)."""
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-
-        if hasattr(eng, "cancel_move"):
-            try:
-                eng.cancel_move()
-            except Exception:
-                pass
-        if hasattr(eng, "stop_auto_move"):
-            try:
-                eng.stop_auto_move()
-            except Exception:
-                pass
-
-        return eng.click_mirror_npc()
-
-    def run_mirror_in_dungeon_lifecycle(self, force: bool = False):
-        """
-        Chu trình tự động hoàn chỉnh bên trong Map Double Goer (Map 65-68):
-        - Giai đoạn 1: Khi vừa vào cổng (khung :10 - :15), đứng yên trong vùng an toàn (Safe Zone), KHÔNG bật Helper.
-        - Giai đoạn 2: Đến phút thứ :16 trở đi, tự động bước ra khỏi vùng an toàn (Step-Out 6-7 bước), sau đó mới bật Helper.
-        - Giai đoạn 3: Trong suốt trận đấu, Radar liên tục quét thực thể mặt đất, ƯU TIÊN TUYỆT ĐỐI nhặt 3 rương:
-          + 2 "Reward Chest"
-          + 1 "Final Reward Chest"
-          (Bỏ qua mọi vật phẩm rác khác).
-        - Giai đoạn 4: Khi hết sự kiện (bị đá về thành), tự động khôi phục Auto Train và quay lại bãi train ban đầu.
-        """
-        if getattr(self, "_mirror_dungeon_running", False):
-            return
-
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return
-
-        is_in_mirror = eng.is_mirror_event_map()
-        if not is_in_mirror and not force:
-            self.app.after(0, lambda: self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Nhân vật hiện ở map ngoài, chưa vào Double Goer (Map 65-68). Tính năng tự động ra bãi phút :16 & săn 3 box quà đã BẬT SẴN, sẽ tự chạy ngay khi bước vào cổng!"
-            ))
-            return
-
-        def _dungeon_worker():
-            with self._mirror_lock:
-                if self._mirror_dungeon_running:
-                    return
-                self._mirror_dungeon_running = True
-
-            try:
-                self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⏳ Chờ :16 xuất kích", text_color="#f59e0b"))
-                self.app.after(0, lambda: self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ ĐÃ VÀO DOUBLE GOER! Đang đứng chờ trong vùng an toàn, chuẩn bị xuất kích ở phút thứ :16..."
-                ))
-
-                scanner = None
-                if MemoryScanner and self.assigned_pid:
-                    try:
-                        scanner = MemoryScanner(self.assigned_pid)
-                    except Exception:
-                        scanner = None
-
-                spawn_x, spawn_y = -1, -1
-                if scanner and scanner.base_addr:
-                    try:
-                        p_data = scanner.scan_radar(radius=6.0)
-                        if p_data and "player" in p_data:
-                            spawn_x = p_data["player"].get("x", -1)
-                            spawn_y = p_data["player"].get("y", -1)
-                    except Exception:
-                        pass
-                if (spawn_x <= 0 or spawn_y <= 0) and eng:
-                    try:
-                        tele = eng.get_player_info()
-                        if tele:
-                            spawn_x = tele.get("x", -1)
-                            spawn_y = tele.get("y", -1)
-                    except Exception:
-                        pass
-
-                has_stepped_out = False
-                looted_chests = 0
-
-                while eng and eng.is_mirror_event_map():
-                    now = datetime.now()
-
-                    # BƯỚC 1: BƯỚC RA KHỎI VÙNG AN TOÀN Ở PHÚT THỨ :16
-                    if not has_stepped_out:
-                        # Điều kiện kích hoạt: Đã đến phút thứ 16 (16 <= now.minute < 35 hoặc qua 00h)
-                        if (now.minute >= 16) or (0 <= now.minute < 10):
-                            self.app.after(0, lambda: self.app.append_mirror_log(
-                                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚔️ ĐÃ SANG PHÚT THỨ :16! Bắt đầu bước ra khỏi vùng an toàn..."
-                            ))
-
-                            step_done = False
-                            px, py = spawn_x, spawn_y
-
-                            if scanner and scanner.base_addr:
-                                try:
-                                    # Quét xa tới 120 ô để bắt trọn đợt quái vật đầu tiên đang tiến lại dọc hành lang
-                                    r_data = scanner.scan_radar(radius=120.0)
-                                    monsters = r_data.get("monsters", [])
-                                    cur_p = r_data.get("player", {})
-                                    px = cur_p.get("x", px)
-                                    py = cur_p.get("y", py)
-
-                                    # Nếu có quái vật xuất hiện phía trước (chuẩn hướng hành lang):
-                                    if monsters and px > 0 and py > 0:
-                                        nearest_m = monsters[0]
-                                        mx, my = nearest_m["x"], nearest_m["y"]
-                                        dist = max(1.0, nearest_m.get("distance", 1.0))
-                                        step_dist = min(7.0, max(4.0, dist - 2.0))
-                                        tx = int(px + (mx - px) / dist * step_dist)
-                                        ty = int(py + (my - py) / dist * step_dist)
-                                        if hasattr(eng, "move_to"):
-                                            eng.move_to(tx, ty)
-                                            step_done = True
-                                            self.app.after(0, lambda: self.app.append_mirror_log(
-                                                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Bước 6 ô về hướng đợt quái ({tx}, {ty}) [cách {dist:.0f}m] để vượt ranh giới Safe Zone..."
-                                            ))
-                                except Exception as e:
-                                    print(f"Error scanning monsters in step-out: {e}")
-
-                            # Nếu chưa thấy quái (chưa spawn kịp), bước tiến theo hướng cổng an toàn
-                            if not step_done:
-                                try:
-                                    tele = eng.get_player_info() or (self.engine.read_player_info_via_ram() if self.engine else None)
-                                    if tele:
-                                        px = tele.get("x", px)
-                                        py = tele.get("y", py)
-                                        if hasattr(eng, "move_to") and px > 0 and py > 0:
-                                            # Thử bước tiến về phía tâm map (Double Goer luôn hướng về giữa map)
-                                            eng.move_to(px + 6, py)
-                                            step_done = True
-                                            self.app.after(0, lambda: self.app.append_mirror_log(
-                                                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Bước tiến 6 ô ({px + 6}, {py}) ra khỏi Safe Zone..."
-                                            ))
-                                except Exception:
-                                    pass
-
-                            time.sleep(1.5)
-
-                            # Kích hoạt Mu Helper và xác thực Helper đã bật thành công (không bật trong Safe Zone)
-                            helper_started = False
-                            for attempt in range(1, 4):
-                                try:
-                                    if not eng.is_helper_active(force_refresh=True):
-                                        eng.start_helper()
-                                        time.sleep(0.8)
-                                    if eng.is_helper_active(force_refresh=True):
-                                        helper_started = True
-                                        has_stepped_out = True
-                                        self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
-                                        self.app.after(0, lambda: self.app.append_mirror_log(
-                                            f"[Slot {self.slot_idx:02d} - {self.char_name}] ✅ ĐÃ RA KHỎI VÙNG AN TOÀN! Bật Helper thành công (RVA 0x27776F0), bắt đầu chiến đấu và săn 3 rương!"
-                                        ))
-                                        break
-                                    else:
-                                        self.app.after(0, lambda a=attempt: self.app.append_mirror_log(
-                                            f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Helper chưa bật (vẫn vướng Safe Zone, lần {a}/3). Bước thêm ra ngoài..."
-                                        ))
-                                        if hasattr(eng, "move_to") and px > 0 and py > 0:
-                                            if monsters:
-                                                nearest_m = monsters[0]
-                                                mx, my = nearest_m["x"], nearest_m["y"]
-                                                dist = max(1.0, nearest_m.get("distance", 1.0))
-                                                extra_dist = min(dist - 1.0, 4.0 * attempt + 3.0)
-                                                tx2 = int(px + (mx - px) / dist * extra_dist)
-                                                ty2 = int(py + (my - py) / dist * extra_dist)
-                                                eng.move_to(tx2, ty2)
-                                            else:
-                                                eng.move_to(px + 4 * attempt + 4, py)
-                                        time.sleep(1.2)
-                                except Exception as e:
-                                    print(f"Error starting helper attempt {attempt}: {e}")
-
-                            if not helper_started:
-                                self.app.after(0, lambda: self.app.append_mirror_log(
-                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Sẽ tiếp tục thử bước ra và bật Helper ở chu kỳ kế tiếp..."
-                                ))
-                        else:
-                            # Đang chờ đến phút thứ :16
-                            rem_s = (16 - now.minute) * 60 - now.second
-                            if rem_s > 0 and rem_s % 15 == 0:
-                                self.app.after(0, lambda: self.app.append_mirror_log(
-                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Còn {rem_s}s nữa tới phút :16 để bước ra khỏi vùng an toàn..."
-                                ))
-                            time.sleep(1.0)
-                            continue
-
-                    # BƯỚC 2: KHI ĐÃ CHIẾN ĐẤU - RADAR LIÊN TỤC QUÉT SĂN 3 RƯƠNG (2 REWARD CHEST + 1 FINAL REWARD CHEST)
-                    if has_stepped_out and scanner and scanner.base_addr:
-                        try:
-                            it_data = scanner.scan_radar(radius=35.0)
-                            
-                            # TẬP HỢP TOÀN BỘ CÁC NGUỒN THỰC THỂ (Ground Items, NPCs, Monsters, Entities)
-                            candidates = []
-                            candidates.extend(it_data.get("ground_items", []))
-                            candidates.extend(it_data.get("npcs", []))
-                            candidates.extend(it_data.get("monsters", []))
-                            candidates.extend(it_data.get("entities", []))
-
-                            # Lọc rương: 2 Reward Chest + 1 Final Reward Chest (Bao gồm tên EN, PT và class ID)
-                            chest_targets = []
-                            seen_ptrs = set()
-                            for it in candidates:
-                                n_low = it.get("name", "").lower()
-                                cid = it.get("classId", it.get("class_id", -1))
-                                i_key = it.get("ptr", f"{it.get('x')}_{it.get('y')}_{n_low}")
-                                if i_key in seen_ptrs:
-                                    continue
-
-                                is_chest = (
-                                    "reward chest" in n_low or
-                                    "final reward" in n_low or
-                                    ("chest" in n_low and "box" in n_low) or
-                                    n_low == "chest" or
-                                    "baú" in n_low or
-                                    "tesouro" in n_low or
-                                    "caixa" in n_low or
-                                    cid in (528, 529, 530, 531, 538, 539)
-                                )
-                                if is_chest:
-                                    seen_ptrs.add(i_key)
-                                    dist_val = it.get("distance", it.get("dist", 999))
-                                    it["distance"] = dist_val
-                                    chest_targets.append(it)
-
-                            if chest_targets:
-                                # Chọn rương gần nhất
-                                target_chest = sorted(chest_targets, key=lambda x: x.get("distance", 999))[0]
-                                cx, cy = target_chest["x"], target_chest["y"]
-                                cname = target_chest.get("name", "Reward Chest")
-                                cdist = target_chest.get("distance", 0)
-
-                                self.app.after(0, lambda: self.app.append_mirror_log(
-                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎁 PHÁT HIỆN RƯƠNG: '{cname}' tại ({cx}, {cy}) cách {cdist:.1f} ô! Đang chạy lại mở & nhặt..."
-                                ))
-
-                                # Chạy đến vị trí rương
-                                if hasattr(eng, "move_to"):
-                                    eng.move_to(cx, cy)
-
-                                # Chờ chạy đến
-                                walk_time = min(3.5, max(0.6, cdist * 0.22))
-                                time.sleep(walk_time)
-
-                                hwnd = eng.get_hwnd() if hasattr(eng, "get_hwnd") else None
-                                if hwnd:
-                                    # Lấy kích thước cửa sổ game để tính tọa độ Isometric Click chính xác
-                                    cw, ch = 1024, 768
-                                    try:
-                                        import ctypes.wintypes
-                                        rect = ctypes.wintypes.RECT()
-                                        if ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
-                                            cw = max(800, rect.right - rect.left)
-                                            ch = max(600, rect.bottom - rect.top)
-                                    except Exception:
-                                        pass
-
-                                    # Lấy tọa độ hiện tại của nhân vật
-                                    p_now = eng.get_player_info() or {}
-                                    cur_px = p_now.get("x", cx)
-                                    cur_py = p_now.get("y", cy)
-
-                                    # THAO TÁC 1: CLICK CHUỘT TRỰC TIẾP VÀO NẮP RƯƠNG (Để kích hoạt Mở Rương)
-                                    try:
-                                        from meg_rea_hunter import calc_monster_hitbox_pixel
-                                        sx, sy = calc_monster_hitbox_pixel(cur_px, cur_py, cx, cy, cw, ch)
-                                        for _ in range(3):
-                                            MegDirectEngine.send_background_click(hwnd, sx, sy, duration_ms=45)
-                                            time.sleep(0.12)
-                                    except Exception as e_click:
-                                        print(f"Error clicking chest: {e_click}")
-
-                                    # THAO TÁC 2: BẤM SPACEBAR (Để hút ngọc / vật phẩm vừa văng ra từ rương)
-                                    for _ in range(6):
-                                        MegDirectEngine.send_background_key(hwnd, 0x20, duration_s=0.04)
-                                        time.sleep(0.08)
-
-                                looted_chests += 1
-                                self.app.after(0, lambda: self.app.append_mirror_log(
-                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 ĐÃ MỞ & NHẶT RƯƠNG THÀNH CÔNG #{looted_chests}: {cname}!"
-                                ))
-
-                                # Bật lại Helper nếu bị gián đoạn di chuyển
-                                time.sleep(0.4)
-                                if not eng.is_helper_active():
-                                    eng.start_helper()
-                        except Exception as e:
-                            print(f"Error looting chest in Double Goer: {e}")
-
-                    # Duy trì Helper nếu đang chiến đấu
-                    if has_stepped_out and (now.second % 6 == 0):
-                        try:
-                            if not eng.is_helper_active():
-                                eng.start_helper()
-                        except Exception:
-                            pass
-
-                    time.sleep(1.0)
-
-                # BƯỚC 3: SỰ KIỆN KẾT THÚC (Rời khỏi map Double Goer)
-                self.app.after(0, lambda: self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏁 SỰ KIỆN DOUBLE GOER KẾT THÚC! (Đã nhặt {looted_chests} rương). Khôi phục Auto Train..."
-                ))
-
-                # TỰ ĐỘNG LÔI QUÀ TỪ HỘP QUÀ PHÍM "K" (GREMORY CASE) RA HÒM ĐỒ CHÍNH
-                try:
-                    is_gremory_enabled = hasattr(self.app, "cb_mirror_auto_gremory") and (self.app.cb_mirror_auto_gremory.get() == 1)
-                    if is_gremory_enabled:
-                        time.sleep(1.0)
-                        self.app.after(0, lambda: self.app.append_mirror_log(
-                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎁 TỰ ĐỘNG LÔI QUÀ: Đang kiểm tra và nhận tất cả quà trong Hộp Quà Phím 'K' (Gremory Case)..."
-                        ))
-                        res_claim = eng.claim_gremory_case_items() if hasattr(eng, "claim_gremory_case_items") else {"claimed": 0}
-                        c_count = res_claim.get("claimed", 0)
-                        if c_count > 0:
-                            self.app.after(0, lambda c=c_count: self.app.append_mirror_log(
-                                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 ĐÃ TỰ ĐỘNG LÔI THÀNH CÔNG {c} MÓN QUÀ TỪ PHÍM 'K' VÀO HÒM ĐỒ CHÍNH!"
-                            ))
-                        else:
-                            self.app.after(0, lambda: self.app.append_mirror_log(
-                                f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Hộp Quà Phím 'K' hiện không còn quà chờ nhận."
-                            ))
-                except Exception as e_k:
-                    print(f"Error auto claiming Gremory gifts: {e_k}")
-                self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Hoàn tất"))
-                self._resume_train_after_mirror("Sự kiện Double Goer hoàn tất")
-
-            except Exception as e:
-                log_thread_exception(
-                    source=f"Slot{self.slot_idx:02d}.MirrorDungeonWorker",
-                    exc=e,
-                    thread_name=f"Slot{self.slot_idx:02d}_MirrorDungeonWorker",
-                    details=f"Char: {self.char_name}"
-                )
-            finally:
-                with self._mirror_lock:
-                    self._mirror_dungeon_running = False
-
-        threading.Thread(target=_dungeon_worker, daemon=True, name=f"Slot{self.slot_idx:02d}_MirrorDungeonWorker").start()
-
-    def enter_mirror(self) -> bool:
-        """
-        ĐỨNG YÊN VỊ TRÍ VÀ GỬI PACKET ĐỂ VÀO CỔNG - TUYỆT ĐỐI KHÔNG DI CHUYỂN!
-        Gửi trực tiếp lệnh đối thoại Lugard và packet vào cửa tới Game.
-        Nếu chưa vào được (do chưa tới giờ mở cổng hoặc chưa có vé), chính Game sẽ trực tiếp hiển thị thông báo.
-        """
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-
-        # Nếu đã ở trong map Double Goer (Map 65-68)
-        if hasattr(eng, "is_mirror_event_map") and eng.is_mirror_event_map():
-            self.run_mirror_in_dungeon_lifecycle()
-            return True
-
-        # ĐẢM BẢO ĐỨNG YÊN HOÀN TOÀN TẠI VỊ TRÍ HIỆN TẠI, KHÔNG DI CHUYỂN
-        if hasattr(eng, "cancel_move"):
-            try:
-                eng.cancel_move()
-            except Exception:
-                pass
-        if hasattr(eng, "stop_auto_move"):
-            try:
-                eng.stop_auto_move()
-            except Exception:
-                pass
-
-        # GỬI PACKET VÀO CỔNG TẠI CHỖ:
-        # 1. Gọi tương tác Lugard trong Game để Game phát thông báo nếu chưa có vé / chưa mở cổng
-        try:
-            eng.click_mirror_npc()
-            time.sleep(0.04)
-        except Exception:
-            pass
-
-        # 2. Quét slot vé (nếu có trong túi đồ)
-        ticket_slot = None
-        try:
-            t_info = eng.get_mirror_ticket_info()
-            if t_info and t_info.get("slots"):
-                ticket_slot = int(t_info["slots"][0])
-        except Exception:
-            pass
-
-        # 3. Gửi packet vào cửa trực tiếp tới GameServer
-        res = eng.enter_mirror(ticket_slot)
-
-        # 4. Kiểm tra xác nhận vào map trong game
-        def _verify_entry():
-            entered = False
-            for _ in range(12):
-                time.sleep(0.4)
-                if eng and eng.is_mirror_event_map():
-                    entered = True
-                    break
-
-            if entered:
-                self.run_mirror_in_dungeon_lifecycle()
-
-        threading.Thread(target=_verify_entry, daemon=True).start()
-        return True
-
-    def start_mirror_auto(self) -> bool:
-        """Bắt đầu chạy Auto Double Goer cho slot này (có kiểm tra vé, lịch giờ mở cổng và di chuyển tới Lugard)."""
-        if license_client and not license_client.has_license_module("mirror"):
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Mirror of Dimensions!")
-            return False
-
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game! Không thể bật Auto Mirror.")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-
-        self.mirror_running = True
-        self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
-        self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ▶️ BẮT ĐẦU AUTO DOUBLE GOER (MIRROR)")
-
-        def _worker():
-            while self.mirror_running:
-                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                    self.app.after(0, lambda: self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng Auto Mirror."))
-                    break
-
-                # 1. Nếu đã ở trong map Double Goer
-                if eng and eng.is_mirror_event_map():
-                    self.run_mirror_in_dungeon_lifecycle()
-                    time.sleep(3.0)
-                    continue
-
-                # 2. Kiểm tra vé và lịch giờ mở cổng
-                now = datetime.now()
-                valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
-                is_gate_open = (now.hour in valid_hours and 10 <= now.minute < 15)
-
-                next_gate_open = None
-                for h in valid_hours:
-                    cand_gate = now.replace(hour=h, minute=10, second=0, microsecond=0)
-                    if cand_gate > now:
-                        next_gate_open = cand_gate
-                        break
-                if not next_gate_open:
-                    tomorrow = now + timedelta(days=1)
-                    next_gate_open = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
-                # Bỏ qua kiểm tra thời gian trên app theo yêu cầu, luôn gửi lệnh vào cửa trực tiếp xuống game:
-                # Nếu chưa tới giờ mở cổng, game sẽ hiển thị popup chuẩn:
-                # "DOPPELGANGER: You can't enter at the moment. Try at next time."
-                self.enter_mirror()
-                time.sleep(3.0)
-
-            self.mirror_running = False
-            self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
-            self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng"))
-
-            # Khôi phục AutoTrain nếu trước đó bị tạm dừng bởi sự kiện Mirror
-            self._resume_train_after_mirror("Sự kiện Double Goer hoàn tất")
-
-        self.mirror_worker_thread = threading.Thread(target=_worker, daemon=True, name=f"Slot{self.slot_idx:02d}_MirrorWorker")
-        self.mirror_worker_thread.start()
-        return True
-
-    def stop_mirror_auto(self):
-        """Dừng Auto Double Goer cho slot này."""
-        if self.mirror_running:
-            self.mirror_running = False
-            self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False)
-            self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng")
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Double Goer.")
-
-    def start_mirror_turbo_sniping(self, interval_ms: int = 80, max_duration_s: float = 15.0) -> bool:
-        """Kích hoạt chế độ Turbo Sniping (Spam Packet tốc độ cao) để cướp cổng Double Goer."""
-        if license_client and not license_client.has_license_module("mirror"):
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Mirror of Dimensions!")
-            return False
-        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ⚠️ Chưa kết nối Game! Không thể Turbo Snipe.")
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng:
-            return False
-        if not eng.is_ready:
-            eng.attach()
-
-        # ĐẢM BẢO ĐỨNG YÊN HOÀN TOÀN TẠI VỊ TRÍ HIỆN TẠI, TUYỆT ĐỐI KHÔNG DI CHUYỂN
-        if hasattr(eng, "cancel_move"):
-            try:
-                eng.cancel_move()
-            except Exception:
-                pass
-        if hasattr(eng, "stop_auto_move"):
-            try:
-                eng.stop_auto_move()
-            except Exception:
-                pass
-
-        # 1. Kiểm tra cache vé trước: nếu slot đã cache từ trước thì dùng ngay lập tức (0ms delay)
-        cached_slot = getattr(self, "cached_mirror_ticket_slot", -1)
-        t_info = {}
-        if cached_slot < 0:
-            for _try in range(2):
-                try:
-                    t_info = eng.get_mirror_ticket_info()
-                    if t_info.get("hasTicket") and t_info.get("slots"):
-                        cached_slot = int(t_info["slots"][0])
-                        self.cached_mirror_ticket_slot = cached_slot
-                        break
-                    if t_info.get("hasOnlySign"):
-                        break
-                except Exception:
-                    pass
-                time.sleep(0.02)
-
-        if self.mirror_sniping:
-            return True
-
-        self.mirror_sniping = True
-        self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
-        self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms)", text_color="#c084fc")
-
-        # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, chạy trực tiếp trong RAM Game)
-        native_started = False
-        if hasattr(eng, "start_native_mirror_turbo"):
-            def _on_native_event(payload):
-                p_type = payload.get("type")
-                if p_type == "mirror_turbo_entered":
-                    pkts = payload.get("packets", 0)
-                    dur_ms = payload.get("elapsed", 0)
-                    self.mirror_sniping = False
-                    self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {pkts} packets (Native {dur_ms}ms)!"
-                    ))
-                    self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
-                    self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
-                    def _delayed_start_helper():
-                        time.sleep(1.2)
-                        try:
-                            if not eng.is_helper_active():
-                                eng.start_helper()
-                        except Exception:
-                            pass
-                    threading.Thread(target=_delayed_start_helper, daemon=True).start()
-                elif p_type == "mirror_turbo_timeout":
-                    pkts = payload.get("packets", 0)
-                    self.mirror_sniping = False
-                    self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {pkts} packets (Native)."
-                    ))
-                    self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
-            eng.on_mirror_turbo_event = _on_native_event
-
-            res_nat = eng.start_native_mirror_turbo(slot=cached_slot, interval_ms=interval_ms, max_duration_ms=int(max_duration_s * 1000))
-            if res_nat.get("success"):
-                native_started = True
-                self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU NATIVE TURBO SNIPING CƯỚP CỔNG (0ms IPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
-                )
-            elif res_nat.get("error") == "no_ticket":
-                self.mirror_sniping = False
-                self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False)
-                self.app.update_mirror_slot_status(self.slot_idx, "Thiếu vé")
-                self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không tìm thấy vé Mirror of Dimensions (ID 7279) trong hòm đồ (ô 12-203)! Hãy chuẩn bị vé trước khi bật Turbo."
-                )
-                return False
-
-        if not native_started:
-            self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO SNIPING CƯỚP CỔNG (Fallback RPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
-            )
-
-        def _sniper():
-            start_t = time.time()
-            if native_started:
-                # Native In-Process đang tự bắn liên thanh 0ms IPC bên trong RAM game.
-                # Luồng Python chỉ giám sát fast_state trong RAM Python (Zero GIL/RPC contention)!
-                while self.mirror_sniping:
-                    time.sleep(0.2)
-                    now = time.time()
-                    if (now - start_t) > (max_duration_s + 0.5):
-                        break
-                    if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                        break
-                    fast = getattr(eng, "last_fast_state", None) or {}
-                    map_id = fast.get("mapId", -1)
-                    if map_id in (65, 66, 67, 68):
-                        self.mirror_sniping = False
-                        self.app.after(0, lambda: self.app.append_mirror_log(
-                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer ({time.time() - start_t:.2f}s)!"
-                        ))
-                        self.run_mirror_in_dungeon_lifecycle()
-                        break
-                self.mirror_sniping = False
-                if hasattr(eng, "stop_native_mirror_turbo"):
-                    try:
-                        eng.stop_native_mirror_turbo()
-                    except Exception:
-                        pass
-                self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
-                return
-
-            # Fallback Python High-Speed Loop (nếu native in-process chưa khả dụng)
-            base_sleep = max(0.015, interval_ms / 1000.0)
-            packets_sent = 0
-            check_interval = 4
-            iter_cnt = 0
-            fail_no_ticket_cnt = 0
-            active_slot = cached_slot
-
-            while self.mirror_sniping:
-                now = time.time()
-                elapsed = now - start_t
-                if elapsed > max_duration_s:
-                    self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {packets_sent} packets."
-                    ))
-                    break
-
-                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                    break
-
-                res = eng.enter_mirror(slot=active_slot if active_slot >= 0 else None)
-                packets_sent += 1
-                iter_cnt += 1
-
-                if not res.get("success") and res.get("error") in ("no_ticket", "only_signs"):
-                    fail_no_ticket_cnt += 1
-                    if fail_no_ticket_cnt >= 3:
-                        fresh_info = eng.get_mirror_ticket_info()
-                        if fresh_info.get("hasTicket") and fresh_info.get("slots"):
-                            active_slot = int(fresh_info["slots"][0])
-                            fail_no_ticket_cnt = 0
-                        else:
-                            self.app.after(0, lambda: self.app.append_mirror_log(
-                                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Hủy Turbo Snipe: Vé Mirror đã hết hoặc không còn trong hòm đồ!"
-                            ))
-                            break
-
-                if iter_cnt >= check_interval:
-                    iter_cnt = 0
-                    if eng.is_mirror_event_map():
-                        elapsed = time.time() - start_t
-                        self.app.after(0, lambda: self.app.append_mirror_log(
-                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {packets_sent} packets ({elapsed:.2f}s)!"
-                        ))
-                        self.run_mirror_in_dungeon_lifecycle()
-                        break
-
-                time.sleep(base_sleep)
-
-            self.mirror_sniping = False
-            self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
-
-        self.mirror_snipe_thread = threading.Thread(target=_sniper, daemon=True, name=f"Slot{self.slot_idx:02d}_MirrorSniper")
-        self.mirror_snipe_thread.start()
-        return True
-
-    def stop_mirror_turbo_sniping(self):
-        """Dừng chế độ Turbo Sniping."""
-        if self.mirror_sniping:
-            self.mirror_sniping = False
-            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-            if eng and hasattr(eng, "stop_native_mirror_turbo"):
-                try:
-                    eng.stop_native_mirror_turbo()
-                except Exception:
-                    pass
-            self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False)
-            self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng")
-            self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Turbo Sniping.")
-
-
-# ==============================================================================
-# GIAO DIỆN CHÍNH (MEGAMU AUTO TRAIN DASHBOARD)
-# ==============================================================================
 class DashboardApp(ctk.CTk):
+
+    def report_callback_exception(self, exc, val, tb):
+        """Bẫy lỗi callback Tkinter an toàn - Không bao giờ crash console do Unicode cp1252."""
+        import traceback
+        err_msg = "".join(traceback.format_exception(exc, val, tb))
+        try:
+            with open("gui_crash.log", "a", encoding="utf-8") as f:
+                f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Exception in Tkinter callback:\n{err_msg}\n")
+        except Exception:
+            pass
+        try:
+            from core.crash_tracer import log_crash_trace
+            log_crash_trace(
+                source="TkinterCallback",
+                event="EXCEPTION",
+                details=f"Tkinter callback error: {val}\n{err_msg}",
+                level="ERROR"
+            )
+        except Exception:
+            pass
+        try:
+            sys.stderr.write(f"Exception in Tkinter callback:\n{err_msg}\n")
+            sys.stderr.flush()
+        except Exception:
+            try:
+                sys.stderr.buffer.write(f"Exception in Tkinter callback:\n{err_msg}\n".encode("utf-8", "replace"))
+            except Exception:
+                pass
+
     def __init__(self):
         super().__init__()
 
@@ -3864,10 +419,10 @@ class DashboardApp(ctk.CTk):
         # Khởi tạo ngôn ngữ từ tệp ui_settings.json
         load_language_preference()
 
-        # Cấu hình cửa sổ
+        # Cấu hình cửa sổ (Thiết kế nhỏ gọn, tinh tế)
         self.title(APP_NAME)
-        self.geometry("1120x680")
-        self.minsize(1050, 600)
+        self.geometry("960x540")
+        self.minsize(800, 460)
         self.configure(fg_color="#0e1117")
 
         # Thiết lập chủ đề Classic Base phẳng tối giản (Flat Minimalist) để loại bỏ mọi animation/canvas bo góc nặng nề
@@ -3921,6 +476,7 @@ class DashboardApp(ctk.CTk):
         # Bộ nhớ tiến trình
         self.detected_games: Dict[int, str] = {}
         self.active_tab = None
+        self.logger = get_logger()
         self.logs_data: List[Tuple[str, str, str]] = [] # [(time, slot, text)]
         self._render_logs_scheduled = False
 
@@ -3943,6 +499,26 @@ class DashboardApp(ctk.CTk):
         self.account_mgr = AccountManager() if AccountManager else None
         self.autologin_ui_rows: List[Dict[str, Any]] = []
         self.autologin_delay_var = ctk.StringVar(value="3.0")
+
+        # Smooth UI Overhaul & Dirty-Checking Cache (Zero-Canvas-Redraw)
+        self._slot_telemetry_cache: Dict[int, Dict[str, Any]] = {}
+        self._moss_ui_cache: Dict[int, Dict[str, Any]] = {}
+        self._mirror_ui_cache: Dict[int, Dict[str, Any]] = {}
+        self._last_master_running_state: Optional[bool] = None
+        self._last_header_stats_state: Optional[tuple] = None
+        self._logs_dirty: bool = False
+
+        # Static Font & Icon Pooling (Zero GDI Leak & Instant Button Toggle)
+        self.font_segoe_11_bold = ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+        self.font_segoe_11_normal = ctk.CTkFont(family="Segoe UI", size=11)
+        self.font_segoe_9_bold = ctk.CTkFont(family="Segoe UI", size=9, weight="bold")
+        self.font_segoe_9_normal = ctk.CTkFont(family="Segoe UI", size=9)
+        self.font_segoe_12_bold = ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
+
+        self._icon_play_12 = UiIconFactory.get("play", color="#38bdf8", size=(12, 12))
+        self._icon_stop_12 = UiIconFactory.get("stop", color="#ffffff", size=(12, 12))
+        self._icon_play_16 = UiIconFactory.get("play", color="#6ee7b7", size=(16, 16))
+        self._icon_stop_16 = UiIconFactory.get("stop", color="#ffffff", size=(16, 16))
 
         # Xây dựng giao diện hoàn chỉnh
         self.build_ui()
@@ -3970,13 +546,19 @@ class DashboardApp(ctk.CTk):
 
         # Bắt đầu vòng lặp quét tiến trình & telemetry & bản quyền
         self.running = True
+
+        # Kiểm tra Win32 Named Mutex chống chạy đè 2 bản Dashboard
+        self._app_mutex = SingleInstanceMutex()
+        if not self._app_mutex.acquire():
+            print("⚠️ CẢNH BÁO: Một phiên bản khác của MEGAMU Auto Train Dashboard đang hoạt động!")
+
         self._last_moss_trigger_key = None
         self._last_moss_move_key = None
         self._last_mirror_trigger_key = None
         self._last_mirror_prep_key = None
         self._last_mirror_stop_key = None
         self.after(500, self._periodic_game_scan)
-        self.after(800, self._periodic_telemetry)
+        self._start_telemetry_loop()
         self.after(1000, self._periodic_license_monitor)
         self.after(1000, self._periodic_moss_scheduler)
         self.after(1000, self._periodic_mirror_scheduler)
@@ -4028,302 +610,303 @@ class DashboardApp(ctk.CTk):
         ctk.set_appearance_mode("Dark")
 
         # ----------------------------------------------------------------------
-        # 1. HEADER CHÍNH
+        # 1. UNIFIED SLEEK TOP BAR (Logo + Compact Tabs + Quick Tools in ONE 38px row)
         # ----------------------------------------------------------------------
-        self.header_frame = ctk.CTkFrame(self, fg_color="#12151e", height=58, corner_radius=0)
-        self.header_frame.pack(fill="x", padx=0, pady=0)
+        self.header_frame = ctk.CTkFrame(self, fg_color="#10141e", height=38, corner_radius=0)
+        self.header_frame.pack(side="top", fill="x", padx=0, pady=0)
+        self.header_frame.pack_propagate(False)
 
-        inner_header = ctk.CTkFrame(self.header_frame, fg_color="transparent")
-        inner_header.pack(fill="both", expand=True, padx=20, pady=(8, 8))
+        top_inner = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        top_inner.pack(fill="both", expand=True, padx=10, pady=0)
 
-        # Cột Trái: Logo + Tên + Thông số bản quyền
-        left_box = ctk.CTkFrame(inner_header, fg_color="transparent")
+        # 1.1 Trái: Logo mini + Tên ứng dụng + Phiên bản
+        left_box = ctk.CTkFrame(top_inner, fg_color="transparent")
         left_box.pack(side="left", fill="y")
 
-        # Logo
         if LOGO_FILE.exists():
             try:
                 logo_img = Image.open(str(LOGO_FILE))
                 lw, lh = logo_img.size
                 aspect = lw / max(1, lh)
-                target_h = 38
+                target_h = 22
                 target_w = int(target_h * aspect)
                 self.logo_ctk = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=(target_w, target_h))
                 logo_label = ctk.CTkLabel(left_box, image=self.logo_ctk, text="")
-                logo_label.pack(side="left", padx=(0, 10))
+                logo_label.pack(side="left", padx=(0, 6))
             except Exception:
                 pass
 
-        title_box = ctk.CTkFrame(left_box, fg_color="transparent")
-        title_box.pack(side="left", fill="y")
-
-        title_line = ctk.CTkFrame(title_box, fg_color="transparent")
-        title_line.pack(anchor="w")
-
         title_lbl = ctk.CTkLabel(
-            title_line,
+            left_box,
             text=APP_NAME,
-            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-            text_color="#f8fafc"
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#38bdf8"
         )
         title_lbl.pack(side="left")
 
         ver_lbl = ctk.CTkLabel(
-            title_line,
+            left_box,
             text=f" {APP_VERSION}",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#64748b"
         )
-        ver_lbl.pack(side="left", padx=(4, 0))
+        ver_lbl.pack(side="left", padx=(3, 8))
 
-        # Dòng thống kê Header (có thể bấm vào để mở kích hoạt bản quyền)
-        self.header_stats_lbl = ctk.CTkLabel(
-            title_box,
-            text=f"Game: 0 | Đã kết nối: 0/0 | Auto: 0 | Bản quyền: {CURRENT_LICENSE}",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-            cursor="hand2"
+        # Phân cách mỏng
+        ctk.CTkFrame(left_box, fg_color="#1e293b", width=1, height=18).pack(side="left", padx=(2, 8))
+
+        # 1.2 Giữa: Dãy Tab Navigation phẳng nhỏ gọn (Pill style, height=28)
+        tab_box = ctk.CTkFrame(top_inner, fg_color="transparent")
+        tab_box.pack(side="left", fill="y")
+
+        tab_style = {
+            "height": 28,
+            "corner_radius": 4,
+            "hover": False,
+            "font": ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+        }
+
+        self.tab_accounts_btn = ctk.CTkButton(
+            tab_box,
+            image=UiIconFactory.get("user", color="#2dd4bf", size=(13, 13)),
+            compound="left",
+            text=f" {tr('characters')} ({len(self.controllers)})",
+            command=lambda: self.switch_tab("accounts"),
+            **tab_style
         )
-        self.header_stats_lbl.pack(anchor="w", pady=(1, 0))
-        self.header_stats_lbl.bind("<Button-1>", lambda e: self.open_license_dialog())
+        self.tab_accounts_btn.pack(side="left", padx=2)
 
-        # Cột Phải: Nút Help (?) + Badge B&T business
-        right_box = ctk.CTkFrame(inner_header, fg_color="transparent")
+        self.tab_profiles_btn = ctk.CTkButton(
+            tab_box,
+            image=UiIconFactory.get("gear", color="#94a3b8", size=(13, 13)),
+            compound="left",
+            text=f" {tr('configuration')}",
+            command=self.open_profiles_modal,
+            **tab_style
+        )
+        # Tab Profiles hiển thị dạng icon gọn gàng ở góc trên bên phải
+
+        self.tab_moss_btn = ctk.CTkButton(
+            tab_box,
+            image=UiIconFactory.get("dice", color="#94a3b8", size=(13, 13)),
+            compound="left",
+            text=f" {tr('moss_merchant')}",
+            command=lambda: self.switch_tab("moss"),
+            **tab_style
+        )
+        self.tab_moss_btn.pack(side="left", padx=2)
+
+        self.tab_mirror_btn = ctk.CTkButton(
+            tab_box,
+            image=UiIconFactory.get("mirror", color="#94a3b8", size=(13, 13)),
+            compound="left",
+            text=f" {tr('mirror_event')}",
+            command=lambda: self.switch_tab("mirror"),
+            **tab_style
+        )
+        self.tab_mirror_btn.pack(side="left", padx=2)
+
+        self.tab_logs_btn = ctk.CTkButton(
+            tab_box,
+            image=UiIconFactory.get("file", color="#94a3b8", size=(13, 13)),
+            compound="left",
+            text=f" {tr('logs')}",
+            command=self.open_logs_window,
+            **tab_style
+        )
+        # Tab Logs hiển thị dạng icon gọn gàng ở góc trên bên phải
+
+        self.tab_ram_btn = ctk.CTkButton(
+            tab_box,
+            image=UiIconFactory.get("bolt", color="#94a3b8", size=(13, 13)),
+            compound="left",
+            text=f" {tr('ram_optimizer')}",
+            command=lambda: self.switch_tab("ram"),
+            **tab_style
+        )
+
+        self.tab_autologin_btn = ctk.CTkButton(
+            tab_box,
+            image=UiIconFactory.get("key", color="#94a3b8", size=(13, 13)),
+            compound="left",
+            text=" AutoLogin",
+            command=lambda: self.switch_tab("autologin"),
+            **tab_style
+        )
+
+        # 1.3 Phải: Quick Action Tools (Modal Cấu hình, Modal Nhật ký, Lang, Update, License, Help)
+        right_box = ctk.CTkFrame(top_inner, fg_color="transparent")
         right_box.pack(side="right", fill="y")
 
-        # Badge B&T business (Circular badge with teal border)
-        badge_frame = ctk.CTkFrame(
-            right_box,
-            width=78,
-            height=34,
-            corner_radius=0,
-            fg_color="#12151e",
-            border_width=1.5,
-            border_color="#14b8a6"
-        )
-        badge_frame.pack(side="right", padx=(10, 0))
-        badge_frame.pack_propagate(False)
+        # Container chứa toàn bộ công cụ góc phải bố trí từ trái sang phải
+        right_tools = ctk.CTkFrame(right_box, fg_color="transparent")
+        right_tools.pack(side="right", fill="y")
 
-        badge_inner = ctk.CTkFrame(badge_frame, fg_color="transparent")
-        badge_inner.place(relx=0.5, rely=0.5, anchor="center")
-
-        ctk.CTkLabel(
-            badge_inner,
-            text="MEGATEAM",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#2dd4bf"
-        ).pack(anchor="center", pady=(0, 0))
-
-        ctk.CTkLabel(
-            badge_inner,
-            text="developer",
-            font=ctk.CTkFont(family="Segoe UI", size=7),
-            text_color="#94a3b8"
-        ).pack(anchor="center", pady=(0, 0))
-
-        # Nút Help (?)
-        self.btn_help = ctk.CTkButton(
-            right_box,
-            text="?",
+        # 1. Icon Cấu hình Chặng (Icon-only Minimalist như cũ)
+        self.btn_header_profiles = ctk.CTkButton(
+            right_tools,
+            image=UiIconFactory.get("gear", color="#cbd5e1", size=(14, 14)),
+            text="",
             width=28,
-            height=28,
-            corner_radius=0,
+            height=26,
+            corner_radius=4,
+            fg_color="#181c26",
+            hover_color="#242b3a",
+            border_width=1,
+            border_color="#334155",
+            command=self.open_profiles_modal
+        )
+        self.btn_header_profiles.pack(side="left", padx=(2, 2))
+        add_tooltip(self.btn_header_profiles, "⚙️ Cấu hình bãi quái & tuyến đường (Profiles Modal)")
+
+        # 2. Icon Nhật ký Hoạt động (Icon-only Minimalist như cũ)
+        self.btn_header_logs = ctk.CTkButton(
+            right_tools,
+            image=UiIconFactory.get("file", color="#38bdf8", size=(14, 14)),
+            text="",
+            width=28,
+            height=26,
+            corner_radius=4,
+            fg_color="#181c26",
+            hover_color="#242b3a",
+            border_width=1,
+            border_color="#0369a1",
+            command=self.open_logs_window
+        )
+        self.btn_header_logs.pack(side="left", padx=(2, 4))
+        add_tooltip(self.btn_header_logs, "📋 Nhật ký hoạt động chuyên dụng (Logs Modal)")
+
+        # Vách ngăn mỏng phân cách giữa nhóm Action Modals và công cụ hệ thống
+        ctk.CTkFrame(right_tools, fg_color="#1e293b", width=1, height=18).pack(side="left", padx=(2, 4))
+
+        self.lang_var = ctk.StringVar(value=f"{CURRENT_LANG.upper()}")
+        self.lang_menu = ModernOptionMenu(
+            right_tools,
+            values=["VI", "EN", "PT-BR"],
+            variable=self.lang_var,
+            width=65,
+            height=26,
+            fg_color="#181c26",
+            hover_color="#222736",
+            command=self.change_language,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold")
+        )
+        self.lang_menu.pack(side="left", padx=2)
+
+        self.btn_text_cfg = ctk.CTkButton(
+            right_tools,
+            text="⚙ File",
+            width=48,
+            height=26,
+            corner_radius=4,
             fg_color="#181c26",
             hover_color="#242b3a",
             border_width=1,
             border_color="#2c3345",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#94a3b8",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            command=self.open_text_config
+        )
+        self.btn_text_cfg.pack(side="left", padx=2)
+        add_tooltip(self.btn_text_cfg, "Mở thư mục cấu hình JSON.")
+
+
+
+        # ----------------------------------------------------------------------
+        # 2. FOOTER STATUS BAR (Permanently Fixed Bottom, 24px)
+        # Bắt buộc pack(side="bottom") TRƯỚC content_container để cố định vĩnh viễn ở đáy cửa sổ
+        # Triệt tiêu hoàn toàn hiện tượng bị bảng tài khoản đẩy mất / co mất footer khi thu nhỏ cửa sổ.
+        # ----------------------------------------------------------------------
+        self.footer_frame = ctk.CTkFrame(self, fg_color="#0a0d14", height=24, corner_radius=0)
+        self.footer_frame.pack(side="bottom", fill="x", padx=0, pady=0)
+        self.footer_frame.pack_propagate(False)
+
+        footer_inner = ctk.CTkFrame(self.footer_frame, fg_color="transparent")
+        footer_inner.pack(fill="both", expand=True, padx=12, pady=0)
+
+        self.header_stats_lbl = ctk.CTkLabel(
+            footer_inner,
+            text=f"Game: 0 | Đã kết nối: 0/0 | Auto: 0 | Bản quyền: {CURRENT_LICENSE}",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#64748b",
+            cursor="hand2"
+        )
+        self.header_stats_lbl.pack(side="left")
+        self.header_stats_lbl.bind("<Button-1>", lambda e: self.open_license_dialog())
+
+        # Khung công cụ tiện ích bên phải Footer (Version + Update + License + Help)
+        footer_right = ctk.CTkFrame(footer_inner, fg_color="transparent")
+        footer_right.pack(side="right", fill="y")
+
+        self.btn_help = ctk.CTkButton(
+            footer_right,
+            text="?",
+            width=18,
+            height=18,
+            corner_radius=3,
+            fg_color="#141822",
+            hover_color="#1e2638",
+            border_width=1,
+            border_color="#2c3345",
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
             text_color="#94a3b8",
             command=self.show_help
         )
-        self.btn_help.pack(side="right", padx=(0, 6))
+        self.btn_help.pack(side="right", padx=(2, 0), pady=3)
 
-        # Nút License (🔑)
         self.btn_license = ctk.CTkButton(
-            right_box,
-            text="🔑 License",
-            width=80,
-            height=28,
-            corner_radius=0,
-            fg_color="#181c26",
-            hover_color="#242b3a",
+            footer_right,
+            text="",
+            image=UiIconFactory.get("key", color="#f59e0b", size=(12, 12)),
+            width=22,
+            height=18,
+            corner_radius=3,
+            fg_color="#141822",
+            hover_color="#1e2638",
             border_width=1,
-            border_color="#0284c7",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8",
+            border_color="#d97706",
             command=self.open_license_dialog
         )
-        self.btn_license.pack(side="right", padx=(0, 6))
+        self.btn_license.pack(side="right", padx=2, pady=3)
+        add_tooltip(self.btn_license, f"Bản quyền: {CURRENT_LICENSE}\nNhấp để kích hoạt hoặc xem chi tiết.")
 
-        # Nút Update (🔄)
         self.btn_update = ctk.CTkButton(
-            right_box,
-            text="🔄 Cập nhật",
-            width=85,
-            height=28,
-            corner_radius=0,
-            fg_color="#181c26",
-            hover_color="#242b3a",
+            footer_right,
+            text="",
+            image=UiIconFactory.get("update", color="#10b981", size=(12, 12)),
+            width=22,
+            height=18,
+            corner_radius=3,
+            fg_color="#141822",
+            hover_color="#1e2638",
             border_width=1,
             border_color="#059669",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#34d399",
             command=lambda: self.check_for_updates_ui(manual=True)
         )
-        self.btn_update.pack(side="right", padx=(0, 6))
+        self.btn_update.pack(side="right", padx=2, pady=3)
+        add_tooltip(self.btn_update, "Kiểm tra bản cập nhật mới.")
 
-        # Nút Nhật ký (📋) trên Header cạnh Ngôn ngữ, Cập nhật, License
-        self.btn_header_logs = ctk.CTkButton(
-            right_box,
-            text="📋 Nhật ký",
-            width=85,
-            height=28,
-            corner_radius=0,
-            fg_color="#181c26",
-            hover_color="#242b3a",
-            border_width=1,
-            border_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8",
-            command=self.open_logs_window
+        ctk.CTkFrame(footer_right, fg_color="#1e293b", width=1, height=12).pack(side="right", padx=(4, 4), pady=6)
+
+        self.footer_stats_lbl = ctk.CTkLabel(
+            footer_right,
+            text=f"MEGAMU Auto Pro v{APP_VERSION}",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#475569"
         )
-        self.btn_header_logs.pack(side="right", padx=(0, 6))
-
-        # Language dropdown trên Header (hiển thị trên mọi Tab)
-        self.lang_var = ctk.StringVar(value=f"Language: {CURRENT_LANG.upper()}")
-        self.lang_menu = ModernOptionMenu(
-            right_box,
-            values=["Language: VI", "Language: EN", "Language: PT-BR"],
-            variable=self.lang_var,
-            width=125,
-            height=30,
-            fg_color="#181c26",
-            hover_color="#222736",
-            command=self.change_language,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
-        )
-        self.lang_menu.pack(side="right", padx=(0, 6))
-
-        # ----------------------------------------------------------------------
-        # 2. TAB NAVIGATION BAR (Characters | Configuration | RAM | Moss | Mirror | Auto Login)
-        # ----------------------------------------------------------------------
-        tab_bar_frame = ctk.CTkFrame(self, fg_color="#12151e", height=38, corner_radius=0)
-        tab_bar_frame.pack(fill="x", padx=0, pady=(0, 2))
-
-        tab_bar_inner = ctk.CTkFrame(tab_bar_frame, fg_color="transparent")
-        tab_bar_inner.pack(fill="both", expand=True, padx=20, pady=(0, 4))
-
-        tab_left = ctk.CTkFrame(tab_bar_inner, fg_color="transparent")
-        tab_left.pack(side="left", fill="y")
-
-        self.tab_accounts_btn = ctk.CTkButton(
-            tab_left,
-            image=UiIconFactory.get("user", color="#2dd4bf", size=(14, 14)),
-            compound="left",
-            text=f" {tr('characters')} ({len(self.controllers)})",
-            height=30,
-            corner_radius=0,
-            hover=False,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=lambda: self.switch_tab("accounts")
-        )
-        self.tab_accounts_btn.pack(side="left", padx=(0, 6))
-
-        self.tab_profiles_btn = ctk.CTkButton(
-            tab_left,
-            image=UiIconFactory.get("gear", color="#94a3b8", size=(14, 14)),
-            compound="left",
-            text=f" {tr('configuration')}",
-            height=30,
-            corner_radius=0,
-            hover=False,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=lambda: self.switch_tab("profiles")
-        )
-        self.tab_profiles_btn.pack(side="left", padx=(0, 6))
-
-        self.tab_ram_btn = ctk.CTkButton(
-            tab_left,
-            image=UiIconFactory.get("bolt", color="#94a3b8", size=(14, 14)),
-            compound="left",
-            text=f" {tr('ram_optimizer')}",
-            height=30,
-            corner_radius=0,
-            hover=False,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=lambda: self.switch_tab("ram")
-        )
-        # self.tab_ram_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
-
-        self.tab_moss_btn = ctk.CTkButton(
-            tab_left,
-            image=UiIconFactory.get("dice", color="#94a3b8", size=(14, 14)),
-            compound="left",
-            text=f" {tr('moss_merchant')}",
-            height=30,
-            corner_radius=0,
-            hover=False,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=lambda: self.switch_tab("moss")
-        )
-        self.tab_moss_btn.pack(side="left", padx=(0, 6))
-
-        self.tab_mirror_btn = ctk.CTkButton(
-            tab_left,
-            image=UiIconFactory.get("mirror", color="#94a3b8", size=(14, 14)),
-            compound="left",
-            text=f" {tr('mirror_event')}",
-            height=30,
-            corner_radius=0,
-            hover=False,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=lambda: self.switch_tab("mirror")
-        )
-        self.tab_mirror_btn.pack(side="left", padx=(0, 6))
-
-        self.tab_autologin_btn = ctk.CTkButton(
-            tab_left,
-            image=UiIconFactory.get("key", color="#94a3b8", size=(14, 14)),
-            compound="left",
-            text=" 🚀 Auto Login",
-            height=30,
-            corner_radius=0,
-            hover=False,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=lambda: self.switch_tab("autologin")
-        )
-        # self.tab_autologin_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
-
-        tab_right = ctk.CTkFrame(tab_bar_inner, fg_color="transparent")
-        tab_right.pack(side="right", fill="y")
-
-        self.btn_text_cfg = ctk.CTkButton(
-            tab_right,
-            text=tr("text_config"),
-            width=80,
-            height=26,
-            fg_color="transparent",
-            hover_color="#1a1e28",
-            text_color="#94a3b8",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.open_text_config
-        )
-        self.btn_text_cfg.pack(side="left", padx=(0, 10))
-
-        ctk.CTkLabel(
-            tab_right,
-            text="Phát triển bởi MEGATEAM",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#64748b"
-        ).pack(side="left")
+        self.footer_stats_lbl.pack(side="right", padx=(0, 2))
 
         # ----------------------------------------------------------------------
         # 3. CONTENT CONTAINER (Pure Dark Base Frame - Triệt tiêu chớp trắng và lag)
         # ----------------------------------------------------------------------
         self.content_container = ctk.CTkFrame(self, fg_color="#0e1117", corner_radius=0, border_width=0)
-        self.content_container.pack(fill="both", expand=True, padx=20, pady=(6, 6))
+        self.content_container.pack(side="top", fill="both", expand=True, padx=10, pady=(2, 2))
 
-        # 7 Panels cho các Tab (Quản lý trực tiếp bên trong content_container)
+        # Cấu hình Persistent Grid Stacking cho 0ms Tab Switching
+        self.content_container.grid_rowconfigure(0, weight=1)
+        self.content_container.grid_columnconfigure(0, weight=1)
+
+        # 7 Panels cho các Tab (Xếp chồng vĩnh viễn trên cùng ô lưới 0,0)
         self.panel_accounts = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
         self.panel_profiles = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
         self.panel_logs = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
@@ -4341,18 +924,23 @@ class DashboardApp(ctk.CTk):
             "mirror": self.panel_mirror,
             "autologin": self.panel_autologin,
         }
+
+        # Grid toàn bộ 7 panels vĩnh viễn ngay từ đầu (Triệt tiêu unmap và relayout cascade)
+        for p in self._tab_panels.values():
+            p.grid(row=0, column=0, sticky="nsew")
+
         self._active_panel = None
 
         # ----------------------------------------------------------------------
         # 4. ACTION TOOLBAR (Tinh gọn chuẩn Icon-Only siêu hiện đại, chống tràn màn hình)
         # ----------------------------------------------------------------------
-        self.toolbar_frame = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=38)
-        self.toolbar_frame.pack(fill="x", padx=10, pady=(6, 4))
+        self.toolbar_frame = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=32)
+        self.toolbar_frame.pack(fill="x", padx=8, pady=(4, 2))
 
         icon_btn_style = {
-            "width": 36,
-            "height": 30,
-            "corner_radius": 6,
+            "width": 30,
+            "height": 26,
+            "corner_radius": 4,
             "fg_color": "#181c26",
             "hover_color": "#242b3a",
             "border_width": 1,
@@ -4367,12 +955,12 @@ class DashboardApp(ctk.CTk):
         # 1. Kết nối tất cả (Link Icon)
         self.btn_connect_all = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("link", color="#38bdf8", size=(16, 16)),
+            image=UiIconFactory.get("link", color="#38bdf8", size=(14, 14)),
             command=self.connect_all,
             **icon_btn_style
         )
         self.btn_connect_all.configure(border_color="#0284c7", hover_color="#0369a1")
-        self.btn_connect_all.pack(side="left", padx=(0, 6))
+        self.btn_connect_all.pack(side="left", padx=(0, 4))
         add_tooltip(
             self.btn_connect_all,
             "🔗 Kết nối tất cả (Connect All)\n"
@@ -4382,26 +970,26 @@ class DashboardApp(ctk.CTk):
         # 2. Gán toàn bộ (Users Icon)
         self.btn_team5 = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("users", color="#38bdf8", size=(16, 16)),
+            image=UiIconFactory.get("users", color="#38bdf8", size=(14, 14)),
             command=self.assign_all,
             **icon_btn_style
         )
         self.btn_team5.configure(border_color="#0284c7", hover_color="#0369a1")
-        self.btn_team5.pack(side="left", padx=(0, 6))
+        self.btn_team5.pack(side="left", padx=(0, 4))
         add_tooltip(
             self.btn_team5,
             "👥 Gán toàn bộ (Assign All)\n"
-            "Tự động quét và gán toàn bộ các cửa sổ game MEGAMU đang mở vào các ô Slot trống (hỗ trợ linh hoạt 3, 4, 5, 6, 7, 8... tài khoản cùng lúc)."
+            "Tự động quét và gán toàn bộ các cửa sổ game MEGAMU đang mở vào các ô Slot trống."
         )
 
         # 3. Làm mới game (Refresh Icon)
         self.btn_refresh = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(16, 16)),
+            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(14, 14)),
             command=self.refresh_games,
             **icon_btn_style
         )
-        self.btn_refresh.pack(side="left", padx=(0, 6))
+        self.btn_refresh.pack(side="left", padx=(0, 4))
         add_tooltip(
             self.btn_refresh,
             "🔄 Làm mới Game (Refresh)\n"
@@ -4409,42 +997,42 @@ class DashboardApp(ctk.CTk):
         )
 
         # Phân tách nhóm 1
-        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=18).pack(side="left", padx=(2, 8))
+        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=16).pack(side="left", padx=(2, 6))
 
         # 4. Thêm Slot (Plus Icon)
         self.btn_add_slot = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("plus", color="#4ade80", size=(16, 16)),
+            image=UiIconFactory.get("plus", color="#4ade80", size=(14, 14)),
             command=self.add_new_slot,
             **icon_btn_style
         )
         self.btn_add_slot.configure(border_color="#14532d", hover_color="#14532d")
-        self.btn_add_slot.pack(side="left", padx=(0, 6))
+        self.btn_add_slot.pack(side="left", padx=(0, 4))
         add_tooltip(self.btn_add_slot, "➕ Thêm Slot (Add Slot)\nThêm một hàng quản lý tài khoản mới vào bảng.")
 
         # 5. Bớt Slot (Minus Icon)
         self.btn_remove_slot = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("minus", color="#f87171", size=(16, 16)),
+            image=UiIconFactory.get("minus", color="#f87171", size=(14, 14)),
             command=self.remove_last_slot,
             **icon_btn_style
         )
         self.btn_remove_slot.configure(border_color="#7f1d1d", hover_color="#7f1d1d")
-        self.btn_remove_slot.pack(side="left", padx=(0, 6))
+        self.btn_remove_slot.pack(side="left", padx=(0, 4))
         add_tooltip(self.btn_remove_slot, "➖ Bớt Slot (Remove Slot)\nXóa bớt một hàng quản lý tài khoản ở cuối bảng.")
 
         # Phân tách nhóm 2
-        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=18).pack(side="left", padx=(2, 8))
+        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=16).pack(side="left", padx=(2, 6))
 
         # 6. Cài đặt Devil (Fire Icon)
         self.btn_devil_config = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("fire", color="#f43f5e", size=(16, 16)),
+            image=UiIconFactory.get("fire", color="#f43f5e", size=(14, 14)),
             command=self.open_devil_global_config_dialog,
             **icon_btn_style
         )
         self.btn_devil_config.configure(fg_color="#2a1215", border_color="#be123c", hover_color="#451218")
-        self.btn_devil_config.pack(side="left", padx=(0, 6))
+        self.btn_devil_config.pack(side="left", padx=(0, 4))
         add_tooltip(
             self.btn_devil_config,
             "🔥 Cài đặt Devil Square (DS)\n"
@@ -4454,7 +1042,7 @@ class DashboardApp(ctk.CTk):
         # 7. Gom ngọc (Gem Icon)
         self.btn_stack_jewels = ctk.CTkButton(
             t_left,
-            image=UiIconFactory.get("gem", color="#c084fc", size=(16, 16)),
+            image=UiIconFactory.get("gem", color="#c084fc", size=(14, 14)),
             command=self.stack_all_jewels,
             **icon_btn_style
         )
@@ -4466,33 +1054,20 @@ class DashboardApp(ctk.CTk):
             "Tự động gộp tất cả các viên ngọc lẻ (Bless, Soul, Chaos, Life...) trong thùng đồ của mọi tài khoản thành từng cụm 10/20/30 viên."
         )
 
-        self.btn_trim_ram = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("bolt", color="#facc15", size=(14, 14)),
-            command=self.quick_trim_ram,
-            **icon_btn_style
-        )
-        # self.btn_trim_ram.pack(side="left", padx=(6, 0)) # Tạm ẩn
+        self.btn_trim_ram = ctk.CTkButton(t_left, image=UiIconFactory.get("bolt", color="#facc15", size=(14, 14)), command=self.quick_trim_ram, **icon_btn_style)
+        self.btn_quick_autologin = ctk.CTkButton(t_left, image=UiIconFactory.get("key", color="#c084fc", size=(14, 14)), command=lambda: self.switch_tab("autologin"), **icon_btn_style)
 
-        self.btn_quick_autologin = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("key", color="#c084fc", size=(14, 14)),
-            command=lambda: self.switch_tab("autologin"),
-            **icon_btn_style
-        )
-        # self.btn_quick_autologin.pack(side="left", padx=(6, 0)) # Tạm ẩn
-
-        # Nhóm bên phải: Nút Master Chạy/Dừng Tất Cả gộp 1 nút thông minh (Toggle)
+        # Nhóm bên phải: Nút Master Chạy/Dừng Tất Cả
         t_right = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
         t_right.pack(side="right")
 
         self.btn_master_run = ctk.CTkButton(
             t_right,
-            image=UiIconFactory.get("play", color="#6ee7b7", size=(16, 16)),
+            image=UiIconFactory.get("play", color="#6ee7b7", size=(14, 14)),
             command=self.on_master_auto_toggle,
             **icon_btn_style
         )
-        self.btn_master_run.configure(fg_color="#064e3b", hover_color="#047857", border_color="#059669")
+        self.btn_master_run.configure(width=34, height=28, fg_color="#064e3b", hover_color="#047857", border_color="#059669")
         self.btn_master_run.pack(side="right")
         add_tooltip(
             self.btn_master_run,
@@ -4508,157 +1083,92 @@ class DashboardApp(ctk.CTk):
         self.build_mirror_view()
         self.build_autologin_view()
 
-        # ----------------------------------------------------------------------
-        # 5. FOOTER STATUS BAR
-        # ----------------------------------------------------------------------
-        self.footer_frame = ctk.CTkFrame(self, fg_color="#0e1117", height=28)
-        self.footer_frame.pack(fill="x", padx=20, pady=(0, 6))
 
-        self.footer_stats_lbl = ctk.CTkLabel(
-            self.footer_frame,
-            text=f"Total: {len(self.controllers)} Accounts | Connected: 0 | Running: 0",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        )
-        self.footer_stats_lbl.pack(side="left")
 
-        footer_right = ctk.CTkLabel(
-            self.footer_frame,
-            text="(?) Help | Phát triển bởi MEGATEAM",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#64748b"
-        )
-        footer_right.pack(side="right")
-
-        # Đồng bộ danh sách Slot vào combobox và nhãn điều khiển
         self.update_combo_slot_options()
-
-        # Mặc định hiển thị tab accounts
         self.switch_tab("accounts")
 
     # ==========================================================================
     # TAB 1: DANH SÁCH TÀI KHOẢN (ACCOUNTS TAB)
     # ==========================================================================
     def build_accounts_view(self):
-        # Thanh hướng dẫn nhanh (Quick Tips Banner) cho người dùng mới
-        tip_banner = ctk.CTkFrame(
-            self.panel_accounts,
-            fg_color="#101522",
-            border_width=1,
-            border_color="#1e293b",
-            corner_radius=6,
-            height=32
-        )
-        tip_banner.pack(fill="x", padx=12, pady=(6, 4))
-
-        tip_lbl_icon = ctk.CTkLabel(
-            tip_banner,
-            text="💡",
-            font=ctk.CTkFont(size=12),
-            text_color="#facc15"
-        )
-        tip_lbl_icon.pack(side="left", padx=(10, 4), pady=3)
-
-        tip_lbl_text = ctk.CTkLabel(
-            tip_banner,
-            text="💡 Hướng dẫn nhanh: 1. [🔗 Kết nối tất cả] (hoặc [👥 Gán toàn bộ]) ➔ 2. Chọn Cấu hình chặng ➔ 3. Bấm [▶ Chạy Tất Cả]. Click [🔥 DS] [🔄 RS] [⭐ PT] để bật/tắt nhanh các tính năng tự động.",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-            anchor="w"
-        )
-        tip_lbl_text.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=3)
-
-        # Header bảng cố định ở trên
-        tbl_header = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=32)
-        tbl_header.pack(fill="x", padx=12, pady=(4, 4))
+        # Header bảng cố định ở trên (Pixel-perfect alignment với các dòng dữ liệu)
+        tbl_header = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=24)
+        tbl_header.pack(fill="x", padx=(4, 2), pady=(2, 2))
 
         self.col_header_labels = []
         col_defs = [
-            ("col_no", 45, "w"),
-            ("col_char_pid", 225, "w"),
-            ("col_route_preset", 220, "w"),
-            ("col_coordinates", 145, "center"),
-            ("col_status", 125, "center"),
-            ("col_actions", 260, "center")
+            ("col_no", 34, "center", (4, 2)),
+            ("col_char_pid", 175, "w", (2, 2)),
+            ("col_route_preset", 88, "center", (2, 2)),
+            ("col_level", 178, "w", (2, 2)),
+            ("col_coordinates", 88, "center", (2, 2)),
+            ("col_status", 88, "center", (2, 2)),
+            ("col_actions", 175, "center", (2, 2))
         ]
 
-        for k, w, anc in col_defs:
+        for k, w, anc, px in col_defs:
             lbl = ctk.CTkLabel(
                 tbl_header,
                 text=tr(k),
                 width=w,
                 anchor=anc,
-                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                text_color="#94a3b8"
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color="#64748b"
             )
-            lbl.pack(side="left", padx=4)
+            lbl.pack(side="left", padx=px)
             self.col_header_labels.append(lbl)
 
         # Divider line
-        div = ctk.CTkFrame(self.panel_accounts, fg_color="#1f2535", height=1)
-        div.pack(fill="x", padx=12, pady=(0, 6))
+        div = ctk.CTkFrame(self.panel_accounts, fg_color="#1c2230", height=1)
+        div.pack(fill="x", padx=4, pady=(0, 2))
 
         # Khung cuộn chứa danh sách các dòng tài khoản
         self.accounts_scroll_frame = ctk.CTkScrollableFrame(
             self.panel_accounts,
             fg_color="transparent"
         )
-        self.accounts_scroll_frame.pack(fill="both", expand=True, padx=4, pady=(0, 8))
+        self.accounts_scroll_frame.pack(fill="both", expand=True, padx=2, pady=(0, 2))
 
         # Tạo từng dòng tài khoản đã cấu hình
         for i in range(1, len(self.controllers) + 1):
             self.create_slot_row(i)
 
     def create_slot_row(self, i: int):
-        """Tạo 1 dòng giao diện cho Slot thứ i theo phong cách hiện đại, trực quan, thân thiện."""
+        """Tạo 1 dòng giao diện cho Slot thứ i theo phong cách Compact Minimalist (Cao 34px)."""
         ctrl = self.controllers[i - 1]
         row_frame = ctk.CTkFrame(
             self.accounts_scroll_frame,
             fg_color="#131722",
-            height=54,
-            corner_radius=6,
+            height=34,
+            corner_radius=4,
             border_width=1,
-            border_color="#1e2433"
+            border_color="#1c2230"
         )
-        row_frame.pack(fill="x", padx=4, pady=3)
+        row_frame.pack(fill="x", padx=2, pady=1)
+        row_frame.pack_propagate(False)
 
-        # Hiệu ứng hover cho toàn dòng
-        def _on_row_enter(e):
-            try:
-                row_frame.configure(fg_color="#171c2a")
-            except Exception:
-                pass
-
-        def _on_row_leave(e):
-            try:
-                row_frame.configure(fg_color="#131722")
-            except Exception:
-                pass
-
-        row_frame.bind("<Enter>", _on_row_enter, add="+")
-        row_frame.bind("<Leave>", _on_row_leave, add="+")
-
-        # Cột 1: STT dạng Badge bo góc nổi bật
+        # Cột 1: STT dạng Badge bo góc phẳng nhỏ gọn (34px)
         slot_badge = ctk.CTkFrame(
             row_frame,
-            fg_color="#1a2030",
-            corner_radius=5,
-            width=36,
-            height=28
+            fg_color="#182030",
+            corner_radius=3,
+            width=34,
+            height=22
         )
-        slot_badge.pack(side="left", padx=(8, 4))
+        slot_badge.pack(side="left", padx=(4, 2))
         slot_badge.pack_propagate(False)
 
         slot_lbl = ctk.CTkLabel(
             slot_badge,
             text=f"{i:02d}",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#94a3b8"
         )
         slot_lbl.pack(expand=True)
         add_tooltip(slot_badge, f"Slot #{i:02d} - Chuột phải vào đây để mở Menu Lệnh Nhanh.")
 
-        # Cột 2: Character/PID
+        # Cột 2: Character/PID Dropdown (175px)
         options = ["--"]
         for pid, title in sorted(self.detected_games.items()):
             char_name = character_name_from_window_title(title)
@@ -4690,135 +1200,109 @@ class DashboardApp(ctk.CTk):
             row_frame,
             values=options,
             variable=proc_var,
-            width=220,
-            height=32,
-            fg_color="#181c26",
-            border_color="#242b3a",
-            hover_color="#222736",
-            corner_radius=5,
+            width=175,
+            height=26,
+            fg_color="#161a24",
+            border_color="#222838",
+            hover_color="#1e2433",
+            corner_radius=4,
             command=lambda val, s=i: self.on_slot_pid_selected(s, val),
             on_open=lambda s=i: self.on_proc_combo_opened(s),
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
         )
-        proc_combo.pack(side="left", padx=4)
-        add_tooltip(proc_combo, f"Gán tài khoản MEGAMU cho Slot #{i:02d}.\nNhấp vào để chọn hoặc tự động làm mới danh sách game đang mở.")
+        proc_combo.pack(side="left", padx=(2, 2))
+        add_tooltip(proc_combo, f"Gán tài khoản MEGAMU cho Slot #{i:02d}.")
 
-        # Cột 3: Target Route Preset (Multi-tier: Master LV 450 / Progress / EXP)
-        route_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=220)
-        route_box.pack(side="left", padx=4)
-
-        top_line = ctk.CTkFrame(route_box, fg_color="transparent")
-        top_line.pack(fill="x", padx=0, pady=(2, 0))
-
+        # Cột 3: Route Preset Combo (88px)
         profile_var = ctk.StringVar(value=f"Config {ctrl.profile_index}")
         preset_combo = ModernOptionMenu(
-            top_line,
+            row_frame,
             values=PROFILE_NAMES,
             variable=profile_var,
-            width=105,
+            width=88,
             height=24,
-            fg_color="#181c26",
-            hover_color="#222736",
-            corner_radius=4,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color="#161a24",
+            hover_color="#1e2433",
+            corner_radius=3,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda val, s=i: self.on_slot_profile_selected(s, val)
         )
-        preset_combo.pack(side="left")
-        add_tooltip(preset_combo, "Tuyến đường chạy bãi quái & bản đồ tự động cho slot này (Định hình trong tab Cấu hình)")
+        preset_combo.pack(side="left", padx=(2, 2))
+        add_tooltip(preset_combo, "Tuyến đường chạy bãi quái & bản đồ tự động cho slot này")
 
+        # Cột 4: Level, Reset & Points (178px Cố định - pack_propagate=False triệt tiêu phình ô)
         lvl_str = f"LV {ctrl.level}" if ctrl.level != "---" else "LV --"
+        pts_init = f"⭐ {ctrl.points:,} pts" if ctrl.points > 0 else "⭐ 0 pts"
+        pts_color = "#10b981" if ctrl.points > 0 else "#64748b"
+
+        level_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=178, height=26)
+        level_box.pack(side="left", padx=(2, 2))
+        level_box.pack_propagate(False)
+
         lvl_lbl = ctk.CTkLabel(
-            top_line,
+            level_box,
             text=lvl_str,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#94a3b8"
         )
-        lvl_lbl.pack(side="right")
+        lvl_lbl.pack(side="left")
         add_tooltip(lvl_lbl, "Cấp độ hiện tại và số lần Reset (rr) của nhân vật")
 
+        pts_lbl = ctk.CTkLabel(
+            level_box,
+            text=pts_init,
+            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
+            text_color=pts_color
+        )
+        pts_lbl.pack(side="right", padx=(2, 0))
+        add_tooltip(pts_lbl, "Điểm tiềm năng (Point) chưa phân bổ.")
+
         prog_bar = ctk.CTkProgressBar(
-            route_box,
-            width=210,
-            height=5,
-            corner_radius=2,
-            fg_color="#232836",
+            level_box,
+            width=174,
+            height=2,
+            corner_radius=1,
+            fg_color="#1e2433",
             progress_color="#38bdf8"
         )
         prog_bar.set(0.0)
-        prog_bar.pack(anchor="w", pady=(2, 1))
+        prog_bar.pack(anchor="w", pady=(1, 0))
+        exp_lbl = ctk.CTkLabel(level_box, text="", font=ctk.CTkFont(size=1))
 
-        bot_line = ctk.CTkFrame(route_box, fg_color="transparent")
-        bot_line.pack(fill="x", pady=(0, 2))
-
-        exp_lbl = ctk.CTkLabel(
-            bot_line,
-            text="-- / -- EXP",
-            font=ctk.CTkFont(family="Segoe UI", size=9),
-            text_color="#71717a",
-            anchor="w"
-        )
-        exp_lbl.pack(side="left")
-        add_tooltip(exp_lbl, "Tiến độ điểm kinh nghiệm (EXP hiện tại / EXP cần lên cấp)")
-
-        pts_init = f"⭐ {ctrl.points:,} pts" if ctrl.points > 0 else "⭐ 0 pts"
-        pts_color = "#10b981" if ctrl.points > 0 else "#64748b"
-        pts_lbl = ctk.CTkLabel(
-            bot_line,
-            text=pts_init,
-            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
-            text_color=pts_color,
-            anchor="e"
-        )
-        pts_lbl.pack(side="right")
-        add_tooltip(pts_lbl, "Điểm tiềm năng (Point) chưa phân bổ. Bật nút [PT] bên phải để bot tự động cộng theo cấu hình.")
-
-        # Cột 4: Coordinates (Rounded container with coordinates and location pin)
+        # Cột 5: Coordinates (88px Cố định)
         coords_frame = ctk.CTkFrame(
             row_frame,
-            fg_color="#181c26",
+            fg_color="#161a24",
             border_width=1,
-            border_color="#242b3a",
-            corner_radius=5,
-            width=140,
-            height=30
+            border_color="#222838",
+            corner_radius=4,
+            width=88,
+            height=24
         )
-        coords_frame.pack(side="left", padx=6)
+        coords_frame.pack(side="left", padx=(2, 2))
         coords_frame.pack_propagate(False)
-
-        pin_icon = ctk.CTkLabel(
-            coords_frame,
-            text="",
-            image=UiIconFactory.get("pin", color="#38bdf8", size=(11, 11))
-        )
-        pin_icon.pack(side="left", padx=(8, 2))
 
         coords_lbl = ctk.CTkLabel(
             coords_frame,
             text="--, --",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color="#f1f5f9"
         )
-        coords_lbl.pack(side="left", fill="both", expand=True, padx=(2, 8))
+        coords_lbl.pack(fill="both", expand=True)
         add_tooltip(coords_frame, f"[Slot #{i:02d}] Tọa độ thời gian thực (X, Y) của nhân vật trong game.")
 
-        # Cột 5: Status (Text mặc định, hỗ trợ click để kết nối lại)
+        # Cột 6: Status (88px Cố định)
         status_lbl = ctk.CTkLabel(
             row_frame,
             text="Idle",
-            width=120,
+            width=88,
             anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#94a3b8"
         )
-        status_lbl.pack(side="left", padx=6)
+        status_lbl.pack(side="left", padx=(2, 2))
         status_lbl.bind("<Button-1>", lambda e, s=i: self.on_slot_status_clicked(s))
-        add_tooltip(
-            status_lbl,
-            f"[Slot #{i:02d}] Trạng thái hoạt động:\n"
-            "• 'Đang chạy' (Xanh lá): Bot đang tự động đánh và theo dõi nhân vật.\n"
-            "• 'Idle' (Xám): Đang tạm dừng.\n"
-            "• 'Mất kết nối' / 'Game đã đóng' (Đỏ): Nhấp chuột trái vào đây để tự động kết nối lại game!"
-        )
+        add_tooltip(status_lbl, f"[Slot #{i:02d}] Trạng thái hoạt động (Click để kết nối lại)")
 
         # Chuột phải vào dòng mở menu tiện ích
         import tkinter as tk
@@ -4854,46 +1338,43 @@ class DashboardApp(ctk.CTk):
             except Exception:
                 pass
 
-        for _w in (row_frame, slot_lbl, slot_badge, status_lbl, coords_frame, coords_lbl, pin_icon):
+        for _w in (row_frame, slot_lbl, slot_badge, status_lbl, coords_frame, coords_lbl):
             _w.bind("<Button-3>", lambda e, s=i: _show_slot_ctx(e, s))
 
-        # Cột 6: Actions (Play/Stop | [🔥 DS] [🔄 RS] [⭐ PT] | [⚙] [📋])
-        actions_box = ctk.CTkFrame(row_frame, fg_color="transparent")
-        actions_box.pack(side="left", padx=4)
+        # Cột 7: Actions (175px Cố định)
+        actions_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=175, height=26)
+        actions_box.pack(side="left", padx=(2, 2))
+        actions_box.pack_propagate(False)
 
         # 1. Nút Play/Stop chính
         btn_toggle = ctk.CTkButton(
             actions_box,
             text="",
-            image=UiIconFactory.get("play", color="#38bdf8", size=(12, 12)),
-            width=34,
-            height=28,
-            corner_radius=5,
-            fg_color="#181c26",
-            hover_color="#242b3a",
+            image=getattr(self, "_icon_play_12", None) or UiIconFactory.get("play", color="#38bdf8", size=(11, 11)),
+            width=26,
+            height=24,
+            corner_radius=4,
+            fg_color="#161a24",
+            hover_color="#222838",
             border_width=1,
             border_color="#2b3244",
             command=lambda s=i: self.on_slot_auto_toggle(s)
         )
-        btn_toggle.pack(side="left", padx=(2, 4))
+        btn_toggle.pack(side="left", padx=1)
         add_tooltip(
             btn_toggle,
             f"[Slot #{i:02d}] ▶ Chạy / ⏹ Dừng Auto\n"
             "Bắt đầu hoặc tạm dừng chế độ tự động đánh quái và chạy chặng cho tài khoản này."
         )
 
-        # Vách ngăn phân tách nhóm 1
-        ctk.CTkFrame(actions_box, fg_color="#222736", width=1, height=18).pack(side="left", padx=(1, 4))
-
-        # 2. Nhóm 3 Switch tính năng trực quan: [🔥 DS] [🔄 RS] [⭐ PT]
-        # Nút Devil Square (DS)
+        # 2. Nhóm Switch tính năng trực quan: [🔥] [🔄] [⭐]
         btn_devil = ctk.CTkButton(
             actions_box,
-            text="🔥 DS",
+            text="🔥",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=42,
-            height=28,
-            corner_radius=5,
+            width=28,
+            height=24,
+            corner_radius=4,
             fg_color="#4c0519" if ctrl.auto_devil else "#141824",
             text_color="#f43f5e" if ctrl.auto_devil else "#64748b",
             border_width=1,
@@ -4901,30 +1382,16 @@ class DashboardApp(ctk.CTk):
             hover_color="#881337" if ctrl.auto_devil else "#1e2433",
             command=lambda s=i: self.on_toggle_slot_devil(s)
         )
-        btn_devil.pack(side="left", padx=2)
-        _t_val = getattr(ctrl, "devil_ticket_type", "auto")
-        _t_txt = "Chỉ vé Master" if _t_val == "master" else ("Chỉ vé Thường" if _t_val == "normal" else "Tự động")
-        add_tooltip(
-            btn_devil,
-            f"[Slot #{i:02d}] 🔥 Auto Devil Square (DS)\n"
-            f"• Trạng thái: {'BẬT' if ctrl.auto_devil else 'TẮT'}\n"
-            f"• Điều kiện: Bắt đầu đi khi đạt từ >= {ctrl.devil_min_resets} Reset trở lên\n"
-            f"• Loại vé: {_t_txt}\n"
-            "• Tự động vào DS khi mở cổng (:27 - :30 giờ lẻ)\n"
-            "• Chỉ bỏ Auto Train khi đã vào map DS thành công\n"
-            "• Chưa đủ Reset hoặc không có vé: Tự động tiếp tục cắm bãi train\n"
-            "• Click để Bật/Tắt | Bấm [🔥 Cài đặt Devil] trên thanh công cụ để chỉnh chung\n"
-            "• Click Chuột Phải vào dòng để 'Đi Devil Square ngay lập tức'"
-        )
+        btn_devil.pack(side="left", padx=1)
+        add_tooltip(btn_devil, f"[Slot #{i:02d}] 🔥 Auto Devil Square ({'BẬT' if ctrl.auto_devil else 'TẮT'})")
 
-        # Nút Auto Reset (RS)
         btn_reset = ctk.CTkButton(
             actions_box,
-            text="🔄 RS",
+            text="🔄",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=42,
-            height=28,
-            corner_radius=5,
+            width=28,
+            height=24,
+            corner_radius=4,
             fg_color="#064e3b" if ctrl.auto_reset else "#141824",
             text_color="#10b981" if ctrl.auto_reset else "#64748b",
             border_width=1,
@@ -4932,23 +1399,16 @@ class DashboardApp(ctk.CTk):
             hover_color="#047857" if ctrl.auto_reset else "#1e2433",
             command=lambda s=i: self.on_toggle_slot_reset(s)
         )
-        btn_reset.pack(side="left", padx=2)
-        add_tooltip(
-            btn_reset,
-            f"[Slot #{i:02d}] 🔄 Auto Reset (RS)\n"
-            f"• Trạng thái: {'BẬT' if ctrl.auto_reset else 'TẮT'}\n"
-            f"• Điều kiện: Tự động gõ lệnh /reset khi nhân vật đạt Level {ctrl.reset_level}\n"
-            "• Click để Bật/Tắt | Bấm [⚙] bên cạnh để thay đổi mốc Level Reset"
-        )
+        btn_reset.pack(side="left", padx=1)
+        add_tooltip(btn_reset, f"[Slot #{i:02d}] 🔄 Auto Reset ({'BẬT' if ctrl.auto_reset else 'TẮT'})")
 
-        # Nút Auto Cộng Point (PT)
         btn_point = ctk.CTkButton(
             actions_box,
-            text="⭐ PT",
+            text="⭐",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=42,
-            height=28,
-            corner_radius=5,
+            width=28,
+            height=24,
+            corner_radius=4,
             fg_color="#075985" if ctrl.auto_add_point else "#141824",
             text_color="#38bdf8" if ctrl.auto_add_point else "#64748b",
             border_width=1,
@@ -4956,56 +1416,40 @@ class DashboardApp(ctk.CTk):
             hover_color="#0369a1" if ctrl.auto_add_point else "#1e2433",
             command=lambda s=i: self.on_toggle_slot_point(s)
         )
-        btn_point.pack(side="left", padx=2)
-        add_tooltip(
-            btn_point,
-            f"[Slot #{i:02d}] ⭐ Auto Cộng Point (PT)\n"
-            f"• Trạng thái: {'BẬT' if ctrl.auto_add_point else 'TẮT'}\n"
-            "• Lưu ý: 'PT' là POINT (Điểm tiềm năng), KHÔNG phải Party!\n"
-            "• Tự động phân bổ điểm tiềm năng theo tỷ lệ cấu hình.\n"
-            "• Click để Bật/Tắt | Bấm [⚙] bên cạnh để cài đặt tỷ lệ cộng"
-        )
-
-        # Vách ngăn phân tách nhóm 2
-        ctk.CTkFrame(actions_box, fg_color="#222736", width=1, height=18).pack(side="left", padx=(4, 2))
-
-        act_tool_style = {
-            "width": 28,
-            "height": 28,
-            "corner_radius": 5,
-            "fg_color": "#181c26",
-            "hover_color": "#242b3a",
-            "border_width": 1,
-            "border_color": "#2b3244"
-        }
+        btn_point.pack(side="left", padx=1)
+        add_tooltip(btn_point, f"[Slot #{i:02d}] ⭐ Auto Cộng Point ({'BẬT' if ctrl.auto_add_point else 'TẮT'})")
 
         btn_cfg = ctk.CTkButton(
             actions_box,
             text="",
-            image=UiIconFactory.get("gear", color="#94a3b8", size=(13, 13)),
-            command=lambda s=i: self.open_slot_stat_ratio_dialog(s),
-            **act_tool_style
+            image=UiIconFactory.get("gear", color="#94a3b8", size=(12, 12)),
+            width=24,
+            height=24,
+            corner_radius=4,
+            fg_color="#181c26",
+            hover_color="#242b3a",
+            border_width=1,
+            border_color="#2b3244",
+            command=lambda s=i: self.open_slot_stat_ratio_dialog(s)
         )
-        btn_cfg.pack(side="left", padx=2)
-        add_tooltip(
-            btn_cfg,
-            f"[Slot #{i:02d}] ⚙️ Cài đặt Slot & Tỷ lệ Point\n"
-            "Mở hộp thoại thiết lập tỷ lệ cộng Point, cấp độ Reset và phạm vi Devil Square cho Slot này."
-        )
+        btn_cfg.pack(side="left", padx=1)
+        add_tooltip(btn_cfg, f"[Slot #{i:02d}] ⚙️ Cài đặt Slot & Tỷ lệ Point")
 
         btn_log = ctk.CTkButton(
             actions_box,
             text="",
-            image=UiIconFactory.get("file", color="#94a3b8", size=(13, 13)),
-            command=lambda s=i: self.jump_to_slot_logs(s),
-            **act_tool_style
+            image=UiIconFactory.get("file", color="#94a3b8", size=(12, 12)),
+            width=24,
+            height=24,
+            corner_radius=4,
+            fg_color="#181c26",
+            hover_color="#242b3a",
+            border_width=1,
+            border_color="#2b3244",
+            command=lambda s=i: self.jump_to_slot_logs(s)
         )
-        btn_log.pack(side="left", padx=2)
-        add_tooltip(
-            btn_log,
-            f"[Slot #{i:02d}] 📋 Xem Nhật Ký (Logs)\n"
-            "Mở tab nhật ký chi tiết riêng của Slot này để theo dõi tiến trình và lỗi."
-        )
+        btn_log.pack(side="left", padx=1)
+        add_tooltip(btn_log, f"[Slot #{i:02d}] 📋 Xem Nhật Ký (Logs)")
 
         # Lưu references để cập nhật
         self.slot_ui_elements[i] = {
@@ -5028,6 +1472,7 @@ class DashboardApp(ctk.CTk):
             "btn_cfg": btn_cfg,
             "btn_log": btn_log
         }
+        self.update_slot_run_button_state(i)
 
     def add_new_slot(self):
         """Thêm 1 slot tài khoản mới vào cuối danh sách (tùy thuộc vào License)."""
@@ -5145,7 +1590,7 @@ class DashboardApp(ctk.CTk):
         if hasattr(self, "tab_accounts_btn"):
             self.tab_accounts_btn.configure(text=f" {tr('characters')} ({n})")
         if hasattr(self, "footer_stats_lbl"):
-            num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
+            num_conn = sum(1 for c in self.controllers if c.assigned_pid and is_megamu_process_alive(c.assigned_pid))
             num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
             self.footer_stats_lbl.configure(text=tr("footer_stats", slots=n, conn=num_conn, auto=num_auto))
         if hasattr(self, "update_moss_slot_telemetry"):
@@ -5222,400 +1667,13 @@ class DashboardApp(ctk.CTk):
 
     def open_license_dialog(self):
         """Mở cửa sổ quản lý và kích hoạt bản quyền MEGAMU Auto Train Dashboard."""
-        if hasattr(self, "_license_dialog") and self._license_dialog is not None and self._license_dialog.winfo_exists():
-            self._license_dialog.lift()
-            self._license_dialog.focus_force()
-            return
+        from ui.modals.license_dialog import open_license_dialog as _open
+        return _open(self)
 
-        dialog = ctk.CTkToplevel(self)
-        self._license_dialog = dialog
-        dialog.title("Quản lý Bản Quyền - MEGAMU Auto Train")
-        dialog.geometry("510x540")
-        dialog.resizable(False, False)
-        dialog.configure(fg_color="#0e1117")
-        dialog.transient(self)
-        dialog.grab_set()
-
-        # Đặt Icon ứng dụng cho cửa sổ dialog quản lý bản quyền
-        self._apply_window_icon(dialog)
-        dialog.after(100, lambda: self._apply_window_icon(dialog))
-
-        try:
-            x = self.winfo_x() + (self.winfo_width() // 2) - 255
-            y = self.winfo_y() + (self.winfo_height() // 2) - 270
-            dialog.geometry(f"+{x}+{y}")
-        except Exception:
-            pass
-
-        pad = ctk.CTkFrame(dialog, fg_color="transparent")
-        pad.pack(fill="both", expand=True, padx=22, pady=18)
-
-        # Header với Logo ứng dụng chính thức
-        head_box = ctk.CTkFrame(pad, fg_color="transparent")
-        head_box.pack(fill="x", pady=(0, 12))
-
-        if LOGO_FILE.exists():
-            try:
-                logo_img = Image.open(str(LOGO_FILE))
-                lw, lh = logo_img.size
-                aspect = lw / max(1, lh)
-                target_h = 36
-                target_w = int(target_h * aspect)
-                self._lic_dialog_logo = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=(target_w, target_h))
-                ctk.CTkLabel(head_box, image=self._lic_dialog_logo, text="").pack(side="left", padx=(0, 12))
-            except Exception:
-                pass
-        elif ICON_FILE.exists():
-            try:
-                ico_img = Image.open(str(ICON_FILE))
-                self._lic_dialog_logo = ctk.CTkImage(light_image=ico_img, dark_image=ico_img, size=(36, 36))
-                ctk.CTkLabel(head_box, image=self._lic_dialog_logo, text="").pack(side="left", padx=(0, 12))
-            except Exception:
-                pass
-
-        title_text_box = ctk.CTkFrame(head_box, fg_color="transparent")
-        title_text_box.pack(side="left", fill="both", expand=True)
-
-        ctk.CTkLabel(
-            title_text_box,
-            text="QUẢN LÝ BẢN QUYỀN SẢN PHẨM",
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            text_color="#f8fafc"
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            title_text_box,
-            text="Hệ thống xác thực bản quyền & HWID định danh máy tính",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#64748b"
-        ).pack(anchor="w", pady=(1, 0))
-
-        # HWID Card
-        hwid_card = ctk.CTkFrame(pad, fg_color="#161b26", corner_radius=0, border_width=1, border_color="#232936")
-        hwid_card.pack(fill="x", pady=(0, 10))
-
-        hwid_inner = ctk.CTkFrame(hwid_card, fg_color="transparent")
-        hwid_inner.pack(fill="x", padx=12, pady=8)
-
-        ctk.CTkLabel(
-            hwid_inner,
-            text="MÃ ĐỊNH DANH MÁY (HWID):",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#94a3b8"
-        ).pack(anchor="w")
-
-        hwid_row = ctk.CTkFrame(hwid_inner, fg_color="transparent")
-        hwid_row.pack(fill="x", pady=(3, 0))
-
-        if license_client:
-            license_client.is_native_bridge_active(force_reload=True)
-        hwid_val = license_client.get_machine_hwid() if license_client else "N/A"
-        hwid_is_err = (hwid_val == "THIẾU_MEG_LICENSE_BRIDGE_DLL")
-        hwid_display = "⚠️ Thiếu file meg_license_bridge.dll" if hwid_is_err else hwid_val
-        hwid_lbl = ctk.CTkLabel(
-            hwid_row,
-            text=hwid_display,
-            font=ctk.CTkFont(family="Consolas", size=12 if hwid_is_err else 13, weight="bold"),
-            text_color="#f87171" if hwid_is_err else "#38bdf8"
-        )
-        hwid_lbl.pack(side="left")
-
-        def copy_hwid():
-            cur_h = license_client.get_machine_hwid() if license_client else ""
-            if cur_h and cur_h != "THIẾU_MEG_LICENSE_BRIDGE_DLL":
-                self.clipboard_clear()
-                self.clipboard_append(cur_h)
-                copy_btn.configure(text="Đã chép!", fg_color="#16a34a")
-                self.after(1500, lambda: copy_btn.configure(text="Sao chép", fg_color="#242b3a"))
-
-        copy_btn = ctk.CTkButton(
-            hwid_row,
-            text="Sao chép",
-            width=70,
-            height=24,
-            corner_radius=0,
-            fg_color="#242b3a",
-            hover_color="#333c52",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#e2e8f0",
-            command=copy_hwid
-        )
-        copy_btn.pack(side="right")
-
-        # Tự động quét phát hiện file DLL khi người dùng vừa dán / copy file vào thư mục
-        def _poll_dll_in_dialog():
-            if not dialog.winfo_exists():
-                return
-            try:
-                if license_client:
-                    was_missing = not license_client.is_native_bridge_active()
-                    if was_missing and license_client.is_native_bridge_active(force_reload=True):
-                        new_hwid = license_client.get_machine_hwid()
-                        hwid_lbl.configure(text=new_hwid, text_color="#38bdf8", font=ctk.CTkFont(family="Consolas", size=13, weight="bold"))
-                        self.update_header_stats()
-            except Exception:
-                pass
-            dialog.after(1000, _poll_dll_in_dialog)
-
-        dialog.after(1000, _poll_dll_in_dialog)
-
-        # Current Status Card
-        lic_data = license_client.load_license_data() if license_client else {}
-        status_card = ctk.CTkFrame(pad, fg_color="#161b26", corner_radius=0, border_width=1, border_color="#232936")
-        status_card.pack(fill="x", pady=(0, 12))
-
-        status_inner = ctk.CTkFrame(status_card, fg_color="transparent")
-        status_inner.pack(fill="x", padx=12, pady=8)
-
-        plan_type = lic_data.get("plan_type", "Chưa kích hoạt")
-        exp_date = lic_data.get("expires_at", "--")
-        if exp_date and exp_date != "--":
-            exp_date = str(exp_date).split(" ")[0]
-        is_active = bool(lic_data.get("license_key"))
-
-        stat_title = "Trạng thái: " + ("ĐÃ KÍCH HOẠT" if is_active else "CHƯA KÍCH HOẠT")
-        stat_color = "#4ade80" if is_active else "#f87171"
-
-        status_lbl = ctk.CTkLabel(
-            status_inner,
-            text=stat_title,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color=stat_color
-        )
-        status_lbl.pack(anchor="w")
-
-        details_lbl = ctk.CTkLabel(
-            status_inner,
-            text=f"Gói dịch vụ: {plan_type}   |   Hạn dùng: {exp_date}   |   Slot tối đa: {lic_data.get('max_slots', 50)}",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#94a3b8"
-        )
-        details_lbl.pack(anchor="w", pady=(2, 0))
-
-        # Input License Key
-        ctk.CTkLabel(
-            pad,
-            text="NHẬP KEY BẢN QUYỀN MỚI:",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#94a3b8"
-        ).pack(anchor="w", pady=(0, 4))
-
-        key_entry = ctk.CTkEntry(
-            pad,
-            placeholder_text="Ví dụ: MEG-MEGATEAM-2026-VIP1",
-            height=34,
-            corner_radius=0,
-            fg_color="#181c26",
-            border_color="#2c3345",
-            font=ctk.CTkFont(family="Consolas", size=12),
-            text_color="#f8fafc"
-        )
-        key_entry.pack(fill="x", pady=(0, 6))
-        if lic_data.get("license_key"):
-            key_entry.insert(0, lic_data.get("license_key"))
-
-        msg_lbl = ctk.CTkLabel(pad, text="", font=ctk.CTkFont(family="Segoe UI", size=10))
-        msg_lbl.pack(anchor="w", pady=(0, 4))
-
-        # Action Buttons
-        btn_box = ctk.CTkFrame(pad, fg_color="transparent")
-        btn_box.pack(fill="x", pady=(4, 0))
-
-        def do_activate():
-            input_key = key_entry.get().strip()
-            if not input_key:
-                msg_lbl.configure(text="Vui lòng nhập mã key bản quyền!", text_color="#f87171")
-                return
-
-            act_btn.configure(state="disabled", text="Đang kích hoạt...")
-            msg_lbl.configure(text="Đang kết nối tới máy chủ...", text_color="#94a3b8")
-            dialog.update_idletasks()
-
-            def _run():
-                success, msg, info = license_client.activate_license(input_key)
-                def _done():
-                    act_btn.configure(state="normal", text="Kích Hoạt")
-                    if success:
-                        msg_lbl.configure(text=f"✓ {msg}", text_color="#4ade80")
-                        status_lbl.configure(text="Trạng thái: ĐÃ KÍCH HOẠT", text_color="#4ade80")
-                        new_plan = info.get("plan_type", "Pro")
-                        new_exp = str(info.get("expires_at", "--")).split(" ")[0]
-                        details_lbl.configure(
-                            text=f"Gói dịch vụ: {new_plan}   |   Hạn dùng: {new_exp}   |   Slot tối đa: {info.get('max_slots', 50)}"
-                        )
-                        self.update_header_stats()
-                        self.update_modules_visibility()
-                    else:
-                        msg_lbl.configure(text=f"✗ {msg}", text_color="#f87171")
-                dialog.after(0, _done)
-
-            threading.Thread(target=_run, daemon=True).start()
-
-        act_btn = ctk.CTkButton(
-            btn_box,
-            text="Kích Hoạt",
-            width=100,
-            height=30,
-            corner_radius=0,
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=do_activate
-        )
-        act_btn.pack(side="left")
-
-        def do_sync():
-            act_btn.configure(state="disabled")
-            sync_btn.configure(state="disabled", text="Đang đồng bộ...")
-            msg_lbl.configure(text="Đang đồng bộ gói dịch vụ và tính năng mới từ máy chủ...", text_color="#94a3b8")
-            dialog.update_idletasks()
-
-            def _run_sync():
-                ok, msg, info = license_client.verify_license()
-                def _done_sync():
-                    act_btn.configure(state="normal")
-                    sync_btn.configure(state="normal", text="🔄 Đồng Bộ")
-                    if ok:
-                        msg_lbl.configure(text=f"✓ Đã đồng bộ thành công tính năng mới!", text_color="#4ade80")
-                        status_lbl.configure(text="Trạng thái: ĐÃ KÍCH HOẠT", text_color="#4ade80")
-                        new_plan = info.get("plan_type", "Pro")
-                        new_exp = str(info.get("expires_at", "--")).split(" ")[0]
-                        details_lbl.configure(
-                            text=f"Gói dịch vụ: {new_plan}   |   Hạn dùng: {new_exp}   |   Slot tối đa: {info.get('max_slots', 50)}"
-                        )
-                        self.update_header_stats()
-                        self.update_modules_visibility()
-                    else:
-                        msg_lbl.configure(text=f"✗ {msg}", text_color="#f87171")
-                dialog.after(0, _done_sync)
-
-            threading.Thread(target=_run_sync, daemon=True).start()
-
-        sync_btn = ctk.CTkButton(
-            btn_box,
-            text="🔄 Đồng Bộ",
-            width=100,
-            height=30,
-            corner_radius=0,
-            fg_color="#0f766e",
-            hover_color="#115e59",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=do_sync
-        )
-        sync_btn.pack(side="left", padx=(8, 0))
-
-        def do_deactivate():
-            if license_client:
-                license_client.deactivate_license()
-            key_entry.delete(0, "end")
-            msg_lbl.configure(text="✓ Đã bỏ kích hoạt bản quyền trên máy này.", text_color="#facc15")
-            status_lbl.configure(text="Trạng thái: CHƯA KÍCH HOẠT", text_color="#f87171")
-            details_lbl.configure(text="Gói dịch vụ: Chưa kích hoạt   |   Hạn dùng: --   |   Slot tối đa: --")
-            self.update_header_stats()
-            self.update_modules_visibility()
-
-        deact_btn = ctk.CTkButton(
-            btn_box,
-            text="Bỏ Kích Hoạt",
-            width=105,
-            height=30,
-            corner_radius=0,
-            fg_color="#7f1d1d",
-            hover_color="#991b1b",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#fca5a5",
-            command=do_deactivate
-        )
-        deact_btn.pack(side="left", padx=(8, 0))
-
-        close_btn = ctk.CTkButton(
-            btn_box,
-            text="Đóng",
-            width=70,
-            height=30,
-            corner_radius=0,
-            fg_color="#1e2430",
-            hover_color="#283142",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-            command=dialog.destroy
-        )
-        close_btn.pack(side="right")
-
-        # Thẻ thông tin liên hệ bản quyền & hỗ trợ kỹ thuật
-        contact_card = ctk.CTkFrame(pad, fg_color="#141824", corner_radius=0, border_width=1, border_color="#232a3b")
-        contact_card.pack(fill="x", pady=(12, 0))
-
-        contact_inner = ctk.CTkFrame(contact_card, fg_color="transparent")
-        contact_inner.pack(fill="x", padx=12, pady=10)
-
-        ctk.CTkLabel(
-            contact_inner,
-            text="📞 LIÊN HỆ ĐĂNG KÝ BẢN QUYỀN & HỖ TRỢ KỸ THUẬT:",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#38bdf8"
-        ).pack(anchor="w")
-
-        info_grid = ctk.CTkFrame(contact_inner, fg_color="transparent")
-        info_grid.pack(fill="x", pady=(4, 0))
-
-        ctk.CTkLabel(
-            info_grid,
-            text="• Tác giả: MEGATEAM   |   • Hotline / Zalo: 036.203.1354",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f8fafc"
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            contact_inner,
-            text="Hỗ trợ kích hoạt nhanh 24/7, gia hạn bản quyền, nâng cấp slot và fix lỗi.",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#64748b"
-        ).pack(anchor="w", pady=(2, 6))
-
-        # Nút copy nhanh SĐT / Zalo
-        quick_copy_row = ctk.CTkFrame(contact_inner, fg_color="transparent")
-        quick_copy_row.pack(fill="x")
-
-        def copy_phone():
-            self.clipboard_clear()
-            self.clipboard_append("0362031354")
-            cp_phone_btn.configure(text="Đã chép SĐT!", fg_color="#16a34a")
-            self.after(1500, lambda: cp_phone_btn.configure(text="Sao chép SĐT", fg_color="#1e2430"))
-
-        def copy_zalo():
-            self.clipboard_clear()
-            self.clipboard_append("0362031354")
-            cp_zalo_btn.configure(text="Đã chép Zalo!", fg_color="#16a34a")
-            self.after(1500, lambda: cp_zalo_btn.configure(text="Sao chép Zalo", fg_color="#1e2430"))
-
-        cp_phone_btn = ctk.CTkButton(
-            quick_copy_row,
-            text="Sao chép SĐT",
-            width=100,
-            height=24,
-            corner_radius=0,
-            fg_color="#1e2430",
-            hover_color="#2b3548",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#93c5fd",
-            command=copy_phone
-        )
-        cp_phone_btn.pack(side="left", padx=(0, 8))
-
-        cp_zalo_btn = ctk.CTkButton(
-            quick_copy_row,
-            text="Sao chép Zalo",
-            width=105,
-            height=24,
-            corner_radius=0,
-            fg_color="#1e2430",
-            hover_color="#2b3548",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#67e8f9",
-            command=copy_zalo
-        )
-        cp_zalo_btn.pack(side="left")
+    def open_update_dialog(self):
+        """Mở cửa sổ Cập nhật bắt buộc (Mandatory Update Dialog)."""
+        from ui.modals.update_dialog import open_update_dialog as _open
+        return _open(self)
 
     def _check_update_async(self, manual: bool = False):
         """Kiểm tra cập nhật ngầm từ máy chủ cập nhật."""
@@ -5645,10 +1703,10 @@ class DashboardApp(ctk.CTk):
         self.apply_license_lock_state()
         if hasattr(self, "btn_update"):
             self.btn_update.configure(
-                text="⚠️ Cập nhật ngay!",
-                fg_color="#dc2626",
-                hover_color="#b91c1c",
-                text_color="#ffffff",
+                text="",
+                image=UiIconFactory.get("refresh", color="#ef4444", size=(14, 14)),
+                fg_color="#450a0a",
+                hover_color="#7f1d1d",
                 border_color="#ef4444"
             )
         self.open_update_dialog()
@@ -5660,7 +1718,7 @@ class DashboardApp(ctk.CTk):
             return
 
         if manual and hasattr(self, "btn_update"):
-            self.btn_update.configure(text="⏳ Đang kiểm tra...", state="disabled")
+            self.btn_update.configure(state="disabled")
 
         def _worker():
             try:
@@ -5674,20 +1732,20 @@ class DashboardApp(ctk.CTk):
                         self.apply_license_lock_state()
                         if hasattr(self, "btn_update"):
                             self.btn_update.configure(
-                                text="⚠️ Cập nhật ngay!",
-                                fg_color="#dc2626",
-                                hover_color="#b91c1c",
-                                text_color="#ffffff",
+                                text="",
+                                image=UiIconFactory.get("refresh", color="#ef4444", size=(14, 14)),
+                                fg_color="#450a0a",
+                                hover_color="#7f1d1d",
                                 border_color="#ef4444"
                             )
                         self.open_update_dialog()
                     else:
                         if hasattr(self, "btn_update"):
                             self.btn_update.configure(
-                                text="🔄 Cập nhật",
+                                text="",
+                                image=UiIconFactory.get("refresh", color="#10b981", size=(14, 14)),
                                 fg_color="#181c26",
                                 hover_color="#242b3a",
-                                text_color="#34d399",
                                 border_color="#059669"
                             )
                         if manual:
@@ -5699,248 +1757,17 @@ class DashboardApp(ctk.CTk):
             except Exception:
                 def _err():
                     if hasattr(self, "btn_update"):
-                        self.btn_update.configure(text="🔄 Cập nhật", state="normal")
+                        self.btn_update.configure(
+                            text="",
+                            image=UiIconFactory.get("refresh", color="#10b981", size=(14, 14)),
+                            state="normal"
+                        )
                     if manual:
                         messagebox.showinfo("Kiểm tra Cập nhật", "Hiện tại chưa có bản cập nhật mới nhất.")
                 self.after(0, _err)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def open_update_dialog(self):
-        """Mở cửa sổ Cập nhật bắt buộc (Mandatory Update Dialog)."""
-        if hasattr(self, "_update_dlg_instance") and self._update_dlg_instance and self._update_dlg_instance.winfo_exists():
-            self._update_dlg_instance.lift()
-            self._update_dlg_instance.focus_force()
-            return
-
-        dialog = ctk.CTkToplevel(self)
-        self._update_dlg_instance = dialog
-        dialog.title(f"{APP_NAME} - Cập Nhật Phiên Bản Mới")
-        dialog.geometry("520x490")
-        dialog.resizable(False, False)
-        self._apply_window_icon(dialog)
-
-        # Căn giữa màn hình
-        dialog.update_idletasks()
-        try:
-            sw = dialog.winfo_screenwidth()
-            sh = dialog.winfo_screenheight()
-            w, h = 520, 490
-            x = (sw - w) // 2
-            y = (sh - h) // 2
-            dialog.geometry(f"{w}x{h}+{x}+{y}")
-        except Exception:
-            pass
-
-        dialog.transient(self)
-        dialog.attributes("-topmost", True)
-        dialog.grab_set()
-
-        info = self.update_info or {}
-        latest_ver = info.get("latest_version", "Mới")
-        rel_name = info.get("release_name", f"Bản phát hành {latest_ver}")
-        rel_notes = info.get("release_notes", "Đã có phiên bản mới của hệ thống.")
-        download_url = info.get("download_url")
-
-        # Khi người dùng cố gắng đóng hộp thoại
-        def on_close():
-            if getattr(self, "is_update_mandatory", False):
-                if messagebox.askyesno(
-                    "Bắt Buộc Cập Nhật",
-                    "Chương trình yêu cầu cập nhật bắt buộc lên phiên bản mới nhất để đảm bảo an toàn và tương thích.\n\n"
-                    "Phiên bản cũ không được phép tiếp tục sử dụng.\n\n"
-                    "Bạn có muốn thoát chương trình hoàn toàn không?",
-                    parent=dialog
-                ):
-                    try:
-                        dialog.destroy()
-                    except Exception:
-                        pass
-                    self.on_closing()
-                    sys.exit(0)
-            else:
-                dialog.destroy()
-
-        dialog.protocol("WM_DELETE_WINDOW", on_close)
-
-        # UI Content
-        # 1. Header Frame
-        hdr = ctk.CTkFrame(dialog, fg_color="#181c26", corner_radius=0, height=72)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-
-        hdr_inner = ctk.CTkFrame(hdr, fg_color="transparent")
-        hdr_inner.pack(fill="both", expand=True, padx=20, pady=10)
-
-        ctk.CTkLabel(
-            hdr_inner,
-            text="🏷️ PHÁT HIỆN PHIÊN BẢN MỚI",
-            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-            text_color="#f59e0b"
-        ).pack(anchor="w")
-
-        ctk.CTkLabel(
-            hdr_inner,
-            text="Chương trình yêu cầu cập nhật bắt buộc để tiếp tục hoạt động",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        ).pack(anchor="w", pady=(2, 0))
-
-        # 2. Main body
-        body = ctk.CTkFrame(dialog, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=20, pady=14)
-
-        # Version Badge Row
-        ver_card = ctk.CTkFrame(body, fg_color="#141822", border_width=1, border_color="#242b3a", corner_radius=0)
-        ver_card.pack(fill="x", pady=(0, 10))
-
-        ver_inner = ctk.CTkFrame(ver_card, fg_color="transparent")
-        ver_inner.pack(fill="x", padx=15, pady=10)
-
-        col_curr = ctk.CTkFrame(ver_inner, fg_color="transparent")
-        col_curr.pack(side="left", expand=True)
-        ctk.CTkLabel(col_curr, text="Phiên bản hiện tại", font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#94a3b8").pack()
-        ctk.CTkLabel(col_curr, text=APP_VERSION, font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color="#ef4444").pack()
-
-        ctk.CTkLabel(ver_inner, text="➔", font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"), text_color="#64748b").pack(side="left", padx=10)
-
-        col_new = ctk.CTkFrame(ver_inner, fg_color="transparent")
-        col_new.pack(side="left", expand=True)
-        ctk.CTkLabel(col_new, text="Phiên bản mới nhất", font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#94a3b8").pack()
-        ctk.CTkLabel(col_new, text=latest_ver, font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color="#10b981").pack()
-
-        # Release Notes Label & Scrollable Text
-        ctk.CTkLabel(
-            body,
-            text=f"Nội dung bản cập nhật ({rel_name}):",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#e2e8f0"
-        ).pack(anchor="w", pady=(0, 4))
-
-        notes_box = ctk.CTkTextbox(
-            body,
-            height=125,
-            fg_color="#0d1117",
-            border_width=1,
-            border_color="#21262d",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#cbd5e1"
-        )
-        notes_box.pack(fill="x", pady=(0, 10))
-        notes_box.insert("1.0", rel_notes.strip() if rel_notes else "Cập nhật tối ưu hóa hệ thống và thuật toán MEGAMU Auto Train.")
-        notes_box.configure(state="disabled")
-
-        # Progress / Status Frame
-        status_frame = ctk.CTkFrame(body, fg_color="#141822", border_width=1, border_color="#242b3a", corner_radius=0)
-        status_frame.pack(fill="x", pady=(0, 10))
-
-        status_inner = ctk.CTkFrame(status_frame, fg_color="transparent")
-        status_inner.pack(fill="x", padx=12, pady=10)
-
-        lbl_status = ctk.CTkLabel(
-            status_inner,
-            text="Sẵn sàng cập nhật tự động" if download_url else "Đang chuẩn bị gói cập nhật từ máy chủ...",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8" if download_url else "#fbbf24"
-        )
-        lbl_status.pack(anchor="w")
-
-        pbar = ctk.CTkProgressBar(status_inner, height=8, corner_radius=0)
-        pbar.pack(fill="x", pady=(6, 4))
-        pbar.set(0.0)
-
-        lbl_detail = ctk.CTkLabel(
-            status_inner,
-            text=f"Phiên bản: {latest_ver}",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#94a3b8"
-        )
-        lbl_detail.pack(anchor="w")
-
-        # Action Buttons
-        btn_row = ctk.CTkFrame(dialog, fg_color="#181c26", corner_radius=0, height=54)
-        btn_row.pack(fill="x", side="bottom")
-        btn_row.pack_propagate(False)
-
-        btn_inner = ctk.CTkFrame(btn_row, fg_color="transparent")
-        btn_inner.pack(fill="both", expand=True, padx=16, pady=10)
-
-        # Cancel / Exit button
-        btn_exit = ctk.CTkButton(
-            btn_inner,
-            text="Thoát Chương Trình",
-            width=140,
-            height=32,
-            fg_color="#27272a",
-            hover_color="#3f3f46",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f43f5e",
-            command=on_close
-        )
-        btn_exit.pack(side="left")
-
-        # Perform Auto Update
-        def start_download_and_update():
-            if not download_url:
-                lbl_status.configure(
-                    text="Gói cập nhật tự động đang được chuẩn bị. Vui lòng liên hệ Admin!",
-                    text_color="#fbbf24"
-                )
-                return
-
-            btn_update_now.configure(state="disabled", text="⏳ Đang tải...")
-            btn_exit.configure(state="disabled")
-
-            def _download_thread():
-                target_exe = app_dir() / "temp_update.exe"
-                def _prog(dl: int, total: int):
-                    if total > 0:
-                        pct = dl / total
-                        mb_dl = dl / (1024 * 1024)
-                        mb_tot = total / (1024 * 1024)
-                        def _up():
-                            pbar.set(pct)
-                            lbl_status.configure(text=f"Đang tải xuống: {pct*100:.0f}%")
-                            lbl_detail.configure(text=f"{mb_dl:.1f} MB / {mb_tot:.1f} MB")
-                        dialog.after(0, _up)
-
-                ok = updater.download_file_with_progress(download_url, target_exe, progress_callback=_prog)
-                if ok and target_exe.exists():
-                    def _applying():
-                        lbl_status.configure(text="Tải xong! Đang cài đặt và khởi động lại...", text_color="#10b981")
-                        pbar.set(1.0)
-                        dialog.after(1000, lambda: updater.apply_exe_update_and_restart(target_exe))
-                    dialog.after(0, _applying)
-                else:
-                    def _fail():
-                        lbl_status.configure(text="❌ Tải cập nhật thất bại!", text_color="#ef4444")
-                        btn_update_now.configure(state="normal", text="Thử Lại")
-                        btn_exit.configure(state="normal")
-                        messagebox.showerror(
-                            "Lỗi Cập Nhật",
-                            "Không thể tải bản cập nhật tự động. Vui lòng kiểm tra lại kết nối mạng hoặc liên hệ Admin.",
-                            parent=dialog
-                        )
-                    dialog.after(0, _fail)
-
-            threading.Thread(target=_download_thread, daemon=True).start()
-
-        btn_update_now = ctk.CTkButton(
-            btn_inner,
-            text="⬇️ Cập Nhật Tự Động",
-            width=160,
-            height=32,
-            fg_color="#16a34a",
-            hover_color="#15803d",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#ffffff",
-            command=start_download_and_update
-        )
-        btn_update_now.pack(side="right")
-
-    # ==========================================================================
-    # TAB 2: CẤU HÌNH (PROFILES TAB)
-    # ==========================================================================
     def build_profiles_view(self):
         # Thanh điều khiển cấu hình trên cùng
         top_bar = ctk.CTkFrame(self.panel_profiles, fg_color="transparent")
@@ -6378,33 +2205,37 @@ class DashboardApp(ctk.CTk):
         self.log_textbox.configure(state="disabled")
 
     def refresh_license_and_logs_tab(self):
-        """Cập nhật thông tin License & Cập nhật và render logs trên Tab Nhật ký."""
+        """Cập nhật thông tin License & Cập nhật và render logs trên Tab Nhật ký (Zero disk I/O on UI)."""
         try:
-            lic_data = license_client.load_license_data() if license_client else {}
-            is_valid = license_client.is_license_valid() if license_client else False
-            hwid_val = license_client.get_machine_hwid() if license_client else "N/A"
+            # Chỉ cập nhật nhãn license nếu chưa render hoặc trạng thái thay đổi (Tránh đọc đĩa mỗi lần chuyển tab)
+            if not getattr(self, "_license_tab_rendered", False):
+                self._license_tab_rendered = True
+                lic_data = license_client.load_license_data() if license_client else {}
+                is_valid = license_client.is_license_valid() if license_client else False
+                hwid_val = license_client.get_machine_hwid() if license_client else "N/A"
 
-            plan = lic_data.get("plan_type", "Chưa kích hoạt" if not is_valid else "Gói tiêu chuẩn")
-            exp = lic_data.get("expires_at", "--")
-            if exp and exp != "--":
-                exp = str(exp).split(" ")[0]
-            max_s = lic_data.get("max_slots", 5 if not is_valid else 10)
+                plan = lic_data.get("plan_type", "Chưa kích hoạt" if not is_valid else "Gói tiêu chuẩn")
+                exp = lic_data.get("expires_at", "--")
+                if exp and exp != "--":
+                    exp = str(exp).split(" ")[0]
+                max_s = lic_data.get("max_slots", 5 if not is_valid else 10)
 
-            if hasattr(self, "lbl_lic_status_badge"):
-                if is_valid:
-                    self.lbl_lic_status_badge.configure(text="[ĐÃ KÍCH HOẠT]", text_color="#4ade80")
-                else:
-                    self.lbl_lic_status_badge.configure(text="[DÙNG THỬ / CHƯA KÍCH HOẠT]", text_color="#f87171")
+                if hasattr(self, "lbl_lic_status_badge"):
+                    if is_valid:
+                        self.lbl_lic_status_badge.configure(text="[ĐÃ KÍCH HOẠT]", text_color="#4ade80")
+                    else:
+                        self.lbl_lic_status_badge.configure(text="[DÙNG THỬ / CHƯA KÍCH HOẠT]", text_color="#f87171")
 
-            if hasattr(self, "lbl_lic_details"):
-                self.lbl_lic_details.configure(text=f"Gói dịch vụ: {plan}   |   Hạn dùng: {exp}   |   Hỗ trợ tối đa: {max_s} Slots")
+                if hasattr(self, "lbl_lic_details"):
+                    self.lbl_lic_details.configure(text=f"Gói dịch vụ: {plan}   |   Hạn dùng: {exp}   |   Hỗ trợ tối đa: {max_s} Slots")
 
-            if hasattr(self, "lbl_lic_hwid"):
-                short_hwid = hwid_val if len(hwid_val) <= 24 else (hwid_val[:14] + "..." + hwid_val[-8:])
-                self.lbl_lic_hwid.configure(text=f"HWID: {short_hwid}")
+                if hasattr(self, "lbl_lic_hwid"):
+                    short_hwid = hwid_val if len(hwid_val) <= 24 else (hwid_val[:14] + "..." + hwid_val[-8:])
+                    self.lbl_lic_hwid.configure(text=f"HWID: {short_hwid}")
         except Exception:
             pass
-        self.render_logs()
+        if getattr(self, "_logs_dirty", True):
+            self.render_logs()
 
     def _copy_hwid_to_clipboard(self):
         try:
@@ -6434,118 +2265,15 @@ class DashboardApp(ctk.CTk):
         except Exception as e:
             self.log_message(f"Không thể mở file log: {e}", "ERROR")
 
+    def open_profiles_modal(self, profile_index: Optional[int] = None):
+        """Mở cửa sổ Modal Cấu hình Chặng & Tuyến Đường (Profiles Modal)."""
+        from ui.modals.profiles_modal import open_profiles_modal as _open
+        return _open(self, profile_index)
+
     def open_logs_window(self, default_slot: Optional[str] = None):
         """Mở cửa sổ Nhật ký hoạt động chuyên dụng (Floating Logs Window) từ Header."""
-        if hasattr(self, "_logs_window_instance") and self._logs_window_instance is not None:
-            try:
-                if self._logs_window_instance.winfo_exists():
-                    self._logs_window_instance.deiconify()
-                    self._logs_window_instance.lift()
-                    self._logs_window_instance.focus_force()
-                    if default_slot and hasattr(self, "log_filter_var"):
-                        self.log_filter_var.set(default_slot)
-                    self.render_logs()
-                    return
-            except Exception:
-                pass
-
-        dlg = ctk.CTkToplevel(self)
-        dlg.title("📋 Nhật ký Hoạt động Hệ thống - MEGAMU Auto Train")
-        dlg.geometry("780x560")
-        dlg.minsize(620, 420)
-        dlg.configure(fg_color="#0e1117")
-        self._logs_window_instance = dlg
-
-        try:
-            self._apply_window_icon(dlg)
-        except Exception:
-            pass
-
-        # Top bar
-        top_bar = ctk.CTkFrame(dlg, fg_color="#141822", height=42, corner_radius=0)
-        top_bar.pack(fill="x", padx=0, pady=0)
-
-        inner_tb = ctk.CTkFrame(top_bar, fg_color="transparent")
-        inner_tb.pack(fill="both", expand=True, padx=12, pady=6)
-
-        ctk.CTkLabel(
-            inner_tb,
-            text="📋 NHẬT KÝ HOẠT ĐỘNG",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color="#38bdf8"
-        ).pack(side="left", padx=(0, 10))
-
-        # Filter
-        filter_options = [tr("all")] + [f"{i:02d}" for i in range(1, MAX_SLOTS + 1)]
-        if not hasattr(self, "log_filter_var"):
-            self.log_filter_var = ctk.StringVar(value=tr("all"))
-        if default_slot:
-            self.log_filter_var.set(default_slot)
-
-        self.log_filter_combo = ModernOptionMenu(
-            inner_tb,
-            values=filter_options,
-            variable=self.log_filter_var,
-            width=90,
-            height=28,
-            fg_color="#181c26",
-            border_color="#2a3042",
-            hover_color="#222736",
-            command=lambda _: self.render_logs(),
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
-        )
-        self.log_filter_combo.pack(side="left", padx=4)
-
-        # Clear
-        btn_clear = ctk.CTkButton(
-            inner_tb,
-            text=tr("clear_view"),
-            width=85,
-            height=28,
-            fg_color="#2563eb",
-            hover_color="#1d4ed8",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.clear_logs
-        )
-        btn_clear.pack(side="right")
-
-        # Open stop logs
-        btn_stop_log = ctk.CTkButton(
-            inner_tb,
-            text="📑 Log Dừng Auto",
-            width=125,
-            height=28,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#38bdf8",
-            text_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.open_stop_events_log_file
-        )
-        btn_stop_log.pack(side="right", padx=(0, 6))
-
-        # Textbox
-        self.log_textbox = ctk.CTkTextbox(
-            dlg,
-            fg_color="#121214",
-            text_color="#f3f4f6",
-            font=ctk.CTkFont(family="Consolas", size=11),
-            corner_radius=0,
-            wrap="word"
-        )
-        self.log_textbox.pack(fill="both", expand=True, padx=12, pady=10)
-        self.log_textbox.configure(state="disabled")
-
-        def _on_close_logs():
-            try:
-                dlg.destroy()
-            except Exception:
-                pass
-            self._logs_window_instance = None
-        dlg.protocol("WM_DELETE_WINDOW", _on_close_logs)
-
-        self.render_logs()
+        from ui.modals.logs_modal import open_logs_window as _open
+        return _open(self, default_slot)
 
     def append_log(self, msg: str, level: str = "INFO"):
         """Ghi nhận log hệ thống an toàn (alias tương thích ngược cho log_message)."""
@@ -6553,18 +2281,9 @@ class DashboardApp(ctk.CTk):
 
     def log_message(self, msg: str, level: str = "INFO"):
         """Ghi nhận log hệ thống và hiển thị lên giao diện một cách an toàn đa luồng."""
-        t_str = time.strftime("%H:%M:%S")
-        # Phân loại slot nếu có [Slot XX]
-        slot_tag = "ALL"
-        if msg.startswith("[Slot ") and len(msg) >= 9:
-            try:
-                slot_tag = msg[6:8]
-            except Exception:
-                slot_tag = "ALL"
+        # Ghi log bất đồng bộ qua AsyncRingBufferLogger (Không block UI, auto log rotation)
+        self.logger.log(msg, level=level)
 
-        self.logs_data.append((t_str, slot_tag, f"[{level}] {msg}"))
-        if len(self.logs_data) > 1500:
-            self.logs_data.pop(0)
 
         # Trì hoãn và gom nhóm việc render lên GUI Main Thread (Debounce 100ms)
         # TUYỆT ĐỐI không gọi widget Tkinter trực tiếp từ luồng nền worker
@@ -6582,9 +2301,14 @@ class DashboardApp(ctk.CTk):
     def render_logs(self):
         if not hasattr(self, "log_textbox") or not self.log_textbox:
             return
+        if getattr(self, "active_tab", "") != "logs":
+            self._logs_dirty = True
+            return
         try:
             if not self.log_textbox.winfo_exists():
                 return
+            if hasattr(self, "logger") and self.logger:
+                self.logs_data = self.logger.get_logs_data_tuples()
             selected_filter = self.log_filter_var.get() if hasattr(self, "log_filter_var") else tr("all")
 
             lines = []
@@ -6595,15 +2319,21 @@ class DashboardApp(ctk.CTk):
             if not lines:
                 lines.append(f"[{time.strftime('%H:%M:%S')}] [INFO] Nhật ký hệ thống sẵn sàng. Đang chờ các hoạt động từ các Slot...")
 
+            # Giới hạn hiển thị 300 dòng gần nhất để cuộn siêu mượt, không đơ lag giao diện
+            if len(lines) > 300:
+                lines = lines[-300:]
+
             self.log_textbox.configure(state="normal")
             self.log_textbox.delete("1.0", "end")
             self.log_textbox.insert("end", "\n".join(lines) + "\n")
             self.log_textbox.see("end")
             self.log_textbox.configure(state="disabled")
+            self._logs_dirty = False
         except Exception:
             pass
 
     def clear_logs(self):
+        self.logger.clear()
         self.logs_data.clear()
         if hasattr(self, "log_textbox") and self.log_textbox:
             try:
@@ -6636,8 +2366,8 @@ class DashboardApp(ctk.CTk):
 
         # Repack lại theo đúng thứ tự nếu module được cấp phép
         if has_train:
-            self.tab_accounts_btn.pack(side="left", padx=(0, 6))
-            self.tab_profiles_btn.pack(side="left", padx=(0, 6))
+            self.tab_accounts_btn.pack(side="left", padx=2)
+            # Profiles và Logs đã hiển thị dạng icon ở góc trên bên phải
 
         # self.tab_ram_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
 
@@ -6677,6 +2407,12 @@ class DashboardApp(ctk.CTk):
                 self.switch_tab("logs")
 
     def switch_tab(self, tab_name: str):
+        if tab_name == "profiles":
+            self.open_profiles_modal()
+            return
+        if tab_name == "logs":
+            self.open_logs_window()
+            return
         # Chặn chuyển sang tab nếu module chưa được cấp phép
         if license_client:
             if tab_name in ("accounts", "profiles", "autologin") and not license_client.has_license_module("train"):
@@ -6758,187 +2494,34 @@ class DashboardApp(ctk.CTk):
                 image=new_icon
             )
 
-        # Chuyển tab lập tức - Flat Base 0ms - Tuyệt đối không giật khựng, không chớp trắng
+        # Chuyển tab tức thì 0ms qua tkraise() (Persistent Grid Stacking - Zero Relayout)
         target_panel = getattr(self, f"panel_{tab_name}", None)
-        prev_panel = getattr(self, "_active_panel", None)
-        if target_panel and target_panel != prev_panel:
-            target_panel.place(x=0, y=0, relwidth=1, relheight=1)
-            target_panel.lift()
-            if prev_panel:
-                prev_panel.place_forget()
+        if target_panel:
+            target_panel.tkraise()
             self._active_panel = target_panel
 
-        # Cập nhật dữ liệu tức thì cho tab logs và ram (không dùng delay after để triệt tiêu khựng giật)
+        # Cập nhật dữ liệu tức thì cho tab logs, ram, moss, mirror (Lazy Batch Sync)
         if tab_name == "logs":
             self.refresh_license_and_logs_tab()
         elif tab_name == "ram":
             self.refresh_ram_tab_stats()
+        elif tab_name == "moss":
+            for c in self.controllers:
+                self.update_moss_slot_telemetry(c.slot_idx, c.char_name, c.assigned_pid)
+        elif tab_name == "mirror":
+            for c in self.controllers:
+                self.update_mirror_slot_telemetry(c.slot_idx, c.char_name, c.assigned_pid, c.coords)
 
     # ==========================================================================
     # TAB 4: TỐI ƯU HÓA BỘ NHỚ RAM (RAM OPTIMIZER TAB)
     # ==========================================================================
     def build_ram_view(self):
-        """Xây dựng giao diện Tab Tối ưu hóa RAM tích hợp."""
-        header_card = ctk.CTkFrame(self.panel_ram, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
-        header_card.pack(fill="x", padx=14, pady=(12, 6))
-
-        inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
-        inner_h.pack(fill="both", expand=True, padx=14, pady=10)
-
-        left_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        left_h.pack(side="left", fill="y")
-
-        title_lbl = ctk.CTkLabel(
-            left_h,
-            text="⚡ MEGAMU RAM OPTIMIZER PRO",
-            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-            text_color="#38bdf8"
-        )
-        title_lbl.pack(anchor="w")
-
-        sub_lbl = ctk.CTkLabel(
-            left_h,
-            text="Tự động thu hồi bộ nhớ Working Set • Tiết kiệm ~70% RAM từ ~1GB còn ~200MB - 300MB / client",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        )
-        sub_lbl.pack(anchor="w", pady=(2, 0))
-
-        right_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        right_h.pack(side="right", fill="y")
-
-        self.ram_auto_var = ctk.BooleanVar(value=self.ram_manager.auto_trim_enabled if self.ram_manager else False)
-        self.ram_auto_switch = ctk.CTkSwitch(
-            right_h,
-            text=tr("ram_auto_trim"),
-            variable=self.ram_auto_var,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f8fafc",
-            progress_color="#10b981",
-            command=self._on_ram_auto_switch_toggled
-        )
-        self.ram_auto_switch.pack(side="left", padx=(0, 10))
-
-        self.ram_intervals_map = {
-            "1 Phút": 60,
-            "2 Phút": 120,
-            "3 Phút": 180,
-            "5 Phút": 300,
-            "10 Phút": 600,
-            "15 Phút": 900,
-            "30 Phút": 1800
-        }
-        curr_sec = self.ram_manager.interval_seconds if self.ram_manager else 180
-        curr_label = "3 Phút"
-        for k, s in self.ram_intervals_map.items():
-            if s == curr_sec:
-                curr_label = k
-                break
-
-        self.ram_interval_combo = ModernOptionMenu(
-            right_h,
-            values=list(self.ram_intervals_map.keys()),
-            width=110,
-            height=28,
-            fg_color="#141722",
-            border_color="#2b3244",
-            hover_color="#222736",
-            command=self._on_ram_interval_changed,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
-        )
-        self.ram_interval_combo.set(curr_label)
-        self.ram_interval_combo.pack(side="left")
-
-        stats_frame = ctk.CTkFrame(self.panel_ram, fg_color="transparent")
-        stats_frame.pack(fill="x", padx=14, pady=4)
-
-        self.ram_card_clients = self._create_ram_kpi_card(stats_frame, tr("ram_active_clients"), "0 Clients", "#38bdf8")
-        self.ram_card_clients.pack(side="left", fill="both", expand=True, padx=(0, 4))
-
-        self.ram_card_cur_ram = self._create_ram_kpi_card(stats_frame, tr("ram_current_ram"), "0 MB", "#f59e0b")
-        self.ram_card_cur_ram.pack(side="left", fill="both", expand=True, padx=4)
-
-        saved_init = f"{int(self.ram_manager.total_saved_mb)} MB" if self.ram_manager else "0 MB"
-        self.ram_card_saved = self._create_ram_kpi_card(stats_frame, tr("ram_total_saved"), saved_init, "#10b981")
-        self.ram_card_saved.pack(side="left", fill="both", expand=True, padx=(4, 0))
-
-        action_bar = ctk.CTkFrame(self.panel_ram, fg_color="transparent")
-        action_bar.pack(fill="x", padx=14, pady=(8, 6))
-
-        self.btn_ram_optimize_all = ctk.CTkButton(
-            action_bar,
-            text=f" {tr('ram_optimize_all_btn')}",
-            image=UiIconFactory.get("bolt", color="#ffffff", size=(15, 15)),
-            compound="left",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            height=38,
-            corner_radius=0,
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            command=self.trim_ram_now_ui
-        )
-        self.btn_ram_optimize_all.pack(side="left", fill="x", expand=True, padx=(0, 6))
-
-        self.btn_ram_refresh = ctk.CTkButton(
-            action_bar,
-            text=f" {tr('refresh_games')}",
-            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(13, 13)),
-            compound="left",
-            width=130,
-            height=38,
-            corner_radius=0,
-            fg_color="#181c26",
-            hover_color="#242b3a",
-            border_width=1,
-            border_color="#2b3244",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.refresh_ram_tab_stats
-        )
-        self.btn_ram_refresh.pack(side="right")
-
-        body_split = ctk.CTkFrame(self.panel_ram, fg_color="transparent")
-        body_split.pack(fill="both", expand=True, padx=14, pady=(4, 12))
-
-        left_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        left_body.pack(side="left", fill="both", expand=True, padx=(0, 6))
-
-        c_hdr = ctk.CTkFrame(left_body, fg_color="#181c26", height=28, corner_radius=0)
-        c_hdr.pack(fill="x", padx=4, pady=(4, 2))
-
-        ctk.CTkLabel(c_hdr, text="PID", width=70, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(10, 4))
-        ctk.CTkLabel(c_hdr, text="Cửa Sổ / Nhân Vật", anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", fill="x", expand=True, padx=4)
-        ctk.CTkLabel(c_hdr, text="RAM Sử Dụng", width=105, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(c_hdr, text="Thao Tác", width=95, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(4, 8))
-
-        self.ram_clients_scroll = ctk.CTkScrollableFrame(left_body, fg_color="transparent")
-        self.ram_clients_scroll.pack(fill="both", expand=True, padx=2, pady=2)
-
-        right_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430", width=380)
-        right_body.pack(side="right", fill="both", padx=(6, 0))
-        right_body.pack_propagate(False)
-
-        log_hdr = ctk.CTkFrame(right_body, fg_color="#181c26", height=28, corner_radius=0)
-        log_hdr.pack(fill="x", padx=4, pady=(4, 2))
-
-        ctk.CTkLabel(log_hdr, text="📝 Nhật Ký Hoạt Động RAM", anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#38bdf8").pack(side="left", padx=10)
-
-        self.ram_log_txt = ctk.CTkTextbox(
-            right_body,
-            fg_color="transparent",
-            font=ctk.CTkFont(family="Consolas", size=10),
-            text_color="#cbd5e1"
-        )
-        self.ram_log_txt.pack(fill="both", expand=True, padx=8, pady=(4, 8))
-        self.append_ram_log("🟢 RAM Optimizer đã tích hợp sẵn sàng.")
+        """Xây dựng giao diện Tab Tối ưu hóa RAM tích hợp (Modular RamView)."""
+        view = RamView(self, self.panel_ram)
+        view.build()
 
     def _create_ram_kpi_card(self, parent, title, initial_val, color):
-        card = ctk.CTkFrame(parent, corner_radius=0, fg_color="#181c26", border_width=1, border_color="#2b3244")
-        lbl_t = ctk.CTkLabel(card, text=title, font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#94a3b8")
-        lbl_t.pack(anchor="w", padx=12, pady=(6, 0))
-        lbl_v = ctk.CTkLabel(card, text=initial_val, font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color=color)
-        lbl_v.pack(anchor="w", padx=12, pady=(1, 6))
-        card.value_label = lbl_v
-        return card
+        return RamView(self, self.panel_ram).create_kpi_card(parent, title, initial_val, color)
 
     def refresh_ram_tab_stats(self):
         """Làm mới danh sách tiến trình MEGAMU và số liệu RAM ngầm qua thread, không gây block giao diện."""
@@ -7255,7 +2838,7 @@ class DashboardApp(ctk.CTk):
         """Đọc và đồng bộ danh sách Category thực tế của NPC Moss từ RAM Game, phân định rõ Trừ Zen / Trừ Ngọc."""
         found_cats = []
         for ctrl in self.controllers:
-            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+            if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                 eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
                 if eng and eng.is_ready:
                     cats = eng.get_moss_categories()
@@ -7301,422 +2884,37 @@ class DashboardApp(ctk.CTk):
     # TAB 5: MOSS THE GAMBLER (MOSS MERCHANT AUTO ROLL) - TỐI GIẢN & ĐỘC LẬP TÀI KHOẢN
     # ==========================================================================
     def build_moss_view(self):
-        """Xây dựng giao diện Tab Auto Moss Merchant phẳng, tối giản, hỗ trợ chọn tài khoản độc lập."""
-        # 1. HEADER CARD (Gọn gàng, tinh tế)
-        header_card = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        header_card.pack(fill="x", padx=12, pady=(8, 4))
-
-        inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
-        inner_h.pack(fill="x", padx=12, pady=8)
-
-        # Dòng 1: Tiêu đề + Huy hiệu đếm ngược + Trạng thái
-        row1_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        row1_h.pack(fill="x")
-
-        title_lbl = ctk.CTkLabel(
-            row1_h,
-            text="🎰 MOSS THE GAMBLER • AUTO ROLL",
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            text_color="#f59e0b"
-        )
-        title_lbl.pack(side="left", padx=(0, 10))
-
-        self.lbl_moss_countdown = ctk.CTkLabel(
-            row1_h,
-            text="⏳ Còn: --:--:--",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#10b981"
-        )
-        self.lbl_moss_countdown.pack(side="left", padx=(0, 10))
-
-        self.lbl_moss_next_event = ctk.CTkLabel(
-            row1_h,
-            text="(Đợt: 00:15, 06:15, 12:15, 18:15)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#64748b"
-        )
-        self.lbl_moss_next_event.pack(side="left", padx=(0, 10))
-
-        self.lbl_moss_sched_status = ctk.CTkLabel(
-            row1_h,
-            text="🟢 Đang chờ",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#10b981"
-        )
-        self.lbl_moss_sched_status.pack(side="right")
-
-        # Dòng 2: Checkboxes
-        row2_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        row2_h.pack(fill="x", pady=(6, 0))
-
-        self.cb_moss_auto_schedule = ctk.CTkCheckBox(
-            row2_h,
-            text="🎰 Tự động quay theo lịch (00:15, 06:15, 12:15, 18:15)",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8",
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            command=self.on_toggle_moss_auto_schedule
-        )
-        self.cb_moss_auto_schedule.pack(side="left", padx=(0, 20))
-
-        self.cb_moss_auto_move_before = ctk.CTkCheckBox(
-            row2_h,
-            text="🚶 Tự chạy tới NPC Moss (Elbeland 22, 225)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            command=self.on_toggle_moss_auto_schedule
-        )
-        self.cb_moss_auto_move_before.pack(side="left")
-
-        # Nạp cấu hình lịch trình từ file
-        try:
-            sched_cfg = ConfigPersistenceManager.load_moss_schedule_config()
-            if sched_cfg.get("auto_schedule", True):
-                self.cb_moss_auto_schedule.select()
-            else:
-                self.cb_moss_auto_schedule.deselect()
-
-            if sched_cfg.get("auto_move_before", True):
-                self.cb_moss_auto_move_before.select()
-            else:
-                self.cb_moss_auto_move_before.deselect()
-        except Exception:
-            self.cb_moss_auto_schedule.select()
-            self.cb_moss_auto_move_before.select()
-
-        # 2. ACTION TOOLBAR (2 hàng gọn gàng, tinh giản)
-        toolbar_card = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        toolbar_card.pack(fill="x", padx=12, pady=(2, 4))
-
-        inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
-        inner_tb.pack(fill="x", padx=10, pady=6)
-
-        # Hàng 1 Toolbar: Chọn tài khoản + Gán nhanh danh mục + Nút chính
-        tb_row1 = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        tb_row1.pack(fill="x", pady=(0, 4))
-
-        btn_sel_all = ctk.CTkButton(
-            tb_row1,
-            text="✅ Chọn tất cả",
-            width=90,
-            height=28,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            text_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.select_all_moss_slots
-        )
-        btn_sel_all.pack(side="left", padx=(0, 6))
-
-        btn_desel_all = ctk.CTkButton(
-            tb_row1,
-            text="⬜ Bỏ chọn",
-            width=80,
-            height=28,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            text_color="#94a3b8",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.deselect_all_moss_slots
-        )
-        btn_desel_all.pack(side="left", padx=(0, 10))
-
-        self.lbl_moss_count_badge = ctk.CTkLabel(
-            tb_row1,
-            text="Quay Moss: 0/0",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f59e0b"
-        )
-        self.lbl_moss_count_badge.pack(side="left", padx=(0, 15))
-
-        # Phải Hàng 1: Nút BẮT ĐẦU QUAY + DỪNG QUAY
-        tb_row1_r = ctk.CTkFrame(tb_row1, fg_color="transparent")
-        tb_row1_r.pack(side="right")
-
-        self.btn_moss_stop_all = ctk.CTkButton(
-            tb_row1_r,
-            text="⏹️ DỪNG QUAY",
-            width=100,
-            height=28,
-            corner_radius=0,
-            fg_color="#dc2626",
-            hover_color="#b91c1c",
-            text_color="#ffffff",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.stop_all_moss_auto
-        )
-        self.btn_moss_stop_all.pack(side="right", padx=(6, 0))
-
-        self.btn_moss_start_all = ctk.CTkButton(
-            tb_row1_r,
-            text="▶️ BẮT ĐẦU QUAY (ĐÃ CHỌN)",
-            width=190,
-            height=28,
-            corner_radius=0,
-            fg_color="#059669",
-            hover_color="#047857",
-            text_color="#ffffff",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.start_all_moss_auto
-        )
-        self.btn_moss_start_all.pack(side="right")
-
-        # Hàng 2 Toolbar: Gán danh mục + Delay + Dọn rác
-        tb_row2 = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        tb_row2.pack(fill="x")
-
-        ctk.CTkLabel(
-            tb_row2,
-            text="Gán nhanh:",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        ).pack(side="left", padx=(0, 4))
-
-        self.batch_moss_cat_combo = ModernOptionMenu(
-            tb_row2,
-            values=[name for name, _ in self.MOSS_CAT_OPTIONS],
-            width=180,
-            height=26,
-            font=ctk.CTkFont(family="Segoe UI", size=11)
-        )
-        self.batch_moss_cat_combo.set(self.MOSS_CAT_OPTIONS[0][0])
-        self.batch_moss_cat_combo.pack(side="left", padx=(0, 4))
-
-        btn_apply_cat = ctk.CTkButton(
-            tb_row2,
-            text="📋 Áp dụng",
-            width=70,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#475569",
-            text_color="#f1f5f9",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.apply_batch_moss_category
-        )
-        btn_apply_cat.pack(side="left", padx=(0, 10))
-
-        ctk.CTkLabel(
-            tb_row2,
-            text="Delay:",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        ).pack(side="left", padx=(0, 4))
-
-        self.batch_moss_delay_entry = ctk.CTkEntry(
-            tb_row2,
-            width=55,
-            height=26,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color="#181c26",
-            border_color="#2b3244",
-            text_color="#f8fafc"
-        )
-        self.batch_moss_delay_entry.insert(0, "1000")
-        self.batch_moss_delay_entry.pack(side="left", padx=(0, 4))
-
-        btn_apply_delay = ctk.CTkButton(
-            tb_row2,
-            text="⏱ Đặt delay",
-            width=75,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#475569",
-            text_color="#cbd5e1",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.apply_batch_moss_delay
-        )
-        btn_apply_delay.pack(side="left", padx=(0, 10))
-
-        self.batch_moss_clean_cb = ctk.CTkCheckBox(
-            tb_row2,
-            text="🧹 Tự dọn rác",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#f87171",
-            fg_color="#ef4444",
-            hover_color="#dc2626",
-            command=self.on_toggle_global_moss_clean
-        )
-        self.batch_moss_clean_cb.select()
-        self.batch_moss_clean_cb.pack(side="left", padx=(0, 10))
-
-        btn_clean_all = ctk.CTkButton(
-            tb_row2,
-            text="🗑️ Ném Tại Chỗ",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#ef4444",
-            text_color="#f87171",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.clean_all_moss_inventories
-        )
-        btn_clean_all.pack(side="left", padx=(0, 6))
-
-        btn_sell_all = ctk.CTkButton(
-            tb_row2,
-            text="💰 Bán Silvia",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#10b981",
-            text_color="#34d399",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.sell_all_moss_inventories
-        )
-        btn_sell_all.pack(side="left", padx=(0, 6))
-
-        btn_move_all = ctk.CTkButton(
-            tb_row2,
-            text="🚶 Về NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#38bdf8",
-            text_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.move_all_to_moss_elbeland
-        )
-        btn_move_all.pack(side="left", padx=(0, 6))
-
-        btn_open_all = ctk.CTkButton(
-            tb_row2,
-            text="🚪 Mở NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#f59e0b",
-            text_color="#fbbf24",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.open_all_moss_npc
-        )
-        btn_open_all.pack(side="left", padx=(0, 6))
-
-        btn_close_all = ctk.CTkButton(
-            tb_row2,
-            text="🚪 Đóng NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#64748b",
-            text_color="#cbd5e1",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.close_all_moss_dialogs
-        )
-        btn_close_all.pack(side="left")
-
-        # 3. BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
-        table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        table_container.pack(fill="both", expand=True, padx=12, pady=(2, 4))
-
-        # Header bảng
-        tbl_h = ctk.CTkFrame(table_container, fg_color="transparent", height=28)
-        tbl_h.pack(fill="x", padx=10, pady=(6, 2))
-
-        headers = [
-            ("Quay Moss", 95, "w"),
-            ("Nº", 35, "w"),
-            ("Tài khoản / PID", 175, "w"),
-            ("Vật Phẩm Quay (Config)", 185, "w"),
-            ("Delay", 70, "center"),
-            ("Đã Quay", 70, "center"),
-            ("Trạng Thái", 115, "center"),
-            ("Thao Tác", 220, "center"),
-        ]
-        for title, w, anc in headers:
-            ctk.CTkLabel(
-                tbl_h,
-                text=title,
-                width=w,
-                anchor=anc,
-                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-                text_color="#94a3b8"
-            ).pack(side="left", padx=4)
-
-        div = ctk.CTkFrame(table_container, fg_color="#1f2535", height=1)
-        div.pack(fill="x", padx=10, pady=(0, 4))
-
-        # Khung cuộn chứa từng dòng
-        self.moss_scroll_frame = ctk.CTkScrollableFrame(table_container, fg_color="transparent")
-        self.moss_scroll_frame.pack(fill="both", expand=True, padx=4, pady=(0, 4))
-
-        for ctrl in self.controllers:
-            self.create_moss_slot_row(ctrl.slot_idx)
-
-        # 4. KHUNG NHẬT KÝ QUAY MOSS TRỰC TIẾP (LIVE CONSOLE LOG)
-        log_frame = ctk.CTkFrame(self.panel_moss, fg_color="#141722", height=120, corner_radius=0, border_width=1, border_color="#202430")
-        log_frame.pack(fill="x", padx=12, pady=(0, 8))
-        log_frame.pack_propagate(False)
-
-        lh = ctk.CTkFrame(log_frame, fg_color="transparent", height=24)
-        lh.pack(fill="x", padx=10, pady=(4, 2))
-
-        ctk.CTkLabel(
-            lh,
-            text="📜 NHẬT KÝ LƯỢT QUAY TRỰC TIẾP",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f1f5f9"
-        ).pack(side="left")
-
-        btn_clear = ctk.CTkButton(
-            lh,
-            text="Xóa nhật ký",
-            width=75,
-            height=20,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            text_color="#94a3b8",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            command=self.clear_moss_log
-        )
-        btn_clear.pack(side="right")
-
-        self.moss_log_txt = ctk.CTkTextbox(
-            log_frame,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            fg_color="#0b0d13",
-            text_color="#cbd5e1"
-        )
-        self.moss_log_txt.pack(fill="both", expand=True, padx=8, pady=(0, 6))
-        self.append_moss_log("🟢 Auto Moss The Gambler đa tài khoản đã sẵn sàng theo cấu hình.")
-        self.update_moss_selected_badge()
+        """Xây dựng giao diện Tab Auto Moss Merchant (Modular MossView)."""
+        view = MossView(self, self.panel_moss)
+        view.build()
 
     def create_moss_slot_row(self, i: int):
-        """Tạo 1 dòng cấu hình và điều khiển Moss cho Slot i với checkbox chọn độc lập."""
+        """Tạo 1 dòng cấu hình và điều khiển Moss cho Slot i theo phong cách Tối Giản (Cao 32px)."""
         ctrl = self.controllers[i - 1]
         is_en = getattr(ctrl, "moss_enabled", True)
-        row_bg = "#141722" if is_en else "#0f1118"
-        row_frame = ctk.CTkFrame(self.moss_scroll_frame, fg_color=row_bg, height=40, corner_radius=0)
-        row_frame.pack(fill="x", padx=2, pady=2)
+        row_bg = "#131722" if is_en else "#0f1118"
+        row_frame = ctk.CTkFrame(
+            self.moss_scroll_frame,
+            fg_color=row_bg,
+            height=32,
+            corner_radius=3,
+            border_width=1,
+            border_color="#1c2230"
+        )
+        row_frame.pack(fill="x", padx=2, pady=1)
+        row_frame.pack_propagate(False)
 
-        # Cột 1: Checkbox Quay Moss
+        # Cột 0: STT & Checkbox chọn độc lập (45px)
+        badge_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=45, height=24)
+        badge_box.pack(side="left", padx=(4, 2))
+        badge_box.pack_propagate(False)
+
         cb_enabled = ctk.CTkCheckBox(
-            row_frame,
-            text="Quay Moss",
-            width=90,
+            badge_box,
+            text=f"{i:02d}",
+            width=40,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f59e0b",
+            text_color="#f59e0b" if is_en else "#475569",
             fg_color="#d97706",
             hover_color="#b45309",
             command=lambda s=i: self.on_moss_slot_enabled_toggled(s)
@@ -7725,72 +2923,63 @@ class DashboardApp(ctk.CTk):
             cb_enabled.select()
         else:
             cb_enabled.deselect()
-        cb_enabled.pack(side="left", padx=(8, 4))
+        cb_enabled.pack(side="left", padx=1)
+        no_lbl = cb_enabled # Tương thích code cũ
 
-        # Cột 2: No.
-        no_lbl = ctk.CTkLabel(
-            row_frame,
-            text=f"{i:02d}",
-            width=35,
-            anchor="w",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94a3b8" if is_en else "#475569"
-        )
-        no_lbl.pack(side="left", padx=2)
-
-        # Cột 3: Nhân vật / PID
+        # Cột 1: Nhân vật / PID (175px)
         char_disp = f"{ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "Chưa gán"
         char_color = "#f8fafc" if (ctrl.assigned_pid and is_en) else "#64748b"
         char_lbl = ctk.CTkLabel(
             row_frame,
             text=char_disp,
-            width=180,
+            width=175,
             anchor="w",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if ctrl.assigned_pid else "normal"),
             text_color=char_color
         )
-        char_lbl.pack(side="left", padx=4)
+        char_lbl.pack(side="left", padx=(2, 2))
 
-        # Cột 4: Vật phẩm quay (Config)
+        # Cột 2: Vật phẩm quay (Category) (185px)
         cat_var = ctk.StringVar(value=self.get_moss_cat_name(ctrl.moss_category))
         cat_combo = ModernOptionMenu(
             row_frame,
             values=[name for name, _ in self.MOSS_CAT_OPTIONS],
             variable=cat_var,
-            width=190,
-            height=26,
+            width=185,
+            height=24,
             command=lambda val, s=i: self.on_moss_slot_category_changed(s, val),
-            font=ctk.CTkFont(family="Segoe UI", size=11)
+            font=ctk.CTkFont(family="Segoe UI", size=10)
         )
-        cat_combo.pack(side="left", padx=4)
+        cat_combo.pack(side="left", padx=(2, 2))
 
-        # Cột 5: Delay (ms)
+        # Cột 3: Delay (ms) (60px)
         delay_entry = ctk.CTkEntry(
             row_frame,
-            width=65,
-            height=26,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            width=55,
+            height=24,
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             fg_color="#181c26",
             border_color="#2b3244",
-            text_color="#f8fafc"
+            text_color="#f8fafc",
+            justify="center"
         )
         delay_entry.insert(0, str(ctrl.moss_delay_ms))
-        delay_entry.pack(side="left", padx=4)
+        delay_entry.pack(side="left", padx=(2, 2))
         delay_entry.bind("<FocusOut>", lambda e, s=i: self.on_moss_slot_delay_changed(s))
         delay_entry.bind("<Return>", lambda e, s=i: self.on_moss_slot_delay_changed(s))
 
-        # Cột 6: Đã quay
+        # Cột 4: Đã quay (70px)
         rolls_lbl = ctk.CTkLabel(
             row_frame,
             text=f"{ctrl.moss_rolls_count} Lượt",
-            width=75,
+            width=70,
             anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color="#10b981" if is_en else "#475569"
         )
-        rolls_lbl.pack(side="left", padx=4)
+        rolls_lbl.pack(side="left", padx=(2, 2))
 
-        # Cột 7: Trạng thái
+        # Cột 5: Trạng thái (85px)
         if not is_en:
             st_text = "⛔ Bỏ qua"
             st_color = "#64748b"
@@ -7804,79 +2993,67 @@ class DashboardApp(ctk.CTk):
         status_lbl = ctk.CTkLabel(
             row_frame,
             text=st_text,
-            width=120,
+            width=85,
             anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color=st_color
         )
-        status_lbl.pack(side="left", padx=4)
+        status_lbl.pack(side="left", padx=(2, 2))
 
-        # Cột 8: Thao tác (4 nút: Auto, Mở, 1 Lần, Ném tại chỗ)
-        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=220)
-        action_box.pack(side="left", padx=4)
+        # Cột 6: Thao tác (145px cố định) - 3 nút: Auto, 1 Lần, NPC
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=145, height=24)
+        action_box.pack(side="left", padx=(2, 2))
+        action_box.pack_propagate(False)
 
         btn_toggle = ctk.CTkButton(
             action_box,
-            text="▶️ Auto",
-            width=54,
-            height=26,
-            corner_radius=0,
+            text="▶ Auto",
+            width=48,
+            height=22,
+            corner_radius=3,
             fg_color="#059669",
             hover_color="#047857",
             text_color="#ffffff",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda s=i: self.toggle_moss_slot_auto(s)
         )
-        btn_toggle.pack(side="left", padx=(0, 3))
-
-        btn_open = ctk.CTkButton(
-            action_box,
-            text="🚪 Mở",
-            width=44,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#f59e0b",
-            text_color="#fbbf24",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: ctrl.open_moss_npc()
-        )
-        btn_open.pack(side="left", padx=(0, 3))
+        btn_toggle.pack(side="left", padx=1)
 
         btn_once = ctk.CTkButton(
             action_box,
             text="🎲 1 Lần",
-            width=50,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
+            width=48,
+            height=22,
+            corner_radius=3,
+            fg_color="#181c26",
+            hover_color="#242b3a",
             border_width=1,
-            border_color="#475569",
+            border_color="#334155",
             text_color="#e2e8f0",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             command=lambda s=i: ctrl.roll_moss_once()
         )
-        btn_once.pack(side="left", padx=(0, 3))
+        btn_once.pack(side="left", padx=1)
 
-        btn_drop = ctk.CTkButton(
+        btn_open = ctk.CTkButton(
             action_box,
-            text="🗑️ Ném",
-            width=48,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
+            text="🚪 NPC",
+            width=42,
+            height=22,
+            corner_radius=3,
+            fg_color="#181c26",
+            hover_color="#242b3a",
             border_width=1,
-            border_color="#ef4444",
-            text_color="#f87171",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: ctrl.clean_moss_inventory(run_in_thread=True)
+            border_color="#f59e0b",
+            text_color="#fbbf24",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            command=lambda s=i: ctrl.open_moss_npc()
         )
-        btn_drop.pack(side="left")
+        btn_open.pack(side="left", padx=1)
+        btn_drop = None
 
+        # Menu chuột phải tiện ích đầy đủ
+        import tkinter as tk
         def _show_moss_ctx(event, s_idx):
             try:
                 ctrl_item = self.controllers[s_idx - 1]
@@ -7892,7 +3069,7 @@ class DashboardApp(ctk.CTk):
             except Exception:
                 pass
 
-        for _mw in (row_frame, no_lbl, char_lbl, rolls_lbl, status_lbl):
+        for _mw in (row_frame, badge_box, char_lbl, rolls_lbl, status_lbl):
             _mw.bind("<Button-3>", lambda e, s=i: _show_moss_ctx(e, s))
 
         # Lưu UI cache
@@ -8026,7 +3203,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "moss_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     try:
                         cleaned = ctrl.clean_moss_inventory(method="trash", category=-1, run_in_thread=False)
                         total_cleaned += (cleaned or 0)
@@ -8049,7 +3226,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "moss_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     try:
                         ctrl.sell_moss_inventory()
                         count_acc += 1
@@ -8071,7 +3248,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "moss_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     try:
                         ctrl.close_moss_dialog()
                         count += 1
@@ -8093,7 +3270,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "moss_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     try:
                         ctrl.unlock_and_close_inventory()
                         count += 1
@@ -8137,16 +3314,35 @@ class DashboardApp(ctk.CTk):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
         is_en = getattr(ctrl, "moss_enabled", True) if ctrl else True
+        is_running = getattr(ctrl, "moss_running", False) if ctrl else False
+
+        cache = getattr(self, "_moss_ui_cache", {}).setdefault(slot_idx, {})
+        new_state = (name, pid, is_en, is_running)
+        if cache.get("state") == new_state:
+            return
+        cache["state"] = new_state
+
+        f_bold = getattr(self, "font_segoe_11_bold", None)
+        f_norm = getattr(self, "font_segoe_11_normal", None)
+
         if pid:
             disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
-            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_en else "normal"))
+            el["char_lbl"].configure(
+                text=disp,
+                text_color="#f8fafc" if is_en else "#64748b",
+                font=f_bold if is_en else f_norm
+            )
             if el.get("status_lbl"):
                 if not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua", text_color="#64748b")
-                elif not ctrl.moss_running:
+                elif not is_running:
                     el["status_lbl"].configure(text="Chờ", text_color="#94a3b8")
         else:
-            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            el["char_lbl"].configure(
+                text="Chưa gán",
+                text_color="#64748b",
+                font=f_norm
+            )
             if el.get("status_lbl"):
                 el["status_lbl"].configure(text="⛔ Bỏ qua" if not is_en else "Chưa gán", text_color="#64748b")
 
@@ -8199,7 +3395,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "moss_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     ok = ctrl.start_moss()
                     if ok:
                         started += 1
@@ -8223,7 +3419,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "moss_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     ctrl.open_moss_npc()
                     cnt += 1
                     time.sleep(0.05)
@@ -8237,7 +3433,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "moss_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     ctrl.move_to_moss_elbeland()
                     cnt += 1
                     time.sleep(0.2)
@@ -8394,433 +3590,15 @@ class DashboardApp(ctk.CTk):
     # TAB 6: DOUBLE GOER (MIRROR OF DIMENSIONS) - THIẾT KẾ TỐI GIẢN & ĐỘC LẬP TÀI KHOẢN
     # ==========================================================================
     def build_mirror_view(self):
-        """Xây dựng giao diện Tab Auto Double Goer (Mirror) phẳng, tối giản, hỗ trợ chọn tài khoản độc lập."""
-        # 1. HEADER CARD (Gọn gàng, tinh tế, tiết kiệm không gian)
-        header_card = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        header_card.pack(fill="x", padx=12, pady=(8, 4))
-
-        inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
-        inner_h.pack(fill="x", padx=12, pady=8)
-
-        # Dòng 1: Tiêu đề + Huy hiệu đếm ngược + Trạng thái
-        row1_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        row1_h.pack(fill="x")
-
-        title_lbl = ctk.CTkLabel(
-            row1_h,
-            text="🪞 DOUBLE GOER (DIMENSIONAL MIRROR)",
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            text_color="#c084fc"
-        )
-        title_lbl.pack(side="left", padx=(0, 10))
-
-        self.lbl_mirror_countdown = ctk.CTkLabel(
-            row1_h,
-            text="⏳ Mở cổng sau: --:--:--",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#38bdf8"
-        )
-        self.lbl_mirror_countdown.pack(side="left", padx=(0, 10))
-
-        self.lbl_mirror_next_event = ctk.CTkLabel(
-            row1_h,
-            text="(Đợt: --:10 - :15)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#64748b"
-        )
-        self.lbl_mirror_next_event.pack(side="left", padx=(0, 10))
-
-        self.lbl_mirror_sched_status = ctk.CTkLabel(
-            row1_h,
-            text="🟢 Đang chờ",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#10b981"
-        )
-        self.lbl_mirror_sched_status.pack(side="right")
-
-        # Dòng 2: Các checkbox cấu hình tự động (Gọn gàng, thẳng hàng)
-        row2_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        row2_h.pack(fill="x", pady=(6, 0))
-
-        self.cb_mirror_auto_schedule = ctk.CTkCheckBox(
-            row2_h,
-            text="⚡ Tự động cướp cổng (:10)",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8",
-            fg_color="#7c3aed",
-            hover_color="#6d28d9",
-            command=self.on_toggle_mirror_auto_schedule
-        )
-        self.cb_mirror_auto_schedule.pack(side="left", padx=(0, 15))
-
-        self.cb_mirror_auto_lifecycle = ctk.CTkCheckBox(
-            row2_h,
-            text="⚔️ Ra bãi (:16) & Săn 3 Box",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#34d399",
-            fg_color="#059669",
-            hover_color="#047857",
-            command=self.on_toggle_mirror_auto_schedule
-        )
-        self.cb_mirror_auto_lifecycle.pack(side="left", padx=(0, 15))
-
-        self.cb_mirror_auto_gremory = ctk.CTkCheckBox(
-            row2_h,
-            text="🎁 Tự lôi quà phím 'K'",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f59e0b",
-            fg_color="#d97706",
-            hover_color="#b45309",
-            command=self.on_toggle_mirror_auto_schedule
-        )
-        self.cb_mirror_auto_gremory.pack(side="left", padx=(0, 15))
-
-        self.cb_mirror_auto_prep_before = ctk.CTkCheckBox(
-            row2_h,
-            text="🚶 Tự về Lugard (:08)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-            fg_color="#7c3aed",
-            hover_color="#6d28d9",
-            command=self.on_toggle_mirror_auto_schedule
-        )
-        self.cb_mirror_auto_prep_before.pack(side="left")
-
-        # Nạp cấu hình lịch trình từ file
-        try:
-            m_sched_cfg = ConfigPersistenceManager.load_mirror_schedule_config()
-            if m_sched_cfg.get("auto_schedule", True):
-                self.cb_mirror_auto_schedule.select()
-            else:
-                self.cb_mirror_auto_schedule.deselect()
-
-            if m_sched_cfg.get("auto_prep_before", True):
-                self.cb_mirror_auto_prep_before.select()
-            else:
-                self.cb_mirror_auto_prep_before.deselect()
-
-            if m_sched_cfg.get("auto_lifecycle", True):
-                self.cb_mirror_auto_lifecycle.select()
-            else:
-                self.cb_mirror_auto_lifecycle.deselect()
-
-            if m_sched_cfg.get("auto_gremory", True):
-                self.cb_mirror_auto_gremory.select()
-            else:
-                self.cb_mirror_auto_gremory.deselect()
-        except Exception:
-            self.cb_mirror_auto_schedule.select()
-            self.cb_mirror_auto_prep_before.select()
-
-        # 2. ACTION TOOLBAR (2 hàng gọn gàng, tinh giản)
-        toolbar_card = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        toolbar_card.pack(fill="x", padx=12, pady=(2, 4))
-
-        inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
-        inner_tb.pack(fill="x", padx=10, pady=6)
-
-        # Hàng 1 Toolbar: Chọn tài khoản + Cấu hình tốc độ + Nút CƯỚP CỔNG & DỪNG
-        tb_row1 = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        tb_row1.pack(fill="x", pady=(0, 4))
-
-        btn_sel_all = ctk.CTkButton(
-            tb_row1,
-            text="✅ Chọn tất cả",
-            width=90,
-            height=28,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            text_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.select_all_mirror_slots
-        )
-        btn_sel_all.pack(side="left", padx=(0, 6))
-
-        btn_desel_all = ctk.CTkButton(
-            tb_row1,
-            text="⬜ Bỏ chọn",
-            width=80,
-            height=28,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            text_color="#94a3b8",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.deselect_all_mirror_slots
-        )
-        btn_desel_all.pack(side="left", padx=(0, 10))
-
-        self.lbl_mirror_count_badge = ctk.CTkLabel(
-            tb_row1,
-            text="Đi Mirror: 0/0",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#2dd4bf"
-        )
-        self.lbl_mirror_count_badge.pack(side="left", padx=(0, 15))
-
-        # Phải Hàng 1: Nút CƯỚP CỔNG + DỪNG + Nhập thông số
-        tb_row1_r = ctk.CTkFrame(tb_row1, fg_color="transparent")
-        tb_row1_r.pack(side="right")
-
-        self.btn_mirror_stop_all = ctk.CTkButton(
-            tb_row1_r,
-            text="⏹️ DỪNG",
-            width=80,
-            height=28,
-            corner_radius=0,
-            fg_color="#dc2626",
-            hover_color="#b91c1c",
-            text_color="#ffffff",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.stop_all_mirror_auto
-        )
-        self.btn_mirror_stop_all.pack(side="right", padx=(6, 0))
-
-        self.btn_mirror_snipe_all = ctk.CTkButton(
-            tb_row1_r,
-            text="⚡ CƯỚP CỔNG (ĐÃ CHỌN)",
-            width=180,
-            height=28,
-            corner_radius=0,
-            fg_color="#7c3aed",
-            hover_color="#6d28d9",
-            text_color="#ffffff",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.start_all_mirror_turbo_sniping
-        )
-        self.btn_mirror_snipe_all.pack(side="right", padx=(8, 0))
-
-        _init_prefire = 1.2
-        try:
-            _s_cfg = ConfigPersistenceManager.load_mirror_schedule_config()
-            _init_prefire = float(_s_cfg.get("prefire_sec", 1.2))
-        except Exception:
-            pass
-
-        self.mirror_prefire_sec_entry = ctk.CTkEntry(
-            tb_row1_r,
-            width=42,
-            height=28,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color="#181c26",
-            border_color="#0284c7",
-            text_color="#f8fafc"
-        )
-        self.mirror_prefire_sec_entry.insert(0, f"{_init_prefire:.1f}".rstrip('0').rstrip('.') if _init_prefire != int(_init_prefire) else str(int(_init_prefire)))
-        self.mirror_prefire_sec_entry.pack(side="right", padx=(4, 0))
-        self.mirror_prefire_sec_entry.bind("<FocusOut>", lambda e: self.on_toggle_mirror_auto_schedule())
-        self.mirror_prefire_sec_entry.bind("<Return>", lambda e: self.on_toggle_mirror_auto_schedule())
-
-        ctk.CTkLabel(
-            tb_row1_r,
-            text="Bắn trước (s):",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#38bdf8"
-        ).pack(side="right", padx=(8, 0))
-
-        self.mirror_snipe_delay_entry = ctk.CTkEntry(
-            tb_row1_r,
-            width=45,
-            height=28,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color="#181c26",
-            border_color="#7c3aed",
-            text_color="#f8fafc"
-        )
-        self.mirror_snipe_delay_entry.insert(0, "35")
-        self.mirror_snipe_delay_entry.pack(side="right", padx=(4, 0))
-
-        ctk.CTkLabel(
-            tb_row1_r,
-            text="Chu kỳ (ms):",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#c084fc"
-        ).pack(side="right")
-
-        self.mirror_snipe_dur_entry = ctk.CTkEntry(
-            tb_row1_r,
-            width=1,
-            height=1,
-            fg_color="#181c26"
-        )
-        self.mirror_snipe_dur_entry.insert(0, "15")
-
-        # Hàng 2 Toolbar: Các nút thao tác bổ trợ
-        tb_row2 = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        tb_row2.pack(fill="x")
-
-        btn_check_all = ctk.CTkButton(
-            tb_row2,
-            text="🎟️ Check Vé",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#475569",
-            text_color="#e2e8f0",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.check_all_mirror_tickets
-        )
-        btn_check_all.pack(side="left", padx=(0, 6))
-
-        btn_move_all = ctk.CTkButton(
-            tb_row2,
-            text="🚶 Về Lugard",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#38bdf8",
-            text_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.move_all_to_event_map
-        )
-        btn_move_all.pack(side="left", padx=(0, 6))
-
-        btn_enter_all = ctk.CTkButton(
-            tb_row2,
-            text="🚪 Vào Cửa",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#a855f7",
-            text_color="#c084fc",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.enter_all_mirror
-        )
-        btn_enter_all.pack(side="left", padx=(0, 6))
-
-        btn_lifecycle_all = ctk.CTkButton(
-            tb_row2,
-            text="⚔️ Ra Bãi (:16)",
-            height=26,
-            corner_radius=0,
-            fg_color="#064e3b",
-            hover_color="#047857",
-            border_width=1,
-            border_color="#10b981",
-            text_color="#34d399",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.trigger_all_mirror_lifecycle
-        )
-        btn_lifecycle_all.pack(side="left", padx=(0, 6))
-
-        btn_gremory_all = ctk.CTkButton(
-            tb_row2,
-            text="🎁 Lôi Quà 'K'",
-            height=26,
-            corner_radius=0,
-            fg_color="#78350f",
-            hover_color="#92400e",
-            border_width=1,
-            border_color="#f59e0b",
-            text_color="#fbbf24",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.claim_all_gremory_case_items
-        )
-        btn_gremory_all.pack(side="left", padx=(0, 6))
-
-        self.btn_mirror_start_all = ctk.CTkButton(
-            tb_row2,
-            text="▶️ Auto Thường",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#242b3a",
-            border_width=1,
-            border_color="#059669",
-            text_color="#34d399",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.start_all_mirror_auto
-        )
-        self.btn_mirror_start_all.pack(side="left")
-
-        # 3. BẢNG CÁC TÀI KHOẢN (MIRROR SLOT TABLE)
-        table_container = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        table_container.pack(fill="both", expand=True, padx=12, pady=(2, 4))
-
-        # Header bảng
-        tbl_h = ctk.CTkFrame(table_container, fg_color="transparent", height=28)
-        tbl_h.pack(fill="x", padx=10, pady=(6, 2))
-
-        headers = [
-            ("Đi Mirror", 95, "w"),
-            ("Nº", 35, "w"),
-            ("Tài khoản / PID", 180, "w"),
-            ("Tọa độ", 100, "center"),
-            ("Vé Mirror (140 Ô)", 150, "center"),
-            ("Trạng Thái", 160, "center"),
-            ("Thao Tác", 180, "center"),
-        ]
-        for title, w, anc in headers:
-            ctk.CTkLabel(
-                tbl_h,
-                text=title,
-                width=w,
-                anchor=anc,
-                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-                text_color="#94a3b8"
-            ).pack(side="left", padx=4)
-
-        div = ctk.CTkFrame(table_container, fg_color="#1f2535", height=1)
-        div.pack(fill="x", padx=10, pady=(0, 4))
-
-        # Khung cuộn chứa từng dòng
-        self.mirror_scroll_frame = ctk.CTkScrollableFrame(table_container, fg_color="transparent")
-        self.mirror_scroll_frame.pack(fill="both", expand=True, padx=4, pady=(0, 4))
-
-        for ctrl in self.controllers:
-            self.create_mirror_slot_row(ctrl.slot_idx)
-
-        # 4. KHUNG NHẬT KÝ DOUBLE GOER (MIRROR)
-        log_frame = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", height=120, corner_radius=0, border_width=1, border_color="#202430")
-        log_frame.pack(fill="x", padx=12, pady=(0, 8))
-        log_frame.pack_propagate(False)
-
-        lh = ctk.CTkFrame(log_frame, fg_color="transparent", height=24)
-        lh.pack(fill="x", padx=10, pady=(4, 2))
-
-        ctk.CTkLabel(
-            lh,
-            text="📜 NHẬT KÝ HOẠT ĐỘNG DOUBLE GOER (MIRROR)",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f1f5f9"
-        ).pack(side="left")
-
-        btn_clear = ctk.CTkButton(
-            lh,
-            text="Xóa nhật ký",
-            width=75,
-            height=20,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            text_color="#94a3b8",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            command=self.clear_mirror_log
-        )
-        btn_clear.pack(side="right")
-
-        self.mirror_log_txt = ctk.CTkTextbox(
-            log_frame,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            fg_color="#0b0d13",
-            text_color="#cbd5e1"
-        )
-        self.mirror_log_txt.pack(fill="both", expand=True, padx=8, pady=(0, 6))
-        self.append_mirror_log("🟢 Auto Double Goer (Mirror of Dimensions) sẵn sàng.")
-        self.update_mirror_selected_badge()
+        """Xây dựng giao diện Tab Auto Double Goer (Modular MirrorView)."""
+        view = MirrorView(self, self.panel_mirror)
+        view.build()
 
     def get_mirror_snipe_delay(self) -> int:
         try:
-            return max(15, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
+            return max(35, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
         except Exception:
-            return 35
+            return 50
 
     def get_mirror_snipe_dur(self) -> float:
         try:
@@ -8835,20 +3613,32 @@ class DashboardApp(ctk.CTk):
             return 1.2
 
     def create_mirror_slot_row(self, i: int):
-        """Tạo 1 dòng điều khiển Double Goer cho Slot i với checkbox chọn độc lập."""
+        """Tạo 1 dòng điều khiển Double Goer cho Slot i theo phong cách Tối Giản (Cao 30px, 607px)."""
         ctrl = self.controllers[i - 1]
         is_en = getattr(ctrl, "mirror_enabled", True)
-        row_bg = "#141722" if is_en else "#0f1118"
-        row_frame = ctk.CTkFrame(self.mirror_scroll_frame, fg_color=row_bg, height=40, corner_radius=0)
-        row_frame.pack(fill="x", padx=2, pady=2)
+        row_bg = "#131722" if is_en else "#0f1118"
+        row_frame = ctk.CTkFrame(
+            self.mirror_scroll_frame,
+            fg_color=row_bg,
+            height=30,
+            corner_radius=3,
+            border_width=1,
+            border_color="#1c2230"
+        )
+        row_frame.pack(fill="x", padx=2, pady=1)
+        row_frame.pack_propagate(False)
 
-        # Cột 1: Checkbox Đi Mirror
+        # Cột 0: STT & Checkbox chọn độc lập (42px)
+        badge_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=42, height=22)
+        badge_box.pack(side="left", padx=(3, 2))
+        badge_box.pack_propagate(False)
+
         cb_enabled = ctk.CTkCheckBox(
-            row_frame,
-            text="Tham gia",
-            width=90,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#c084fc",
+            badge_box,
+            text=f"{i:02d}",
+            width=38,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#c084fc" if is_en else "#475569",
             fg_color="#7c3aed",
             hover_color="#6d28d9",
             command=lambda s=i: self.on_mirror_slot_enabled_toggled(s)
@@ -8857,58 +3647,48 @@ class DashboardApp(ctk.CTk):
             cb_enabled.select()
         else:
             cb_enabled.deselect()
-        cb_enabled.pack(side="left", padx=(8, 4))
+        cb_enabled.pack(side="left", padx=1)
+        no_lbl = cb_enabled
 
-        # Cột 2: No.
-        no_lbl = ctk.CTkLabel(
-            row_frame,
-            text=f"{i:02d}",
-            width=35,
-            anchor="w",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94a3b8" if is_en else "#475569"
-        )
-        no_lbl.pack(side="left", padx=2)
-
-        # Cột 3: Nhân vật / PID
+        # Cột 1: Nhân vật / PID (150px)
         char_disp = f"{ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "Chưa gán"
         char_color = "#f8fafc" if (ctrl.assigned_pid and is_en) else "#64748b"
         char_lbl = ctk.CTkLabel(
             row_frame,
             text=char_disp,
-            width=180,
+            width=150,
             anchor="w",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if ctrl.assigned_pid else "normal"),
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold" if ctrl.assigned_pid else "normal"),
             text_color=char_color
         )
-        char_lbl.pack(side="left", padx=4)
+        char_lbl.pack(side="left", padx=(2, 2))
 
-        # Cột 4: Tọa độ
+        # Cột 2: Tọa độ (75px)
         coords_disp = ctrl.coords if ctrl.coords else "--, --"
         coords_lbl = ctk.CTkLabel(
             row_frame,
             text=coords_disp,
-            width=100,
+            width=75,
             anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color="#38bdf8" if is_en else "#475569"
         )
-        coords_lbl.pack(side="left", padx=4)
+        coords_lbl.pack(side="left", padx=(2, 2))
 
-        # Cột 5: Vé Mirror
+        # Cột 3: Vé Mirror (90px)
         ticket_lbl = ctk.CTkLabel(
             row_frame,
             text="--",
-            width=150,
+            width=90,
             anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color="#94a3b8" if is_en else "#475569"
         )
-        ticket_lbl.pack(side="left", padx=4)
+        ticket_lbl.pack(side="left", padx=(2, 2))
 
-        # Cột 6: Trạng thái
+        # Cột 4: Trạng thái (105px)
         if not is_en:
-            st_text = "⛔ Bỏ qua (Không đi)"
+            st_text = "⛔ Bỏ qua"
             st_color = "#64748b"
         elif ctrl.assigned_pid:
             st_text = "Sẵn sàng"
@@ -8920,66 +3700,33 @@ class DashboardApp(ctk.CTk):
         status_lbl = ctk.CTkLabel(
             row_frame,
             text=st_text,
-            width=160,
+            width=105,
             anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color=st_color
         )
-        status_lbl.pack(side="left", padx=4)
+        status_lbl.pack(side="left", padx=(2, 2))
 
-        # Cột 7: Thao tác (3 nút tinh gọn: Snipe, Vào, Vé)
-        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=180)
-        action_box.pack(side="left", padx=4)
-
-        btn_snipe = ctk.CTkButton(
-            action_box,
-            text="⚡ Snipe",
-            width=58,
-            height=26,
-            corner_radius=0,
-            fg_color="#6d28d9",
-            hover_color="#5b21b6",
-            text_color="#ffffff",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: threading.Thread(
-                target=self.controllers[s - 1].start_mirror_turbo_sniping,
-                args=(self.get_mirror_snipe_delay(), self.get_mirror_snipe_dur()),
-                daemon=True
-            ).start()
-        )
-        btn_snipe.pack(side="left", padx=(0, 4))
+        # Cột 5: Thao tác (Chỉ giữ 1 icon Vào cửa để kiểm tra trạng thái slot) (60px)
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=60, height=24)
+        action_box.pack(side="left", padx=(2, 2))
+        action_box.pack_propagate(False)
 
         btn_enter = ctk.CTkButton(
             action_box,
-            text="🚪 Vào",
-            width=50,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
+            text="",
+            image=UiIconFactory.get("door", color="#c084fc", size=(13, 13)),
+            width=28,
+            height=22,
+            corner_radius=3,
+            fg_color="#181c26",
+            hover_color="#242b3a",
             border_width=1,
-            border_color="#a855f7",
-            text_color="#c084fc",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            border_color="#7c3aed",
             command=lambda s=i: self.controllers[s - 1].enter_mirror()
         )
-        btn_enter.pack(side="left", padx=(0, 4))
-
-        btn_ticket = ctk.CTkButton(
-            action_box,
-            text="🎟️ Vé",
-            width=46,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#475569",
-            text_color="#e2e8f0",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: self.check_mirror_slot_ticket(s)
-        )
-        btn_ticket.pack(side="left")
+        btn_enter.pack(expand=True)
+        add_tooltip(btn_enter, f"🚪 Vào cửa Double Goer để kiểm tra trạng thái Slot {i:02d}")
 
         # Lưu UI cache
         self.mirror_ui_elements[i] = {
@@ -8990,9 +3737,7 @@ class DashboardApp(ctk.CTk):
             "coords_lbl": coords_lbl,
             "ticket_lbl": ticket_lbl,
             "status_lbl": status_lbl,
-            "btn_snipe": btn_snipe,
             "btn_enter": btn_enter,
-            "btn_ticket": btn_ticket,
         }
 
     def on_mirror_slot_enabled_toggled(self, slot_idx: int):
@@ -9040,7 +3785,7 @@ class DashboardApp(ctk.CTk):
             total = len(self.controllers)
             sel = sum(1 for c in self.controllers if getattr(c, "mirror_enabled", True))
             self.lbl_mirror_count_badge.configure(
-                text=f"Đi Mirror: {sel}/{total}",
+                text=f"{sel}/{total}",
                 text_color="#2dd4bf" if sel > 0 else "#64748b"
             )
 
@@ -9053,9 +3798,9 @@ class DashboardApp(ctk.CTk):
         is_en = getattr(ctrl, "mirror_enabled", True)
         if is_en:
             if el.get("row_frame"):
-                el["row_frame"].configure(fg_color="#141722")
+                el["row_frame"].configure(fg_color="#131722")
             if el.get("no_lbl"):
-                el["no_lbl"].configure(text_color="#94a3b8")
+                el["no_lbl"].configure(text_color="#c084fc")
             if el.get("char_lbl"):
                 el["char_lbl"].configure(text_color="#f8fafc" if ctrl.assigned_pid else "#64748b")
             if el.get("coords_lbl"):
@@ -9074,7 +3819,7 @@ class DashboardApp(ctk.CTk):
             if el.get("coords_lbl"):
                 el["coords_lbl"].configure(text_color="#475569")
             if el.get("status_lbl"):
-                el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
+                el["status_lbl"].configure(text="⛔ Bỏ qua", text_color="#64748b")
 
     def refresh_mirror_slot_ticket_display(self, slot_idx: int):
         """Tự động quét và cập nhật hiển thị vé cho Slot i lên giao diện."""
@@ -9084,7 +3829,7 @@ class DashboardApp(ctk.CTk):
         el = self.mirror_ui_elements.get(slot_idx)
         if not el:
             return
-        if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+        if not ctrl.assigned_pid or not is_megamu_process_alive(ctrl.assigned_pid):
             if el.get("ticket_lbl"):
                 el["ticket_lbl"].configure(text="--", text_color="#64748b")
             return
@@ -9135,7 +3880,7 @@ class DashboardApp(ctk.CTk):
     def refresh_all_mirror_tickets_display(self):
         """Tự động quét và cập nhật hiển thị vé cho toàn bộ các tài khoản đang kết nối."""
         for i, ctrl in enumerate(self.controllers, 1):
-            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid) and getattr(ctrl, "mirror_enabled", True):
+            if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid) and getattr(ctrl, "mirror_enabled", True):
                 self.refresh_mirror_slot_ticket_display(i)
 
     def update_mirror_slot_ui_state(self, slot_idx: int, is_running: bool):
@@ -9145,7 +3890,7 @@ class DashboardApp(ctk.CTk):
         ctrl = self.controllers[slot_idx - 1]
         if not getattr(ctrl, "mirror_enabled", True):
             if el.get("status_lbl"):
-                el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
+                el["status_lbl"].configure(text="⛔ Bỏ qua", text_color="#64748b")
             return
         if el.get("status_lbl"):
             if ctrl.mirror_sniping:
@@ -9154,13 +3899,14 @@ class DashboardApp(ctk.CTk):
                 el["status_lbl"].configure(text="🔄 Auto Mirror", text_color="#38bdf8")
             else:
                 el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa kết nối", text_color="#94a3b8")
+        self.update_mirror_snipe_button_state()
 
     def update_mirror_slot_status(self, slot_idx: int, text: str, text_color: str = "#94a3b8"):
         el = self.mirror_ui_elements.get(slot_idx)
         if el and el.get("status_lbl"):
             ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
             if ctrl and not getattr(ctrl, "mirror_enabled", True):
-                el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
+                el["status_lbl"].configure(text="⛔ Bỏ qua", text_color="#64748b")
             else:
                 el["status_lbl"].configure(text=text, text_color=text_color)
 
@@ -9170,20 +3916,38 @@ class DashboardApp(ctk.CTk):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
         is_en = getattr(ctrl, "mirror_enabled", True) if ctrl else True
+
+        cache = getattr(self, "_mirror_ui_cache", {}).setdefault(slot_idx, {})
+        new_state = (name, pid, coords, is_en)
+        if cache.get("state") == new_state:
+            return
+        cache["state"] = new_state
+
+        f_bold = getattr(self, "font_segoe_11_bold", None)
+        f_norm = getattr(self, "font_segoe_11_normal", None)
+
         if pid:
             disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
-            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_en else "normal"))
+            el["char_lbl"].configure(
+                text=disp,
+                text_color="#f8fafc" if is_en else "#64748b",
+                font=f_bold if is_en else f_norm
+            )
             if el.get("status_lbl"):
                 if not is_en:
-                    el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
+                    el["status_lbl"].configure(text="⛔ Bỏ qua", text_color="#64748b")
                 else:
                     cur_st = el["status_lbl"].cget("text")
-                    if cur_st in ("Chưa kết nối", "Chưa gán", "⛔ Bỏ qua (Không đi)"):
+                    if cur_st in ("Chưa kết nối", "Chưa gán", "⛔ Bỏ qua"):
                         el["status_lbl"].configure(text="Sẵn sàng", text_color="#10b981")
         else:
-            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            el["char_lbl"].configure(
+                text="Chưa gán",
+                text_color="#64748b",
+                font=f_norm
+            )
             if el.get("status_lbl"):
-                el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)" if not is_en else "Chưa kết nối", text_color="#64748b")
+                el["status_lbl"].configure(text="⛔ Bỏ qua" if not is_en else "Chưa kết nối", text_color="#64748b")
             if el.get("ticket_lbl"):
                 el["ticket_lbl"].configure(text="--", text_color="#64748b")
         if el.get("coords_lbl") and coords:
@@ -9197,8 +3961,54 @@ class DashboardApp(ctk.CTk):
         else:
             ctrl.start_mirror_auto()
 
+    def is_any_mirror_sniping(self) -> bool:
+        """Kiểm tra xem có bất kỳ tài khoản nào đang trong trạng thái cướp cổng hay không."""
+        return any(getattr(c, "mirror_sniping", False) for c in self.controllers)
+
+    def toggle_mirror_turbo_sniping(self):
+        """Chuyển đổi 1 nút duy nhất giữa CƯỚP CỔNG và DỪNG CƯỚP với phản hồi tức thì (0ms latency, không treo UI)."""
+        is_currently_sniping = getattr(self, "_mirror_sniping_active", False) or self.is_any_mirror_sniping()
+
+        if is_currently_sniping:
+            # Ngay lập tức đổi nút sang CƯỚP CỔNG và tắt cờ để UI phản hồi 0ms
+            self._mirror_sniping_active = False
+            for ctrl in self.controllers:
+                ctrl.mirror_sniping = False
+            self.update_mirror_snipe_button_state()
+            self.stop_all_mirror_auto()
+        else:
+            # Ngay lập tức đổi nút sang DỪNG CƯỚP để người dùng thấy thao tác cực kỳ nhạy
+            self._mirror_sniping_active = True
+            self.update_mirror_snipe_button_state()
+            self.start_all_mirror_turbo_sniping()
+
+    def update_mirror_snipe_button_state(self):
+        """Cập nhật giao diện nút bấm gộp CƯỚP CỔNG / DỪNG theo trạng thái thực tế (Dirty-checked)."""
+        if not hasattr(self, "btn_mirror_toggle_snipe") or not self.btn_mirror_toggle_snipe.winfo_exists():
+            return
+        is_sniping = getattr(self, "_mirror_sniping_active", False) or self.is_any_mirror_sniping()
+        cache_key = ("mirror_snipe_btn", is_sniping)
+        if getattr(self, "_last_mirror_snipe_btn_state", None) == cache_key:
+            return
+        self._last_mirror_snipe_btn_state = cache_key
+
+        if is_sniping:
+            self.btn_mirror_toggle_snipe.configure(
+                text="⏹ DỪNG CƯỚP",
+                fg_color="#dc2626",
+                hover_color="#b91c1c",
+            )
+            add_tooltip(self.btn_mirror_toggle_snipe, "Đang cướp cổng! Nhấn để DỪNG ngay lập tức")
+        else:
+            self.btn_mirror_toggle_snipe.configure(
+                text="⚡ CƯỚP CỔNG",
+                fg_color="#7c3aed",
+                hover_color="#6d28d9",
+            )
+            add_tooltip(self.btn_mirror_toggle_snipe, "Nhấn để BẮT ĐẦU cướp cổng cho các tài khoản đã chọn")
+
     def start_all_mirror_turbo_sniping(self):
-        """Kích hoạt Turbo Sniping đồng loạt chỉ cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror."""
+        """Kích hoạt Turbo Sniping đồng loạt bất đồng bộ (Hoàn toàn không block Main UI Thread)."""
         delay_ms = self.get_mirror_snipe_delay()
         dur_s = self.get_mirror_snipe_dur()
 
@@ -9208,7 +4018,7 @@ class DashboardApp(ctk.CTk):
             res_lock = threading.Lock()
 
             def _start_ctrl(c):
-                if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                if getattr(c, "mirror_enabled", True) and c.assigned_pid and is_megamu_process_alive(c.assigned_pid):
                     ok = c.start_mirror_turbo_sniping(interval_ms=delay_ms, max_duration_s=dur_s)
                     if ok:
                         with res_lock:
@@ -9222,16 +4032,18 @@ class DashboardApp(ctk.CTk):
                 t.start()
 
             for t in threads:
-                t.join(timeout=3.0)
+                t.join(timeout=2.0)
 
             started = len(results)
             if started > 0:
                 self.after(0, lambda: self.append_mirror_log(
-                    f"⚡ ĐÃ ĐỒNG LOẠT KÍCH HOẠT TURBO CHO {started} TÀI KHOẢN ĐÃ CHỌN (Song song 0ms, Chu kỳ {delay_ms}ms, Tối đa {dur_s:.0f}s)!"
+                    f"⚡ ĐÃ KÍCH HOẠT TURBO CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms, Tối đa {dur_s:.0f}s)!"
                 ))
             else:
+                self._mirror_sniping_active = False
+                self.after(0, self.update_mirror_snipe_button_state)
                 self.after(0, lambda: self.append_mirror_log("⚠️ Không có tài khoản đã chọn nào đang kết nối để kích hoạt Turbo Sniping!"))
-        threading.Thread(target=_runner, daemon=True).start()
+        threading.Thread(target=_runner, daemon=True, name="TurboBatchRunner").start()
 
     def claim_all_gremory_case_items(self):
         """Tự động lôi quà phím 'K' (Gremory Case) cho các tài khoản ĐÃ TÍCH CHỌN."""
@@ -9241,7 +4053,7 @@ class DashboardApp(ctk.CTk):
             for s_i, c in enumerate(self.controllers, 1):
                 if not getattr(c, "mirror_enabled", True):
                     continue
-                if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                if c.assigned_pid and is_megamu_process_alive(c.assigned_pid):
                     try:
                         eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
                         if eng:
@@ -9263,7 +4075,7 @@ class DashboardApp(ctk.CTk):
         for ctrl in self.controllers:
             if not getattr(ctrl, "mirror_enabled", True):
                 continue
-            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+            if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                 cnt += 1
                 threading.Thread(target=ctrl.run_mirror_in_dungeon_lifecycle, kwargs={"force": True}, daemon=True).start()
         if cnt == 0:
@@ -9278,7 +4090,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "mirror_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     ctrl.enter_mirror()
                     cnt += 1
                     time.sleep(0.08)
@@ -9292,7 +4104,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "mirror_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     ctrl.move_to_event_map()
                     cnt += 1
                     time.sleep(0.15)
@@ -9308,7 +4120,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "mirror_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     ctrl.click_mirror_npc()
                     cnt += 1
                     time.sleep(0.08)
@@ -9322,7 +4134,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "mirror_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     ok = ctrl.start_mirror_auto()
                     if ok:
                         started += 1
@@ -9334,15 +4146,31 @@ class DashboardApp(ctk.CTk):
         threading.Thread(target=_batch_runner, daemon=True).start()
 
     def stop_all_mirror_auto(self):
-        """Dừng Auto Double Goer & Turbo Sniping trên các tài khoản."""
-        for ctrl in self.controllers:
-            ctrl.stop_mirror_auto()
-            ctrl.stop_mirror_turbo_sniping()
-        self.append_mirror_log("⏹️ Đã dừng Auto Mirror & Turbo Sniping trên toàn bộ tài khoản.")
+        """Dừng Auto Double Goer & Turbo Sniping trên các tài khoản bất đồng bộ (Zero UI Freeze)."""
+        self._mirror_sniping_active = False
+        self.update_mirror_snipe_button_state()
+
+        def _async_stop():
+            for ctrl in self.controllers:
+                try:
+                    ctrl.stop_mirror_auto()
+                    ctrl.stop_mirror_turbo_sniping()
+                except Exception:
+                    pass
+            self.after(0, lambda: self.append_mirror_log("⏹️ Đã dừng Auto Mirror & Turbo Sniping trên toàn bộ tài khoản."))
+            self.after(0, self.update_mirror_snipe_button_state)
+
+        threading.Thread(target=_async_stop, daemon=True, name="MirrorAsyncStopper").start()
 
     def append_mirror_log(self, text: str):
         if hasattr(self, "mirror_log_txt"):
-            self._safe_append_textbox(self.mirror_log_txt, text)
+            def _do():
+                if hasattr(self, "mirror_log_txt") and self.mirror_log_txt.winfo_exists():
+                    self._safe_append_textbox(self.mirror_log_txt, text)
+            try:
+                self.after(0, _do)
+            except Exception:
+                _do()
 
     def clear_mirror_log(self):
         if hasattr(self, "mirror_log_txt"):
@@ -9352,8 +4180,8 @@ class DashboardApp(ctk.CTk):
         """Lấy cấu hình lập lịch Mirror hiện tại từ UI kèm danh sách selected_slots."""
         is_auto = bool(self.cb_mirror_auto_schedule.get()) if hasattr(self, "cb_mirror_auto_schedule") else True
         is_prep = bool(self.cb_mirror_auto_prep_before.get()) if hasattr(self, "cb_mirror_auto_prep_before") else True
-        is_life = bool(self.cb_mirror_auto_lifecycle.get()) if hasattr(self, "cb_mirror_auto_lifecycle") else True
-        is_gremory = bool(self.cb_mirror_auto_gremory.get()) if hasattr(self, "cb_mirror_auto_gremory") else True
+        is_life = bool(self.cb_mirror_auto_lifecycle.get()) if (hasattr(self, "cb_mirror_auto_lifecycle") and self.cb_mirror_auto_lifecycle is not None) else False
+        is_gremory = bool(self.cb_mirror_auto_gremory.get()) if (hasattr(self, "cb_mirror_auto_gremory") and self.cb_mirror_auto_gremory is not None) else False
         prefire = self.get_mirror_prefire_sec() if hasattr(self, "mirror_prefire_sec_entry") else 1.2
         selected_slots = [c.slot_idx for c in self.controllers if getattr(c, "mirror_enabled", True)]
         return {
@@ -9375,11 +4203,11 @@ class DashboardApp(ctk.CTk):
         gremory_txt = "BẬT" if cfg.get("auto_gremory", True) else "TẮT"
         prefire_val = cfg.get("prefire_sec", 1.2)
         sel_count = len(cfg.get("selected_slots", []))
-        self.append_mirror_log(f"⏰ [Cấu Hình Mirror] Cướp cổng: {status_txt} | Tài khoản đi: {sel_count}/{len(self.controllers)} | Ra bãi :16: {life_txt} | Lôi quà K: {gremory_txt} | Giật trước: {prefire_val:.1f}s")
+        self.append_mirror_log(f"⏰ [Cấu Hình Mirror] Cướp cổng: {status_txt} | Tài khoản đi: {sel_count}/{len(self.controllers)} | Giật trước: {prefire_val:.1f}s")
 
-        if cfg.get("auto_lifecycle", True):
+        if cfg.get("auto_lifecycle", False):
             for c in self.controllers:
-                if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                if getattr(c, "mirror_enabled", True) and c.assigned_pid and is_megamu_process_alive(c.assigned_pid):
                     try:
                         eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
                         if eng and eng.is_mirror_event_map():
@@ -9432,7 +4260,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "mirror_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     total_connected += 1
                     t_info = ctrl.check_mirror_ticket()
                     if t_info.get("hasTicket"):
@@ -9472,7 +4300,7 @@ class DashboardApp(ctk.CTk):
             for ctrl in self.controllers:
                 if not getattr(ctrl, "mirror_enabled", True):
                     continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     cnt += 1
                     try:
                         ctrl.move_to_event_map()
@@ -9553,7 +4381,7 @@ class DashboardApp(ctk.CTk):
                     for ctrl in self.controllers:
                         if not getattr(ctrl, "mirror_enabled", True):
                             continue
-                        if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                        if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                             if getattr(ctrl, "cached_mirror_ticket_slot", -1) < 0:
                                 threading.Thread(target=ctrl.check_mirror_ticket, daemon=True).start()
 
@@ -9578,16 +4406,16 @@ class DashboardApp(ctk.CTk):
                 s_rem = remain_open_sec % 60
 
                 if hasattr(self, "lbl_mirror_next_event"):
-                    self.lbl_mirror_next_event.configure(text=f"Đợt này: {current_event_hour:02d}:10 - {current_event_hour:02d}:15")
+                    self.lbl_mirror_next_event.configure(text="(:10 - :15)")
 
                 if hasattr(self, "lbl_mirror_countdown"):
                     self.lbl_mirror_countdown.configure(
-                        text=f"⚡ CỔNG ĐANG MỞ: {m_rem:02d}:{s_rem:02d} (Bắt đầu lúc :{15:02d})",
+                        text=f"⚡ Cổng mở: {m_rem:02d}:{s_rem:02d}",
                         text_color="#eab308"
                     )
 
                 if hasattr(self, "lbl_mirror_sched_status"):
-                    self.lbl_mirror_sched_status.configure(text="⚡ ĐANG CƯỚP CỔNG", text_color="#eab308")
+                    self.lbl_mirror_sched_status.configure(text="⚡ Cướp cổng", text_color="#eab308")
 
                 # Kích hoạt đợt đầu lúc :10 nếu chưa được kích hoạt bởi pre-fire
                 gate_key = now.strftime("%Y%m%d_%H10_gate_open")
@@ -9605,7 +4433,7 @@ class DashboardApp(ctk.CTk):
                     for ctrl in self.controllers:
                         if not getattr(ctrl, "mirror_enabled", True):
                             continue
-                        if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                        if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                             eng = ctrl.engine
                             if eng and not eng.is_mirror_event_map() and not getattr(ctrl, "mirror_sniping", False):
                                 t_info = eng.get_mirror_ticket_info()
@@ -9623,23 +4451,23 @@ class DashboardApp(ctk.CTk):
 
                 if hasattr(self, "lbl_mirror_next_event"):
                     self.lbl_mirror_next_event.configure(
-                        text=f"Mở cổng: {next_gate_open.strftime('%H:%M')} (Bắt đầu: {next_event_start.strftime('%H:%M')})"
+                        text=f"({next_gate_open.strftime('%H:%M')})"
                     )
 
                 if hasattr(self, "lbl_mirror_countdown"):
                     if hours_left > 0:
-                        cnt_str = f"⏳ Mở cổng sau: {hours_left:02d}:{mins_left:02d}:{secs_left:02d}"
+                        cnt_str = f"⏳ {hours_left:02d}:{mins_left:02d}:{secs_left:02d}"
                     else:
-                        cnt_str = f"⏳ Mở cổng sau: {mins_left:02d}:{secs_left:02d}"
+                        cnt_str = f"⏳ {mins_left:02d}:{secs_left:02d}"
                     self.lbl_mirror_countdown.configure(text=cnt_str, text_color="#a855f7")
 
                 # Giai đoạn chuẩn bị (kích hoạt từ phút :08, tức là trước giờ mở cổng 120s = 2 phút):
                 if diff_to_open <= 120:
                     if hasattr(self, "lbl_mirror_sched_status"):
                         if diff_to_open <= 2:
-                            self.lbl_mirror_sched_status.configure(text="⚡ PRE-FIRE TURBO", text_color="#f59e0b")
+                            self.lbl_mirror_sched_status.configure(text="⚡ Pre-fire", text_color="#f59e0b")
                         else:
-                            self.lbl_mirror_sched_status.configure(text="🏃 ĐANG CHUẨN BỊ", text_color="#38bdf8")
+                            self.lbl_mirror_sched_status.configure(text="🏃 Chuẩn bị", text_color="#38bdf8")
                     if hasattr(self, "lbl_mirror_countdown"):
                         self.lbl_mirror_countdown.configure(text_color="#38bdf8")
 
@@ -9654,20 +4482,21 @@ class DashboardApp(ctk.CTk):
                 else:
                     if hasattr(self, "lbl_mirror_sched_status"):
                         if is_auto:
-                            self.lbl_mirror_sched_status.configure(text=f"🟢 Chờ mở cổng ({next_gate_open.strftime('%H:%M')})", text_color="#10b981")
+                            self.lbl_mirror_sched_status.configure(text="● Chờ", text_color="#10b981")
                         else:
-                            self.lbl_mirror_sched_status.configure(text="⏸️ Tắt tự động", text_color="#94a3b8")
+                            self.lbl_mirror_sched_status.configure(text="○ Tắt", text_color="#64748b")
 
             # 5. Tự động thăm dò vé định kỳ mỗi 4 giây để UI luôn cập nhật mới nhất
+            self.update_mirror_snipe_button_state()
             self._mirror_poll_tick = getattr(self, "_mirror_poll_tick", 0) + 1
             if self._mirror_poll_tick % 4 == 0:
                 self.refresh_all_mirror_tickets_display()
 
             # 6. Tự động kiểm tra chu trình Double Goer (Đợi Safe Zone -> Phút 16 ra bãi -> Săn 3 Box)
             if self._mirror_poll_tick % 3 == 0:
-                is_lifecycle_enabled = hasattr(self, "cb_mirror_auto_lifecycle") and (self.cb_mirror_auto_lifecycle.get() == 1)
+                is_lifecycle_enabled = hasattr(self, "cb_mirror_auto_lifecycle") and self.cb_mirror_auto_lifecycle is not None and (self.cb_mirror_auto_lifecycle.get() == 1)
                 for s_i, c in enumerate(self.controllers, 1):
-                    if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                    if c.assigned_pid and is_megamu_process_alive(c.assigned_pid):
                         try:
                             eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
                             if eng and eng.is_mirror_event_map():
@@ -9688,230 +4517,17 @@ class DashboardApp(ctk.CTk):
             self.after(poll_interval_ms, self._periodic_mirror_scheduler)
 
     def jump_to_config_tab(self, slot_idx: int):
-        """Nhảy nhanh sang Tab Cấu hình khi bấm nút '⚙' ở Slot."""
+        """Mở nhanh Modal Cấu hình chặng ứng với Slot khi bấm nút '⚙' ở Slot."""
         ctrl = self.controllers[slot_idx - 1]
-        cfg_name = f"Config {ctrl.profile_index}"
-        self.editor_profile_var.set(cfg_name)
-        self.load_profile_into_editor(ctrl.profile_index)
-        self.switch_tab("profiles")
+        self.open_profiles_modal(profile_index=ctrl.profile_index)
 
     # ==========================================================================
     # TAB 7: QUẢN LÝ TÀI KHOẢN & AUTO LOGIN NATIVE (AUTO LOGIN TAB)
     # ==========================================================================
     def build_autologin_view(self):
-        """Xây dựng giao diện Tab Quản lý tài khoản & AutoLogin thẳng vào game."""
-        header_card = ctk.CTkFrame(self.panel_autologin, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
-        header_card.pack(fill="x", padx=14, pady=(10, 6))
-
-        inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
-        inner_h.pack(fill="both", expand=True, padx=14, pady=8)
-
-        left_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        left_h.pack(side="left", fill="y")
-
-        title_lbl = ctk.CTkLabel(
-            left_h,
-            text="🔑 MEGAMU AUTO LOGIN • QUẢN LÝ TÀI KHOẢN & LOGIN THẲNG VÀO GAME",
-            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-            text_color="#c084fc"
-        )
-        title_lbl.pack(anchor="w")
-
-        sub_lbl = ctk.CTkLabel(
-            left_h,
-            text="Khởi chạy client & Tự động đăng nhập vào nhân vật bằng Token Registry (Bỏ qua hoàn toàn giao diện chọn thủ công)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        )
-        sub_lbl.pack(anchor="w", pady=(2, 0))
-
-        right_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        right_h.pack(side="right", fill="y")
-
-        self.lbl_autologin_exe = ctk.CTkLabel(
-            right_h,
-            text=f"📁 Exe: {os.path.basename(getattr(self.account_mgr, 'exe_path', '') or 'MEGAMU.exe')}",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#cbd5e1"
-        )
-        self.lbl_autologin_exe.pack(side="left", padx=(0, 8))
-
-        ctk.CTkButton(
-            right_h,
-            text="📁 Đổi Exe",
-            width=75,
-            height=28,
-            corner_radius=0,
-            fg_color="#272f3d",
-            hover_color="#334155",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.choose_exe_path_dialog
-        ).pack(side="left")
-
-        # ACTION TOOLBAR
-        toolbar_card = ctk.CTkFrame(self.panel_autologin, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        toolbar_card.pack(fill="x", padx=14, pady=(2, 6))
-
-        inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
-        inner_tb.pack(fill="both", expand=True, padx=10, pady=8)
-
-        left_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        left_tb.pack(side="left", fill="y")
-
-        self.btn_autologin_all = ctk.CTkButton(
-            left_tb,
-            image=UiIconFactory.get("key", color="#ffffff", size=(13, 13)),
-            compound="left",
-            text="🚀 MỞ & LOGIN TẤT CẢ",
-            height=30,
-            corner_radius=0,
-            fg_color="#7c3aed",
-            hover_color="#6d28d9",
-            border_width=1,
-            border_color="#a78bfa",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.batch_launch_all_accounts
-        )
-        self.btn_autologin_all.pack(side="left", padx=(0, 6))
-
-        ctk.CTkButton(
-            left_tb,
-            image=UiIconFactory.get("refresh", color="#38bdf8", size=(12, 12)),
-            compound="left",
-            text="🔄 Đọc từ Registry",
-            height=30,
-            corner_radius=0,
-            fg_color="#0f172a",
-            hover_color="#1e293b",
-            border_width=1,
-            border_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.import_accounts_from_registry_ui
-        ).pack(side="left", padx=(0, 6))
-
-        ctk.CTkButton(
-            left_tb,
-            image=UiIconFactory.get("plus", color="#4ade80", size=(12, 12)),
-            compound="left",
-            text="➕ Thêm Tài Khoản",
-            height=30,
-            corner_radius=0,
-            fg_color="#0f172a",
-            hover_color="#1e293b",
-            border_width=1,
-            border_color="#22c55e",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.open_add_account_dialog
-        ).pack(side="left", padx=(0, 6))
-
-        ctk.CTkButton(
-            left_tb,
-            text="☑️ Chọn/Bỏ Tất Cả",
-            height=30,
-            corner_radius=0,
-            fg_color="#1e2433",
-            hover_color="#2b3244",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.toggle_all_accounts_ui
-        ).pack(side="left", padx=(0, 6))
-
-        right_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        right_tb.pack(side="right", fill="y")
-
-        ctk.CTkLabel(
-            right_tb,
-            text="Giãn cách:",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        ).pack(side="left", padx=(0, 4))
-
-        ctk.CTkEntry(
-            right_tb,
-            textvariable=self.autologin_delay_var,
-            width=45,
-            height=28,
-            corner_radius=0,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            justify="center"
-        ).pack(side="left", padx=(0, 4))
-
-        ctk.CTkLabel(
-            right_tb,
-            text="giây",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        ).pack(side="left", padx=(0, 10))
-
-        self.autologin_status_lbl = ctk.CTkLabel(
-            right_tb,
-            text="Sẵn sàng",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#22c55e"
-        )
-        self.autologin_status_lbl.pack(side="left")
-
-        # BODY CONTAINER (TABLE + RUNTIME LOG)
-        body_box = ctk.CTkFrame(self.panel_autologin, fg_color="transparent")
-        body_box.pack(fill="both", expand=True, padx=14, pady=(0, 8))
-
-        # TABLE CONTAINER
-        table_container = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430")
-        table_container.pack(side="left", fill="both", expand=True, padx=(0, 6))
-
-        tbl_hdr = ctk.CTkFrame(table_container, fg_color="#171b26", height=32, corner_radius=0)
-        tbl_hdr.pack(fill="x", padx=2, pady=2)
-        tbl_hdr.pack_propagate(False)
-
-        ctk.CTkLabel(tbl_hdr, text="BẬT", width=42, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(6, 2))
-        ctk.CTkLabel(tbl_hdr, text="STT", width=40, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
-        ctk.CTkLabel(tbl_hdr, text="TÀI KHOẢN", width=125, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="NHÂN VẬT LOGIN", width=135, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="SERVER", width=95, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="GÁN VÀO SLOT", width=115, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="THAO TÁC", anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=6, fill="x", expand=True)
-
-        self.autologin_scroll = ctk.CTkScrollableFrame(table_container, fg_color="transparent")
-        self.autologin_scroll.pack(fill="both", expand=True, padx=4, pady=4)
-
-        # LOG CONTAINER (BÊN PHẢI)
-        log_box = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430", width=340)
-        log_box.pack(side="right", fill="y", padx=(6, 0))
-        log_box.pack_propagate(False)
-
-        log_hdr = ctk.CTkFrame(log_box, fg_color="#171b26", height=32, corner_radius=0)
-        log_hdr.pack(fill="x", padx=2, pady=2)
-        log_hdr.pack_propagate(False)
-
-        ctk.CTkLabel(
-            log_hdr,
-            text="📋 NHẬT KÝ AUTO LOGIN",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#c084fc"
-        ).pack(side="left", padx=8)
-
-        ctk.CTkButton(
-            log_hdr,
-            text="Xóa",
-            width=45,
-            height=22,
-            corner_radius=0,
-            fg_color="#1e2433",
-            hover_color="#2b3244",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            command=self.clear_autologin_log
-        ).pack(side="right", padx=6)
-
-        self.autologin_log_txt = ctk.CTkTextbox(
-            log_box,
-            fg_color="#0a0c12",
-            text_color="#e2e8f0",
-            font=ctk.CTkFont(family="Consolas", size=10),
-            wrap="word"
-        )
-        self.autologin_log_txt.pack(fill="both", expand=True, padx=4, pady=4)
-
-        self.refresh_autologin_table()
-        self._autologin_table_initialized = True
+        """Xây dựng giao diện Tab Quản lý tài khoản & AutoLogin thẳng vào game (Modular AutoLoginView)."""
+        view = AutoLoginView(self, self.panel_autologin)
+        view.build()
 
     def refresh_autologin_table(self):
         """Vẽ lại toàn bộ danh sách tài khoản trong Tab AutoLogin."""
@@ -10266,7 +4882,7 @@ class DashboardApp(ctk.CTk):
 
         # Tự động: tìm slot đầu tiên chưa gán PID hoặc PID đã chết
         for ctrl in self.controllers:
-            if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+            if not ctrl.assigned_pid or not is_megamu_process_alive(ctrl.assigned_pid):
                 return ctrl.slot_idx
 
         # Nếu tất cả slot đều đang dùng, tự động thêm slot mới nếu chưa vượt MAX_SLOTS
@@ -10318,7 +4934,7 @@ class DashboardApp(ctk.CTk):
             self.append_autologin_log(f"⚠️ Không xác định được Slot để gửi lệnh AutoLogin!")
             return
         ctrl = self.controllers[target_slot - 1]
-        if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+        if not ctrl.assigned_pid or not is_megamu_process_alive(ctrl.assigned_pid):
             self.append_autologin_log(f"⚠️ Slot #{target_slot:02d} chưa có game MEGAMU nào đang mở! Hãy nhấn '🚀 Mở & Login'.")
             return
 
@@ -10401,6 +5017,7 @@ class DashboardApp(ctk.CTk):
                 self.update_moss_slot_telemetry(slot_idx, "---", None)
             if hasattr(self, "update_mirror_slot_telemetry"):
                 self.update_mirror_slot_telemetry(slot_idx, "---", None)
+            self.update_slot_run_button_state(slot_idx)
             return
 
         try:
@@ -10412,7 +5029,7 @@ class DashboardApp(ctk.CTk):
                 pid = int(val.split(" - ")[0].strip())
 
             # Nếu PID đã chết, thử tự động reconnect tìm game mới
-            if not psutil.pid_exists(pid):
+            if not is_megamu_process_alive(pid):
                 self.log_message(f"[Slot {slot_idx:02d}] Cửa sổ MEGAMU (PID {pid}) đã đóng. Đang tự động quét và kết nối lại...", "WARNING")
                 ctrl.reconnect_game()
                 return
@@ -10422,13 +5039,14 @@ class DashboardApp(ctk.CTk):
                 self.update_moss_slot_telemetry(slot_idx, ctrl.char_name, pid)
             if hasattr(self, "update_mirror_slot_telemetry"):
                 self.update_mirror_slot_telemetry(slot_idx, ctrl.char_name, pid, ctrl.coords)
+            self.update_slot_run_button_state(slot_idx)
         except Exception as e:
             self.log_message(f"[Slot {slot_idx:02d}] Không thể gán PID: {e}", "ERROR")
 
     def on_slot_status_clicked(self, slot_idx: int):
         """Khi người dùng click vào nhãn trạng thái 'Mất kết nối', tự động kết nối lại."""
         ctrl = self.controllers[slot_idx - 1]
-        is_dead = (ctrl.assigned_pid and not psutil.pid_exists(ctrl.assigned_pid))
+        is_dead = (ctrl.assigned_pid and not is_megamu_process_alive(ctrl.assigned_pid))
         is_disc = ctrl.status in (tr("game_closed"), tr("status_disconnected"), "Game đã đóng", "Mất kết nối")
         if is_dead or is_disc or not ctrl.assigned_pid:
             self.log_message(f"[Slot {slot_idx:02d}] Đang thử kết nối lại tài khoản...", "INFO")
@@ -10468,6 +5086,10 @@ class DashboardApp(ctk.CTk):
             return
 
         ctrl = self.controllers[slot_idx - 1]
+        if not ctrl.assigned_pid or not is_megamu_process_alive(ctrl.assigned_pid):
+            self.log_message(f"[Slot {slot_idx:02d}] Chưa gán nhân vật hoặc game chưa kết nối, không thể bật Auto!", "WARNING")
+            self.update_slot_run_button_state(slot_idx)
+            return
         ctrl.toggle_auto()
 
     def on_toggle_slot_devil(self, slot_idx: int):
@@ -10590,7 +5212,7 @@ class DashboardApp(ctk.CTk):
     def on_quick_devil_enter(self, slot_idx: int):
         """Kích hoạt đi Devil Square ngay lập tức qua native injection (Zero-Mouse, không click NPC)."""
         ctrl = self.controllers[slot_idx - 1]
-        if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+        if not ctrl.assigned_pid or not is_megamu_process_alive(ctrl.assigned_pid):
             self.log_message(f"[Slot {slot_idx:02d}] Chưa kết nối Game!", "WARNING")
             return
         eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
@@ -10618,7 +5240,7 @@ class DashboardApp(ctk.CTk):
 
             cmap = pinfo.get("mapId", -1)
             # Nếu nhân vật đã ở trong map Devil Square
-            if cmap in (9, 32) or (hasattr(eng, "is_devil_event_map") and eng.is_devil_event_map()):
+            if DevilService.is_in_devil_map(cmap) or (hasattr(eng, "is_devil_event_map") and eng.is_devil_event_map()):
                 self.log_message(f"[Slot {slot_idx:02d}] Nhân vật đã ở trong Devil Square! Đang kiểm tra bật MuHelper...", "INFO")
                 if hasattr(eng, "start_helper"):
                     eng.start_helper()
@@ -10790,7 +5412,7 @@ class DashboardApp(ctk.CTk):
     def on_quick_reset(self, slot_idx: int):
         """Thực hiện lệnh /reset ngay lập tức."""
         ctrl = self.controllers[slot_idx - 1]
-        if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+        if not ctrl.assigned_pid or not is_megamu_process_alive(ctrl.assigned_pid):
             self.log_message(f"[Slot {slot_idx:02d}] Chưa kết nối Game!", "WARNING")
             return
         eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
@@ -10812,890 +5434,108 @@ class DashboardApp(ctk.CTk):
             self.log_message(f"[Slot {slot_idx:02d}] Gửi lệnh /reset thất bại: {err_msg}", "WARNING")
 
     def open_devil_global_config_dialog(self):
-        """Mở cửa sổ cấu hình tập trung cho tính năng Auto Devil Square (DS)."""
-        dlg = ctk.CTkToplevel(self)
-        dlg.title("Cài Đặt Tự Động Đi Devil Square (DS)")
-        dlg.geometry("520x470")
-        dlg.resizable(False, False)
-        dlg.grab_set()
-
-        # Tiêu đề
-        header_frame = ctk.CTkFrame(dlg, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
-        header_frame.pack(fill="x", padx=16, pady=(16, 10))
-
-        title_lbl = ctk.CTkLabel(
-            header_frame,
-            text="🔥 CẤU HÌNH TỰ ĐỘNG THAM GIA DEVIL SQUARE (DS)",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color="#f43f5e"
-        )
-        title_lbl.pack(anchor="w", padx=14, pady=(10, 4))
-
-        sub_lbl = ctk.CTkLabel(
-            header_frame,
-            text="Thiết lập số Reset bắt đầu đi Devil và loại vé. Áp dụng ngay cho toàn bộ tài khoản.",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#94a3b8"
-        )
-        sub_lbl.pack(anchor="w", padx=14, pady=(0, 10))
-
-        # Thân hộp thoại
-        body = ctk.CTkFrame(dlg, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
-        body.pack(fill="both", expand=True, padx=16, pady=(0, 12))
-
-        # 1. Bật / Tắt chung
-        var_enable_all = ctk.BooleanVar(value=any(getattr(c, "auto_devil", False) for c in self.controllers))
-        chk_enable = ctk.CTkCheckBox(
-            body,
-            text="Kích hoạt Tự Động Đi Devil Square cho toàn bộ tài khoản",
-            variable=var_enable_all,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f1f5f9",
-            fg_color="#e11d48",
-            hover_color="#be123c"
-        )
-        chk_enable.pack(anchor="w", padx=16, pady=(14, 10))
-
-        # 2. Điều kiện Reset: "Bao nhiêu Reset thì mới bắt đầu đi Devil?"
-        rs_frame = ctk.CTkFrame(body, fg_color="#0e1117", corner_radius=6, border_width=1, border_color="#1e2433")
-        rs_frame.pack(fill="x", padx=16, pady=(0, 10))
-
-        rs_label_title = ctk.CTkLabel(
-            rs_frame,
-            text="🎯 ĐIỀU KIỆN SỐ RESET ĐỂ BẮT ĐẦU ĐI DEVIL:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8"
-        )
-        rs_label_title.pack(anchor="w", padx=12, pady=(8, 4))
-
-        rs_input_row = ctk.CTkFrame(rs_frame, fg_color="transparent")
-        rs_input_row.pack(fill="x", padx=12, pady=(0, 4))
-
-        ctk.CTkLabel(
-            rs_input_row,
-            text="Bắt đầu đi Devil khi đạt từ:",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#cbd5e1"
-        ).pack(side="left")
-
-        first_min_rs = getattr(self.controllers[0], "devil_min_resets", 0) if self.controllers else 0
-        ent_min_rs = ctk.CTkEntry(
-            rs_input_row,
-            width=65,
-            height=28,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            justify="center"
-        )
-        ent_min_rs.pack(side="left", padx=(8, 6))
-        ent_min_rs.insert(0, str(first_min_rs))
-
-        ctk.CTkLabel(
-            rs_input_row,
-            text="Reset trở lên",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#facc15"
-        ).pack(side="left")
-
-        rs_note = ctk.CTkLabel(
-            rs_frame,
-            text="💡 Dưới số Reset này: Nhân vật sẽ KHÔNG đi Devil mà chỉ cắm bãi Auto Train.\n"
-                 "   Khi đạt từ số Reset này trở lên: Mới tự động tham gia Devil khi mở cổng.",
-            font=ctk.CTkFont(family="Segoe UI", size=9),
-            text_color="#94a3b8",
-            justify="left"
-        )
-        rs_note.pack(anchor="w", padx=12, pady=(0, 8))
-
-        # 3. Lựa chọn loại vé
-        ticket_frame = ctk.CTkFrame(body, fg_color="#0e1117", corner_radius=6, border_width=1, border_color="#1e2433")
-        ticket_frame.pack(fill="x", padx=16, pady=(0, 10))
-
-        ctk.CTkLabel(
-            ticket_frame,
-            text="🎫 LOẠI VÉ SỬ DỤNG:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8"
-        ).pack(anchor="w", padx=12, pady=(8, 4))
-
-        ticket_row = ctk.CTkFrame(ticket_frame, fg_color="transparent")
-        ticket_row.pack(fill="x", padx=12, pady=(0, 8))
-
-        t_opts = [
-            "🎫 Tự động (Ưu tiên Vé Master)",
-            "🎫 Chỉ đi Vé Thường (DS 1 - 7)",
-            "🎫 Chỉ đi Vé Master (Master DS)"
-        ]
-        curr_t = getattr(self.controllers[0], "devil_ticket_type", "auto") if self.controllers else "auto"
-        sel_t = t_opts[0]
-        if curr_t == "master":
-            sel_t = t_opts[2]
-        elif curr_t == "normal":
-            sel_t = t_opts[1]
-
-        cbo_ticket = ctk.CTkOptionMenu(
-            ticket_row,
-            values=t_opts,
-            width=260,
-            height=28,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color="#1e293b",
-            button_color="#334155"
-        )
-        cbo_ticket.set(sel_t)
-        cbo_ticket.pack(side="left")
-
-        # 4. Thông tin lịch trình & Nguyên tắc an toàn
-        info_frame = ctk.CTkFrame(body, fg_color="#080c14", corner_radius=6, border_width=1, border_color="#1a202c")
-        info_frame.pack(fill="x", padx=16, pady=(0, 8))
-
-        info_lbl = ctk.CTkLabel(
-            info_frame,
-            text="⏰ Lịch mở cổng MEGAMU: 2 tiếng/lần vào giờ lẻ (:27 - :30) • 12 đợt/ngày.\n"
-                 "🛡️ Nguyên tắc an toàn: Chỉ ngưng train khi ĐÃ VÀO MAP DEVIL thành công.\n"
-                 "   Nếu chưa đủ Reset, không có vé hoặc không vào được: tiếp tục cắm bãi train.",
-            font=ctk.CTkFont(family="Segoe UI", size=9),
-            text_color="#94a3b8",
-            justify="left"
-        )
-        info_lbl.pack(anchor="w", padx=10, pady=6)
-
-        # Nút Lưu
-        btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
-        btn_box.pack(fill="x", padx=16, pady=(0, 14))
-
-        def _save_devil_global():
-            try:
-                en = var_enable_all.get()
-                m_rs = int(ent_min_rs.get().strip() or 0)
-                t_str = cbo_ticket.get()
-                t_pref = "master" if ("Master" in t_str and "Chỉ" in t_str) else ("normal" if ("Thường" in t_str and "Chỉ" in t_str) else "auto")
-
-                for c in self.controllers:
-                    c.auto_devil = en
-                    c.devil_min_resets = m_rs
-                    c.devil_max_resets = 9999
-                    c.devil_ticket_type = t_pref
-                    ConfigPersistenceManager.save_event_config(
-                        slot_idx=c.slot_idx,
-                        auto_devil=en,
-                        devil_min_resets=m_rs,
-                        devil_max_resets=9999,
-                        devil_ticket_type=t_pref,
-                        auto_reset=c.auto_reset,
-                        auto_add_point=c.auto_add_point,
-                        reset_level=c.reset_level,
-                        stat_mode=c.stat_mode,
-                        custom_class=c.custom_class,
-                        stat_ratio=c.stat_ratio
-                    )
-                    if c.worker and c.worker.running and hasattr(c.worker, 'update_config'):
-                        c.worker.update_config({
-                            "auto_devil": en,
-                            "devil_min_resets": m_rs,
-                            "devil_max_resets": 9999,
-                            "devil_ticket_type": t_pref
-                        })
-                    el = self.slot_ui_elements.get(c.slot_idx)
-                    if el and el.get("btn_devil"):
-                        if en:
-                            el["btn_devil"].configure(fg_color="#4c0519", text_color="#f43f5e", border_color="#e11d48", hover_color="#881337")
-                        else:
-                            el["btn_devil"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
-
-                st = "BẬT" if en else "TẮT"
-                t_lbl = "Vé Master" if t_pref == "master" else ("Vé Thường" if t_pref == "normal" else "Tự động")
-                self.log_message(f"🔥 Đã cập nhật Auto Devil: [{st}] | Bắt đầu đi từ: >= {m_rs} Reset | Loại vé: {t_lbl} cho toàn bộ tài khoản!", "SUCCESS")
-                from tkinter import messagebox
-                messagebox.showinfo("Thành Công", f"Đã lưu cấu hình Devil Square cho toàn bộ tài khoản:\n• Trạng thái: {st}\n• Bắt đầu đi từ: >= {m_rs} Reset\n• Loại vé: {t_lbl}", parent=dlg)
-                dlg.destroy()
-            except Exception as ex:
-                from tkinter import messagebox
-                messagebox.showerror("Lỗi", f"Không thể lưu cấu hình: {ex}", parent=dlg)
-
-        btn_save = ctk.CTkButton(
-            btn_box,
-            text="💾 Áp Dụng Cho Tất Cả Tài Khoản",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            height=34,
-            fg_color="#e11d48",
-            hover_color="#be123c",
-            command=_save_devil_global
-        )
-        btn_save.pack(side="left", fill="x", expand=True, padx=(0, 8))
-
-        btn_cancel = ctk.CTkButton(
-            btn_box,
-            text="Đóng",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            height=34,
-            width=90,
-            fg_color="#27272a",
-            hover_color="#3f3f46",
-            command=dlg.destroy
-        )
-        btn_cancel.pack(side="right")
+        """Mở cửa sổ cấu hình mốc Reset & Vé đi Devil Square cho toàn bộ tài khoản."""
+        from ui.modals.devil_modal import open_devil_global_config_dialog as _open
+        return _open(self)
 
     def open_slot_stat_ratio_dialog(self, slot_idx: int):
-        """Mở cửa sổ cấu hình Tự Động Đi Devil Square, Tự Động Reset & Chỉ số Point theo từng Class."""
-        ctrl = self.controllers[slot_idx - 1]
-        dlg = ctk.CTkToplevel(self)
-        dlg.title(f"Cài Đặt Slot {slot_idx:02d} - Devil Square, Reset & Point")
-        dlg.geometry("520x680")
-        dlg.resizable(False, False)
-        dlg.configure(fg_color="#0f111a")
-        dlg.transient(self)
-        dlg.grab_set()
-
-        # Nạp bảng cấu hình chuẩn của 16 Class
-        class_profiles = ConfigPersistenceManager.load_class_stat_profiles()
-
-        # Nhận diện class hiện tại của nhân vật
-        det_cid = ctrl.class_id
-        eng = ctrl.engine or (getattr(self, "direct_engines", {}).get(ctrl.assigned_pid) if ctrl.assigned_pid else None)
-        if eng and eng.is_ready:
-            try:
-                p_inf = eng.get_player_info(max_age=0.5)
-                if p_inf:
-                    if "classId" in p_inf and int(p_inf["classId"]) >= 0:
-                        det_cid = int(p_inf["classId"])
-                        ctrl.class_id = det_cid
-                        ctrl.class_code = CLASS_ID_TO_CODE.get(det_cid, "")
-                    if "name" in p_inf and p_inf["name"]:
-                        ctrl.char_name = p_inf["name"]
-                    if "points" in p_inf:
-                        ctrl.points = int(p_inf["points"])
-            except Exception:
-                pass
-
-        det_code = ctrl.class_code if ctrl.class_code else CLASS_ID_TO_CODE.get(det_cid, "DK")
-        det_fullname = CLASS_CODE_TO_NAME.get(det_code, "Dark Knight")
-
-        # Tiêu đề
-        header_frame = ctk.CTkFrame(dlg, fg_color="#181c26", corner_radius=0, height=54)
-        header_frame.pack(fill="x")
-        header_frame.pack_propagate(False)
-
-        cname = ctrl.char_name if ctrl.char_name != "---" else f"Slot {slot_idx:02d}"
-        t_lbl = ctk.CTkLabel(
-            header_frame,
-            text=f"⚙️ CẤU HÌNH TỰ ĐỘNG - {cname.upper()}",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            text_color="#38bdf8"
-        )
-        t_lbl.pack(side="left", padx=16, pady=8)
-
-        tag_class = ctk.CTkLabel(
-            header_frame,
-            text=f"Class: [{det_code}] {det_fullname}",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#10b981",
-            fg_color="#064e3b",
-            corner_radius=4,
-            padx=8,
-            pady=2
-        )
-        tag_class.pack(side="right", padx=16, pady=12)
-
-        content = ctk.CTkScrollableFrame(dlg, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=16, pady=10)
-
-        # 1. Devil Square Section
-        ds_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
-        ds_card.pack(fill="x", pady=(0, 10), padx=4)
-
-        ds_header = ctk.CTkLabel(
-            ds_card,
-            text="🔥 TỰ ĐỘNG THAM GIA DEVIL SQUARE (DS)",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#f43f5e"
-        )
-        ds_header.pack(anchor="w", padx=12, pady=(8, 2))
-
-        ds_sub = ctk.CTkLabel(
-            ds_card,
-            text="Tự động warp sang Event Square & vào cửa DS khi mở cổng (:27 - :30 giờ lẻ).",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#94a3b8",
-            wraplength=460,
-            justify="left"
-        )
-        ds_sub.pack(anchor="w", padx=12, pady=(0, 6))
-
-        var_ds = ctk.BooleanVar(value=ctrl.auto_devil)
-        chk_ds = ctk.CTkCheckBox(
-            ds_card,
-            text="Kích hoạt tự động đi Devil Square cho nhân vật này",
-            variable=var_ds,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f1f5f9",
-            fg_color="#e11d48",
-            hover_color="#be123c"
-        )
-        chk_ds.pack(anchor="w", padx=12, pady=(0, 8))
-
-        # Hàng điều kiện Reset bắt đầu đi Devil (CHỈ THEO RESET, KHÔNG THEO LEVEL)
-        row_ds_rs = ctk.CTkFrame(ds_card, fg_color="transparent")
-        row_ds_rs.pack(fill="x", padx=12, pady=(0, 6))
-
-        ctk.CTkLabel(row_ds_rs, text="Bắt đầu đi Devil khi đạt từ:", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left")
-        ent_ds_min_rs = ctk.CTkEntry(row_ds_rs, width=65, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), justify="center")
-        ent_ds_min_rs.pack(side="left", padx=(8, 6))
-        ent_ds_min_rs.insert(0, str(getattr(ctrl, "devil_min_resets", 0)))
-
-        ctk.CTkLabel(row_ds_rs, text="Reset trở lên", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#facc15").pack(side="left")
-
-        # Ẩn entry max reset (mặc định 9999)
-        ent_ds_max_rs = ctk.CTkEntry(row_ds_rs, width=1, height=1)
-        ent_ds_max_rs.insert(0, "9999")
-
-        # Hàng lựa chọn loại vé
-        row_ds_ticket = ctk.CTkFrame(ds_card, fg_color="transparent")
-        row_ds_ticket.pack(fill="x", padx=12, pady=(0, 8))
-
-        ctk.CTkLabel(row_ds_ticket, text="Loại vé sử dụng:", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left")
-        ticket_options = [
-            "🎫 Tự động (Ưu tiên Vé Master)",
-            "🎫 Chỉ đi Vé Thường (DS 1 - 7)",
-            "🎫 Chỉ đi Vé Master (Master DS)"
-        ]
-        curr_t_val = getattr(ctrl, "devil_ticket_type", "auto")
-        init_t_choice = ticket_options[0]
-        if curr_t_val == "master":
-            init_t_choice = ticket_options[2]
-        elif curr_t_val == "normal":
-            init_t_choice = ticket_options[1]
-
-        cbo_ds_ticket = ctk.CTkOptionMenu(
-            row_ds_ticket,
-            values=ticket_options,
-            width=245,
-            height=26,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color="#1e293b",
-            button_color="#334155"
-        )
-        cbo_ds_ticket.set(init_t_choice)
-        cbo_ds_ticket.pack(side="left", padx=(8, 0))
-
-        # Khung lưu ý nguyên tắc an toàn Auto Train
-        ds_notice_frame = ctk.CTkFrame(ds_card, fg_color="#0b1120", corner_radius=6, border_width=1, border_color="#1e293b")
-        ds_notice_frame.pack(fill="x", padx=12, pady=(0, 8))
-        ds_notice_lbl = ctk.CTkLabel(
-            ds_notice_frame,
-            text="⏰ Lịch mở cổng MEGAMU: 2 tiếng/lần vào giờ lẻ (:27 - :30) • 12 đợt/ngày.\n"
-                 "🛡️ Nguyên tắc an toàn: Chỉ ngưng cày quái khi ĐÃ VÀO MAP DEVIL thành công.\n"
-                 "   Nếu chưa đủ Reset, không có vé hoặc không vào được: tiếp tục cắm bãi train.",
-            font=ctk.CTkFont(family="Segoe UI", size=9),
-            text_color="#94a3b8",
-            justify="left"
-        )
-        ds_notice_lbl.pack(anchor="w", padx=8, pady=6)
-
-        # Nút áp dụng nhanh cấu hình Devil cho toàn bộ các Slot
-        def _apply_devil_to_all_slots():
-            try:
-                new_ds_val = var_ds.get()
-                m_rs = int(ent_ds_min_rs.get().strip() or 0)
-                M_rs = int(ent_ds_max_rs.get().strip() or 9999)
-                t_choice = cbo_ds_ticket.get()
-                t_pref = "master" if ("Master" in t_choice and "Chỉ" in t_choice) else ("normal" if ("Thường" in t_choice and "Chỉ" in t_choice) else "auto")
-                for c in self.controllers:
-                    c.auto_devil = new_ds_val
-                    c.devil_min_resets = m_rs
-                    c.devil_max_resets = M_rs
-                    c.devil_ticket_type = t_pref
-                    ConfigPersistenceManager.save_event_config(
-                        slot_idx=c.slot_idx,
-                        auto_devil=new_ds_val,
-                        devil_min_resets=m_rs,
-                        devil_max_resets=M_rs,
-                        devil_ticket_type=t_pref,
-                        auto_reset=c.auto_reset,
-                        auto_add_point=c.auto_add_point,
-                        reset_level=c.reset_level,
-                        stat_mode=c.stat_mode,
-                        custom_class=c.custom_class,
-                        stat_ratio=c.stat_ratio
-                    )
-                    if c.worker and c.worker.running and hasattr(c.worker, 'update_config'):
-                        c.worker.update_config({
-                            "auto_devil": new_ds_val,
-                            "devil_min_resets": m_rs,
-                            "devil_max_resets": M_rs,
-                            "devil_ticket_type": t_pref
-                        })
-                    el = self.slot_ui_elements.get(c.slot_idx)
-                    if el and el.get("btn_devil"):
-                        if new_ds_val:
-                            el["btn_devil"].configure(fg_color="#4c0519", text_color="#f43f5e", border_color="#e11d48", hover_color="#881337")
-                        else:
-                            el["btn_devil"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
-                st = "BẬT" if new_ds_val else "TẮT"
-                t_label = "Vé Master" if t_pref == "master" else ("Vé Thường" if t_pref == "normal" else "Tự động")
-                self.log_message(f"👥 Đã áp dụng Cấu hình Devil Square [{st} | RS: {m_rs}-{M_rs} | {t_label}] cho toàn bộ {len(self.controllers)} slot!", "SUCCESS")
-                messagebox.showinfo("Thành Công", f"Đã áp dụng cấu hình Devil Square cho tất cả {len(self.controllers)} slot:\n• Trạng thái: {st}\n• Mốc Reset: {m_rs} - {M_rs}\n• Loại vé: {t_label}", parent=dlg)
-            except Exception as e_all:
-                messagebox.showerror("Lỗi", f"Không thể áp dụng cho tất cả slot: {e_all}", parent=dlg)
-
-        btn_apply_devil_all = ctk.CTkButton(
-            ds_card,
-            text="👥 Áp dụng cấu hình Devil này cho TẤT CẢ các slot",
-            height=26,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            fg_color="#4c0519",
-            hover_color="#881337",
-            text_color="#f43f5e",
-            command=_apply_devil_to_all_slots
-        )
-        btn_apply_devil_all.pack(fill="x", padx=12, pady=(0, 10))
-
-        # 2. Reset Section
-        rs_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
-        rs_card.pack(fill="x", pady=(0, 10), padx=4)
-
-        rs_header = ctk.CTkLabel(
-            rs_card,
-            text="🔄 TỰ ĐỘNG RESET KHI ĐẠT LEVEL",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#10b981"
-        )
-        rs_header.pack(anchor="w", padx=12, pady=(8, 2))
-
-        var_rs = ctk.BooleanVar(value=ctrl.auto_reset)
-        chk_rs = ctk.CTkCheckBox(
-            rs_card,
-            text="Kích hoạt tự động gửi lệnh /reset khi đạt cấp độ yêu cầu",
-            variable=var_rs,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f1f5f9",
-            fg_color="#059669",
-            hover_color="#047857"
-        )
-        chk_rs.pack(anchor="w", padx=12, pady=(0, 6))
-
-        row_rs_lvl = ctk.CTkFrame(rs_card, fg_color="transparent")
-        row_rs_lvl.pack(fill="x", padx=12, pady=(0, 10))
-
-        ctk.CTkLabel(row_rs_lvl, text="Cấp độ Reset:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left")
-        ent_rs_lvl = ctk.CTkEntry(row_rs_lvl, width=70, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
-        ent_rs_lvl.pack(side="left", padx=8)
-        ent_rs_lvl.insert(0, str(ctrl.reset_level or 400))
-        ctk.CTkLabel(row_rs_lvl, text="(Mặc định: 400)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#64748b").pack(side="left")
-
-        # 3. Stat Ratio Section - THEO CLASS & TÙY CHỌN RIÊNG
-        stat_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
-        stat_card.pack(fill="x", pady=(0, 10), padx=4)
-
-        stat_header = ctk.CTkLabel(
-            stat_card,
-            text="⭐ CẤU HÌNH CỘNG POINT THEO CLASS & TÙY CHỈNH",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#38bdf8"
-        )
-        stat_header.pack(anchor="w", padx=12, pady=(8, 2))
-
-        var_stat = ctk.BooleanVar(value=ctrl.auto_add_point)
-        chk_stat = ctk.CTkCheckBox(
-            stat_card,
-            text="Kích hoạt tự động cộng điểm point khi có điểm dư (>= 10 pts)",
-            variable=var_stat,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f1f5f9",
-            fg_color="#0284c7",
-            hover_color="#0369a1"
-        )
-        chk_stat.pack(anchor="w", padx=12, pady=(0, 8))
-
-        # Chọn Chế Độ: Theo Class (Auto) hoặc Tùy Chỉnh (Custom)
-        cur_mode = ctrl.stat_mode if getattr(ctrl, "stat_mode", None) in ("auto_class", "custom") else "auto_class"
-        var_mode = ctk.StringVar(value="Theo Class (Tự Động)" if cur_mode == "auto_class" else "Tùy Chỉnh Riêng")
-
-        mode_frame = ctk.CTkFrame(stat_card, fg_color="#181c26", corner_radius=6)
-        mode_frame.pack(fill="x", padx=12, pady=(0, 8))
-
-        ctk.CTkLabel(mode_frame, text="Chế độ:", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#cbd5e1").pack(side="left", padx=(8, 4), pady=6)
-
-        seg_mode = ctk.CTkSegmentedButton(
-            mode_frame,
-            values=["Theo Class (Tự Động)", "Tùy Chỉnh Riêng"],
-            variable=var_mode,
-            height=26,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            selected_color="#0284c7",
-            selected_hover_color="#0369a1",
-            unselected_color="#242b3a",
-            unselected_hover_color="#334155"
-        )
-        seg_mode.pack(side="left", padx=4, pady=6)
-
-        # Dropdown Class
-        class_options = [f"{code} - {CLASS_CODE_TO_NAME.get(code, code)}" for code in CLASS_ID_TO_CODE.values()]
-        init_sel_class = f"{det_code} - {det_fullname}"
-        if init_sel_class not in class_options:
-            init_sel_class = class_options[0]
-
-        var_sel_class = ctk.StringVar(value=init_sel_class)
-        combo_class = ctk.CTkOptionMenu(
-            mode_frame,
-            values=class_options,
-            variable=var_sel_class,
-            width=210,
-            height=26,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color="#242b3a",
-            button_color="#334155"
-        )
-        combo_class.pack(side="right", padx=8, pady=6)
-
-        lbl_mode_hint = ctk.CTkLabel(
-            stat_card,
-            text="💡 Chế độ 'Theo Class': Mọi nhân vật thuộc Class này sẽ tự động nhận tỷ lệ đã cấu hình.",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#38bdf8"
-        )
-        lbl_mode_hint.pack(anchor="w", padx=12, pady=(0, 6))
-
-        def _on_mode_change(val):
-            if val == "Theo Class (Tự Động)":
-                lbl_mode_hint.configure(
-                    text="💡 Chế độ 'Theo Class': Hệ thống tự phát hiện Class của nhân vật từ RAM và áp dụng đúng tỷ lệ.",
-                    text_color="#38bdf8"
-                )
-                btn_save_class.configure(state="normal")
-            else:
-                lbl_mode_hint.configure(
-                    text="⚠️ Chế độ 'Tùy Chỉnh Riêng': Áp dụng tỷ lệ nhập bên dưới riêng cho Slot này (bỏ qua Class).",
-                    text_color="#f59e0b"
-                )
-
-        seg_mode.configure(command=_on_mode_change)
-
-        # Lưới nhập % Stat
-        stat_entries = {}
-        grid_frame = ctk.CTkFrame(stat_card, fg_color="transparent")
-        grid_frame.pack(fill="x", padx=12, pady=(0, 8))
-
-        # Lấy tỷ lệ ban đầu
-        init_ratio = ctrl.stat_ratio
-        if cur_mode == "auto_class" and det_code in class_profiles:
-            init_ratio = class_profiles[det_code].get("stat_ratio", init_ratio)
-        if not init_ratio:
-            init_ratio = {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}
-
-        labels = [
-            ("str", "Sức mạnh (Str /f):", int(init_ratio.get("str", 0.4) * 100)),
-            ("agi", "Nhanh nhẹn (Agi /a):", int(init_ratio.get("agi", 0.4) * 100)),
-            ("vit", "Thể lực (Vit /v):", int(init_ratio.get("vit", 0.1) * 100)),
-            ("ene", "Năng lượng (Ene /e):", int(init_ratio.get("ene", 0.1) * 100)),
-            ("cmd", "Mệnh lệnh DL (Cmd /c):", int(init_ratio.get("cmd", 0.0) * 100)),
-        ]
-
-        for r_idx, (key, title, val) in enumerate(labels):
-            lbl_item = ctk.CTkLabel(grid_frame, text=title, font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1", width=160, anchor="w")
-            lbl_item.grid(row=r_idx, column=0, pady=2, sticky="w")
-
-            ent_item = ctk.CTkEntry(grid_frame, width=65, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
-            ent_item.grid(row=r_idx, column=1, pady=2, padx=(4, 6))
-            ent_item.insert(0, str(val))
-            stat_entries[key] = ent_item
-
-            unit_lbl = ctk.CTkLabel(grid_frame, text="%", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8")
-            unit_lbl.grid(row=r_idx, column=2, pady=2, sticky="w")
-
-        def _apply_stats(s, a, v, e, c):
-            stat_entries["str"].delete(0, "end"); stat_entries["str"].insert(0, str(s))
-            stat_entries["agi"].delete(0, "end"); stat_entries["agi"].insert(0, str(a))
-            stat_entries["vit"].delete(0, "end"); stat_entries["vit"].insert(0, str(v))
-            stat_entries["ene"].delete(0, "end"); stat_entries["ene"].insert(0, str(e))
-            stat_entries["cmd"].delete(0, "end"); stat_entries["cmd"].insert(0, str(c))
-
-        def _on_class_selected(val):
-            code = val.split(" - ")[0].strip()
-            # Nạp tươi từ file để luôn đồng bộ mới nhất
-            fresh_p = ConfigPersistenceManager.load_class_stat_profiles()
-            if code in fresh_p:
-                r = fresh_p[code].get("stat_ratio", {})
-                _apply_stats(
-                    int(r.get("str", 0.0) * 100),
-                    int(r.get("agi", 0.0) * 100),
-                    int(r.get("vit", 0.0) * 100),
-                    int(r.get("ene", 0.0) * 100),
-                    int(r.get("cmd", 0.0) * 100)
-                )
-            btn_save_class.configure(text=f"💾 Lưu Cấu Hình Chuẩn Cho Class [{code}]")
-
-        combo_class.configure(command=_on_class_selected)
-
-        # Nút presets
-        preset_row = ctk.CTkFrame(stat_card, fg_color="transparent")
-        preset_row.pack(fill="x", padx=12, pady=(0, 6))
-
-        btn_p1 = ctk.CTkButton(preset_row, text="Chiến (50/50)", width=75, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(50, 50, 0, 0, 0))
-        btn_p1.pack(side="left", padx=2)
-        btn_p2 = ctk.CTkButton(preset_row, text="Phép (70/30)", width=75, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(0, 30, 0, 70, 0))
-        btn_p2.pack(side="left", padx=2)
-        btn_p3 = ctk.CTkButton(preset_row, text="Elf Cung", width=65, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(15, 80, 5, 0, 0))
-        btn_p3.pack(side="left", padx=2)
-        btn_p4 = ctk.CTkButton(preset_row, text="Chúa Tể DL", width=75, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(30, 30, 0, 10, 30))
-        btn_p4.pack(side="left", padx=2)
-        btn_p5 = ctk.CTkButton(preset_row, text="Cân Bằng", width=65, height=22, font=ctk.CTkFont(family="Segoe UI", size=10), fg_color="#181c26", hover_color="#242b3a", command=lambda: _apply_stats(40, 40, 10, 10, 0))
-        btn_p5.pack(side="left", padx=2)
-
-        # Hàng mốc điểm tối thiểu
-        min_pts_row = ctk.CTkFrame(stat_card, fg_color="transparent")
-        min_pts_row.pack(fill="x", padx=12, pady=(0, 6))
-        ctk.CTkLabel(min_pts_row, text="Cộng khi có tối thiểu:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left")
-        ent_min_pts = ctk.CTkEntry(min_pts_row, width=50, height=24, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"))
-        ent_min_pts.pack(side="left", padx=6)
-        ent_min_pts.insert(0, "1")
-        ctk.CTkLabel(min_pts_row, text="điểm point (Khuyên dùng: 1 điểm để tăng sức mạnh ngay)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#94a3b8").pack(side="left")
-
-        # Nút lưu làm mặc định cho Class
-        def _save_as_class_default():
-            try:
-                sel_code = var_sel_class.get().split(" - ")[0].strip()
-                raw_s = float(stat_entries["str"].get().strip() or 0)
-                raw_a = float(stat_entries["agi"].get().strip() or 0)
-                raw_v = float(stat_entries["vit"].get().strip() or 0)
-                raw_e = float(stat_entries["ene"].get().strip() or 0)
-                raw_c = float(stat_entries["cmd"].get().strip() or 0)
-                tot = raw_s + raw_a + raw_v + raw_e + raw_c
-                if tot <= 0: tot = 100.0
-                new_r = {
-                    "str": round(raw_s / tot, 3),
-                    "agi": round(raw_a / tot, 3),
-                    "vit": round(raw_v / tot, 3),
-                    "ene": round(raw_e / tot, 3),
-                    "cmd": round(raw_c / tot, 3),
-                }
-                ConfigPersistenceManager.save_class_stat_profile(sel_code, new_r)
-                fresh_profiles = ConfigPersistenceManager.load_class_stat_profiles()
-                ctrl.stat_mode = "auto_class"
-                ctrl.custom_class = sel_code
-                ctrl.stat_ratio = new_r
-                d_min_rs = int(ent_ds_min_rs.get().strip() or 0)
-                d_max_rs = int(ent_ds_max_rs.get().strip() or 9999)
-                ctrl.devil_min_resets = d_min_rs
-                ctrl.devil_max_resets = d_max_rs
-                ConfigPersistenceManager.save_event_config(
-                    slot_idx=slot_idx,
-                    auto_devil=var_ds.get(),
-                    devil_min_resets=d_min_rs,
-                    devil_max_resets=d_max_rs,
-                    auto_reset=var_rs.get(),
-                    auto_add_point=var_stat.get(),
-                    reset_level=int(ent_rs_lvl.get().strip() or 400),
-                    stat_mode="auto_class",
-                    custom_class=sel_code,
-                    stat_ratio=new_r
-                )
-                if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
-                    ctrl.worker.update_config({
-                        "stat_mode": "auto_class",
-                        "custom_class": sel_code,
-                        "stat_ratio": new_r,
-                        "min_add_points": 1,
-                        "class_profiles": fresh_profiles
-                    })
-                self.log_message(f"Đã lưu tỷ lệ Point chuẩn cho Class [{sel_code}]: {new_r}", "SUCCESS")
-                messagebox.showinfo("Thành Công", f"Đã lưu tỷ lệ chuẩn cho Class [{sel_code}]!\n\nMọi nhân vật mang Class [{sel_code}] sẽ tự động áp dụng tỷ lệ này khi cắm auto.\nWorker đang chạy đã được cập nhật ngay lập tức.")
-            except Exception as e_cd:
-                messagebox.showerror("Lỗi", f"Không thể lưu mặc định Class: {e_cd}")
-
-        btn_save_class = ctk.CTkButton(
-            stat_card,
-            text=f"💾 Lưu Cấu Hình Chuẩn Cho Class [{det_code}]",
-            height=28,
-            fg_color="#0f766e",
-            hover_color="#115e59",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=_save_as_class_default
-        )
-        btn_save_class.pack(fill="x", padx=12, pady=(0, 10))
-
-        # Footer Buttons
-        footer = ctk.CTkFrame(dlg, fg_color="#141722", height=50, corner_radius=0)
-        footer.pack(fill="x", side="bottom")
-
-        def _save_and_close():
-            try:
-                new_ds = var_ds.get()
-                new_rs = var_rs.get()
-                new_stat = var_stat.get()
-                try:
-                    new_rs_lvl = int(ent_rs_lvl.get().strip())
-                except Exception:
-                    new_rs_lvl = 400
-
-                try:
-                    new_min_pts = int(ent_min_pts.get().strip() or 1)
-                except Exception:
-                    new_min_pts = 1
-
-                sel_code = var_sel_class.get().split(" - ")[0].strip()
-                raw_s = float(stat_entries["str"].get().strip() or 0)
-                raw_a = float(stat_entries["agi"].get().strip() or 0)
-                raw_v = float(stat_entries["vit"].get().strip() or 0)
-                raw_e = float(stat_entries["ene"].get().strip() or 0)
-                raw_c = float(stat_entries["cmd"].get().strip() or 0)
-                total = raw_s + raw_a + raw_v + raw_e + raw_c
-                if total <= 0:
-                    new_ratio = {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}
-                else:
-                    new_ratio = {
-                        "str": round(raw_s / total, 3),
-                        "agi": round(raw_a / total, 3),
-                        "vit": round(raw_v / total, 3),
-                        "ene": round(raw_e / total, 3),
-                        "cmd": round(raw_c / total, 3),
-                    }
-
-                is_auto_class = (var_mode.get() == "Theo Class (Tự Động)")
-                applied_mode = "auto_class" if is_auto_class else "custom"
-
-                if is_auto_class:
-                    # Tự động lưu luôn vào class_stat_profiles để mọi nhân vật Class này nhận
-                    ConfigPersistenceManager.save_class_stat_profile(sel_code, new_ratio)
-
-                fresh_profiles = ConfigPersistenceManager.load_class_stat_profiles()
-
-                d_min_rs = int(ent_ds_min_rs.get().strip() or 0)
-                d_max_rs = int(ent_ds_max_rs.get().strip() or 9999)
-                t_ch = cbo_ds_ticket.get()
-                d_pref = "master" if ("Master" in t_ch and "Chỉ" in t_ch) else ("normal" if ("Thường" in t_ch and "Chỉ" in t_ch) else "auto")
-                ctrl.devil_min_resets = d_min_rs
-                ctrl.devil_max_resets = d_max_rs
-                ctrl.devil_ticket_type = d_pref
-                ctrl.auto_devil = new_ds
-                ctrl.auto_reset = new_rs
-                ctrl.auto_add_point = new_stat
-                ctrl.reset_level = new_rs_lvl
-                ctrl.stat_mode = applied_mode
-                ctrl.custom_class = sel_code
-                ctrl.stat_ratio = new_ratio
-
-                ConfigPersistenceManager.save_event_config(
-                    slot_idx=slot_idx,
-                    auto_devil=new_ds,
-                    devil_min_resets=d_min_rs,
-                    devil_max_resets=d_max_rs,
-                    devil_ticket_type=d_pref,
-                    auto_reset=new_rs,
-                    auto_add_point=new_stat,
-                    reset_level=new_rs_lvl,
-                    stat_mode=applied_mode,
-                    custom_class=sel_code,
-                    stat_ratio=new_ratio
-                )
-
-                if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
-                    ctrl.worker.update_config({
-                        "auto_devil": new_ds,
-                        "devil_min_resets": d_min_rs,
-                        "devil_max_resets": d_max_rs,
-                        "devil_ticket_type": d_pref,
-                        "auto_reset": new_rs,
-                        "auto_add_point": new_stat,
-                        "reset_level": new_rs_lvl,
-                        "stat_mode": applied_mode,
-                        "custom_class": sel_code,
-                        "stat_ratio": new_ratio,
-                        "min_add_points": new_min_pts,
-                        "class_profiles": fresh_profiles
-                    })
-
-                el = self.slot_ui_elements.get(slot_idx)
-                if el:
-                    if el.get("btn_devil"):
-                        if new_ds:
-                            el["btn_devil"].configure(fg_color="#4c0519", text_color="#f43f5e", border_color="#e11d48", hover_color="#881337")
-                        else:
-                            el["btn_devil"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
-                    if el.get("btn_reset"):
-                        if new_rs:
-                            el["btn_reset"].configure(fg_color="#064e3b", text_color="#10b981", border_color="#059669", hover_color="#047857")
-                        else:
-                            el["btn_reset"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
-                    if el.get("btn_point"):
-                        if new_stat:
-                            el["btn_point"].configure(fg_color="#075985", text_color="#38bdf8", border_color="#0284c7", hover_color="#0369a1")
-                        else:
-                            el["btn_point"].configure(fg_color="#181c26", text_color="#64748b", border_color="#2b3244", hover_color="#242b3a")
-
-                mode_text = f"Theo Class [{sel_code}]" if is_auto_class else "Tùy Chỉnh Riêng"
-                self.log_message(f"[Slot {slot_idx:02d}] Đã lưu cài đặt ({mode_text}): DS={new_ds}, RS={new_rs} (LV {new_rs_lvl}), Point={new_stat} (Str:{int(new_ratio['str']*100)}%, Agi:{int(new_ratio['agi']*100)}%, Vit:{int(new_ratio['vit']*100)}%, Ene:{int(new_ratio['ene']*100)}%, Cmd:{int(new_ratio['cmd']*100)}%).", "SUCCESS")
-                dlg.destroy()
-            except Exception as ex:
-                messagebox.showerror("Lỗi Cài Đặt", f"Không thể lưu cài đặt: {ex}")
-
-        btn_save = ctk.CTkButton(
-            footer,
-            text="Lưu & Áp Dụng",
-            width=160,
-            height=32,
-            fg_color="#2563eb",
-            hover_color="#1d4ed8",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=_save_and_close
-        )
-        btn_save.pack(side="right", padx=16, pady=9)
-
-        btn_cancel = ctk.CTkButton(
-            footer,
-            text="Hủy Bỏ",
-            width=80,
-            height=32,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=dlg.destroy
-        )
-        btn_cancel.pack(side="right", padx=8, pady=9)
+        """Mở hộp thoại cấu hình tỷ lệ cộng điểm (Point Stat Ratio) cho từng Slot."""
+        from ui.modals.stats_modal import open_slot_stat_ratio_dialog as _open
+        return _open(self, slot_idx)
 
     def update_slot_ui_status(self, slot_idx: int, text: str):
         def _apply():
             el = self.slot_ui_elements.get(slot_idx)
-            if el and el.get("status_lbl"):
-                lbl = el["status_lbl"]
-                tl = str(text).lower()
-                if "tự động đánh" in tl or "running" in tl or "đang chạy" in tl or "at spot" in tl or "tại bãi" in tl or "executando" in tl:
-                    lbl.configure(text=tr("status_running"), text_color="#4ade80", cursor="")
-                elif "moving" in tl or "chạy ra bãi" in tl or "di chuyển" in tl or "map" in tl or "movendo" in tl:
-                    lbl.configure(text=tr("status_moving"), text_color="#facc15", cursor="")
-                elif "game đã đóng" in tl or "game_closed" in tl or "closed" in tl or "disconnect" in tl or "pk" in tl or "mất kết nối" in tl or "desconectado" in tl:
-                    lbl.configure(text=tr("status_disconnected"), text_color="#f87171", cursor="hand2")
-                elif "đã kết nối" in tl or "connected" in tl or "stopped" in tl or "đã dừng" in tl or "parado" in tl:
-                    lbl.configure(text=tr("status_stopped"), text_color="#e2e8f0", cursor="")
-                elif "idle" in tl or "chờ" in tl or "aguardando" in tl:
-                    lbl.configure(text=tr("status_idle"), text_color="#94a3b8", cursor="")
-                else:
-                    lbl.configure(text=str(text), text_color="#94a3b8", cursor="")
+            if not el or not el.get("status_lbl"):
+                return
+            cache = getattr(self, "_slot_telemetry_cache", {}).setdefault(slot_idx, {})
+            if cache.get("status_text") == text:
+                return
+            cache["status_text"] = text
+            lbl = el["status_lbl"]
+            tl = str(text).lower()
+            if "tự động đánh" in tl or "running" in tl or "đang chạy" in tl or "at spot" in tl or "tại bãi" in tl or "executando" in tl:
+                lbl.configure(text=tr("status_running"), text_color="#4ade80", cursor="")
+            elif "moving" in tl or "chạy ra bãi" in tl or "di chuyển" in tl or "map" in tl or "movendo" in tl:
+                lbl.configure(text=tr("status_moving"), text_color="#facc15", cursor="")
+            elif "game đã đóng" in tl or "game_closed" in tl or "closed" in tl or "disconnect" in tl or "pk" in tl or "mất kết nối" in tl or "desconectado" in tl:
+                lbl.configure(text=tr("status_disconnected"), text_color="#f87171", cursor="hand2")
+            elif "đã kết nối" in tl or "connected" in tl or "stopped" in tl or "đã dừng" in tl or "parado" in tl:
+                lbl.configure(text=tr("status_stopped"), text_color="#e2e8f0", cursor="")
+            elif "idle" in tl or "chờ" in tl or "aguardando" in tl:
+                lbl.configure(text=tr("status_idle"), text_color="#94a3b8", cursor="")
+            else:
+                lbl.configure(text=str(text), text_color="#94a3b8", cursor="")
         try:
             self.after(0, _apply)
         except Exception:
             _apply()
 
+    def update_slot_run_button_state(self, slot_idx: int):
+        """Cập nhật trạng thái enable/disable và màu sắc của nút Chạy Auto: chỉ kích hoạt khi đã gán nhân vật."""
+        el = self.slot_ui_elements.get(slot_idx)
+        if not el or not el.get("btn_toggle"):
+            return
+        btn = el["btn_toggle"]
+        if slot_idx < 1 or slot_idx > len(self.controllers):
+            return
+        ctrl = self.controllers[slot_idx - 1]
+
+        is_running = bool((ctrl.worker and ctrl.worker.running) or ctrl.auto_requested)
+        has_character = bool(ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid))
+
+        cache = getattr(self, "_slot_run_btn_cache", {}).setdefault(slot_idx, {})
+        current_state = (is_running, has_character)
+        if cache.get("state") == current_state:
+            return
+        cache["state"] = current_state
+
+        if is_running:
+            btn.configure(
+                state="normal",
+                image=getattr(self, "_icon_stop_12", None) or UiIconFactory.get("stop", color="#ffffff", size=(12, 12)),
+                text="",
+                fg_color="#dc2626",
+                hover_color="#b91c1c",
+                border_color="#ef4444"
+            )
+            add_tooltip(
+                btn,
+                f"[Slot #{slot_idx:02d}] ⏹ Dừng Auto\n"
+                "Đang chạy tự động. Nhấn để tạm dừng."
+            )
+        elif has_character:
+            btn.configure(
+                state="normal",
+                image=getattr(self, "_icon_play_12", None) or UiIconFactory.get("play", color="#38bdf8", size=(11, 11)),
+                text="",
+                fg_color="#161a24",
+                hover_color="#222838",
+                border_color="#2b3244"
+            )
+            add_tooltip(
+                btn,
+                f"[Slot #{slot_idx:02d}] ▶ Chạy Auto\n"
+                f"Đã gán: {ctrl.char_name or 'MEGAMU'} (PID {ctrl.assigned_pid}). Nhấn để bắt đầu."
+            )
+        else:
+            btn.configure(
+                state="disabled",
+                image=getattr(self, "_icon_play_12_disabled", None) or UiIconFactory.get("play", color="#475569", size=(11, 11)),
+                text="",
+                fg_color="#0f1219",
+                hover_color="#0f1219",
+                border_color="#1a202c"
+            )
+            add_tooltip(
+                btn,
+                f"[Slot #{slot_idx:02d}] ⚠️ Chưa gán nhân vật\n"
+                "Vui lòng chọn nhân vật MEGAMU ở cột 'Nhân vật / PID' để kích hoạt nút chạy."
+            )
+
     def update_slot_ui_auto(self, slot_idx: int, is_on: bool):
         def _apply():
-            el = self.slot_ui_elements.get(slot_idx)
-            if el and el.get("btn_toggle"):
-                btn = el["btn_toggle"]
-                if is_on:
-                    btn.configure(
-                        image=UiIconFactory.get("stop", color="#ffffff", size=(12, 12)),
-                        text="",
-                        fg_color="#dc2626",
-                        hover_color="#b91c1c",
-                        border_color="#ef4444"
-                    )
-                else:
-                    btn.configure(
-                        image=UiIconFactory.get("play", color="#38bdf8", size=(11, 11)),
-                        text="",
-                        fg_color="#181c26",
-                        hover_color="#242b3a",
-                        border_color="#2b3244"
-                    )
+            self.update_slot_run_button_state(slot_idx)
         try:
             self.after(0, _apply)
             self.after(0, self.update_master_run_button)
@@ -11709,14 +5549,20 @@ class DashboardApp(ctk.CTk):
             if not el:
                 return
             ctrl = self.controllers[slot_idx - 1]
+            cache = getattr(self, "_slot_telemetry_cache", {}).setdefault(slot_idx, {})
+
+            # 1. Proc Combo / Name display (Dirty check)
             c_tag = f"[{class_code}] " if (class_code and class_code.strip()) else (f"[{ctrl.class_code}] " if ctrl.class_code else "")
             if el.get("proc_var") and name and name != "---":
-                curr = el["proc_var"].get()
-                if curr in ("--", tr("select"), "") or name not in curr or (c_tag and not curr.startswith("[")):
-                    pid_str = f"{ctrl.assigned_pid}" if ctrl.assigned_pid else ""
-                    disp_str = f"{c_tag}{name} ({pid_str})" if pid_str else f"{c_tag}{name}"
-                    el["proc_var"].set(disp_str)
+                pid_str = f"{ctrl.assigned_pid}" if ctrl.assigned_pid else ""
+                disp_str = f"{c_tag}{name} ({pid_str})" if pid_str else f"{c_tag}{name}"
+                if cache.get("disp_str") != disp_str:
+                    cache["disp_str"] = disp_str
+                    curr = el["proc_var"].get()
+                    if curr in ("--", tr("select"), "") or name not in curr or (c_tag and not curr.startswith("[")):
+                        el["proc_var"].set(disp_str)
 
+            # 2. Level, Reset, Progress Bar, EXP (Dirty check)
             if lvl and lvl != "---":
                 try:
                     lvl_num = int(lvl)
@@ -11724,41 +5570,40 @@ class DashboardApp(ctk.CTk):
                     lvl_num = 0
                 if lvl_num > 0:
                     rs_cnt = getattr(ctrl, "current_resets", 0)
-                    if rs_cnt <= 0 and ctrl.assigned_pid:
-                        try:
-                            from meg_navigator import ProcessMemoryReader
-                            if hasattr(ProcessMemoryReader, "read_character_resets"):
-                                rs_cnt = ProcessMemoryReader.read_character_resets(ctrl.assigned_pid) or 0
-                        except Exception:
-                            rs_cnt = 0
-                    if rs_cnt > 0:
-                        ctrl.current_resets = rs_cnt
-                    if el.get("lvl_lbl"):
+                    lvl_state = (lvl_num, rs_cnt)
+                    if cache.get("lvl_state") != lvl_state:
+                        cache["lvl_state"] = lvl_state
                         rr_suffix = f" ({rs_cnt}rr)" if rs_cnt > 0 else ""
-                        if lvl_num >= 400:
-                            el["lvl_lbl"].configure(text=f"M.LV {lvl_num}{rr_suffix}", text_color="#38bdf8")
-                        else:
-                            el["lvl_lbl"].configure(text=f"LV {lvl_num}{rr_suffix}", text_color="#94a3b8")
-                    if el.get("prog_bar"):
-                        ratio = min(1.0, max(0.05, (lvl_num % 400) / 400.0 if lvl_num >= 400 else lvl_num / 400.0))
-                        el["prog_bar"].set(ratio)
-                    if el.get("exp_lbl"):
-                        exp_cur = lvl_num * 3717 + 800
-                        exp_max = 800 if lvl_num >= 400 else 400
-                        el["exp_lbl"].configure(text=f"{exp_cur:,} / {exp_max} EXP".replace(",", "."))
+                        if el.get("lvl_lbl"):
+                            txt = f"M.LV {lvl_num}{rr_suffix}" if lvl_num >= 400 else f"LV {lvl_num}{rr_suffix}"
+                            col = "#38bdf8" if lvl_num >= 400 else "#94a3b8"
+                            el["lvl_lbl"].configure(text=txt, text_color=col)
+                        if el.get("prog_bar"):
+                            ratio = round(min(1.0, max(0.05, (lvl_num % 400) / 400.0 if lvl_num >= 400 else lvl_num / 400.0)), 2)
+                            el["prog_bar"].set(ratio)
+                        if el.get("exp_lbl"):
+                            exp_cur = lvl_num * 3717 + 800
+                            exp_max = 800 if lvl_num >= 400 else 400
+                            el["exp_lbl"].configure(text=f"{exp_cur:,} / {exp_max} EXP".replace(",", "."))
 
+                    # Profile Var (Dirty check)
                     if el.get("profile_var"):
                         expected_cfg = f"Config {ctrl.profile_index}"
-                        if el["profile_var"].get() != expected_cfg:
-                            el["profile_var"].set(expected_cfg)
+                        if cache.get("cfg") != expected_cfg:
+                            cache["cfg"] = expected_cfg
+                            if el["profile_var"].get() != expected_cfg:
+                                el["profile_var"].set(expected_cfg)
 
+            # 3. Points (Dirty check)
             pts_val = points if points is not None else getattr(ctrl, "points", 0)
-            if el.get("pts_lbl"):
+            if el.get("pts_lbl") and cache.get("pts_val") != pts_val:
+                cache["pts_val"] = pts_val
                 if pts_val > 0:
                     el["pts_lbl"].configure(text=f"⭐ {pts_val:,} pts", text_color="#10b981")
                 else:
                     el["pts_lbl"].configure(text="⭐ 0 pts", text_color="#64748b")
 
+            # 4. Coordinates (Dirty check)
             if el.get("coords_lbl"):
                 if coords and coords.strip() and coords not in ("--,--", "--", "--, --"):
                     parts = [p.strip() for p in coords.replace("/", ",").split(",") if p.strip()]
@@ -11766,15 +5611,20 @@ class DashboardApp(ctk.CTk):
                         c_disp = f"{parts[0]}, {parts[1]}"
                     else:
                         c_disp = coords.strip()
-                    el["coords_lbl"].configure(text=c_disp)
                 else:
-                    el["coords_lbl"].configure(text="--, --")
-            if hasattr(self, "update_moss_slot_telemetry"):
+                    c_disp = "--, --"
+                if cache.get("c_disp") != c_disp:
+                    cache["c_disp"] = c_disp
+                    el["coords_lbl"].configure(text=c_disp)
+
+            # 5. Lazy Tab Update: Chỉ cập nhật widget Moss/Mirror nếu Tab đó ĐANG MỞ
+            cur_tab = getattr(self, "active_tab", "")
+            if cur_tab == "moss" and hasattr(self, "update_moss_slot_telemetry"):
                 try:
                     self.update_moss_slot_telemetry(slot_idx, name, ctrl.assigned_pid)
                 except Exception:
                     pass
-            if hasattr(self, "update_mirror_slot_telemetry"):
+            elif cur_tab == "mirror" and hasattr(self, "update_mirror_slot_telemetry"):
                 try:
                     self.update_mirror_slot_telemetry(slot_idx, name, ctrl.assigned_pid, coords)
                 except Exception:
@@ -11814,7 +5664,7 @@ class DashboardApp(ctk.CTk):
         """Gán toàn bộ các tiến trình MEGAMU đang mở vào các Slot trống (hỗ trợ linh hoạt 1, 2, 3, 4, 5, 6, 7, 8... tài khoản)."""
         self.refresh_games()
         # Chỉ coi PID là đã gán nếu PID đó thực sự đang tồn tại trên Windows
-        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)}
+        assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid and is_megamu_process_alive(c.assigned_pid)}
         available_pids = [p for p in self.detected_games if p not in assigned_pids]
 
         if not available_pids:
@@ -11826,7 +5676,7 @@ class DashboardApp(ctk.CTk):
         max_allowed = int(lic_data.get("max_slots", 5 if not is_valid else 10))
 
         # 1. Tìm các slot trống hiện có
-        target_slots = [c for c in self.controllers if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid)]
+        target_slots = [c for c in self.controllers if not c.assigned_pid or not is_megamu_process_alive(c.assigned_pid)]
         target_slots.sort(key=lambda c: c.slot_idx)
 
         # 2. Nếu số game cần gán nhiều hơn số slot trống hiện tại -> tự động mở thêm slot mới (nếu chưa vượt giới hạn bản quyền)
@@ -11871,6 +5721,8 @@ class DashboardApp(ctk.CTk):
             )
         else:
             self.log_message(f"Gán toàn bộ: Đã gán thành công toàn bộ {assigned_count} tài khoản vào các Slot.", "SUCCESS")
+        for c in self.controllers:
+            self.update_slot_run_button_state(c.slot_idx)
 
     def assign_team5(self):
         """Gán toàn bộ tài khoản vào các Slot (alias cho assign_all)."""
@@ -11880,7 +5732,7 @@ class DashboardApp(ctk.CTk):
         """Tự động gom ngọc cho toàn bộ tài khoản đang kết nối."""
         cnt = 0
         for ctrl in self.controllers:
-            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+            if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                 cnt += 1
                 threading.Thread(target=ctrl.auto_stack_jewels, daemon=True).start()
         if cnt == 0:
@@ -11947,16 +5799,20 @@ class DashboardApp(ctk.CTk):
             self.start_all()
 
     def update_master_run_button(self):
-        """Cập nhật icon, màu sắc và tooltip của nút master Chạy/Dừng Tất Cả theo thời gian thực."""
+        """Cập nhật icon, màu sắc và tooltip của nút master Chạy/Dừng Tất Cả theo thời gian thực (Zero-churn cache)."""
         if not hasattr(self, "btn_master_run") or self.btn_master_run is None:
             return
         def _apply():
             try:
                 any_running = any(c.worker and c.worker.running for c in self.controllers) or any(c.auto_requested for c in self.controllers)
+                if getattr(self, "_last_master_running_state", None) == any_running:
+                    return
+                self._last_master_running_state = any_running
+
                 if any_running:
-                    # Đang có ít nhất 1 tài khoản chạy -> Hiển thị icon Dừng (Màu đỏ nổi bật)
+                    # Đang có ít nhất 1 tài khoản chạy -> Hiển thị icon Dừng
                     self.btn_master_run.configure(
-                        image=UiIconFactory.get("stop", color="#ffffff", size=(16, 16)),
+                        image=getattr(self, "_icon_stop_16", None) or UiIconFactory.get("stop", color="#ffffff", size=(16, 16)),
                         fg_color="#dc2626",
                         hover_color="#b91c1c",
                         border_color="#ef4444"
@@ -11967,9 +5823,9 @@ class DashboardApp(ctk.CTk):
                         "Hiện có tài khoản đang chạy Auto. Nhấp vào đây để tạm dừng toàn bộ."
                     )
                 else:
-                    # Tất cả đều đang dừng -> Hiển thị icon Chạy (Màu xanh lục nổi bật)
+                    # Tất cả đều đang dừng -> Hiển thị icon Chạy
                     self.btn_master_run.configure(
-                        image=UiIconFactory.get("play", color="#6ee7b7", size=(16, 16)),
+                        image=getattr(self, "_icon_play_16", None) or UiIconFactory.get("play", color="#6ee7b7", size=(16, 16)),
                         fg_color="#064e3b",
                         hover_color="#047857",
                         border_color="#059669"
@@ -12109,7 +5965,7 @@ class DashboardApp(ctk.CTk):
 
         # 3. Table Header in Accounts Tab
         if hasattr(self, "col_header_labels"):
-            keys = ["col_no", "col_char_pid", "col_route_preset", "col_coordinates", "col_status", "col_actions"]
+            keys = ["col_no", "col_char_pid", "col_route_preset", "col_level", "col_coordinates", "col_status", "col_actions"]
             for lbl, k in zip(self.col_header_labels, keys):
                 try:
                     lbl.configure(text=tr(k))
@@ -12120,36 +5976,57 @@ class DashboardApp(ctk.CTk):
         for ctrl in self.controllers:
             self.update_slot_ui_status(ctrl.slot_idx, ctrl.status)
 
-        # 5. Configuration Tab
-        if hasattr(self, "lbl_edit_profile"):
-            self.lbl_edit_profile.configure(text=tr("edit_profile"))
-        if hasattr(self, "lbl_pk_delay"):
-            self.lbl_pk_delay.configure(text=tr("pk_delay"))
-        if hasattr(self, "btn_reload_cfg"):
-            self.btn_reload_cfg.configure(text=tr("reload"))
-        if hasattr(self, "btn_save_cfg"):
-            self.btn_save_cfg.configure(text=tr("save_profile"))
-        if hasattr(self, "lbl_team_note"):
-            self.lbl_team_note.configure(text=tr("team_note"))
+        # 5. Header Modals Buttons (Icon-only Minimalist, giữ nguyên text rỗng)
+        pass
+
+        # 6. Configuration Modal/Tab
+        for attr, tr_key in [
+            ("lbl_edit_profile", "edit_profile"),
+            ("lbl_pk_delay", "pk_delay"),
+            ("btn_reload_cfg", "reload"),
+            ("btn_save_cfg", "save_profile"),
+            ("lbl_team_note", "team_note"),
+        ]:
+            if hasattr(self, attr):
+                try:
+                    w = getattr(self, attr)
+                    if w and w.winfo_exists():
+                        w.configure(text=tr(tr_key))
+                except Exception:
+                    pass
+
         if hasattr(self, "stage_header_labels"):
             s_keys = ["stage_min", "stage_max", "stage_map", "stage_x", "stage_y"]
             for lbl, sk in zip(self.stage_header_labels, s_keys):
                 try:
-                    lbl.configure(text=tr(sk))
+                    if lbl and lbl.winfo_exists():
+                        lbl.configure(text=tr(sk))
                 except Exception:
                     pass
 
-        # 6. Logs Tab
+        # 7. Logs Tab
         if hasattr(self, "lbl_log_show"):
-            self.lbl_log_show.configure(text=tr("show"))
+            try:
+                if self.lbl_log_show.winfo_exists():
+                    self.lbl_log_show.configure(text=tr("show"))
+            except Exception:
+                pass
         if hasattr(self, "btn_clear_log"):
-            self.btn_clear_log.configure(text=tr("clear_view"))
+            try:
+                if self.btn_clear_log.winfo_exists():
+                    self.btn_clear_log.configure(text=tr("clear_view"))
+            except Exception:
+                pass
         if hasattr(self, "log_filter_combo"):
-            current_filter = self.log_filter_var.get()
-            opts = [tr("all")] + [f"{i:02d}" for i in range(1, MAX_SLOTS + 1)]
-            self.log_filter_combo.configure(values=opts)
-            if current_filter not in opts:
-                self.log_filter_var.set(tr("all"))
+            try:
+                if self.log_filter_combo.winfo_exists():
+                    current_filter = self.log_filter_var.get()
+                    opts = [tr("all")] + [f"{i:02d}" for i in range(1, MAX_SLOTS + 1)]
+                    self.log_filter_combo.configure(values=opts)
+                    if current_filter not in opts:
+                        self.log_filter_var.set(tr("all"))
+            except Exception:
+                pass
 
         # 7. Language Menu Variable
         if hasattr(self, "lang_var"):
@@ -12175,6 +6052,8 @@ class DashboardApp(ctk.CTk):
                 def _apply():
                     self.detected_games = games
                     self.update_header_stats()
+                    for c in self.controllers:
+                        self.update_slot_run_button_state(c.slot_idx)
                 if self.running:
                     self.after(0, _apply)
             except Exception:
@@ -12197,34 +6076,51 @@ class DashboardApp(ctk.CTk):
         self._is_resizing = False
         self._resize_timer = None
 
+    def _start_telemetry_loop(self):
+        """Khởi động vòng lặp Telemetry bất đồng bộ thích ứng duy nhất (Adaptive Telemetry Daemon).
+        Tránh hoàn toàn việc tạo mới và hủy hàng nghìn luồng Thread mỗi giờ (Zero Thread Churn).
+        """
+        def _loop():
+            while getattr(self, "running", True):
+                if getattr(self, "_is_resizing", False):
+                    time.sleep(0.3)
+                    continue
+
+                any_moving = False
+                any_connected = False
+                try:
+                    for ctrl in list(self.controllers):
+                        if ctrl.assigned_pid:
+                            any_connected = True
+                            ctrl.sync_telemetry()
+                            if getattr(ctrl, "is_moving", False):
+                                any_moving = True
+                except Exception as e:
+                    log_thread_exception(
+                        source="DashboardApp._telemetry_loop",
+                        exc=e,
+                        thread_name="AdaptiveTelemetryDaemon",
+                        details="Lỗi đồng bộ dữ liệu Telemetry thích ứng"
+                    )
+
+                # Adaptive Sleep Interval:
+                # - Đang di chuyển: 250ms để tọa độ mượt mà
+                # - Đứng train tại chỗ: 750ms (cắt giảm 67% tải CPU)
+                # - Chưa gán tài khoản nào: 1500ms
+                if any_moving:
+                    sleep_time = 0.25
+                elif any_connected:
+                    sleep_time = 0.75
+                else:
+                    sleep_time = 1.5
+
+                time.sleep(sleep_time)
+
+        threading.Thread(target=_loop, daemon=True, name="AdaptiveTelemetryDaemon").start()
+
     def _periodic_telemetry(self):
-        if not self.running or getattr(self, "_is_resizing", False):
-            self.after(500, self._periodic_telemetry)
-            return
-
-        if getattr(self, "_telemetry_worker_active", False):
-            self.after(500, self._periodic_telemetry)
-            return
-
-        self._telemetry_worker_active = True
-        def _worker():
-            try:
-                for ctrl in self.controllers:
-                    if ctrl.assigned_pid:
-                        ctrl.sync_telemetry()
-            except Exception as e:
-                log_thread_exception(
-                    source="DashboardApp._periodic_telemetry",
-                    exc=e,
-                    thread_name="TelemetryWorker",
-                    details="Lỗi đồng bộ dữ liệu Telemetry"
-                )
-            finally:
-                self._telemetry_worker_active = False
-                if self.running:
-                    self.after(500, self._periodic_telemetry)
-
-        threading.Thread(target=_worker, daemon=True, name="TelemetryWorker").start()
+        """Legacy compatibility placeholder."""
+        pass
 
     def _periodic_license_monitor(self):
         """Giám sát liên tục sự tồn tại của file .dll và trạng thái bản quyền theo thời gian thực (1 giây/lần)."""
@@ -12247,13 +6143,18 @@ class DashboardApp(ctk.CTk):
         self.after(1000, self._periodic_license_monitor)
 
     def update_header_stats(self):
-        """Cập nhật các số liệu thống kê trên thanh tiêu đề và chân trang."""
+        """Cập nhật các số liệu thống kê trên thanh tiêu đề và chân trang (Dirty checking)."""
         num_games = len(self.detected_games)
-        num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
+        num_conn = sum(1 for c in self.controllers if c.assigned_pid and is_megamu_process_alive(c.assigned_pid))
         num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
         num_slots = len(self.controllers)
-
         lic_str = license_client.get_license_display_text() if license_client else CURRENT_LICENSE
+
+        state_key = (num_games, num_conn, num_auto, num_slots, lic_str)
+        if getattr(self, "_last_header_stats_state", None) == state_key:
+            return
+        self._last_header_stats_state = state_key
+
         stat_text = tr(
             "header_stats",
             games=num_games,
@@ -12389,13 +6290,21 @@ class DashboardApp(ctk.CTk):
                     pass
 
         # 3. Khóa/mở khóa các nút thao tác từng slot
-        for elem in self.slot_ui_elements.values():
-            for key in ("btn_toggle", "btn_cfg", "proc_combo", "preset_combo"):
+        for s_idx, elem in self.slot_ui_elements.items():
+            for key in ("btn_cfg", "proc_combo", "preset_combo"):
                 if key in elem:
                     try:
                         elem[key].configure(state=state_val)
                     except Exception:
                         pass
+            if state_val == "disabled":
+                if "btn_toggle" in elem:
+                    try:
+                        elem["btn_toggle"].configure(state="disabled")
+                    except Exception:
+                        pass
+            else:
+                self.update_slot_run_button_state(s_idx)
 
         # 4. Hiển thị / ẩn banner cảnh báo trên Toolbar
         if not is_valid:
@@ -12466,6 +6375,9 @@ class DashboardApp(ctk.CTk):
                 except Exception:
                     pass
 
+            # Đánh dấu cờ để CTkToplevel không ghi đè lại icon mặc định
+            win._iconbitmap_method_called = True
+
             # 2. Áp dụng iconbitmap chuẩn Windows Tkinter
             if ICON_FILE.exists():
                 try:
@@ -12496,8 +6408,8 @@ class DashboardApp(ctk.CTk):
                 except Exception:
                     pass
 
-            # 4. Gửi trực tiếp HICON qua Win32 API WM_SETICON lên HWND và Wrapper HWND
-            if ICON_FILE.exists():
+            # 4. Gửi trực tiếp HICON qua Win32 API WM_SETICON lên HWND, Parent và Root Ancestor HWND
+            if ICON_FILE.exists() and sys.platform.startswith("win"):
                 try:
                     import ctypes
                     user32 = ctypes.windll.user32
@@ -12507,14 +6419,16 @@ class DashboardApp(ctk.CTk):
                     WM_SETICON = 0x0080
                     ICON_SMALL = 0
                     ICON_BIG = 1
+                    GA_ROOT = 2
 
                     hicon_big = user32.LoadImageW(None, str(ICON_FILE.resolve()), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
                     hicon_small = user32.LoadImageW(None, str(ICON_FILE.resolve()), IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
 
                     inner_hwnd = win.winfo_id()
                     wrapper_hwnd = user32.GetParent(inner_hwnd) or inner_hwnd
+                    root_hwnd = user32.GetAncestor(inner_hwnd, GA_ROOT) or wrapper_hwnd
 
-                    for h in (inner_hwnd, wrapper_hwnd):
+                    for h in set(filter(None, [inner_hwnd, wrapper_hwnd, root_hwnd])):
                         if hicon_big:
                             user32.SendMessageW(h, WM_SETICON, ICON_BIG, hicon_big)
                         if hicon_small:
@@ -12526,6 +6440,8 @@ class DashboardApp(ctk.CTk):
 
     def on_closing(self):
         self.running = False
+        if hasattr(self, "_app_mutex") and self._app_mutex:
+            self._app_mutex.release()
         self.moss_running = False
         if hasattr(self, "ram_manager") and self.ram_manager:
             try:
