@@ -38,7 +38,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.6"
+    return "v1.5.7"
 
 def get_github_token() -> str:
     p = subprocess.Popen(
@@ -154,21 +154,19 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Tính năng mới trong bản {version}:
-- **Thiết Kế Lại Toàn Diện Auto Devil Square (Theo Mốc RESET Chuẩn Xác):**
-  - Cấu hình điều kiện tham gia Devil Square hoàn toàn dựa trên **Số Lần Reset** (ví dụ: đạt từ 50 Reset trở lên mới bắt đầu đi).
-  - Hỗ trợ lựa chọn 3 chế độ vé: Tự động (ưu tiên Master), Chỉ vé Thường (DS 1-7), Chỉ vé Master (Master DS).
-  - Nguyên tắc an toàn 100%: Chỉ ngưng Auto Train ngoài bãi khi ĐÃ VÀO MAP DEVIL thành công. Nếu chưa đủ Reset hoặc không có vé hợp lệ, 100% tiếp tục cắm bãi train quái bình thường. Nếu hết giờ mở cổng (:30) mà không vào được, lập tức tự động quay lại bãi train cày quái ngay.
-- **Tinh Gọn Giao Diện Toolbar & Bổ Sung Nút Master Toggle Chạy / Dừng Tất Cả:**
-  - Chuyển đổi toàn bộ thanh Toolbar thành các nút **Icon-Only** siêu gọn (36x30 px), loại bỏ hoàn toàn tình trạng tràn viền, chèn chữ hay che khuất nút.
-  - Tích hợp khung chú thích Tooltip chi tiết bằng tiếng Việt khi rê chuột (Hover) vào từng icon.
-  - Gộp nút Chạy/Dừng thành **1 nút Master Toggle duy nhất**:
-    - Khi tất cả đang dừng: hiển thị `[ ▶ ]` màu xanh lục (Bật tất cả).
-    - Khi có tài khoản đang chạy: tự động chuyển thành `[ ⏹ ]` màu đỏ nổi bật (Dừng tất cả).
-  - Thêm nút `[🔥]` Cài đặt Devil nhanh cho toàn bộ tài khoản ngay trên Toolbar.
-  - Tối ưu hóa cột Thao tác trên từng dòng slot: phân tách 3 cụm trực quan với icon rõ ràng: `[▶]` Auto / `[🔥 DS]` / `[🔄 RS]` / `[⭐ PT]` / `[⚙]` / `[📋]`.
-- **Độ Ổn Định & Sửa Lỗi Hệ Thống:**
-  - Tự động đồng bộ cấu hình và giải phóng bộ nhớ triệt để.
-  - Nâng cấp hệ thống Auto-Updater ghi đè trực tiếp an toàn.
+- **Hệ Thống Đánh Chặn & Ghi Vết Lỗi Luồng Toàn Diện (Tri-Layer Crash Tracer):**
+  - Tích hợp 3 tầng bảo vệ lỗi ngoại lệ (`threading.Thread.run wrapping`, `threading.excepthook`, `sys.excepthook`) trong `meg_crash_tracer.py`.
+  - Tự động ghi lại toàn bộ call stack traceback và vị trí leaf frame vào `auto_crash_trace.log`, `app_exceptions.log` và log UI với định tuyến slot chính xác.
+  - Ngăn ngừa tình trạng luồng ngầm bị crash im lặng (silent crash), đảm bảo bot tự phục hồi an toàn.
+- **Tối Ưu & Triệt Tiêu Lỗi Đa Luồng Sự Kiện Double Goer (Mirror Event):**
+  - Loại bỏ hoàn toàn bùng nổ luồng (thread explosion) trong bộ lập lịch Double Goer scheduler.
+  - Áp dụng cơ chế single-flight kiểm tra vé sự kiện và ngăn chặn triệt để rò rỉ handle tiến trình.
+- **Nâng Cấp Direct Engine & Xử Lý Native MLogin:**
+  - Chuẩn hóa các offset native và chữ ký hàm cho MLogin và quản lý scene trong `meg_direct_engine.py`.
+  - Nâng cao tốc độ phản hồi và độ ổn định khi gán và nhận diện nhân vật game.
+- **Kế Thừa Đầy Đủ Các Tính Năng Cao Cấp của v1.5.6:**
+  - Auto Devil Square cấu hình chuẩn theo **Số Lần Reset** và loại vé (Master / Thường).
+  - Thanh công cụ Toolbar tinh gọn **Icon-Only** (36x30 px) kèm nút Master Toggle Chạy/Dừng Tất Cả thông minh.
 """
 
     release = create_or_get_release(token, version, title, body)

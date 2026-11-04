@@ -66,7 +66,7 @@ def _get_auth_headers() -> Dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
     return {}
 
-def check_for_updates(current_version: str = "v1.5.6") -> Dict[str, Any]:
+def check_for_updates(current_version: str = "v1.5.7") -> Dict[str, Any]:
     """
     Kiểm tra phiên bản mới nhất từ GitHub Releases hoặc Tags.
     Trả về dict chi tiết gồm: has_update, latest_version, release_notes, download_url...
