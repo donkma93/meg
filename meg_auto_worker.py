@@ -949,6 +949,21 @@ class AutoTrainWorker:
                     time.sleep(self.poll_interval)
                     continue
 
+                # 1.2. Nếu nhân vật đang ở NPC Lugard (Event Square 229, 22 hoặc Elbeland 49, 216) để chuẩn bị / tham gia Double Goer
+                is_near_lugard = (
+                    (current_map_id in (53, 40) and math.hypot(px - 229, py - 22) <= 14) or
+                    (current_map_id == 51 and math.hypot(px - 49, py - 216) <= 14)
+                )
+                if is_near_lugard:
+                    if getattr(self, '_last_lugard_state_log', 0) != 1:
+                        self._set_state(f'CHỜ SỰ KIỆN LUGARD ({px}, {py})')
+                        self._log(f'📍 Nhân vật đang đứng tại NPC Lugard ({px}, {py}). Tạm ngưng bãi train nhường quyền cho sự kiện Double Goer.', 'INFO')
+                        self._last_lugard_state_log = 1
+                    time.sleep(max(1.0, self.poll_interval))
+                    continue
+                else:
+                    self._last_lugard_state_log = 0
+
                 # 2. Xử lý trạng thái nhân vật chưa tải xong
                 if level <= 0:
                     if not self.invalid_level_logged:

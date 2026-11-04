@@ -104,12 +104,12 @@ DEFAULT_OFFSETS = {
     "merchant_sell_item": "0x2743520",
     "slot_quick_action": "0x23E24A0",
     "item_storage_move": "0x22317E0",
-    "window_show": "0x258FBC0",
-    "window_hide": "0x25986B0",
+    "window_show": "0x25EFD90",
+    "window_hide": "0x25F8B80",
     "window_set_state": "0x258A730",
-    "window_toggle": "0x2589E10",
-    "button_press": "0x464E520",
-    "unity_event_invoke": "0x4588220",
+    "window_toggle": "0x25E9EE0",
+    "button_press": "0x46ABE00",
+    "unity_event_invoke": "0x45E5B00",
     "moss_roll": "0x27A9760",
     "moss_open": "0x25EA7C0",
     "moss_roll_handler": "0x27A6230",
@@ -117,8 +117,8 @@ DEFAULT_OFFSETS = {
     "moss_select_cat": "0x27A8510",
     "moss_send_roll": "0x23F8BE0",
     "moss_roll_click": "0x27A8F90",
-    "moss_window_close": "0x25986B0",
-    "game_object_set_active": "0x456F2B0",
+    "moss_window_close": "0x25F8B80",
+    "game_object_set_active": "0x45CCB90",
     "component_get_game_object": "0x45C8770",
     "runtime_class_init": "0x2E9950",
     "get_user_account": "0x1078930",
@@ -173,7 +173,23 @@ DEFAULT_OFFSETS = {
     "gremory_type_info": "0x553B900",
     "gremory_claim_item": "0xFD85C0",
     "gremory_instance_offset": "0x138",
-    "gremory_dict_offset": "0x20"
+    "gremory_dict_offset": "0x20",
+    "mdialog_show_alert": "0x1BA4BF0",
+    "mdialog_show_alert_alt": "0x1BA7D20",
+    "mdialog_show_simple": "0x1BA69B0",
+    "mdialog_show_simple_alt": "0x1BA6F20",
+    "mdialog_show_confirm": "0x1BA2980",
+    "mdialog_show_confirm_alt": "0x1BA3560",
+    "get_helper_ui": "0x107F180",
+    "unity_action_invoke": "0x3B2B30",
+    "unity_action_bool_invoke": "0x38F6C0",
+    "helper_ui_close_current": "0x13FDF10",
+    "helper_ui_close_alt": "0x13FE0D0",
+    "helper_ui_dismiss_all": "0x13FEB80",
+    "doublegoer_enter_recv": "0xF92350",
+    "mhelper_ui_show_alert": "0x1BF9CC0",
+    "mhelper_ui_show_alert_id": "0x1BF5CF0",
+    "mhelper_ui_show_alert_alt": "0x1BF9910"
 }
 
 FRIDA_AGENT_JS = r"""
@@ -858,6 +874,327 @@ try {
     }
 } catch (eGSSendAlt) {}
 
+var dialogSuppressionActive = true;
+var dialogSweepCounter = 0;
+var inDoppelgangerEnterRecv = false;
+
+var nativeGetHelperUI = null;
+try {
+    var ghuiOff = off('__GET_HELPER_UI__');
+    if (!ghuiOff.isNull()) {
+        nativeGetHelperUI = new NativeFunction(baseAddr.add(ghuiOff), 'pointer', []);
+    }
+} catch (eGHUI) {}
+
+var nativeHelperUICloseCurrent = null;
+try {
+    var huiccOff = off('__HELPER_UI_CLOSE_CURRENT__');
+    if (!huiccOff.isNull()) {
+        nativeHelperUICloseCurrent = new NativeFunction(baseAddr.add(huiccOff), 'void', ['pointer']);
+    }
+} catch (eHUICC) {}
+
+var nativeHelperUICloseAlt = null;
+try {
+    var huicaOff = off('__HELPER_UI_CLOSE_ALT__');
+    if (!huicaOff.isNull()) {
+        nativeHelperUICloseAlt = new NativeFunction(baseAddr.add(huicaOff), 'void', ['pointer']);
+    }
+} catch (eHUICA) {}
+
+var nativeHelperUIDismissAll = null;
+try {
+    var huidOff = off('__HELPER_UI_DISMISS_ALL__');
+    if (!huidOff.isNull()) {
+        nativeHelperUIDismissAll = new NativeFunction(baseAddr.add(huidOff), 'void', ['pointer']);
+    }
+} catch (eHUID) {}
+
+var nativeUnityActionInvoke = null;
+try {
+    var uaiOff = off('__UNITY_ACTION_INVOKE__');
+    if (!uaiOff.isNull()) {
+        nativeUnityActionInvoke = new NativeFunction(baseAddr.add(uaiOff), 'void', ['pointer']);
+    }
+} catch (eUAI) {}
+
+var nativeUnityActionBoolInvoke = null;
+try {
+    var uabiOff = off('__UNITY_ACTION_BOOL_INVOKE__');
+    if (!uabiOff.isNull()) {
+        nativeUnityActionBoolInvoke = new NativeFunction(baseAddr.add(uabiOff), 'void', ['pointer', 'bool']);
+    }
+} catch (eUABI) {}
+
+function readIl2CppString(strPtr) {
+    if (!strPtr || strPtr.isNull()) return "";
+    try {
+        var len = strPtr.add(0x10).readS32();
+        if (len > 0 && len < 2048) {
+            return strPtr.add(0x14).readUtf16String(len);
+        }
+    } catch (eStr) {}
+    return "";
+}
+
+function isMirrorOrSuppressedDialog(title, msg) {
+    if (inDoppelgangerEnterRecv) return true;
+    if (dialogSuppressionActive) return true;
+    if (_nativeMirrorTurboStats && _nativeMirrorTurboStats.running) return true;
+    var t = (title || "").toLowerCase();
+    var m = (msg || "").toLowerCase();
+    var comb = t + " " + m;
+    var keywords = [
+        "mirror", "dimension", "espelho", "dimens", "doppel", "lugard",
+        "ticket", "convite", "evento", "event", "horário", "tempo", "sem convite",
+        "moment", "momento", "party", "assassin", "level range", "try at next time",
+        "can't enter", "cant enter", "unable to enter"
+    ];
+    for (var ki = 0; ki < keywords.length; ki++) {
+        if (comb.indexOf(keywords[ki]) !== -1) return true;
+    }
+    return false;
+}
+
+function dismissAndConfirmMDialog(dialogPtr, actionPtr, isBoolAction) {
+    if (!dialogPtr || dialogPtr.isNull()) return false;
+    try {
+        if (actionPtr && !actionPtr.isNull()) {
+            try {
+                if (isBoolAction && nativeUnityActionBoolInvoke !== null) {
+                    nativeUnityActionBoolInvoke(actionPtr, 1);
+                } else if (nativeUnityActionInvoke !== null) {
+                    nativeUnityActionInvoke(actionPtr);
+                }
+            } catch (eAct) {}
+        } else {
+            try {
+                var cb = dialogPtr.add(0x88).readPointer();
+                if (!cb.isNull() && nativeUnityActionBoolInvoke !== null) {
+                    nativeUnityActionBoolInvoke(cb, 1);
+                }
+            } catch (eCb) {}
+        }
+
+        try {
+            var okBtn = dialogPtr.add(0x40).readPointer();
+            if (!okBtn.isNull()) {
+                if (nativeButtonPress !== null) {
+                    try { nativeButtonPress(okBtn, ptr(0)); } catch (eBP) {}
+                }
+                var onClick = okBtn.add(0x100).readPointer();
+                if (!onClick.isNull() && nativeUnityEventInvoke !== null) {
+                    try { nativeUnityEventInvoke(onClick, ptr(0)); } catch (eUE) {}
+                }
+            }
+        } catch (eOk) {}
+
+        try {
+            var winPtr = dialogPtr.add(0x80).readPointer();
+            if (!winPtr.isNull()) {
+                winPtr.add(0x48).writeU8(0);
+                if (nativeWindowHide !== null) {
+                    try { nativeWindowHide(winPtr, NULL); } catch (eWH) {}
+                }
+                if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
+                    var winGo = nativeComponentGetGameObject(winPtr);
+                    if (!winGo.isNull()) {
+                        try { nativeGameObjectSetActive(winGo, 0, ptr(0)); } catch (eWGO) {}
+                    }
+                }
+            }
+        } catch (eWin) {}
+
+        try {
+            if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
+                var dlgGo = nativeComponentGetGameObject(dialogPtr);
+                if (!dlgGo.isNull()) {
+                    try { nativeGameObjectSetActive(dlgGo, 0, ptr(0)); } catch (eDGO) {}
+                }
+            }
+        } catch (eDlgGo) {}
+
+        return true;
+    } catch (eDis) {
+        return false;
+    }
+}
+
+function dismissActiveGameDialogIfMirror(forceDismiss) {
+    try {
+        if (nativeGetHelperUI === null) return false;
+        var helperUi = nativeGetHelperUI();
+        if (!helperUi || helperUi.isNull()) return false;
+
+        var curDialogGo = helperUi.add(0x78).readPointer();
+        var hasActiveDialog = (!curDialogGo.isNull());
+
+        var dialogsMap = helperUi.add(0x80).readPointer();
+        var hasDialogsInMap = (!dialogsMap.isNull() && dialogsMap.add(0x20).readS32() > 0);
+
+        if (!hasActiveDialog && !hasDialogsInMap && !forceDismiss) return false;
+
+        if (hasActiveDialog && nativeHelperUICloseCurrent !== null) {
+            try { nativeHelperUICloseCurrent(helperUi); } catch (eCC) {}
+        }
+        if (nativeHelperUIDismissAll !== null) {
+            try { nativeHelperUIDismissAll(helperUi); } catch (eDA) {}
+        }
+
+        if (hasActiveDialog && nativeGameObjectSetActive !== null) {
+            try {
+                nativeGameObjectSetActive(curDialogGo, 0, ptr(0));
+            } catch (eCD) {}
+        }
+
+        try {
+            var mDialog = helperUi.add(0x20).readPointer();
+            if (!mDialog.isNull()) {
+                var winPtr = mDialog.add(0x80).readPointer();
+                if (!winPtr.isNull() && winPtr.add(0x48).readU8() !== 0) {
+                    dismissAndConfirmMDialog(mDialog, NULL, false);
+                }
+            }
+        } catch (ePD) {}
+
+        return true;
+    } catch (eSweep) {}
+    return false;
+}
+
+function installDialogSuppressionHooks() {
+    try {
+        var dgEnterOff = off('__DOUBLEGOER_ENTER_RECV__');
+        if (!dgEnterOff.isNull()) {
+            Interceptor.attach(baseAddr.add(dgEnterOff), {
+                onEnter: function(args) {
+                    inDoppelgangerEnterRecv = true;
+                    try {
+                        var pktPtr = args[0];
+                        if (pktPtr && !pktPtr.isNull()) {
+                            var len = pktPtr.add(0x18).readS32();
+                            if (len >= 5) {
+                                var code = pktPtr.add(0x24).readU8();
+                                if (code !== 0) {
+                                    // Zero-Popup: Khử mã lỗi reject trực tiếp trên gói tin C1 đến client.
+                                    // PMADOEGMPPK đọc mã 0 (thành công) và nhảy thẳng về ret epilogue (0xF92525),
+                                    // hoàn toàn không gọi MHelperUI và không tạo popup đè lên màn hình!
+                                    pktPtr.add(0x24).writeU8(0);
+                                    send({
+                                        type: "mirror_entry_suppressed",
+                                        code: code,
+                                        note: "Zero-Popup: Bỏ qua popup Doppelganger mã " + code
+                                    });
+                                }
+                            }
+                        }
+                    } catch (ePkt) {}
+                },
+                onLeave: function(retval) {
+                    inDoppelgangerEnterRecv = false;
+                    if (dialogSuppressionActive || (_nativeMirrorTurboStats && _nativeMirrorTurboStats.running)) {
+                        try { dismissActiveGameDialogIfMirror(true); } catch (eDGE) {}
+                    }
+                }
+            });
+        }
+    } catch (eDGHook) {}
+
+    var mdialogHookOffsets = [
+        { name: 'showAlert', offStr: '__MDIALOG_SHOW_ALERT__', isBool: false, actionIdx: 4, titleIdx: 1, msgIdx: 2 },
+        { name: 'showAlertAlt', offStr: '__MDIALOG_SHOW_ALERT_ALT__', isBool: false, actionIdx: 4, titleIdx: 1, msgIdx: 2 },
+        { name: 'showSimple', offStr: '__MDIALOG_SHOW_SIMPLE__', isBool: false, actionIdx: -1, titleIdx: 1, msgIdx: 2 },
+        { name: 'showSimpleAlt', offStr: '__MDIALOG_SHOW_SIMPLE_ALT__', isBool: false, actionIdx: -1, titleIdx: 1, msgIdx: 2 },
+        { name: 'showConfirm', offStr: '__MDIALOG_SHOW_CONFIRM__', isBool: true, actionIdx: 4, titleIdx: 1, msgIdx: 2 },
+        { name: 'showConfirmAlt', offStr: '__MDIALOG_SHOW_CONFIRM_ALT__', isBool: true, actionIdx: 4, titleIdx: 1, msgIdx: 2 }
+    ];
+
+    mdialogHookOffsets.forEach(function(item) {
+        try {
+            var o = off(item.offStr);
+            if (!o.isNull()) {
+                Interceptor.attach(baseAddr.add(o), {
+                    onEnter: function(args) {
+                        this.suppress = false;
+                        if (!dialogSuppressionActive && !(_nativeMirrorTurboStats && _nativeMirrorTurboStats.running) && !inDoppelgangerEnterRecv) {
+                            return;
+                        }
+                        try {
+                            this.dialogPtr = args[0];
+                            this.actionPtr = (item.actionIdx >= 0) ? args[item.actionIdx] : NULL;
+                            this.isBool = item.isBool;
+
+                            var title = readIl2CppString(args[item.titleIdx]);
+                            var msg = readIl2CppString(args[item.msgIdx]);
+
+                            if (inDoppelgangerEnterRecv || isMirrorOrSuppressedDialog(title, msg)) {
+                                this.suppress = true;
+                            }
+                        } catch (eOnEnter) {}
+                    },
+                    onLeave: function(retval) {
+                        if (this.suppress && this.dialogPtr && !this.dialogPtr.isNull()) {
+                            try {
+                                dismissAndConfirmMDialog(this.dialogPtr, this.actionPtr, this.isBool);
+                            } catch (eOnLeave) {}
+                            try {
+                                dismissActiveGameDialogIfMirror(true);
+                            } catch (eDGM) {}
+                        }
+                    }
+                });
+            }
+        } catch (eHook) {}
+    });
+
+    var mhelperHookOffsets = [
+        { name: 'mhelperAlert', offStr: '__MHELPER_UI_SHOW_ALERT__', titleIdx: 1, msgIdx: 2, actionIdx: 4 },
+        { name: 'mhelperAlertId', offStr: '__MHELPER_UI_SHOW_ALERT_ID__', titleIdx: 2, msgIdx: 3, actionIdx: 5 },
+        { name: 'mhelperAlertAlt', offStr: '__MHELPER_UI_SHOW_ALERT_ALT__', titleIdx: 1, msgIdx: 2, actionIdx: 4 }
+    ];
+
+    mhelperHookOffsets.forEach(function(item) {
+        try {
+            var o = off(item.offStr);
+            if (!o.isNull()) {
+                Interceptor.attach(baseAddr.add(o), {
+                    onEnter: function(args) {
+                        this.suppress = false;
+                        this.actionPtr = NULL;
+                        if (inDoppelgangerEnterRecv || dialogSuppressionActive || (_nativeMirrorTurboStats && _nativeMirrorTurboStats.running)) {
+                            this.suppress = true;
+                        } else {
+                            try {
+                                var title = readIl2CppString(args[item.titleIdx]);
+                                var msg = readIl2CppString(args[item.msgIdx]);
+                                if (isMirrorOrSuppressedDialog(title, msg)) {
+                                    this.suppress = true;
+                                }
+                            } catch (eCheck) {}
+                        }
+                        if (this.suppress && item.actionIdx >= 0) {
+                            try { this.actionPtr = args[item.actionIdx]; } catch (eAP) {}
+                        }
+                    },
+                    onLeave: function(retval) {
+                        if (this.suppress) {
+                            if (this.actionPtr && !this.actionPtr.isNull() && nativeUnityActionInvoke !== null) {
+                                try { nativeUnityActionInvoke(this.actionPtr); } catch (eAct) {}
+                            }
+                            var createdDlg = retval;
+                            if (createdDlg && !createdDlg.isNull()) {
+                                try { dismissAndConfirmMDialog(createdDlg, NULL, false); } catch (eDis) {}
+                            }
+                            try { dismissActiveGameDialogIfMirror(true); } catch (eDGM) {}
+                        }
+                    }
+                });
+            }
+        } catch (eMHHook) {}
+    });
+}
+try { installDialogSuppressionHooks(); } catch (eIDH) {}
+
 var mono_domain_get_corlib = null;
 var il2cpp_class_from_name = null;
 var il2cpp_array_new = null;
@@ -1408,6 +1745,16 @@ function dispatchChatMessage(cmdText) {
     if (!cmdText) return false;
     try {
         ensureThreadAttached();
+        // Kiểm tra an toàn: CHỈ gửi khi Scene là Playing (Scene 4)
+        if (nativeGetSceneHandler !== null) {
+            try {
+                var sh = nativeGetSceneHandler();
+                if (!sh.isNull()) {
+                    var st = sh.add(0x20).readS32();
+                    if (st !== 4) return false;
+                }
+            } catch (eSH) {}
+        }
         var p = getPlayerPtr();
         if (p.isNull()) return false;
 
@@ -2220,18 +2567,41 @@ try {
 
                 // 1. Luôn ưu tiên xử lý lệnh Helper Toggle & Chat trên vòng lặp Game.Update chính
                 // Đảm bảo chạy 60 FPS liên tục kể cả khi game đang chạy ngầm, không cần user phải click chuột vào game!
-                if (pendingHelperAction !== null) {
-                    var hAct = pendingHelperAction;
-                    pendingHelperAction = null;
-                    try { dispatchHelperAction(hAct); } catch (eHGU) {}
+                var curScene = -1;
+                if (nativeGetSceneHandler !== null) {
+                    try {
+                        var shCur = nativeGetSceneHandler();
+                        if (!shCur.isNull()) {
+                            curScene = shCur.add(0x20).readS32();
+                        }
+                    } catch (eSHCur) {}
                 }
 
+                // CHỈ thực thi lệnh Helper / Chat khi game đã ở trong thế giới (Scene 4: Playing)
+                if (curScene === 4) {
+                    if (pendingHelperAction !== null) {
+                        var hAct = pendingHelperAction;
+                        pendingHelperAction = null;
+                        try { dispatchHelperAction(hAct); } catch (eHGU) {}
+                    }
 
-
-                if (pendingCommand !== null) {
-                    var cmd = pendingCommand;
+                    if (pendingCommand !== null) {
+                        var cmd = pendingCommand;
+                        pendingCommand = null;
+                        try { dispatchChatMessage(cmd); } catch (eCGU) {}
+                    }
+                } else if (curScene < 4 && pendingCommand !== null) {
+                    // Nếu đang ở màn hình ngoài (Loading, Login, Lobby), hủy lệnh chat để không gửi rác gây hỏng kết nối
                     pendingCommand = null;
-                    try { dispatchChatMessage(cmd); } catch (eCGU) {}
+                }
+
+                if (dialogSuppressionActive || (_nativeMirrorTurboStats && _nativeMirrorTurboStats.running)) {
+                    var isTurboRunning = (_nativeMirrorTurboStats && _nativeMirrorTurboStats.running);
+                    var sweepMod = isTurboRunning ? 2 : 10;
+                    dialogSweepCounter = (dialogSweepCounter + 1) % sweepMod;
+                    if (dialogSweepCounter === 0) {
+                        try { dismissActiveGameDialogIfMirror(isTurboRunning); } catch (eDGU) {}
+                    }
                 }
 
                 if (pendingMoveTarget !== null) {
@@ -2653,6 +3023,7 @@ function cleanupNativeTurbo() {
         clearInterval(_nativeMirrorTurboTimer);
         _nativeMirrorTurboTimer = null;
     }
+    try { dismissActiveGameDialogIfMirror(false); } catch (eCDIG) {}
 }
 
 rpc.exports = {
@@ -2735,10 +3106,9 @@ rpc.exports = {
             cmd = String(cmd || '').trim();
             if (!cmd) return false;
             ensureThreadAttached();
-            var ok = dispatchChatMessage(cmd);
-            if (!ok) {
-                pendingCommand = cmd;
-            }
+            // Tránh gọi trực tiếp trên thread RPC của Frida gây lỗi "Connection thread not match"
+            // Đưa vào pendingCommand để Game.Update thực thi an toàn 100% trên Unity Main Thread.
+            pendingCommand = cmd;
             return true;
         } catch (e) {
             return false;
@@ -2752,8 +3122,8 @@ rpc.exports = {
     startHelper: function() {
         try {
             ensureThreadAttached();
-            pendingHelperAction = null;
-            return dispatchHelperAction('start');
+            pendingHelperAction = 'start';
+            return true;
         } catch (eH) {}
         return false;
     },
@@ -2761,8 +3131,8 @@ rpc.exports = {
     stopHelper: function() {
         try {
             ensureThreadAttached();
-            pendingHelperAction = null;
-            return dispatchHelperAction('stop');
+            pendingHelperAction = 'stop';
+            return true;
         } catch (eH) {}
         return false;
     },
@@ -2770,8 +3140,8 @@ rpc.exports = {
     toggleHelper: function() {
         try {
             ensureThreadAttached();
-            pendingHelperAction = null;
-            return dispatchHelperAction('toggle');
+            pendingHelperAction = 'toggle';
+            return true;
         } catch (eT) {}
         return false;
     },
@@ -3738,6 +4108,9 @@ rpc.exports = {
                         sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
                     }
                     _nativeMirrorTurboStats.packetsSent += 1;
+                    if (dialogSuppressionActive || _nativeMirrorTurboStats.running) {
+                        dismissActiveGameDialogIfMirror(true);
+                    }
 
                 } catch (eLoop) {}
             }, intMs);
@@ -3774,6 +4147,7 @@ rpc.exports = {
     enterMirror: function(slot) {
         try {
             ensureThreadAttached();
+            dismissActiveGameDialogIfMirror(false);
             var itemSlot = -1;
             if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
                 itemSlot = parseInt(slot);
@@ -5464,6 +5838,19 @@ rpc.exports = {
             Interceptor.flush();
         } catch (eF) {}
         return true;
+    },
+
+    dismissActiveDialog: function() {
+        try {
+            return dismissActiveGameDialogIfMirror(true);
+        } catch (eDAD) {
+            return false;
+        }
+    },
+
+    setDialogSuppression: function(enabled) {
+        dialogSuppressionActive = !!enabled;
+        return true;
     }
 };
 """
@@ -5657,12 +6044,12 @@ class MegDirectEngine:
             "__MERCHANT_SELL_ITEM__": str(self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2743520")),
             "__SLOT_QUICK_ACTION__": str(self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x23E24A0")),
             "__ITEM_STORAGE_MOVE__": str(self.offsets.get("item_storage_move") or DEFAULT_OFFSETS.get("item_storage_move", "0x22317E0")),
-            "__WINDOW_SHOW__": str(self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x258FBC0")),
-            "__WINDOW_HIDE__": str(self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x25986B0")),
+            "__WINDOW_SHOW__": str(self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x25EFD90")),
+            "__WINDOW_HIDE__": str(self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x25F8B80")),
             "__WINDOW_SET_STATE__": str(self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x258A730")),
-            "__WINDOW_TOGGLE__": str(self.offsets.get("window_toggle") or DEFAULT_OFFSETS.get("window_toggle", "0x2589E10")),
-            "__BUTTON_PRESS__": str(self.offsets.get("button_press") or DEFAULT_OFFSETS.get("button_press", "0x464E520")),
-            "__UNITY_EVENT_INVOKE__": str(self.offsets.get("unity_event_invoke") or DEFAULT_OFFSETS.get("unity_event_invoke", "0x4588220")),
+            "__WINDOW_TOGGLE__": str(self.offsets.get("window_toggle") or DEFAULT_OFFSETS.get("window_toggle", "0x25E9EE0")),
+            "__BUTTON_PRESS__": str(self.offsets.get("button_press") or DEFAULT_OFFSETS.get("button_press", "0x46ABE00")),
+            "__UNITY_EVENT_INVOKE__": str(self.offsets.get("unity_event_invoke") or DEFAULT_OFFSETS.get("unity_event_invoke", "0x45E5B00")),
             "__MOSS_ROLL__": str(self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x27A9760")),
             "__MOSS_OPEN__": str(self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x25EA7C0")),
             "__MOSS_ROLL_HANDLER__": str(self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x27A6230")),
@@ -5670,10 +6057,10 @@ class MegDirectEngine:
             "__MOSS_SELECT_CAT__": str(self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x27A8510")),
             "__MOSS_SEND_ROLL__": str(self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x23F8BE0")),
             "__MOSS_ROLL_CLICK__": str(self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x27A8F90")),
-            "__MOSS_WINDOW_CLOSE__": str(self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x25986B0")),
-            "__GAME_OBJECT_SET_ACTIVE__": str(self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x456F2B0")),
-            "__COMPONENT_GET_GAME_OBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x456AE90")),
-            "__COMPONENT_GET_GAMEOBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x456AE90")),
+            "__MOSS_WINDOW_CLOSE__": str(self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x25F8B80")),
+            "__GAME_OBJECT_SET_ACTIVE__": str(self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x45CCB90")),
+            "__COMPONENT_GET_GAME_OBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x45C8770")),
+            "__COMPONENT_GET_GAMEOBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x45C8770")),
             "__MIRROR_ENTER__": str(self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0xF94450")),
             "__MIRROR_ENTER_ALT__": str(self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0xF94B00")),
             "__MIRROR_NPC_CLICK__": str(self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xF927B0")),
@@ -5726,6 +6113,22 @@ class MegDirectEngine:
             "__MLOGIN_SET_STATE__": str(self.offsets.get("mlogin_set_state") or DEFAULT_OFFSETS.get("mlogin_set_state", "0x1C33070")),
             "__AUTO_SELECT_CHARACTER__": str(self.offsets.get("auto_select_character") or DEFAULT_OFFSETS.get("auto_select_character", "0xEC6020")),
             "__UNIT_SELECT_CHARACTER__": str(self.offsets.get("unit_select_character") or DEFAULT_OFFSETS.get("unit_select_character", "0x111C0F0")),
+            "__MDIALOG_SHOW_ALERT__": str(self.offsets.get("mdialog_show_alert") or DEFAULT_OFFSETS.get("mdialog_show_alert", "0x1BA4BF0")),
+            "__MDIALOG_SHOW_ALERT_ALT__": str(self.offsets.get("mdialog_show_alert_alt") or DEFAULT_OFFSETS.get("mdialog_show_alert_alt", "0x1BA7D20")),
+            "__MDIALOG_SHOW_SIMPLE__": str(self.offsets.get("mdialog_show_simple") or DEFAULT_OFFSETS.get("mdialog_show_simple", "0x1BA69B0")),
+            "__MDIALOG_SHOW_SIMPLE_ALT__": str(self.offsets.get("mdialog_show_simple_alt") or DEFAULT_OFFSETS.get("mdialog_show_simple_alt", "0x1BA6F20")),
+            "__MDIALOG_SHOW_CONFIRM__": str(self.offsets.get("mdialog_show_confirm") or DEFAULT_OFFSETS.get("mdialog_show_confirm", "0x1BA2980")),
+            "__MDIALOG_SHOW_CONFIRM_ALT__": str(self.offsets.get("mdialog_show_confirm_alt") or DEFAULT_OFFSETS.get("mdialog_show_confirm_alt", "0x1BA3560")),
+            "__GET_HELPER_UI__": str(self.offsets.get("get_helper_ui") or DEFAULT_OFFSETS.get("get_helper_ui", "0x107F180")),
+            "__UNITY_ACTION_INVOKE__": str(self.offsets.get("unity_action_invoke") or DEFAULT_OFFSETS.get("unity_action_invoke", "0x3B2B30")),
+            "__UNITY_ACTION_BOOL_INVOKE__": str(self.offsets.get("unity_action_bool_invoke") or DEFAULT_OFFSETS.get("unity_action_bool_invoke", "0x38F6C0")),
+            "__HELPER_UI_CLOSE_CURRENT__": str(self.offsets.get("helper_ui_close_current") or DEFAULT_OFFSETS.get("helper_ui_close_current", "0x13FDF10")),
+            "__HELPER_UI_CLOSE_ALT__": str(self.offsets.get("helper_ui_close_alt") or DEFAULT_OFFSETS.get("helper_ui_close_alt", "0x13FE0D0")),
+            "__HELPER_UI_DISMISS_ALL__": str(self.offsets.get("helper_ui_dismiss_all") or DEFAULT_OFFSETS.get("helper_ui_dismiss_all", "0x13FEB80")),
+            "__DOUBLEGOER_ENTER_RECV__": str(self.offsets.get("doublegoer_enter_recv") or DEFAULT_OFFSETS.get("doublegoer_enter_recv", "0xF92350")),
+            "__MHELPER_UI_SHOW_ALERT__": str(self.offsets.get("mhelper_ui_show_alert") or DEFAULT_OFFSETS.get("mhelper_ui_show_alert", "0x1BF9CC0")),
+            "__MHELPER_UI_SHOW_ALERT_ID__": str(self.offsets.get("mhelper_ui_show_alert_id") or DEFAULT_OFFSETS.get("mhelper_ui_show_alert_id", "0x1BF5CF0")),
+            "__MHELPER_UI_SHOW_ALERT_ALT__": str(self.offsets.get("mhelper_ui_show_alert_alt") or DEFAULT_OFFSETS.get("mhelper_ui_show_alert_alt", "0x1BF9910")),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -5771,6 +6174,9 @@ class MegDirectEngine:
                             _safe_log(f"[MegDirectEngine] Native Chat đã gửi thành công: '{cmd_val}'")
                         else:
                             _safe_log(f"[MegDirectEngine] Native Chat gửi lỗi '{cmd_val}': {payload.get('error')}")
+                    elif p_type == "mirror_entry_suppressed":
+                        code = payload.get("code")
+                        _safe_log(f"[MegDirectEngine] PID {self.pid} Cướp cổng: Đã chặn popup từ server (mã {code}) - Zero-Popup.")
                     elif p_type in ("mirror_turbo_entered", "mirror_turbo_timeout"):
                         self.last_mirror_turbo_result = payload
                         cb = getattr(self, "on_mirror_turbo_event", None)
@@ -7266,6 +7672,26 @@ class MegDirectEngine:
                     return True
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi click_devil_npc: {e}")
+        return False
+
+    def dismiss_active_dialog(self) -> bool:
+        """Đóng và tự động xác nhận modal dialog đang hiển thị trên màn hình (nếu có)."""
+        if self.is_ready:
+            try:
+                res = self._call("dismissActiveDialog")
+                return bool(res)
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi dismiss_active_dialog: {e}")
+        return False
+
+    def set_dialog_suppression(self, enabled: bool) -> bool:
+        """Bật/tắt chế độ tự động nuốt và zero các dialog thông báo trên client."""
+        if self.is_ready:
+            try:
+                res = self._call("setDialogSuppression", bool(enabled))
+                return bool(res)
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi set_dialog_suppression: {e}")
         return False
 
     def is_devil_event_map(self) -> bool:

@@ -9,6 +9,7 @@ import json
 import threading
 import ctypes
 import psutil
+import math
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Set, Tuple
 
@@ -147,50 +148,81 @@ class SlotController:
             self.set_status(tr("running", n=self.profile_index))
 
     def attach_pid(self, pid: int) -> bool:
-        """Kết nối tới Game PID."""
+        """Kết nối tới Game PID với tốc độ tức thì, không gây đơ GUI thread."""
         if not pid or not is_megamu_process_alive(pid):
             self.app.log_message(f"[Slot {self.slot_idx:02d}] Tiến trình MEGAMU (PID {pid}) không tồn tại hoặc đã đóng!", "WARNING")
             self.set_status(tr("game_closed"))
             return False
 
-        # Nếu đang gán PID khác thì dọn dẹp PID cũ
+        old_p = None
         if self.assigned_pid and self.assigned_pid != pid:
             old_p = self.assigned_pid
-            if MegDirectEngine:
-                MegDirectEngine.release_engine(old_p)
             self.engine = None
 
         self.assigned_pid = pid
 
-        # Nạp tức thì tên nhân vật và level từ tiêu đề cửa sổ / RAM để hiển thị ngay lập tức
-        title = self.app.detected_games.get(pid, "")
+        # Nạp tức thì tên nhân vật và level từ tiêu đề cửa sổ / cache (cực nhanh < 0.1ms)
+        title = self.app.detected_games.get(pid, "") if hasattr(self.app, "detected_games") else ""
         t_name = character_name_from_window_title(title)
-        if not t_name:
-            try:
-                from meg_navigator import ProcessMemoryReader
-                t_name = ProcessMemoryReader.read_character_name(pid) or ""
-            except Exception:
-                pass
+        if not t_name and hasattr(self.app, "_char_name_cache"):
+            t_name = self.app._char_name_cache.get(pid, "")
+        if not t_name and self.char_name and self.char_name != "---":
+            t_name = self.char_name
+
         if t_name:
             self.char_name = t_name
             self.last_known_char_name = t_name
+            if hasattr(self.app, "_char_name_cache"):
+                self.app._char_name_cache[pid] = t_name
 
         try:
             from meg_navigator import ProcessMemoryReader
-            t_lvl = ProcessMemoryReader._fallback_level_from_title(pid) or ProcessMemoryReader.read_character_level(pid)
+            t_lvl = ProcessMemoryReader._fallback_level_from_title(pid)
             if t_lvl:
                 self.level = str(t_lvl)
-            live = ProcessMemoryReader.read_live_state(pid)
-            if live and live[2] is not None and live[3] is not None and (live[2] > 0 or live[3] > 0):
-                self.coords = f"{live[2]},{live[3]}"
         except Exception:
             pass
 
         self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
-
         self.set_status(tr("connected_status"))
-        if MegDirectEngine:
-            def _async_engine_connect():
+
+        def _async_attach():
+            # 1. Dọn dẹp engine cũ trong luồng ngầm (tránh đơ Frida release trên GUI)
+            if old_p and MegDirectEngine:
+                try:
+                    MegDirectEngine.release_engine(old_p)
+                except Exception:
+                    pass
+
+            # 2. Đọc bổ sung tên từ RAM nếu title chưa có tên nhân vật
+            if not self.char_name or self.char_name == "---":
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    ram_name = ProcessMemoryReader.read_character_name(pid)
+                    if ram_name:
+                        self.char_name = ram_name
+                        self.last_known_char_name = ram_name
+                        if hasattr(self.app, "_char_name_cache"):
+                            self.app._char_name_cache[pid] = ram_name
+                        self.app.after(0, lambda: self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords))
+                except Exception:
+                    pass
+
+            # 3. Đọc chính xác Level và Tọa độ từ RAM trong luồng ngầm
+            try:
+                from meg_navigator import ProcessMemoryReader
+                exact_lvl = ProcessMemoryReader.read_character_level(pid)
+                if exact_lvl:
+                    self.level = str(exact_lvl)
+                live = ProcessMemoryReader.read_live_state(pid)
+                if live and live[2] is not None and live[3] is not None and (live[2] > 0 or live[3] > 0):
+                    self.coords = f"{live[2]},{live[3]}"
+                self.app.after(0, lambda: self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords))
+            except Exception:
+                pass
+
+            # 4. Kết nối Frida Engine trong luồng ngầm
+            if MegDirectEngine:
                 try:
                     eng = MegDirectEngine.get_engine(pid)
                     if not eng.is_ready:
@@ -202,7 +234,8 @@ class SlotController:
                     self.engine = eng
                 except Exception:
                     pass
-            threading.Thread(target=_async_engine_connect, daemon=True, name=f"EngineAttach_Slot{self.slot_idx:02d}").start()
+
+        threading.Thread(target=_async_attach, daemon=True, name=f"EngineAttach_Slot{self.slot_idx:02d}").start()
         return True
 
     def reconnect_game(self) -> bool:
@@ -1483,55 +1516,11 @@ class SlotController:
         def _exec():
             if not self.assigned_pid or not is_megamu_process_alive(self.assigned_pid):
                 return
-            eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-            if not eng:
-                return
-            if not eng.is_ready:
-                eng.attach()
-
-            # 1. Tạm dừng Auto Helper / đánh quái ngoài bãi
             try:
-                if eng.is_helper_active():
-                    eng.stop_helper()
+                self._pause_train_for_mirror("Chuẩn bị sự kiện Double Goer")
             except Exception:
                 pass
-
-            # 2. Dịch chuyển về Event Map & di chuyển sát chân Lugard (229, 22)
-            self.move_to_event_map()
-            time.sleep(0.3)
             self.move_to_lugard()
-
-            # 3. Chờ client ổn định sau chuyển map rồi kiểm tra vé trong túi đồ (poll tối đa 3.5s)
-            t_info = {}
-            for _ in range(7):
-                time.sleep(0.5)
-                t_info = eng.get_mirror_ticket_info()
-                if t_info.get("hasTicket") or t_info.get("hasOnlySign"):
-                    break
-            if t_info.get("hasTicket"):
-                if t_info.get("slots"):
-                    self.cached_mirror_ticket_slot = int(t_info["slots"][0])
-                details = t_info.get("details", [])
-                main_slots = [d["slot"] for d in details if not d.get("isExtended")]
-                ext_slots = [d["slot"] for d in details if d.get("isExtended")]
-                loc_parts = []
-                if main_slots:
-                    loc_parts.append(f"Hòm chính ô [{', '.join(str(s) for s in main_slots)}]")
-                if ext_slots:
-                    loc_parts.append(f"Ba lô phụ ô [{', '.join(str(s) for s in ext_slots)}]")
-                loc_str = " • ".join(loc_parts) if loc_parts else f"ô [{', '.join(str(s) for s in t_info.get('slots', []))}]"
-                self.app.after(0, lambda: self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ✅ Đã sẵn sàng {t_info.get('count')} vé Mirror ({loc_str})!"
-                ))
-            elif t_info.get("hasOnlySign"):
-                signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
-                self.app.after(0, lambda: self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CHÚ Ý: Tìm thấy Mảnh Vé Sign of Dimensions tại ô [{signs_str}], chưa ghép thành vé Mirror hoàn chỉnh!"
-                ))
-            else:
-                self.app.after(0, lambda: self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ CẢNH BÁO: Chưa tìm thấy vé Mirror of Dimensions (Item 7279) trong hòm đồ (đã quét ô 12-203)!"
-                ))
 
         threading.Thread(target=_exec, daemon=True).start()
         return True
@@ -1541,44 +1530,126 @@ class SlotController:
         if not self.assigned_pid or not is_megamu_process_alive(self.assigned_pid):
             return False
         eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng or not eng.is_ready:
+        if not eng:
             return False
+        if not eng.is_ready:
+            eng.attach()
+
+        # 1. Tạm dừng AutoTrain để không bị kéo về bãi train
         try:
-            pinfo = eng.get_player_info()
-            if pinfo:
-                cmap = pinfo.get("mapId", -1)
-                # Map 53: Event Square, Map 40: Event Square VIP
-                if cmap in (53, 40):
-                    return eng.move_to(229, 22)
-                elif cmap == 51: # Elbeland
-                    return eng.move_to(49, 216)
-                else:
-                    eng.send_chat("/m ev")
-                    time.sleep(0.5)
-                    return eng.move_to(229, 22)
+            self._pause_train_for_mirror("Di chuyển về NPC Lugard sự kiện Double Goer")
         except Exception:
             pass
-        return True
+
+        # 2. Tắt Auto Helper nếu đang bật để tránh cast skill tại Event Square
+        try:
+            if hasattr(eng, "is_helper_active") and eng.is_helper_active():
+                eng.stop_helper()
+        except Exception:
+            pass
+
+        try:
+            # 3. Kiểm tra Scene Ready
+            for _ in range(6):
+                sc = eng.get_scene_state()
+                if sc.get("ok") and sc.get("type") == 4 and sc.get("worldReady"):
+                    break
+                time.sleep(0.3)
+
+            pinfo = eng.get_player_info()
+            if not pinfo or not pinfo.get("name"):
+                return False
+
+            cmap = pinfo.get("mapId", -1)
+            # Nếu chưa ở Event Square (53, 40) hoặc Elbeland (51)
+            if cmap not in (53, 40, 51):
+                self.app.after(0, lambda: self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang chuyển map sang Event Square (/m ev)..."
+                ))
+                eng.send_chat("/m ev")
+                # Chờ chuyển map hoàn tất (tối đa 4.5s)
+                for _wait in range(12):
+                    time.sleep(0.35)
+                    sc = eng.get_scene_state()
+                    pinfo = eng.get_player_info()
+                    if sc.get("worldReady") and pinfo.get("mapId") in (53, 40):
+                        cmap = pinfo.get("mapId")
+                        break
+
+            # 4. Xác định tọa độ mục tiêu NPC Lugard
+            if cmap == 51:
+                tx, ty = 49, 216  # Lugard Elbeland
+            else:
+                tx, ty = 229, 22  # Lugard Event Square
+
+            # 5. Kiểm tra khoảng cách hiện tại tới Lugard
+            px = pinfo.get("tileX", 0)
+            py = pinfo.get("tileY", 0)
+            dist = math.hypot(px - tx, py - ty)
+
+            if dist <= 3.0:
+                self.app.after(0, lambda: self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đã ở sát chân NPC Lugard ({tx}, {ty})!"
+                ))
+                self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Sẵn sàng (Lugard)"))
+                self.check_mirror_ticket()
+                return True
+
+            # 6. Gửi lệnh di chuyển tới Lugard và giám sát quá trình di chuyển (tối đa 7s)
+            self.app.after(0, lambda: self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang di chuyển từ ({px}, {py}) tới NPC Lugard ({tx}, {ty})..."
+            ))
+            eng.move_to(tx, ty)
+
+            last_pos = (px, py)
+            stall_count = 0
+
+            for _step in range(14):
+                time.sleep(0.5)
+                pinfo = eng.get_player_info()
+                if not pinfo:
+                    continue
+                cur_x = pinfo.get("tileX", 0)
+                cur_y = pinfo.get("tileY", 0)
+                cur_dist = math.hypot(cur_x - tx, cur_y - ty)
+
+                if cur_dist <= 3.0:
+                    break
+
+                # Nếu bị khựng quá 2 nhịp (1s) mà chưa tới thì tái phát lệnh move
+                if (cur_x, cur_y) == last_pos:
+                    stall_count += 1
+                    if stall_count >= 2:
+                        eng.move_to(tx, ty)
+                        stall_count = 0
+                else:
+                    stall_count = 0
+                    last_pos = (cur_x, cur_y)
+
+            # Dừng bước di chuyển khi tới nơi
+            if hasattr(eng, "cancel_move"):
+                try:
+                    eng.cancel_move()
+                except Exception:
+                    pass
+
+            self.app.after(0, lambda: self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đã tới sát chân NPC Lugard ({tx}, {ty})! Sẵn sàng cướp cổng sự kiện Mirror."
+            ))
+            self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Sẵn sàng (Lugard)"))
+            self.check_mirror_ticket()
+            return True
+
+        except Exception as e:
+            err_msg = str(e)
+            self.app.after(0, lambda m=err_msg: self.app.append_mirror_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Lỗi di chuyển về Lugard: {m}"
+            ))
+            return False
 
     def move_to_event_map(self) -> bool:
-        """Chuyển sang bản đồ Event Square (/m ev) nếu nhân vật đang ở map khác."""
-        if not self.assigned_pid or not is_megamu_process_alive(self.assigned_pid):
-            return False
-        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
-        if not eng or not eng.is_ready:
-            return False
-        try:
-            pinfo = eng.get_player_info()
-            if pinfo:
-                cmap = pinfo.get("mapId", -1)
-                # Map 53: Event Square, Map 40: Event Square VIP/Alt, Map 65-68: Double Goer
-                if cmap in (53, 40, 65, 66, 67, 68):
-                    return True
-            eng.send_chat("/m ev")
-            time.sleep(0.4)
-            return True
-        except Exception:
-            return False
+        """Chuyển sang bản đồ Event Square (/m ev) và tiếp cận NPC Lugard."""
+        return self.move_to_lugard()
 
     move_to_lugard_elbeland = move_to_lugard
 
@@ -1980,6 +2051,11 @@ class SlotController:
 
         # 3. Gửi packet vào cửa trực tiếp tới GameServer
         res = eng.enter_mirror(ticket_slot)
+        if hasattr(eng, "dismiss_active_dialog"):
+            try:
+                eng.dismiss_active_dialog()
+            except Exception:
+                pass
 
         # 4. Kiểm tra xác nhận vào map trong game
         def _verify_entry():
@@ -2011,6 +2087,10 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
+        try:
+            self._pause_train_for_mirror("Bắt đầu Auto Double Goer")
+        except Exception:
+            pass
         self.mirror_running = True
         self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
         self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ▶️ BẮT ĐẦU AUTO DOUBLE GOER (MIRROR)")
@@ -2080,6 +2160,22 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
+        try:
+            self._pause_train_for_mirror("Kích hoạt Turbo Sniping Double Goer")
+        except Exception:
+            pass
+
+        if hasattr(eng, "set_dialog_suppression"):
+            try:
+                eng.set_dialog_suppression(True)
+            except Exception:
+                pass
+        if hasattr(eng, "dismiss_active_dialog"):
+            try:
+                eng.dismiss_active_dialog()
+            except Exception:
+                pass
+
         # ĐẢM BẢO ĐỨNG YÊN HOÀN TOÀN TẠI VỊ TRÍ HIỆN TẠI, TUYỆT ĐỐI KHÔNG DI CHUYỂN
         if hasattr(eng, "cancel_move"):
             try:
@@ -2130,6 +2226,11 @@ class SlotController:
                     ))
                     self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
                     self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
+                    if hasattr(eng, "dismiss_active_dialog"):
+                        try:
+                            eng.dismiss_active_dialog()
+                        except Exception:
+                            pass
                     def _delayed_start_helper():
                         time.sleep(1.2)
                         try:
@@ -2174,6 +2275,11 @@ class SlotController:
                 # Luồng Python chỉ giám sát fast_state trong RAM Python (Zero GIL/RPC contention)!
                 while self.mirror_sniping:
                     time.sleep(0.2)
+                    if hasattr(eng, "dismiss_active_dialog"):
+                        try:
+                            eng.dismiss_active_dialog()
+                        except Exception:
+                            pass
                     now = time.time()
                     if (now - start_t) > (max_duration_s + 0.5):
                         break
@@ -2220,6 +2326,11 @@ class SlotController:
                 res = eng.enter_mirror(slot=active_slot if active_slot >= 0 else None)
                 packets_sent += 1
                 iter_cnt += 1
+                if iter_cnt % 3 == 0 and hasattr(eng, "dismiss_active_dialog"):
+                    try:
+                        eng.dismiss_active_dialog()
+                    except Exception:
+                        pass
 
                 if not res.get("success") and res.get("error") in ("no_ticket", "only_signs"):
                     fail_no_ticket_cnt += 1

@@ -359,6 +359,7 @@ class ConfigPersistenceManager:
                         "auto_prep_before": bool(sched.get("auto_prep_before", True)),
                         "auto_lifecycle": bool(sched.get("auto_lifecycle", True)),
                         "auto_gremory": bool(sched.get("auto_gremory", True)),
+                        "auto_zero_popups": bool(sched.get("auto_zero_popups", True)),
                         "prefire_sec": float(sched.get("prefire_sec", 1.2)),
                         "selected_slots": sel
                     }
@@ -369,6 +370,7 @@ class ConfigPersistenceManager:
                 "auto_prep_before": True,
                 "auto_lifecycle": True,
                 "auto_gremory": True,
+                "auto_zero_popups": True,
                 "prefire_sec": 1.2,
                 "selected_slots": None
             }
@@ -390,6 +392,7 @@ class ConfigPersistenceManager:
             prefire_sec = cfg_dict.get("prefire_sec", 1.2)
             auto_lifecycle = cfg_dict.get("auto_lifecycle", True)
             auto_gremory = cfg_dict.get("auto_gremory", True)
+            auto_zero_popups = cfg_dict.get("auto_zero_popups", True)
             if selected_slots is None and "selected_slots" in cfg_dict:
                 selected_slots = cfg_dict["selected_slots"]
             auto_schedule = cfg_dict.get("auto_schedule", True)
@@ -407,6 +410,7 @@ class ConfigPersistenceManager:
                     "auto_prep_before": bool(auto_prep_before),
                     "auto_lifecycle": bool(auto_lifecycle),
                     "auto_gremory": bool(auto_gremory),
+                    "auto_zero_popups": bool(locals().get("auto_zero_popups", True)),
                     "prefire_sec": float(prefire_sec),
                     "interval_hours": 2,
                     "prep_minutes_before": 5,

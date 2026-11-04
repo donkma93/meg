@@ -23,7 +23,7 @@
       "enabled": true,
       "source": "registry",
       "password": "Nammothai3",
-      "token": "72838def9a78cc00e09cd1345de82811"
+      "token": "d140a21aac474c850715a57fe6202afe"
     },
     {
       "username": "anhdontb",
@@ -113,7 +113,7 @@
     {
       "username": "anhdontb3",
       "nickname": "anhdontb3",
-      "token": "11c34f21b0c990d1fdbf5e0242c36221",
+      "token": "8aea692c1bb9823bab1740762cf7ab18",
       "character": "laclac24",
       "characters_list": [
         "laclac24",
@@ -146,6 +146,30 @@
       "character": "Rooneyy",
       "characters_list": [
         "Rooneyy"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "thaibinh07",
+      "nickname": "thaibinh07",
+      "token": "18f7f0215199eed91014f13a75ebf461",
+      "character": "HSmart",
+      "characters_list": [
+        "HSmart"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "osint",
+      "nickname": "osint",
+      "token": "0a9cceafe0aafd8f7629c016348620aa",
+      "character": "osint88",
+      "characters_list": [
+        "osint88"
       ],
       "server": 1,
       "enabled": true,

@@ -475,6 +475,7 @@ class DashboardApp(ctk.CTk):
 
         # Bộ nhớ tiến trình
         self.detected_games: Dict[int, str] = {}
+        self._char_name_cache: Dict[int, str] = {}
         self.active_tab = None
         self.logger = get_logger()
         self.logs_data: List[Tuple[str, str, str]] = [] # [(time, slot, text)]
@@ -1173,24 +1174,16 @@ class DashboardApp(ctk.CTk):
         for pid, title in sorted(self.detected_games.items()):
             char_name = character_name_from_window_title(title)
             if not char_name:
-                try:
-                    from meg_navigator import ProcessMemoryReader
-                    char_name = ProcessMemoryReader.read_character_name(pid) or ""
-                except Exception:
-                    pass
+                char_name = self._char_name_cache.get(pid, "")
+            else:
+                self._char_name_cache[pid] = char_name
             disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
             options.append(disp)
 
         init_proc = "--"
         if ctrl.assigned_pid:
             t = self.detected_games.get(ctrl.assigned_pid, "")
-            cname = character_name_from_window_title(t)
-            if not cname:
-                try:
-                    from meg_navigator import ProcessMemoryReader
-                    cname = ProcessMemoryReader.read_character_name(ctrl.assigned_pid) or ""
-                except Exception:
-                    pass
+            cname = character_name_from_window_title(t) or self._char_name_cache.get(ctrl.assigned_pid, "")
             if not cname and ctrl.char_name and ctrl.char_name != "---":
                 cname = ctrl.char_name
             init_proc = f"{cname} ({ctrl.assigned_pid})" if cname else f"MEGAMU ({ctrl.assigned_pid})"
@@ -1927,6 +1920,11 @@ class DashboardApp(ctk.CTk):
         """Đọc Profile từ file JSON và điền vào form."""
         self.current_editor_profile_idx = profile_idx
         self.editor_profile_var.set(f"Config {profile_idx}")
+        if hasattr(self, "editor_profile_combo") and self.editor_profile_combo:
+            try:
+                self.editor_profile_combo.set(f"Config {profile_idx}")
+            except Exception:
+                pass
         cfg = ConfigPersistenceManager.load_single_profile(profile_idx)
         self.editor_respawn_var.set(str(cfg.get("respawn_delay", 15)))
 
@@ -1952,11 +1950,15 @@ class DashboardApp(ctk.CTk):
             prev_idx = getattr(self, "current_editor_profile_idx", 1)
             # Chỉ lưu cấu hình CŨ (prev_idx) trước khi chuyển sang xem profile mới
             if prev_idx != new_idx:
-                self.save_editor_to_file(silent=True, target_idx=prev_idx)
+                try:
+                    self.save_editor_to_file(silent=True, target_idx=prev_idx)
+                except Exception as e:
+                    _safe_log(f"[DashboardApp] Lỗi lưu cấu hình cũ: {e}")
             # Nạp cấu hình MỚI vào form
             self.load_profile_into_editor(new_idx)
-        except Exception:
-            pass
+            self.log_message(f"⚙️ [Cấu Hình] Đã chuyển sang soạn thảo: Config {new_idx}", "INFO")
+        except Exception as e:
+            self.log_message(f"Lỗi chuyển cấu hình soạn thảo: {e}", "ERROR")
 
     def reload_editor_from_file(self):
         """Tải lại dữ liệu tươi mới từ file đĩa JSON."""
@@ -2010,8 +2012,7 @@ class DashboardApp(ctk.CTk):
             if silent and not is_changed:
                 return
 
-            if new_stages:
-                cfg["stages"] = new_stages
+            cfg["stages"] = new_stages
             # Ghi trực tiếp vào file đĩa
             ConfigPersistenceManager.save_single_profile(idx, cfg)
             if not silent:
@@ -3309,7 +3310,8 @@ class DashboardApp(ctk.CTk):
             el["rolls_lbl"].configure(text=f"{count} Lượt")
 
     def update_moss_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int]):
-        el = self.moss_ui_elements.get(slot_idx)
+        moss_elems = getattr(self, "moss_ui_elements", {})
+        el = moss_elems.get(slot_idx) if isinstance(moss_elems, dict) else None
         if not el or not el.get("char_lbl"):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
@@ -3911,7 +3913,8 @@ class DashboardApp(ctk.CTk):
                 el["status_lbl"].configure(text=text, text_color=text_color)
 
     def update_mirror_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int], coords: str = ""):
-        el = self.mirror_ui_elements.get(slot_idx)
+        mirror_elems = getattr(self, "mirror_ui_elements", {})
+        el = mirror_elems.get(slot_idx) if isinstance(mirror_elems, dict) else None
         if not el or not el.get("char_lbl"):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
@@ -4097,21 +4100,27 @@ class DashboardApp(ctk.CTk):
             self.after(0, lambda: self.append_mirror_log(f"🚪 Đã gửi lệnh vào cửa Double Goer cho {cnt} tài khoản đã chọn!"))
         threading.Thread(target=_enterer, daemon=True).start()
 
-    def move_all_to_event_map(self):
-        """Di chuyển các tài khoản ĐÃ TÍCH CHỌN tới Event Map (Lugard)."""
+    def move_all_to_lugard(self):
+        """Di chuyển các tài khoản ĐÃ TÍCH CHỌN tới vị trí NPC Lugard (229, 22)."""
         def _mover():
             cnt = 0
+            self.after(0, lambda: self.append_mirror_log("🚶 Bắt đầu di chuyển các tài khoản đã chọn về NPC Lugard (229, 22)..."))
+            threads = []
             for ctrl in self.controllers:
                 if not getattr(ctrl, "mirror_enabled", True):
                     continue
                 if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
-                    ctrl.move_to_event_map()
                     cnt += 1
-                    time.sleep(0.15)
-            self.after(0, lambda: self.append_mirror_log(f"🚶 Đã gửi lệnh di chuyển tới Event Map cho {cnt} tài khoản đã chọn!"))
+                    t = threading.Thread(target=ctrl.move_to_lugard, daemon=True)
+                    threads.append(t)
+                    t.start()
+                    time.sleep(0.12)
+            for t in threads:
+                t.join(timeout=10.0)
+            self.after(0, lambda: self.append_mirror_log(f"✅ Hoàn tất đưa {cnt} tài khoản về vị trí NPC Lugard!"))
         threading.Thread(target=_mover, daemon=True).start()
 
-    move_all_to_lugard = move_all_to_event_map
+    move_all_to_event_map = move_all_to_lugard
 
     def click_all_mirror_npc(self):
         """Gửi lệnh tương tác NPC Lugard cho các tài khoản ĐÃ TÍCH CHỌN."""
@@ -4183,15 +4192,33 @@ class DashboardApp(ctk.CTk):
         is_life = bool(self.cb_mirror_auto_lifecycle.get()) if (hasattr(self, "cb_mirror_auto_lifecycle") and self.cb_mirror_auto_lifecycle is not None) else False
         is_gremory = bool(self.cb_mirror_auto_gremory.get()) if (hasattr(self, "cb_mirror_auto_gremory") and self.cb_mirror_auto_gremory is not None) else False
         prefire = self.get_mirror_prefire_sec() if hasattr(self, "mirror_prefire_sec_entry") else 1.2
+        is_zero_popups = bool(self.cb_mirror_zero_popups.get()) if (hasattr(self, "cb_mirror_zero_popups") and self.cb_mirror_zero_popups is not None) else True
         selected_slots = [c.slot_idx for c in self.controllers if getattr(c, "mirror_enabled", True)]
         return {
             "auto_schedule": is_auto,
             "auto_prep_before": is_prep,
             "auto_lifecycle": is_life,
             "auto_gremory": is_gremory,
+            "auto_zero_popups": is_zero_popups,
             "prefire_sec": prefire,
             "selected_slots": selected_slots
         }
+
+    def on_toggle_mirror_zero_popups(self):
+        """Xử lý khi người dùng bật/tắt checkbox 🚫 Ẩn Dialog (Zero Popups)."""
+        cfg = self.get_mirror_schedule_config()
+        ConfigPersistenceManager.save_mirror_schedule_config(cfg)
+        enabled = cfg.get("auto_zero_popups", True)
+        status_txt = "BẬT" if enabled else "TẮT"
+        self.append_mirror_log(f"🚫 [Mirror] Chế độ tự động xác nhận và ẩn thông báo (Zero Dialog): {status_txt}")
+        for c in self.controllers:
+            if c.assigned_pid and is_megamu_process_alive(c.assigned_pid):
+                try:
+                    eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
+                    if eng and hasattr(eng, "set_dialog_suppression"):
+                        eng.set_dialog_suppression(enabled)
+                except Exception:
+                    pass
 
     def on_toggle_mirror_auto_schedule(self):
         """Xử lý khi người dùng bật/tắt checkbox Auto Schedule hoặc đổi thời gian giật trước."""
@@ -4295,24 +4322,21 @@ class DashboardApp(ctk.CTk):
     def prepare_all_mirror_event(self):
         """Kích hoạt giai đoạn chuẩn bị trước 5 phút cho các tài khoản ĐÃ TÍCH CHỌN."""
         def _prep():
-            self.after(0, lambda: self.append_mirror_log("🚶 [Giai đoạn Chuẩn Bị] Đang đưa các tài khoản đã chọn về Event Map & kiểm tra vé..."))
+            self.after(0, lambda: self.append_mirror_log("🚶 [Giai đoạn Chuẩn Bị] Đang đưa các tài khoản đã chọn về NPC Lugard & kiểm tra vé..."))
             cnt = 0
+            threads = []
             for ctrl in self.controllers:
                 if not getattr(ctrl, "mirror_enabled", True):
                     continue
                 if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
                     cnt += 1
-                    try:
-                        ctrl.move_to_event_map()
-                    except Exception:
-                        pass
-                    time.sleep(0.15)
-                    try:
-                        self.refresh_mirror_slot_ticket_display(ctrl.slot_idx)
-                    except Exception:
-                        pass
-                    time.sleep(0.05)
-            self.after(0, lambda: self.append_mirror_log(f"✅ Hoàn tất đưa {cnt} tài khoản về Event Map chuẩn bị sự kiện!"))
+                    t = threading.Thread(target=ctrl.prepare_mirror_event, daemon=True)
+                    threads.append(t)
+                    t.start()
+                    time.sleep(0.12)
+            for t in threads:
+                t.join(timeout=10.0)
+            self.after(0, lambda: self.append_mirror_log(f"✅ Hoàn tất chuẩn bị cho {cnt} tài khoản tại NPC Lugard!"))
         threading.Thread(target=_prep, daemon=True).start()
 
     def _periodic_mirror_scheduler(self):
@@ -5013,11 +5037,15 @@ class DashboardApp(ctk.CTk):
         ctrl = self.controllers[slot_idx - 1]
         if val in ("--", tr("select"), "") or not val:
             ctrl.detach()
+            ctrl.assigned_pid = None
+            self.update_slot_ui_telemetry(slot_idx, "---", "LV --", "---")
+            ctrl.set_status(tr("status_disconnected"))
             if hasattr(self, "update_moss_slot_telemetry"):
                 self.update_moss_slot_telemetry(slot_idx, "---", None)
             if hasattr(self, "update_mirror_slot_telemetry"):
                 self.update_mirror_slot_telemetry(slot_idx, "---", None)
             self.update_slot_run_button_state(slot_idx)
+            self.log_message(f"[Slot {slot_idx:02d}] Đã hủy gán game.", "INFO")
             return
 
         try:
@@ -5033,6 +5061,21 @@ class DashboardApp(ctk.CTk):
                 self.log_message(f"[Slot {slot_idx:02d}] Cửa sổ MEGAMU (PID {pid}) đã đóng. Đang tự động quét và kết nối lại...", "WARNING")
                 ctrl.reconnect_game()
                 return
+
+            # Chống gán trùng: Nếu PID này đang gán cho slot khác, tự động hủy ở slot đó
+            for other_idx in range(1, len(self.controllers) + 1):
+                if other_idx != slot_idx:
+                    other_ctrl = self.controllers[other_idx - 1]
+                    if other_ctrl.assigned_pid == pid:
+                        other_ctrl.detach()
+                        other_ctrl.assigned_pid = None
+                        other_el = self.slot_ui_elements.get(other_idx)
+                        if other_el and other_el.get("proc_combo"):
+                            other_el["proc_combo"].set("--")
+                        self.update_slot_ui_telemetry(other_idx, "---", "LV --", "---")
+                        other_ctrl.set_status(tr("status_disconnected"))
+                        self.update_slot_run_button_state(other_idx)
+                        self.log_message(f"[Slot {other_idx:02d}] Tự động bỏ gán PID {pid} vì đã chuyển sang Slot {slot_idx:02d}.", "INFO")
 
             ctrl.attach_pid(pid)
             if hasattr(self, "update_moss_slot_telemetry"):
@@ -5065,8 +5108,11 @@ class DashboardApp(ctk.CTk):
             ctrl.set_profile(p_idx)
             self.slot_assignments[slot_idx] = p_idx
             el = self.slot_ui_elements.get(slot_idx)
-            if el and el.get("profile_var"):
-                el["profile_var"].set(f"Config {p_idx}")
+            if el:
+                if el.get("profile_var"):
+                    el["profile_var"].set(f"Config {p_idx}")
+                if el.get("preset_combo"):
+                    el["preset_combo"].set(f"Config {p_idx}")
             ConfigPersistenceManager.save_all_slot_assignments(self.slot_assignments)
             self.log_message(f"[Slot {slot_idx:02d}] Đã đổi tuyến đường sang: Config {p_idx}", "INFO")
         except Exception as e:
@@ -5638,17 +5684,29 @@ class DashboardApp(ctk.CTk):
     # CÁC NÚT ĐIỀU KHIỂN HÀNG LOẠT (BULK ACTIONS)
     # ==========================================================================
     def refresh_games(self):
-        """Quét lại danh sách MEGAMU.exe."""
+        """Quét nhanh danh sách MEGAMU.exe không gây đơ lag GUI thread."""
         self.detected_games = enumerate_megamu_processes()
         options = ["--"]
+        unresolved_pids = []
+
+        if not hasattr(self, "_char_name_cache"):
+            self._char_name_cache = {}
+
         for pid, title in sorted(self.detected_games.items()):
             char_name = character_name_from_window_title(title)
             if not char_name:
-                try:
-                    from meg_navigator import ProcessMemoryReader
-                    char_name = ProcessMemoryReader.read_character_name(pid) or ""
-                except Exception:
-                    pass
+                char_name = self._char_name_cache.get(pid, "")
+                if not char_name:
+                    for c in self.controllers:
+                        if c.assigned_pid == pid and c.char_name and c.char_name != "---":
+                            char_name = c.char_name
+                            self._char_name_cache[pid] = char_name
+                            break
+                if not char_name:
+                    unresolved_pids.append(pid)
+            else:
+                self._char_name_cache[pid] = char_name
+
             disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
             options.append(disp)
 
@@ -5658,7 +5716,33 @@ class DashboardApp(ctk.CTk):
                 el["proc_combo"].configure(values=options)
 
         self.update_header_stats()
-        self.log_message(f"Đã làm mới: Phát hiện {len(self.detected_games)} cửa sổ MEGAMU.exe.", "INFO")
+
+        # Nếu có tiến trình chưa rõ tên nhân vật, quét bất đồng bộ trong luồng ngầm
+        if unresolved_pids:
+            def _async_resolve():
+                updated = False
+                for p in unresolved_pids:
+                    try:
+                        from meg_navigator import ProcessMemoryReader
+                        nm = ProcessMemoryReader.read_character_name(p)
+                        if nm:
+                            self._char_name_cache[p] = nm
+                            updated = True
+                    except Exception:
+                        pass
+                if updated:
+                    def _sync_ui():
+                        new_opts = ["--"]
+                        for pk, t_str in sorted(self.detected_games.items()):
+                            c_n = character_name_from_window_title(t_str) or self._char_name_cache.get(pk, "")
+                            new_opts.append(f"{c_n} ({pk})" if c_n else f"MEGAMU ({pk})")
+                        for idx_s in self.slot_ui_elements.keys():
+                            e_s = self.slot_ui_elements.get(idx_s)
+                            if e_s and e_s.get("proc_combo"):
+                                e_s["proc_combo"].configure(values=new_opts)
+                    self.after(0, _sync_ui)
+            import threading
+            threading.Thread(target=_async_resolve, daemon=True, name="AsyncResolveCharNames").start()
 
     def assign_all(self):
         """Gán toàn bộ các tiến trình MEGAMU đang mở vào các Slot trống (hỗ trợ linh hoạt 1, 2, 3, 4, 5, 6, 7, 8... tài khoản)."""

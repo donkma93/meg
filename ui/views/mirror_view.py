@@ -123,6 +123,18 @@ class MirrorView:
         self.app.cb_mirror_auto_prep_before.pack(side="left")
         add_tooltip(self.app.cb_mirror_auto_prep_before, "Tự động di chuyển về NPC Lugard lúc :08")
 
+        self.app.cb_mirror_zero_popups = ctk.CTkCheckBox(
+            row1,
+            text="🚫 Ẩn Dialog",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#34d399",
+            fg_color="#059669",
+            hover_color="#047857",
+            command=self.app.on_toggle_mirror_zero_popups
+        )
+        self.app.cb_mirror_zero_popups.pack(side="left", padx=(8, 0))
+        add_tooltip(self.app.cb_mirror_zero_popups, "Tự động xác nhận và ẩn thông báo lỗi/hết vé/chưa tới giờ trên màn hình (Zero Popups)")
+
         # Tạm thời bỏ các tính năng không hoạt động ổn định
         self.app.cb_mirror_auto_lifecycle = None
         self.app.cb_mirror_auto_gremory = None
@@ -139,9 +151,15 @@ class MirrorView:
                 self.app.cb_mirror_auto_prep_before.select()
             else:
                 self.app.cb_mirror_auto_prep_before.deselect()
+
+            if m_sched_cfg.get("auto_zero_popups", True):
+                self.app.cb_mirror_zero_popups.select()
+            else:
+                self.app.cb_mirror_zero_popups.deselect()
         except Exception:
             self.app.cb_mirror_auto_schedule.select()
             self.app.cb_mirror_auto_prep_before.select()
+            self.app.cb_mirror_zero_popups.select()
 
         # Hàng 2: Chọn tất cả + Check vé + Về Lugard + Vào cửa + Auto thường + Thông số
         row2 = ctk.CTkFrame(inner_tb, fg_color="transparent")
@@ -284,10 +302,10 @@ class MirrorView:
             border_color="#38bdf8",
             text_color="#38bdf8",
             font=ctk.CTkFont(family="Segoe UI", size=10),
-            command=self.app.move_all_to_event_map
+            command=self.app.move_all_to_lugard
         )
         btn_move_all.pack(side="left", padx=(0, 3))
-        add_tooltip(btn_move_all, "Di chuyển toàn bộ tài khoản về NPC Lugard (Elbeland)")
+        add_tooltip(btn_move_all, "Di chuyển toàn bộ tài khoản về NPC Lugard (Event Square / Elbeland)")
 
         btn_enter_all = ctk.CTkButton(
             row2,
@@ -321,7 +339,7 @@ class MirrorView:
             command=self.app.start_all_mirror_auto
         )
         self.app.btn_mirror_start_all.pack(side="left")
-        add_tooltip(self.app.btn_mirror_start_all, "Chạy Auto Train thường cho các tài khoản")
+        add_tooltip(self.app.btn_mirror_start_all, "Kích hoạt Auto Double Goer cho các tài khoản đã chọn")
 
         # 2. KHUNG NỘI DUNG CHIA ĐÔI: BẢNG TÀI KHOẢN (TRÁI) & NHẬT KÝ (PHẢI)
         body_split_frame = ctk.CTkFrame(self.panel, fg_color="transparent")
