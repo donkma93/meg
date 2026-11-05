@@ -429,6 +429,7 @@ class SlotController:
         def worker_progress(st, _):
             self.set_status(st)
 
+        self.resume_auto_train_after_mirror = False
         self.worker = TrainService.get_instance().start_train_worker(
             slot_idx=self.slot_idx,
             pid=self.assigned_pid,
@@ -2377,6 +2378,8 @@ class SlotController:
             self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
             self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Đã dừng"))
             self.app.after(0, lambda: self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Turbo Sniping."))
+            if getattr(self, "resume_auto_train_after_mirror", False):
+                self._resume_train_after_mirror("Dừng Turbo Sniping")
 
 
 # ==============================================================================

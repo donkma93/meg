@@ -6,7 +6,7 @@
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
       "auto_reset": false,
-      "auto_add_point": false,
+      "auto_add_point": true,
       "reset_level": 400,
       "stat_mode": "auto_class",
       "custom_class": "",

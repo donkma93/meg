@@ -940,25 +940,22 @@ class AutoTrainWorker:
                         except Exception:
                             pass
 
-                # 1.1. Cô lập an toàn khi tạm dừng cho sự kiện hoặc đang trong map sự kiện Double Goer
-                if self.is_paused_for_event:
-                    time.sleep(self.poll_interval)
-                    continue
-
+                # 1.1. Đang trong map phó bản Double Goer (Map 65, 66, 67, 68) -> Tạm ngưng bãi train nhường quyền cho sự kiện
                 if current_map_id in (65, 66, 67, 68):
                     time.sleep(self.poll_interval)
                     continue
 
-                # 1.2. Nếu nhân vật đang ở NPC Lugard (Event Square 229, 22 hoặc Elbeland 49, 216) để chuẩn bị / tham gia Double Goer
-                is_near_lugard = (
-                    (current_map_id in (53, 40) and math.hypot(px - 229, py - 22) <= 14) or
-                    (current_map_id == 51 and math.hypot(px - 49, py - 216) <= 14)
-                )
-                if is_near_lugard:
-                    if getattr(self, '_last_lugard_state_log', 0) != 1:
-                        self._set_state(f'CHỜ SỰ KIỆN LUGARD ({px}, {py})')
-                        self._log(f'📍 Nhân vật đang đứng tại NPC Lugard ({px}, {py}). Tạm ngưng bãi train nhường quyền cho sự kiện Double Goer.', 'INFO')
-                        self._last_lugard_state_log = 1
+                # 1.2. Nếu AutoTrain ĐANG TẠM DỪNG CHO SỰ KIỆN (Double Goer / Devil Square / ...)
+                if self.is_paused_for_event:
+                    is_near_lugard = (
+                        (current_map_id in (53, 40) and math.hypot(px - 229, py - 22) <= 14) or
+                        (current_map_id == 51 and math.hypot(px - 49, py - 216) <= 14)
+                    )
+                    if is_near_lugard:
+                        if getattr(self, '_last_lugard_state_log', 0) != 1:
+                            self._set_state(f'CHỜ SỰ KIỆN LUGARD ({px}, {py})')
+                            self._log(f'📍 Nhân vật đang đứng tại NPC Lugard ({px}, {py}). Tạm ngưng bãi train nhường quyền cho sự kiện Double Goer.', 'INFO')
+                            self._last_lugard_state_log = 1
                     time.sleep(max(1.0, self.poll_interval))
                     continue
                 else:
