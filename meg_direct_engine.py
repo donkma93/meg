@@ -1080,11 +1080,8 @@ function installDialogSuppressionHooks() {
                                     // PMADOEGMPPK đọc mã 0 (thành công) và nhảy thẳng về ret epilogue (0xF92525),
                                     // hoàn toàn không gọi MHelperUI và không tạo popup đè lên màn hình!
                                     pktPtr.add(0x24).writeU8(0);
-                                    send({
-                                        type: "mirror_entry_suppressed",
-                                        code: code,
-                                        note: "Zero-Popup: Bỏ qua popup Doppelganger mã " + code
-                                    });
+                                    // Không gọi send() ở đây: Bắn send() theo chu kỳ 35ms sẽ gây tràn bộ đệm
+                                    // Frida IPC pipe và nghẽn hoàn toàn CPU/GIL của Python khi chạy đa tài khoản!
                                 }
                             }
                         }
@@ -6175,8 +6172,7 @@ class MegDirectEngine:
                         else:
                             _safe_log(f"[MegDirectEngine] Native Chat gửi lỗi '{cmd_val}': {payload.get('error')}")
                     elif p_type == "mirror_entry_suppressed":
-                        code = payload.get("code")
-                        _safe_log(f"[MegDirectEngine] PID {self.pid} Cướp cổng: Đã chặn popup từ server (mã {code}) - Zero-Popup.")
+                        pass
                     elif p_type in ("mirror_turbo_entered", "mirror_turbo_timeout"):
                         self.last_mirror_turbo_result = payload
                         cb = getattr(self, "on_mirror_turbo_event", None)

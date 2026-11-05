@@ -2274,12 +2274,7 @@ class SlotController:
                 # Native In-Process đang tự bắn liên thanh 0ms IPC bên trong RAM game.
                 # Luồng Python chỉ giám sát fast_state trong RAM Python (Zero GIL/RPC contention)!
                 while self.mirror_sniping:
-                    time.sleep(0.2)
-                    if hasattr(eng, "dismiss_active_dialog"):
-                        try:
-                            eng.dismiss_active_dialog()
-                        except Exception:
-                            pass
+                    time.sleep(0.25)
                     now = time.time()
                     if (now - start_t) > (max_duration_s + 0.5):
                         break

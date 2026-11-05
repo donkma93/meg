@@ -552,6 +552,7 @@ class DashboardApp(ctk.CTk):
         self._app_mutex = SingleInstanceMutex()
         if not self._app_mutex.acquire():
             print("⚠️ CẢNH BÁO: Một phiên bản khác của MEGAMU Auto Train Dashboard đang hoạt động!")
+            SingleInstanceMutex.activate_existing_window(APP_NAME)
 
         self._last_moss_trigger_key = None
         self._last_moss_move_key = None
@@ -5515,7 +5516,7 @@ class DashboardApp(ctk.CTk):
         try:
             self.after(0, _apply)
         except Exception:
-            _apply()
+            pass
 
     def update_slot_run_button_state(self, slot_idx: int):
         """Cập nhật trạng thái enable/disable và màu sắc của nút Chạy Auto: chỉ kích hoạt khi đã gán nhân vật."""

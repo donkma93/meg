@@ -36,6 +36,9 @@ class TestDialogSuppression(unittest.TestCase):
         # Must have Zero-Popup packet modification
         self.assertIn("pktPtr.add(0x24).writeU8(0)", js)
 
+        # Must NOT send high-speed mirror_entry_suppressed to prevent Frida pipe buffer overflow
+        self.assertNotIn("mirror_entry_suppressed", js)
+
         # Must have dismissActiveDialog export
         self.assertIn("dismissActiveDialog:", js)
         self.assertIn("setDialogSuppression:", js)

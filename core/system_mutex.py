@@ -30,6 +30,9 @@ class SingleInstanceMutex:
             last_err = kernel32.GetLastError()
             if last_err == self.ERROR_ALREADY_EXISTS:
                 self.already_running = True
+                if self.handle:
+                    kernel32.CloseHandle(self.handle)
+                    self.handle = None
                 return False
             self.already_running = False
             return True
@@ -55,3 +58,18 @@ class SingleInstanceMutex:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.release()
 
+    @staticmethod
+    def activate_existing_window(window_title: str) -> bool:
+        """Kích hoạt và đưa cửa sổ đang chạy lên màn hình trước (Restore & SetForegroundWindow)."""
+        if sys.platform != "win32":
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            hwnd = user32.FindWindowW(None, window_title)
+            if hwnd:
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.SetForegroundWindow(hwnd)
+                return True
+        except Exception:
+            pass
+        return False
