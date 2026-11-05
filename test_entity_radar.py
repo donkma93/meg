@@ -99,8 +99,12 @@ def load_map_names() -> Dict[int, str]:
         6: "Arena", 7: "Atlans", 8: "Tarkan", 10: "Icarus", 30: "Valley of Loren",
         31: "Land of Trials", 33: "Aida", 34: "Crywolf", 37: "Kanturu Ruins",
         38: "Kanturu Relics", 40: "Silent Map", 41: "Barracks", 42: "Refuge",
-        51: "Elbeland", 56: "Calmness", 57: "Karutan 1", 58: "Karutan 2",
-        63: "Vulcanus", 80: "Ferea", 81: "Nixies Lake", 91: "Deep Dungeon 1",
+        51: "Elbeland", 53: "Event Square", 56: "Calmness", 57: "Karutan 1", 58: "Karutan 2",
+        63: "Vulcanus", 65: "Double Goer 1", 66: "Double Goer 2", 67: "Double Goer 3", 68: "Double Goer 4",
+        80: "Ferea", 81: "Nixies Lake",
+        82: "Double Goer (82)", 83: "Double Goer (83)", 84: "Double Goer (84)", 85: "Double Goer (85)",
+        86: "Double Goer (86)", 87: "Double Goer (87)", 88: "Double Goer (88)", 89: "Double Goer (89)", 90: "Double Goer (90)",
+        91: "Deep Dungeon 1",
         92: "Deep Dungeon 2", 93: "Deep Dungeon 3", 94: "Deep Dungeon 4", 95: "Deep Dungeon 5",
         110: "Nars", 116: "Deep Dungeon", 122: "Swamp of Darkness", 128: "Kubera Mine",
         134: "Abyss of Atlans", 140: "Scorched Canyon", 145: "Red Smoke Icarus", 150: "Arenil Temple",
@@ -159,6 +163,14 @@ def classify_entity_type(name: str, level: int = 0, cls_id: int = 0, is_elite: b
     # 1. Quái Triệu hồi của nhân vật khác
     if summon_owner:
         return f"🐾 Triệu Hồi ({summon_owner})", "summon", False, False
+
+    # 1.5. Rương Sự Kiện Mirror (Double Goer) & Boss / Quái Mirror
+    if cls_id in (541, 542, 528) or any(w in nl for w in ["reward chest", "final reward", "baú", "tesouro", "rương"]):
+        return "🎁 Rương Sự Kiện", "npc_chest", True, False
+    if cls_id in (529, 530, 531):
+        return "👑 Boss Sự Kiện", "boss", False, True
+    if 532 <= cls_id <= 539:
+        return "👾 Quái Sự Kiện", "normal", False, False
 
     # 2. NPC (Non-Player Character)
     is_npc_id = (200 <= cls_id <= 259) or (367 <= cls_id <= 415) or (450 <= cls_id <= 580) or (700 <= cls_id <= 799)
@@ -853,6 +865,10 @@ class MemoryScanner:
                     if "LocalCharacterBody" in b_klass_name:
                         continue
 
+                    # Bỏ qua thực thể đang bị hủy / rương đã mở / quái đã chết (Body.IsDestroying tại +0xC0)
+                    if self.read_u8(body + 0xC0) != 0:
+                        continue
+
                     # Đọc tọa độ thực thể
                     c_ptr = self.read_ptr(body + 0x68)
                     bx = self.read_i32(c_ptr + 0x10) if c_ptr else -1
@@ -861,20 +877,41 @@ class MemoryScanner:
                         continue
 
                     dist = round(math.sqrt((bx - px) ** 2 + (by - py) ** 2), 1)
-                    b_name = self.read_str(self.read_ptr(body + 0x28)) or "Unknown"
+                    b_idx = self.read_i32(body + 0x20)
+                    b_name = self.read_str(self.read_ptr(body + 0x28))
                     b_lvl = self.read_i32(body + 0x30)
                     b_cls_id = self.read_i32(body + 0x34)
                     b_cls_name = CLASS_NAMES.get(b_cls_id, f"Class {b_cls_id}")
 
                     # Ghi nhận vào bộ nhớ thám thính (Scout Cache) để giữ lại khi đi xa ngoài tầm mắt!
-                    if "MonsterBody" in b_klass_name:
-                        is_elite = bool(self.read_u8(body + 0x148))
+                    # Lưu ý: Trong IL2CPP MEGAMU, NPC và Rương Sự Kiện có class là "MNpcBody" (kế thừa NpcBody -> MonsterBody)
+                    if "MonsterBody" in b_klass_name or "NpcBody" in b_klass_name:
+                        m_info = self.read_ptr(body + 0x138)
+                        m_info_type = self.read_i32(m_info + 0x30) if m_info else -1
+                        if not b_name and m_info:
+                            b_name = self.read_str(self.read_ptr(m_info + 0x18))
+                        if not b_name:
+                            if b_cls_id == 541:
+                                b_name = "Reward Chest (Silver)"
+                            elif b_cls_id == 542:
+                                b_name = "Final Reward Chest (Golden)"
+                            else:
+                                b_name = "Unknown"
+
+                        is_elite = bool(self.read_u8(body + 0x140)) or bool(self.read_u8(body + 0x148))
                         summon_owner = self.read_str(self.read_ptr(body + 0xA0))
                         category, sub_type, is_npc, is_boss = classify_entity_type(
                             b_name, b_lvl, b_cls_id, is_elite, summon_owner
                         )
+                        if ("NpcBody" in b_klass_name or m_info_type in (1, 3, 4)) and not is_boss and not (529 <= b_cls_id <= 539):
+                            is_npc = True
+                            if sub_type == "normal":
+                                category = "🎁 Rương Sự Kiện" if b_cls_id in (541, 542, 528) else "🧙 NPC Bản Đồ"
+                                sub_type = "npc_chest" if b_cls_id in (541, 542, 528) else "npc_general"
 
                         self.scout_cache["monsters"][(bx, by, b_name)] = {
+                            "ptr": body,
+                            "index": b_idx,
                             "name": b_name,
                             "level": b_lvl,
                             "class_id": b_cls_id,
@@ -887,7 +924,9 @@ class MemoryScanner:
                         }
 
                         if dist <= radius:
-                            monsters.append({
+                            ent_entry = {
+                                "ptr": body,
+                                "index": b_idx,
                                 "name": b_name,
                                 "level": b_lvl,
                                 "class_id": b_cls_id,
@@ -901,12 +940,16 @@ class MemoryScanner:
                                 "is_sonar": False,
                                 "is_scout": False,
                                 "source": "viewport"
-                            })
+                            }
+                            monsters.append(ent_entry)
                             if is_npc:
                                 npcs.append({
+                                    "ptr": body,
+                                    "index": b_idx,
                                     "name": b_name,
                                     "class_id": b_cls_id,
                                     "category": category,
+                                    "sub_type": sub_type,
                                     "x": bx, "y": by,
                                     "distance": dist
                                 })
@@ -1034,7 +1077,12 @@ class MemoryScanner:
                     }
 
                     if dist <= radius:
+                        v_item_idx = self.read_i32(val + 0x10)
                         ground_items.append({
+                            "ptr": val,
+                            "item_ptr": item_obj,
+                            "index": v_item_idx,
+                            "item_code": item_idx,
                             "name": it_name,
                             "category": cat,
                             "level": lvl,

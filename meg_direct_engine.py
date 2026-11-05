@@ -71,7 +71,7 @@ DEFAULT_OFFSETS = {
     "get_target_framerate": "0x458B550",
     "set_auto_login": "0xEBF7C0",
     "move_to": "0xB893E0",
-    "start_auto_move": "0xB93B10",
+    "start_auto_move": "0xB9A9C0",
     "stop_auto_move": "0xB98400",
     "chat_send": "0x1331880",
     "chat_frame_send": "0x1331880",
@@ -90,9 +90,12 @@ DEFAULT_OFFSETS = {
     "location_helper_on": "0x60",
     "location_helper_off": "0x68",
     "location_update_helper": "0x25A5750",
-    "npc_talk": "0x1015210",
-    "npc_close_talk": "0x1025540",
-    "npc_click": "0x1013520",
+    "npc_talk": "0x102AA00",
+    "npc_close_talk": "0x101B1C0",
+    "npc_click": "0x102AA00",
+    "npc_send_talk": "0x1023B10",
+    "user_inv_pick_item": "0x1446400",
+    "local_pick_nearest": "0xB92800",
     "get_config": "0x107B360",
     "get_user_2fa": "0x1077980",
     "inv_trash_item": "0x0",
@@ -134,6 +137,7 @@ DEFAULT_OFFSETS = {
     "mirror_enter_alt": "0xF94B00",
     "mirror_npc_click": "0xF927B0",
     "mirror_is_event_map": "0xF93060",
+    "mirror_is_event_map_alt": "0xF94270",
     "mirror_teleport_event": "0x37F2C0",
     "item_mirror_ticket": 7279,
     "devil_enter": "0xF75CF0",
@@ -500,6 +504,14 @@ try {
     }
 } catch (eMirrorMap) {}
 
+var nativeMirrorIsEventMapAlt = null;
+try {
+    var mimaOff = off('__MIRROR_IS_EVENT_MAP_ALT__');
+    if (!mimaOff.isNull()) {
+        nativeMirrorIsEventMapAlt = new NativeFunction(baseAddr.add(mimaOff), 'bool', []);
+    }
+} catch (eMirrorMapAlt) {}
+
 var nativeMirrorTeleportEventMap = null;
 try {
     var mtemOff = off('__MIRROR_TELEPORT_EVENT__');
@@ -540,9 +552,40 @@ try {
     }
 } catch (eNT) {}
 
+var nativeNpcSendTalk = null;
+try {
+    var nstOff = off('__NPC_SEND_TALK__');
+    if (!nstOff.isNull()) {
+        nativeNpcSendTalk = new NativeFunction(baseAddr.add(nstOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eNST) {}
+
+var nativeUserInvPickItem = null;
+try {
+    var uipOff = off('__USER_INV_PICK_ITEM__');
+    if (!uipOff.isNull()) {
+        nativeUserInvPickItem = new NativeFunction(baseAddr.add(uipOff), 'void', ['int', 'pointer', 'pointer']);
+    }
+} catch (eUIP) {}
+
+var nativeLocalPickNearest = null;
+try {
+    var lpnOff = off('__LOCAL_PICK_NEAREST__');
+    if (!lpnOff.isNull()) {
+        nativeLocalPickNearest = new NativeFunction(baseAddr.add(lpnOff), 'void', []);
+    }
+} catch (eLPN) {}
+
 function invokeNpcTalk(body) {
     if (!body || body.isNull()) return false;
+    var ok = false;
     var nm = getNpcManagerPtr();
+    if (nm && !nm.isNull()) {
+        try {
+            // Reset LastTalkTime (+0x20) để không bị chặn bởi cooldown 0.5s trong NpcManager.MGPLAHFHGKP (0x102AA00)
+            nm.add(0x20).writeFloat(0.0);
+        } catch (eRst) {}
+    }
     if (nativeNpcTalk !== null) {
         try {
             if (nm && !nm.isNull()) {
@@ -550,10 +593,17 @@ function invokeNpcTalk(body) {
             } else {
                 nativeNpcTalk(body, body, ptr(0));
             }
-            return true;
+            ok = true;
         } catch (eNT) {}
     }
-    return false;
+    if (nativeNpcSendTalk !== null) {
+        try {
+            // Gọi trực tiếp NpcManager.GEBGEGOEFAD(body, 0) (0x1023B10) để bắt buộc mã hóa và gửi packet C3:30
+            nativeNpcSendTalk(body, ptr(0));
+            ok = true;
+        } catch (eNST2) {}
+    }
+    return ok;
 }
 
 var nativeCloseTalk = null;
@@ -1701,6 +1751,12 @@ function dispatchHelperAction(act) {
             if (isAct === 1) {
                 return true;
             }
+            // Đảm bảo xóa cờ AutoMove (player+0x4C4 = -1, player+0x4C0 = 0) trước khi bật Helper
+            // (Vì UserHelper.CDIMNLBAOHA tại 0x2779E22 kiểm tra [player + 0x4C4] == -1 mới thực thi săn quái!)
+            try {
+                p.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
+                p.add(off('__AUTO_MOVE_TYPE__')).writeS32(-1);
+            } catch (eClrAM) {}
             // 1. Gọi UserHelper.ALFOIEJFHLL (0x27776F0) để gửi packet BF:51, 00 (Start)
             var sent = false;
             if (!h.isNull() && nativeStartHelper !== null) {
@@ -1751,38 +1807,62 @@ function dispatchMoveTarget(target) {
             var existingC = pMove.add(off('__AUTO_MOVE_DEST__')).readPointer();
             if (!existingC.isNull()) destC = existingC;
         } catch (eD) {}
+
+        var k = ptr(0);
+        if (!destC.isNull()) {
+            try { k = destC.readPointer(); } catch (eKD) {}
+        }
+        if (k.isNull()) {
+            try {
+                var curC = pMove.add(off('__PLAYER_COORD__')).readPointer();
+                if (!curC.isNull()) k = curC.readPointer();
+            } catch (eK1) {}
+        }
+        if (k.isNull()) {
+            try {
+                var lastC = pMove.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                if (!lastC.isNull()) k = lastC.readPointer();
+            } catch (eK2) {}
+        }
+        if (!k.isNull()) {
+            cachedCoordKlass = k;
+        } else if (cachedCoordKlass && !cachedCoordKlass.isNull()) {
+            k = cachedCoordKlass;
+        }
+
+        // Cấp phát đối tượng Coord Managed trên GC heap nếu __AUTO_MOVE_DEST__ chưa khởi tạo
+        // (AFDNIFKGNKN..ctor tại 0xAF51F0 lưu con trỏ Coord vào +0x18 và gọi il2cpp_gc_wbarrier_set_field)
+        if (destC.isNull() && typeof il2cpp_object_new !== 'undefined' && il2cpp_object_new !== null && !k.isNull()) {
+            try {
+                ensureThreadAttached();
+                destC = il2cpp_object_new(k);
+                if (!destC.isNull()) {
+                    pMove.add(off('__AUTO_MOVE_DEST__')).writePointer(destC);
+                }
+            } catch (eAllocC) {}
+        }
+
+        var isAutoMove = Boolean(target.autoMove);
         if (!destC.isNull()) {
             destC.add(0x10).writeS32(parseInt(target.x));
             destC.add(0x14).writeS32(parseInt(target.y));
             pMove.add(off('__AUTO_MOVE_DEST__')).writePointer(destC);
-            pMove.add(off('__AUTO_MOVE_TYPE__')).writeS32(0);
+            // Chỉ gán __AUTO_MOVE_TYPE__ = 0 khi thực sự chạy AutoMove đường dài;
+            // Với moveTo bước ngắn (step-out), giữ -1 để UserHelper (0x2779E22) không bị khóa!
+            pMove.add(off('__AUTO_MOVE_TYPE__')).writeS32(isAutoMove ? 0 : -1);
             pMove.add(off('__AUTO_MOVE_HELPER__')).writeU8(target.helper ? 1 : 0);
             pMove.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
             try {
                 moveToNative(pMove, destC, 0.0, ptr(0), 0, 1, ptr(0));
             } catch (eM) {}
-        } else {
-            var curC = pMove.add(off('__PLAYER_COORD__')).readPointer();
-            var k = ptr(0);
-            try { if (!curC.isNull()) k = curC.readPointer(); } catch (eK1) {}
-            if (k.isNull()) {
-                try {
-                    var lastC = pMove.add(off('__PLAYER_LAST_COORD__')).readPointer();
-                    if (!lastC.isNull()) k = lastC.readPointer();
-                } catch (eK2) {}
-            }
-            if (k.isNull() && cachedCoordKlass && !cachedCoordKlass.isNull()) {
-                k = cachedCoordKlass;
-            }
-            if (!k.isNull()) {
-                coordBuf.writePointer(k);
-                coordBuf.add(0x08).writePointer(ptr(0));
-                coordBuf.add(0x10).writeS32(parseInt(target.x));
-                coordBuf.add(0x14).writeS32(parseInt(target.y));
-                try {
-                    moveToNative(pMove, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
-                } catch (eM2) {}
-            }
+        } else if (!k.isNull()) {
+            coordBuf.writePointer(k);
+            coordBuf.add(0x08).writePointer(ptr(0));
+            coordBuf.add(0x10).writeS32(parseInt(target.x));
+            coordBuf.add(0x14).writeS32(parseInt(target.y));
+            try {
+                moveToNative(pMove, coordBuf, 0.0, ptr(0), 0, 1, ptr(0));
+            } catch (eM2) {}
         }
     } catch (eQueueMove) {}
 }
@@ -2863,7 +2943,7 @@ function getCurrentMapId() {
 
 function isCurrentMapDoubleGoer() {
     var mid = getCurrentMapId();
-    return (mid >= 65 && mid <= 68);
+    return ((mid >= 82 && mid <= 90) || (mid >= 65 && mid <= 68));
 }
 
 function readPlayerInfoSnapshot(readName) {
@@ -3155,7 +3235,7 @@ rpc.exports = {
 
             if (destCoord.isNull()) {
                 try {
-                    var tCoord = p.add(ptr('0x18')).readPointer();
+                    var tCoord = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
                     if (!tCoord.isNull()) destCoord = tCoord;
                 } catch (eT) {}
             }
@@ -3201,10 +3281,10 @@ rpc.exports = {
                 p.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
 
                 // Đưa bước di chuyển khởi hành vào hàng đợi Unity Main Thread Hook để thực thi an toàn tuyệt đối, tránh crash
-                pendingMoveTarget = { x: parseInt(x), y: parseInt(y), helper: Boolean(helper) };
+                pendingMoveTarget = { x: parseInt(x), y: parseInt(y), helper: Boolean(helper), autoMove: true };
                 return true;
             } else {
-                pendingMoveTarget = { x: parseInt(x), y: parseInt(y), helper: Boolean(helper) };
+                pendingMoveTarget = { x: parseInt(x), y: parseInt(y), helper: Boolean(helper), autoMove: true };
                 return true;
             }
         } catch (eAM) {}
@@ -4229,6 +4309,399 @@ rpc.exports = {
             return isCurrentMapDoubleGoer();
         } catch (eMM) {}
         return false;
+    },
+
+    getDoubleGoerState: function() {
+        try {
+            ensureThreadAttached();
+            // Đọc trực tiếp Mega.DoubleGoer_TypeInfo (RVA 0x5554F10) -> staticFields (+0xB8)
+            // +0x00: bool DFIOGMEGBMN (isActive)
+            // +0x04: int MLKCEDNBCGC (remainingTimeSeconds)
+            // +0x08: int KGDHEJALLNM (passedMonsters)
+            // +0x0C: int FAKEGKNPHGD (maxPassedMonsters - chuyển > 0 khi trận đấu bắt đầu!)
+            var dgTypeInfo = baseAddr.add(ptr('0x5554F10')).readPointer();
+            if (!dgTypeInfo.isNull()) {
+                var sf = dgTypeInfo.add(0xB8).readPointer();
+                if (!sf.isNull()) {
+                    var active = sf.add(0x00).readU8() === 1;
+                    var timer = sf.add(0x04).readS32();
+                    var passed = sf.add(0x08).readS32();
+                    var maxPassed = sf.add(0x0C).readS32();
+                    return JSON.stringify({
+                        ok: true,
+                        active: active,
+                        timer: timer,
+                        passed: passed,
+                        maxPassed: maxPassed
+                    });
+                }
+            }
+        } catch (eDG) {}
+        return JSON.stringify({ ok: false, active: false, timer: 0, passed: 0, maxPassed: 0 });
+    },
+
+    scanMirrorChestsAndItems: function() {
+        try {
+            ensureThreadAttached();
+            var localPlayer = getPlayerPtr();
+            if (localPlayer.isNull()) {
+                return JSON.stringify({ ok: false, chests: [], items: [] });
+            }
+            var px = -1, py = -1;
+            try {
+                var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                if (!pCoord.isNull()) {
+                    px = pCoord.add(0x10).readS32();
+                    py = pCoord.add(0x14).readS32();
+                }
+            } catch (ePC) {}
+
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            if (typeInfo.isNull()) return JSON.stringify({ ok: false, chests: [], items: [] });
+            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+            if (staticFields.isNull()) return JSON.stringify({ ok: false, chests: [], items: [] });
+            var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+            if (gameInstance.isNull()) return JSON.stringify({ ok: false, chests: [], items: [] });
+
+            var mapId = -1;
+            try {
+                var worldPtr = gameInstance.add(off('__GAME_WORLD__')).readPointer();
+                if (!worldPtr.isNull()) {
+                    mapId = worldPtr.add(off('__WORLD_SCENE_INDEX__')).readS32();
+                }
+            } catch (eW) {}
+
+            var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+            if (viewport.isNull()) return JSON.stringify({ ok: false, chests: [], items: [] });
+            var objDict = viewport.add(ptr('0x20')).readPointer();
+            if (objDict.isNull()) return JSON.stringify({ ok: false, chests: [], items: [] });
+
+            var entries = objDict.add(ptr('0x18')).readPointer();
+            if (entries.isNull()) return JSON.stringify({ ok: false, chests: [], items: [] });
+            var count = objDict.add(ptr('0x20')).readS32();
+            if (count <= 0 || count > 600) {
+                return JSON.stringify({ ok: true, mapId: mapId, playerX: px, playerY: py, chests: [], items: [] });
+            }
+
+            var chests = [];
+            var items = [];
+
+            for (var i = 0; i < count; i++) {
+                var entryAddr = entries.add(0x20 + i * 24);
+                var hashCode = -1;
+                try { hashCode = entryAddr.readS32(); } catch (eHC) {}
+                if (hashCode < 0) continue;
+
+                var val = entryAddr.add(16).readPointer();
+                if (val.isNull()) continue;
+
+                var vKlass = ptr(0);
+                try { vKlass = val.readPointer(); } catch (eVK) {}
+                if (vKlass.isNull()) continue;
+                var vKlassName = "";
+                try {
+                    var vkNamePtr = vKlass.add(0x10).readPointer();
+                    if (!vkNamePtr.isNull()) vKlassName = vkNamePtr.readUtf8String() || "";
+                } catch (eVKN) {}
+
+                if (vKlassName.indexOf("ViewportBody") !== -1) {
+                    var body = ptr(0);
+                    try { body = val.add(0x18).readPointer(); } catch (eB) {}
+                    if (body.isNull() || body.equals(localPlayer)) continue;
+
+                    // Kiểm tra Body.IsDestroying (+0xC0) -> bỏ qua rương đã mở hoặc quái đã chết
+                    var isDestroying = 0;
+                    try { isDestroying = body.add(0xC0).readU8(); } catch (eDst) {}
+                    if (isDestroying !== 0) continue;
+
+                    var bKlass = ptr(0);
+                    try { bKlass = body.readPointer(); } catch (eBK) {}
+                    var bKlassName = "";
+                    if (!bKlass.isNull()) {
+                        try {
+                            var bkNamePtr = bKlass.add(0x10).readPointer();
+                            if (!bkNamePtr.isNull()) bKlassName = bkNamePtr.readUtf8String() || "";
+                        } catch (eBKN) {}
+                    }
+                    if (bKlassName.indexOf("CharacterBody") !== -1) continue;
+
+                    var bx = -1, by = -1;
+                    try {
+                        var bcPtr = body.add(0x68).readPointer();
+                        if (!bcPtr.isNull()) {
+                            bx = bcPtr.add(0x10).readS32();
+                            by = bcPtr.add(0x14).readS32();
+                        }
+                    } catch (eBC) {}
+                    if (bx < 0 || by < 0) continue;
+
+                    var bIdx = -1;
+                    try { bIdx = body.add(0x20).readS32(); } catch (eBI) {}
+                    var clsId = -1;
+                    try { clsId = body.add(0x34).readS32(); } catch (eCI) {}
+
+                    var bName = "";
+                    try {
+                        var nPtr = body.add(0x28).readPointer();
+                        if (!nPtr.isNull()) {
+                            var nLen = nPtr.add(0x10).readS32();
+                            if (nLen > 0 && nLen < 128) bName = nPtr.add(0x14).readUtf16String(nLen) || "";
+                        }
+                    } catch (eBN) {}
+
+                    // Đọc MonsterBody.MonsterInfo (+0x138) để lấy tên bảng (MonsterInfo+0x18) và loại thực thể (MonsterInfo+0x30)
+                    var infoName = "";
+                    var infoType = -1;
+                    try {
+                        var mInfo = body.add(0x138).readPointer();
+                        if (!mInfo.isNull()) {
+                            infoType = mInfo.add(0x30).readS32();
+                            var inPtr = mInfo.add(0x18).readPointer();
+                            if (!inPtr.isNull()) {
+                                var inLen = inPtr.add(0x10).readS32();
+                                if (inLen > 0 && inLen < 128) infoName = inPtr.add(0x14).readUtf16String(inLen) || "";
+                            }
+                        }
+                    } catch (eMI) {}
+
+                    var finalName = bName || infoName || "";
+                    var lowName = finalName.toLowerCase();
+
+                    // Nhận diện Rương Sự Kiện Mirror (Double Goer):
+                    // - Class ID 541 (0x21D): Rương Bạc / Interim Reward Chest (Baú de Prata)
+                    // - Class ID 542 (0x21E): Rương Vàng / Final Reward Chest (Baú de Ouro)
+                    // - Hoặc MNpcBody / NpcBody / infoType in (1, 4) trong Map 65-68 (trừ NPC Lugard 540 / 723)
+                    var isMirrorMap = ((mapId >= 65 && mapId <= 68) || (mapId >= 82 && mapId <= 90));
+                    var isLugardId = (clsId === 540 || clsId === 723 || clsId === 45 || lowName.indexOf("lugard") !== -1 || lowName.indexOf("sartigan") !== -1);
+                    var isChestId = (clsId === 541 || clsId === 542 || clsId === 528);
+                    var isChestKw = (
+                        lowName.indexOf("chest") !== -1 ||
+                        lowName.indexOf("baú") !== -1 ||
+                        lowName.indexOf("bau") !== -1 ||
+                        lowName.indexOf("tesouro") !== -1 ||
+                        lowName.indexOf("caixa") !== -1 ||
+                        lowName.indexOf("coffer") !== -1 ||
+                        lowName.indexOf("rương") !== -1
+                    );
+                    var isMirrorNpcChest = isMirrorMap && !isLugardId && (
+                        bKlassName.indexOf("NpcBody") !== -1 ||
+                        infoType === 1 ||
+                        infoType === 4
+                    );
+
+                    if (isChestId || isChestKw || isMirrorNpcChest) {
+                        var dist = (px >= 0 && py >= 0) ? Math.sqrt((bx - px) * (bx - px) + (by - py) * (by - py)) : 0;
+                        if (!finalName) {
+                            finalName = (clsId === 542) ? "Final Reward Chest (Golden)" : "Reward Chest (Silver)";
+                        }
+                        chests.push({
+                            ptr: body.toString(),
+                            index: bIdx,
+                            classId: clsId,
+                            name: finalName,
+                            klass: bKlassName,
+                            infoType: infoType,
+                            x: bx,
+                            y: by,
+                            distance: Math.round(dist * 10) / 10
+                        });
+                    }
+                } else if (vKlassName.indexOf("ViewportItem") !== -1) {
+                    var ix = -1, iy = -1;
+                    try {
+                        var icPtr = val.add(0x28).readPointer();
+                        if (!icPtr.isNull()) {
+                            ix = icPtr.add(0x10).readS32();
+                            iy = icPtr.add(0x14).readS32();
+                        }
+                    } catch (eIC) {}
+                    if (ix < 0 || iy < 0) continue;
+
+                    var vItemIdx = -1;
+                    try { vItemIdx = val.add(0x10).readS32(); } catch (eVI) {}
+                    var itemObj = ptr(0);
+                    try { itemObj = val.add(0x18).readPointer(); } catch (eIO) {}
+                    var itemCode = 0;
+                    var itName = "";
+                    if (!itemObj.isNull()) {
+                        try { itemCode = readItemIndex(itemObj); } catch (eICd) {}
+                        try { itName = getItemName(itemObj) || ""; } catch (eIN) {}
+                    }
+                    var idist = (px >= 0 && py >= 0) ? Math.sqrt((ix - px) * (ix - px) + (iy - py) * (iy - py)) : 0;
+                    items.push({
+                        viewportItemPtr: val.toString(),
+                        itemPtr: itemObj.toString(),
+                        index: vItemIdx,
+                        itemCode: itemCode,
+                        name: itName || ("Item #" + itemCode),
+                        x: ix,
+                        y: iy,
+                        distance: Math.round(idist * 10) / 10
+                    });
+                }
+            }
+
+            return JSON.stringify({
+                ok: true,
+                mapId: mapId,
+                playerX: px,
+                playerY: py,
+                chests: chests,
+                items: items
+            });
+        } catch (eScanM) {
+            return JSON.stringify({ ok: false, error: eScanM.toString(), chests: [], items: [] });
+        }
+    },
+
+    interactAndLootMirror: function(chestPtrStr, chestIndex, maxRadius) {
+        try {
+            ensureThreadAttached();
+            var radius = (maxRadius !== undefined && maxRadius !== null) ? parseFloat(maxRadius) : 5.0;
+            var openedChest = false;
+            var pickedCount = 0;
+
+            // 1. Tương tác mở Rương Sự Kiện (Body* -> NpcManager.MGPLAHFHGKP 0x102AA00 + NpcManager.GEBGEGOEFAD 0x1023B10 -> C3:30)
+            var targetBody = ptr(0);
+            if (chestPtrStr && chestPtrStr !== "0" && chestPtrStr !== "0x0") {
+                try { targetBody = ptr(chestPtrStr); } catch (eTP) {}
+            }
+
+            var localPlayer = getPlayerPtr();
+            var px = -1, py = -1;
+            if (!localPlayer.isNull()) {
+                try {
+                    var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!pCoord.isNull()) {
+                        px = pCoord.add(0x10).readS32();
+                        py = pCoord.add(0x14).readS32();
+                    }
+                } catch (ePC) {}
+            }
+
+            // Nếu chưa truyền con trỏ hoặc cần quét ViewportItem, duyệt Viewport.ObjectList
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            var objDict = ptr(0);
+            if (!typeInfo.isNull()) {
+                var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+                if (!staticFields.isNull()) {
+                    var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+                    if (!gameInstance.isNull()) {
+                        var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+                        if (!viewport.isNull()) {
+                            objDict = viewport.add(ptr('0x20')).readPointer();
+                        }
+                    }
+                }
+            }
+
+            if (targetBody.isNull() && !objDict.isNull() && chestIndex !== undefined && parseInt(chestIndex) >= 0) {
+                var wantIdx = parseInt(chestIndex);
+                try {
+                    var entries0 = objDict.add(ptr('0x18')).readPointer();
+                    var count0 = objDict.add(ptr('0x20')).readS32();
+                    for (var k = 0; k < count0 && k < 600; k++) {
+                        var e0 = entries0.add(0x20 + k * 24);
+                        if (e0.readS32() < 0) continue;
+                        var v0 = e0.add(16).readPointer();
+                        if (v0.isNull()) continue;
+                        var vk0 = v0.readPointer();
+                        if (vk0.isNull()) continue;
+                        var vkn0 = vk0.add(0x10).readPointer().readUtf8String() || "";
+                        if (vkn0.indexOf("ViewportBody") !== -1) {
+                            var b0 = v0.add(0x18).readPointer();
+                            if (!b0.isNull() && b0.add(0x20).readS32() === wantIdx) {
+                                targetBody = b0;
+                                break;
+                            }
+                        }
+                    }
+                } catch (eFindC) {}
+            }
+
+            if (!targetBody.isNull()) {
+                try {
+                    var isDest = targetBody.add(0xC0).readU8();
+                    if (isDest === 0) {
+                        var bIdx = targetBody.add(0x20).readS32();
+                        // Gán LocalCharacterBody.LastTalkNpc (+0x430) = targetBody
+                        if (!localPlayer.isNull()) {
+                            try { localPlayer.add(0x430).writePointer(targetBody); } catch (eLT) {}
+                        }
+                        // Gọi NpcManager.MGPLAHFHGKP (0x102AA00) + NpcManager.GEBGEGOEFAD (0x1023B10) gửi C3:30
+                        if (invokeNpcTalk(targetBody)) {
+                            openedChest = true;
+                        }
+                        // Fallback gói C1:30 chuẩn little-endian Index
+                        if (bIdx >= 0) {
+                            var lo = bIdx & 0xFF;
+                            var hi = (bIdx >> 8) & 0xFF;
+                            sendGSPacket([0xC1, 0x05, 0x30, lo, hi]);
+                            openedChest = true;
+                        }
+                    }
+                } catch (eOpen) {}
+            }
+
+            // 2. Tự động nhặt toàn bộ ViewportItem rơi trên đất trong bán kính radius
+            // Gọi UserInventory.AEJKNNOBDIG(index, itemPtr) (0x1446400 -> C3:22) + LocalCharacterBody (0xB92800)
+            if (!objDict.isNull()) {
+                try {
+                    // Reset cooldown nhặt đồ tại UserInventory.static_fields + 0x8 (nếu có)
+                    var entries = objDict.add(ptr('0x18')).readPointer();
+                    var count = objDict.add(ptr('0x20')).readS32();
+                    for (var i = 0; i < count && i < 600; i++) {
+                        var entryAddr = entries.add(0x20 + i * 24);
+                        if (entryAddr.readS32() < 0) continue;
+                        var val = entryAddr.add(16).readPointer();
+                        if (val.isNull()) continue;
+                        var vKlass = val.readPointer();
+                        if (vKlass.isNull()) continue;
+                        var vKlassName = vKlass.add(0x10).readPointer().readUtf8String() || "";
+                        if (vKlassName.indexOf("ViewportItem") === -1) continue;
+
+                        var ix = -1, iy = -1;
+                        var icPtr = val.add(0x28).readPointer();
+                        if (!icPtr.isNull()) {
+                            ix = icPtr.add(0x10).readS32();
+                            iy = icPtr.add(0x14).readS32();
+                        }
+                        if (ix < 0 || iy < 0) continue;
+
+                        var dist = (px >= 0 && py >= 0) ? Math.sqrt((ix - px) * (ix - px) + (iy - py) * (iy - py)) : 0;
+                        if (dist <= radius) {
+                            var vIdx = val.add(0x10).readS32();
+                            var itemPtr = val.add(0x18).readPointer();
+                            if (vIdx >= 0 && !itemPtr.isNull()) {
+                                if (nativeUserInvPickItem !== null) {
+                                    try {
+                                        nativeUserInvPickItem(vIdx, itemPtr, ptr(0));
+                                        pickedCount++;
+                                    } catch (ePick1) {}
+                                }
+                                // Fallback gửi thêm packet C1:22 little-endian Index
+                                var iLo = vIdx & 0xFF;
+                                var iHi = (vIdx >> 8) & 0xFF;
+                                sendGSPacket([0xC1, 0x05, 0x22, iLo, iHi]);
+                            }
+                        }
+                    }
+                } catch (ePickLoop) {}
+            }
+
+            // Gọi thêm hàm nhặt vật phẩm gần nhất của LocalCharacterBody (0xB92800 - tương đương phím Spacebar trong game)
+            if (nativeLocalPickNearest !== null) {
+                try { nativeLocalPickNearest(); } catch (eLPN2) {}
+            }
+
+            return JSON.stringify({
+                ok: true,
+                openedChest: openedChest,
+                pickedCount: pickedCount
+            });
+        } catch (eILM) {
+            return JSON.stringify({ ok: false, error: eILM.toString(), openedChest: false, pickedCount: 0 });
+        }
     },
 
     scanJewelsSnapshot: function() {
@@ -6151,6 +6624,20 @@ class MegDirectEngine:
                 except Exception as e:
                     _safe_log(f"[MegDirectEngine] Lỗi đọc megamu_offsets.json: {e}")
 
+        # 4. Tự động làm sạch các offset NpcManager bị dính hàm bẫy (obfuscated decoy) từ bản cấu hình cũ
+        if self.offsets.get("npc_talk") == "0x1015210":
+            self.offsets["npc_talk"] = "0x102AA00"
+        if self.offsets.get("npc_close_talk") == "0x1025540":
+            self.offsets["npc_close_talk"] = "0x101B1C0"
+        if self.offsets.get("npc_click") in ("0x1013520", "0x1015210"):
+            self.offsets["npc_click"] = "0x102AA00"
+        if not self.offsets.get("npc_send_talk"):
+            self.offsets["npc_send_talk"] = "0x1023B10"
+        if not self.offsets.get("user_inv_pick_item"):
+            self.offsets["user_inv_pick_item"] = "0x1446400"
+        if not self.offsets.get("local_pick_nearest"):
+            self.offsets["local_pick_nearest"] = "0xB92800"
+
     def _claim_mutex(self):
         """Khóa Named Mutex trên Windows để đảm bảo mỗi PID chỉ gắn 1 Frida engine duy nhất."""
         if sys.platform != "win32":
@@ -6207,9 +6694,12 @@ class MegDirectEngine:
             "__LOCATION_HELPER_ON__": str(self.offsets.get("location_helper_on") or DEFAULT_OFFSETS.get("location_helper_on", "0x60")),
             "__LOCATION_HELPER_OFF__": str(self.offsets.get("location_helper_off") or DEFAULT_OFFSETS.get("location_helper_off", "0x68")),
             "__LOCATION_UPDATE_HELPER__": str(self.offsets.get("location_update_helper") or DEFAULT_OFFSETS.get("location_update_helper", "0x25B7CF0")),
-            "__NPC_TALK__": str(self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x1015210")),
-            "__NPC_CLOSE_TALK__": str(self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x1025540")),
-            "__NPC_CLICK__": str(self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x1013520")),
+            "__NPC_TALK__": str(self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x102AA00")),
+            "__NPC_CLOSE_TALK__": str(self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x101B1C0")),
+            "__NPC_CLICK__": str(self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x102AA00")),
+            "__NPC_SEND_TALK__": str(self.offsets.get("npc_send_talk") or DEFAULT_OFFSETS.get("npc_send_talk", "0x1023B10")),
+            "__USER_INV_PICK_ITEM__": str(self.offsets.get("user_inv_pick_item") or DEFAULT_OFFSETS.get("user_inv_pick_item", "0x1446400")),
+            "__LOCAL_PICK_NEAREST__": str(self.offsets.get("local_pick_nearest") or DEFAULT_OFFSETS.get("local_pick_nearest", "0xB92800")),
             "__GET_CONFIG__": str(self.offsets.get("get_config") or DEFAULT_OFFSETS.get("get_config", "0x107B360")),
             "__GET_USER_2FA__": str(self.offsets.get("get_user_2fa") or DEFAULT_OFFSETS.get("get_user_2fa", "0x1077980")),
             "__INV_TRASH_ITEM__": str(self.offsets.get("inv_trash_item") or "0x0"),
@@ -6243,6 +6733,7 @@ class MegDirectEngine:
             "__MIRROR_ENTER_ALT__": str(self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0xF94B00")),
             "__MIRROR_NPC_CLICK__": str(self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0xF927B0")),
             "__MIRROR_IS_EVENT_MAP__": str(self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xF93060")),
+            "__MIRROR_IS_EVENT_MAP_ALT__": str(self.offsets.get("mirror_is_event_map_alt") or DEFAULT_OFFSETS.get("mirror_is_event_map_alt", "0xF94270")),
             "__MIRROR_TELEPORT_EVENT__": str(self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x37F2C0")),
             "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xF8E2F0")),
             "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xF8DAB0")),
@@ -6962,6 +7453,19 @@ class MegDirectEngine:
         """Kích hoạt bật MuHelper chuẩn giao diện game (Đồng bộ GUI Play->Stop và gửi gói tin máy chủ)."""
         self.last_fast_state = None
 
+        # Safeguard: Chống kích hoạt MuHelper tại Event Square (Map 53 / 40) tránh gây lỗi/popup của game
+        try:
+            p_inf = self.get_player_info(max_age=0.5, allow_blocking=False)
+            if not p_inf:
+                p_inf = self.read_player_info_via_ram()
+            if p_inf:
+                cur_mid = int(p_inf.get("mapId", -1))
+                if cur_mid in (53, 40):
+                    _safe_log(f"[MegDirectEngine] ⚠️ Đang ở Event Square (Map {cur_mid}) - Chặn bật MuHelper để tránh popup cảnh báo của game!")
+                    return False
+        except Exception:
+            pass
+
         # Nếu helper đã bật sẵn và không cần force_restart: trả về True ngay lập tức
         if not force_restart and self.is_helper_active(force_refresh=True):
             if self.is_ready:
@@ -7451,7 +7955,7 @@ class MegDirectEngine:
         if self.is_ready:
             try:
                 tele = self.get_player_info()
-                if tele and tele.get("mapId") in (40, 53, 65, 66, 67, 68):
+                if tele and tele.get("mapId") in (40, 53, 65, 66, 67, 68, 82, 83, 84, 85, 86, 87, 88, 89, 90):
                     return True
                 res = self._call("teleportToEventMap")
                 if res:
@@ -7472,25 +7976,26 @@ class MegDirectEngine:
         return False
 
     def is_mirror_event_map(self) -> bool:
-        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (Map ID 65-68) hay không (Hỗ trợ cả Frida Hook và Zero-Injection RAM)."""
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (Map ID 82-90 hoặc 65-68) hay không (Hỗ trợ cả Frida Hook và Zero-Injection RAM)."""
         # 1. Thử qua Frida / Fast Telemetry nếu engine đã hook
         if self.is_ready:
             try:
                 tele = self.get_player_info(max_age=0.5, allow_blocking=False)
                 if tele and "mapId" in tele and tele["mapId"] >= 0:
-                    if tele["mapId"] in (65, 66, 67, 68):
-                        return True
+                    mid = tele["mapId"]
+                    return ((82 <= mid <= 90) or (65 <= mid <= 68))
                 res = self._call("isMirrorEventMap")
-                if res:
-                    return True
+                if isinstance(res, bool):
+                    return res
             except Exception:
                 pass
 
         # 2. Fallback Win32 ReadProcessMemory trực tiếp (100% hoạt động dù Frida chưa attach)
         try:
             info = self.read_player_info_via_ram()
-            if info and "mapId" in info and info["mapId"] in (65, 66, 67, 68):
-                return True
+            if info and "mapId" in info and info["mapId"] >= 0:
+                mid = info["mapId"]
+                return ((82 <= mid <= 90) or (65 <= mid <= 68))
         except Exception:
             pass
 
@@ -7503,12 +8008,52 @@ class MegDirectEngine:
                     sd = sc.scan_radar(radius=5.0)
                     m_info = sd.get("map", {})
                     mid = m_info.get("id", -1)
-                    if mid in (65, 66, 67, 68):
-                        return True
+                    if mid >= 0:
+                        return ((82 <= mid <= 90) or (65 <= mid <= 68))
         except Exception:
             pass
 
         return False
+
+    def get_double_goer_state(self) -> Dict[str, Any]:
+        """Đọc trạng thái sự kiện Double Goer trực tiếp từ Mega.DoubleGoer_TypeInfo (0x5554F10)."""
+        if self.is_ready:
+            try:
+                res = self._call("getDoubleGoerState")
+                if isinstance(res, str):
+                    return json.loads(res)
+                if isinstance(res, dict):
+                    return res
+            except Exception:
+                pass
+        return {"ok": False, "active": False, "timer": 0, "passed": 0, "maxPassed": 0}
+
+    def scan_mirror_loot(self) -> Dict[str, Any]:
+        """Quét trực tiếp Viewport.ObjectList trong RAM qua Frida để tìm Rương Bạc (541), Rương Vàng (542) và ViewportItem rơi trên đất."""
+        if self.is_ready:
+            try:
+                res = self._call("scanMirrorChestsAndItems")
+                if isinstance(res, str):
+                    return json.loads(res)
+                if isinstance(res, dict):
+                    return res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi scan_mirror_loot: {e}")
+        return {"ok": False, "chests": [], "items": []}
+
+    def open_and_loot_mirror(self, chest_ptr: Any = 0, chest_index: int = -1, radius: float = 5.0) -> Dict[str, Any]:
+        """Mở rương sự kiện Mirror (gửi C3:30 qua NpcManager 0x102AA00 / 0x1023B10) và nhặt vật phẩm rơi xung quanh (gửi C3:22 qua UserInventory 0x1446400)."""
+        if self.is_ready:
+            try:
+                ptr_str = hex(chest_ptr) if isinstance(chest_ptr, int) and chest_ptr > 0 else str(chest_ptr or "0")
+                res = self._call("interactAndLootMirror", ptr_str, int(chest_index), float(radius))
+                if isinstance(res, str):
+                    return json.loads(res)
+                if isinstance(res, dict):
+                    return res
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi open_and_loot_mirror: {e}")
+        return {"ok": False, "openedChest": False, "pickedCount": 0}
 
     def claim_gremory_case_items(self) -> Dict[str, Any]:
         """Tự động nhận toàn bộ vật phẩm / quà tặng đang lưu trong Hộp Quà Gremory Case (phím K) về hòm đồ chính."""

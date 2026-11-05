@@ -80,7 +80,8 @@
       ],
       "server": 1,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "token": "2ee4ad27bd9d20ababeb02565a244073"
     },
     {
       "username": "donnguyen",
@@ -93,12 +94,12 @@
       "server": 1,
       "enabled": true,
       "source": "registry",
-      "token": "11cb88b105a97d925abbfaed2ec5f6d1"
+      "token": "6434f34e4e25df6d79815dee21d00606"
     },
     {
       "username": "hqneu511",
       "nickname": "hqneu511",
-      "token": "258b17d25471d4a01732bd7e8bc8e10e",
+      "token": "22109cc85c90b978992f5ae9e7026ed7",
       "character": "KANGzz",
       "characters_list": [
         "KANGzz"
@@ -167,6 +168,59 @@
       "character": "laclac04",
       "characters_list": [
         "laclac04"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "sontop2018",
+      "nickname": "sontop2018",
+      "token": "5a85cf6a1c5798e8137a659f8ff9b1e9",
+      "character": "YangXinh",
+      "characters_list": [
+        "YangXinh",
+        "KingVNE",
+        "BabyKitty",
+        "AngelVN",
+        "YangSan",
+        "Reus1993"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "dtn2026",
+      "nickname": "dtn2026",
+      "token": "17d4d577eab5d0ce0259b951f634acd4",
+      "character": "dtn199x",
+      "characters_list": [
+        "dtn199x"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "thaibinh07",
+      "nickname": "thaibinh07",
+      "token": "d8bda9369d964bca1e4a7dfc1d583f30",
+      "character": "HSmart",
+      "characters_list": [
+        "HSmart"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "thaibinh04",
+      "nickname": "thaibinh04",
+      "token": "7889052cba1c4e739ab5354438865f9d",
+      "character": "Cursor",
+      "characters_list": [
+        "Cursor"
       ],
       "server": 1,
       "enabled": true,
