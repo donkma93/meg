@@ -4454,19 +4454,23 @@ class DashboardApp(ctk.CTk):
 
                 # Trong suốt khung mở cổng (:10 - :15), nếu tài khoản nào có vé mà chưa vào được Double Goer,
                 # và hiện không trong trạng thái sniping, tự động tiếp tục kích hoạt Turbo để vào bằng được!
-                if is_auto and (now.second % 10 == 0):
-                    for ctrl in self.controllers:
-                        if not getattr(ctrl, "mirror_enabled", True):
-                            continue
-                        if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
-                            eng = ctrl.engine
-                            if eng and not eng.is_mirror_event_map() and not getattr(ctrl, "mirror_sniping", False):
-                                t_info = eng.get_mirror_ticket_info()
-                                if t_info.get("hasTicket"):
-                                    ctrl.start_mirror_turbo_sniping(
-                                        interval_ms=self.get_mirror_snipe_delay(),
-                                        max_duration_s=min(12.0, float(remain_open_sec))
-                                    )
+                gate_retry_key = now.strftime("%Y%m%d_%H%M_") + str(now.second // 10)
+                if is_auto and (now.second % 10 == 0) and getattr(self, "_last_mirror_retry_key", None) != gate_retry_key:
+                    self._last_mirror_retry_key = gate_retry_key
+                    def _bg_retry():
+                        for ctrl in self.controllers:
+                            if not getattr(ctrl, "mirror_enabled", True):
+                                continue
+                            if ctrl.assigned_pid and is_megamu_process_alive(ctrl.assigned_pid):
+                                eng = ctrl.engine
+                                if eng and not eng.is_mirror_event_map() and not getattr(ctrl, "mirror_sniping", False):
+                                    t_info = eng.get_mirror_ticket_info()
+                                    if t_info.get("hasTicket"):
+                                        ctrl.start_mirror_turbo_sniping(
+                                            interval_ms=self.get_mirror_snipe_delay(),
+                                            max_duration_s=min(12.0, float(remain_open_sec))
+                                        )
+                    threading.Thread(target=_bg_retry, daemon=True, name="MirrorGateRetryWorker").start()
 
             # TRƯỜNG HỢP 2: ĐANG NGOÀI KHUNG MỞ CỔNG (Đếm ngược tới mốc :10 tiếp theo)
             else:
@@ -4514,7 +4518,9 @@ class DashboardApp(ctk.CTk):
             # 5. Tự động thăm dò vé định kỳ mỗi 4 giây để UI luôn cập nhật mới nhất
             self.update_mirror_snipe_button_state()
             self._mirror_poll_tick = getattr(self, "_mirror_poll_tick", 0) + 1
-            if self._mirror_poll_tick % 4 == 0:
+            now_ts = time.time()
+            if (now_ts - getattr(self, "_last_mirror_tickets_poll_time", 0.0)) >= 5.0:
+                self._last_mirror_tickets_poll_time = now_ts
                 self.refresh_all_mirror_tickets_display()
 
             # 6. Tự động kiểm tra chu trình Double Goer (Đợi Safe Zone -> Phút 16 ra bãi -> Săn 3 Box)

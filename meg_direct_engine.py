@@ -1032,12 +1032,13 @@ function dismissActiveGameDialogIfMirror(forceDismiss) {
         var dialogsMap = helperUi.add(0x80).readPointer();
         var hasDialogsInMap = (!dialogsMap.isNull() && dialogsMap.add(0x20).readS32() > 0);
 
-        if (!hasActiveDialog && !hasDialogsInMap && !forceDismiss) return false;
+        // Chi dong khi thuc su co hop thoai active, tuyet doi khong dung den Prefab tai 0x20
+        if (!hasActiveDialog && !hasDialogsInMap) return false;
 
         if (hasActiveDialog && nativeHelperUICloseCurrent !== null) {
             try { nativeHelperUICloseCurrent(helperUi); } catch (eCC) {}
         }
-        if (nativeHelperUIDismissAll !== null) {
+        if (hasDialogsInMap && nativeHelperUIDismissAll !== null) {
             try { nativeHelperUIDismissAll(helperUi); } catch (eDA) {}
         }
 
@@ -1046,16 +1047,6 @@ function dismissActiveGameDialogIfMirror(forceDismiss) {
                 nativeGameObjectSetActive(curDialogGo, 0, ptr(0));
             } catch (eCD) {}
         }
-
-        try {
-            var mDialog = helperUi.add(0x20).readPointer();
-            if (!mDialog.isNull()) {
-                var winPtr = mDialog.add(0x80).readPointer();
-                if (!winPtr.isNull() && winPtr.add(0x48).readU8() !== 0) {
-                    dismissAndConfirmMDialog(mDialog, NULL, false);
-                }
-            }
-        } catch (ePD) {}
 
         return true;
     } catch (eSweep) {}
@@ -2634,9 +2625,9 @@ try {
                     } else {
                         if (!_nativeMirrorTurboStats.lastSentTime || (nowMs - _nativeMirrorTurboStats.lastSentTime) >= _nativeMirrorTurboStats.intervalMs) {
                             _nativeMirrorTurboStats.lastSentTime = nowMs;
-                            if (nativeMirrorEnterAlt !== null) {
-                                try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot); } catch (eNEA) {}
-                            } else if (_cachedTurboPacketArr !== null) {
+                            // Uu tien tuyet doi mang byte da pre-allocate gui tren Unity Main Thread
+                            // Khong goi truc tiep KLOBIGFNJOK vi de gay Access Violation khi chua noi chuyen NPC
+                            if (_cachedTurboPacketArr !== null) {
                                 var gsT = getGSConnection();
                                 if (!gsT.isNull()) sendGSPacketDirect(gsT, _cachedTurboPacketArr);
                             } else {
@@ -2679,10 +2670,10 @@ try {
 
                 if (dialogSuppressionActive || (_nativeMirrorTurboStats && _nativeMirrorTurboStats.running)) {
                     var isTurboRunning = (_nativeMirrorTurboStats && _nativeMirrorTurboStats.running);
-                    var sweepMod = isTurboRunning ? 2 : 10;
+                    var sweepMod = isTurboRunning ? 10 : 30;
                     dialogSweepCounter = (dialogSweepCounter + 1) % sweepMod;
                     if (dialogSweepCounter === 0) {
-                        try { dismissActiveGameDialogIfMirror(isTurboRunning); } catch (eDGU) {}
+                        try { dismissActiveGameDialogIfMirror(false); } catch (eDGU) {}
                     }
                 }
 

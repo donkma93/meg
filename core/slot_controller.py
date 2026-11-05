@@ -2257,8 +2257,8 @@ class SlotController:
                 )
             elif res_nat.get("error") == "no_ticket":
                 self.mirror_sniping = False
-                self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False)
-                self.app.update_mirror_slot_status(self.slot_idx, "Thiếu vé")
+                self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
+                self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Thiếu vé"))
                 self.app.append_mirror_log(
                     f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không tìm thấy vé Mirror of Dimensions (ID 7279) trong hòm đồ (ô 12-203)! Hãy chuẩn bị vé trước khi bật Turbo."
                 )
