@@ -93,12 +93,12 @@
       "server": 1,
       "enabled": true,
       "source": "registry",
-      "token": "720ef9ce861789417bfe19b2325b8760"
+      "token": "11cb88b105a97d925abbfaed2ec5f6d1"
     },
     {
       "username": "hqneu511",
       "nickname": "hqneu511",
-      "token": "05119b7dad5096ebcd6e7af154f3d648",
+      "token": "258b17d25471d4a01732bd7e8bc8e10e",
       "character": "KANGzz",
       "characters_list": [
         "KANGzz"
@@ -110,7 +110,7 @@
     {
       "username": "anhdontb3",
       "nickname": "anhdontb3",
-      "token": "c3bf9103fe7452fdeed53830aa83fc19",
+      "token": "8aea692c1bb9823bab1740762cf7ab18",
       "character": "laclac24",
       "characters_list": [
         "laclac24",
@@ -143,6 +143,30 @@
       "character": "PhoHY",
       "characters_list": [
         "PhoHY"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "thaibinh1",
+      "nickname": "thaibinh1",
+      "token": "629df011be7ea7254b4a150a7f3d46e4",
+      "character": "VgDongNhi",
+      "characters_list": [
+        "VgDongNhi"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "anhdontb9",
+      "nickname": "anhdontb9",
+      "token": "38089efa8afc001f73f1c80977bc247b",
+      "character": "laclac04",
+      "characters_list": [
+        "laclac04"
       ],
       "server": 1,
       "enabled": true,

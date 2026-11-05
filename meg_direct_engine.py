@@ -7110,15 +7110,18 @@ class MegDirectEngine:
         """Đóng giao diện Moss Merchant trên Game Client, ngắt render và giải phóng tài nguyên an toàn."""
         if self.is_ready:
             try:
+                was_open = self.is_moss_open()
                 res = self._call("closeMoss")
-                # Fallback OS-level Win32 ESC key nếu game window còn mở
-                hwnd = self.get_hwnd()
-                if hwnd:
-                    self.send_background_key(hwnd, 0x1B, 0.05)  # VK_ESCAPE = 0x1B
-                    if self.is_moss_open():
-                        import time
-                        time.sleep(0.08)
-                        self.send_background_key(hwnd, 0x1B, 0.05)
+                # Fallback OS-level Win32 ESC key CHỈ KHI bảng Moss thực sự đang mở mà chưa tắt được
+                # (tránh gửi ESC khi không có cửa sổ nào mở khiến game bật bảng System Menu / Settings)
+                if was_open and self.is_moss_open():
+                    hwnd = self.get_hwnd()
+                    if hwnd:
+                        self.send_background_key(hwnd, 0x1B, 0.05)  # VK_ESCAPE = 0x1B
+                        if self.is_moss_open():
+                            import time
+                            time.sleep(0.08)
+                            self.send_background_key(hwnd, 0x1B, 0.05)
                 if res:
                     return True
             except Exception as e:

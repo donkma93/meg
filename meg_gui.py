@@ -2845,13 +2845,11 @@ class SlotController:
             if not eng.is_ready:
                 eng.attach()
             try:
-                # 1. Đảm bảo đóng bảng Moss & mở khóa thùng đồ & nhân vật trước tiên
-                eng.close_moss()
-                eng.unlock_character_and_inventory()
-                time.sleep(0.3)
+                # 1. Chỉ đóng bảng Moss nếu đang mở & mở khóa thùng đồ / nhân vật (không gửi ESC thừa làm mở bảng Setting)
                 if hasattr(eng, "is_moss_open") and eng.is_moss_open():
                     eng.close_moss()
                     time.sleep(0.2)
+                eng.unlock_character_and_inventory()
 
                 # 2. Thực hiện ném đồ rác tại chỗ (category=-1 nghĩa là dọn sạch mọi đồ rác thường +0..+6 trong hòm đồ)
                 # (bảo vệ tuyệt đối đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)
