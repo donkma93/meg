@@ -1954,7 +1954,7 @@ class DashboardApp(ctk.CTk):
                 try:
                     self.save_editor_to_file(silent=True, target_idx=prev_idx)
                 except Exception as e:
-                    _safe_log(f"[DashboardApp] Lỗi lưu cấu hình cũ: {e}")
+                    print(f"[DashboardApp] Lỗi lưu cấu hình cũ: {e}")
             # Nạp cấu hình MỚI vào form
             self.load_profile_into_editor(new_idx)
             self.log_message(f"⚙️ [Cấu Hình] Đã chuyển sang soạn thảo: Config {new_idx}", "INFO")
