@@ -99,17 +99,18 @@ DEFAULT_OFFSETS = {
     "inv_sell_item": "0x0",
     "inv_drop_item": "0x0",
     "user_inv_trash": "0x144C8A0",
+    "user_inv_drop": "0x1449740",
     "user_inv_action": "0x1441DF0",
     "item_storage_drop": "0x222CD00",
-    "merchant_sell_item": "0x2743520",
+    "merchant_sell_item": "0x2747310",
     "slot_quick_action": "0x23E24A0",
     "item_storage_move": "0x22317E0",
-    "window_show": "0x258FBC0",
-    "window_hide": "0x25986B0",
-    "window_set_state": "0x258A730",
-    "window_toggle": "0x2589E10",
-    "button_press": "0x464E520",
-    "unity_event_invoke": "0x4588220",
+    "window_show": "0x25EFD90",
+    "window_hide": "0x25F8B80",
+    "window_set_state": "0x25EA7C0",
+    "window_toggle": "0x25E9EE0",
+    "button_press": "0x46ABE00",
+    "unity_event_invoke": "0x45E5B00",
     "moss_roll": "0x27A9760",
     "moss_open": "0x25EA7C0",
     "moss_roll_handler": "0x27A6230",
@@ -117,8 +118,8 @@ DEFAULT_OFFSETS = {
     "moss_select_cat": "0x27A8510",
     "moss_send_roll": "0x23F8BE0",
     "moss_roll_click": "0x27A8F90",
-    "moss_window_close": "0x25986B0",
-    "game_object_set_active": "0x456F2B0",
+    "moss_window_close": "0x1A183F0",
+    "game_object_set_active": "0x45CCB90",
     "component_get_game_object": "0x45C8770",
     "runtime_class_init": "0x2E9950",
     "get_user_account": "0x1078930",
@@ -633,6 +634,16 @@ function invokeNativeTrash(slotNumber, coordPointer) {
 
 var nativeInvDropItem = nativeInvTrashItem;
 
+// Hàm drop THẬT của client: UserInventory.KCEAGAMOOOO(int slot, Coord* target) @ 0x1449740
+// (đã đối chiếu dump_current + kiểm chứng prologue trên GameAssembly.dll).
+var nativeUserInvDrop = null;
+try {
+    var uidOff = off('__USER_INV_DROP__');
+    if (!uidOff.isNull()) {
+        nativeUserInvDrop = new NativeFunction(baseAddr.add(uidOff), 'void', ['int', 'pointer']);
+    }
+} catch (eUID) {}
+
 var nativeInvSellItem = null;
 try {
     var isiOff = off('__INV_SELL_ITEM__');
@@ -942,20 +953,65 @@ function sendGSPacketDirect(gs, arr) {
     return sent;
 }
 
+var lastSendError = "";
+
 function sendGSPacket(bytes) {
+    lastSendError = "";
     try {
         var gs = getGSConnection();
-        if (gs.isNull()) return false;
+        if (gs.isNull()) { lastSendError = "no_gs_connection"; return false; }
         var arr = createManagedByteArray(bytes);
-        if (!arr || arr.isNull()) return false;
-        return sendGSPacketDirect(gs, arr);
+        if (!arr || arr.isNull()) {
+            lastSendError = (il2cpp_array_new === null) ? "il2cpp_array_new_missing"
+                          : ((getByteClass() === null) ? "byte_class_lookup_failed" : "array_alloc_failed");
+            return false;
+        }
+        if (nativeGSSend === null && nativeGSSendAlt === null) {
+            lastSendError = "gs_send_binding_missing";
+            return false;
+        }
+        if (nativeGSSend !== null) {
+            try { nativeGSSend(gs, arr, 0, 0, ptr(0)); return true; }
+            catch (eS1) { lastSendError = "gs_send_threw: " + eS1; }
+        }
+        if (nativeGSSendAlt !== null) {
+            try { nativeGSSendAlt(gs, arr, 0, 0, ptr(0)); return true; }
+            catch (eS2) { lastSendError = "gs_send_alt_threw: " + eS2; }
+        }
+        return false;
     } catch (ePkt) {
+        lastSendError = "exception: " + ePkt;
+        return false;
+    }
+}
+
+// Vứt 1 ô bằng chính hàm drop của client (an toàn hơn tự dựng packet).
+function dropSlotNative(slot, targetX, targetY) {
+    if (nativeUserInvDrop === null) return false;
+    try {
+        var p = getPlayerPtr();
+        if (p.isNull()) return false;
+        var playerCoord = p.add(off('__PLAYER_COORD__')).readPointer();
+        if (playerCoord.isNull()) return false;
+        var klass = playerCoord.readPointer();
+        if (klass.isNull()) return false;
+        coordBuf.writePointer(klass);
+        coordBuf.add(0x08).writePointer(ptr(0));
+        coordBuf.add(0x10).writeS32(parseInt(targetX));
+        coordBuf.add(0x14).writeS32(parseInt(targetY));
+        nativeUserInvDrop(parseInt(slot), coordBuf);
+        return true;
+    } catch (eDropNative) {
+        lastSendError = "native_drop_threw: " + eDropNative;
         return false;
     }
 }
 
 var pendingMossOpenCategory = null;
 var pendingMossRollCategory = null;
+var pendingMossClose = false;
+var pendingMossResetCategory = null;
+var pendingMerchantClose = false;
 var pendingMossInteractPtr = null;
 var pendingMerchantInteractPtr = null;
 
@@ -983,6 +1039,126 @@ function sendSellPacket(slot) {
     } catch (eSellPkt) {
         return false;
     }
+}
+
+// ============================================================================
+// MOSS JUNK DISPOSAL ENGINE (v2)
+// Vứt/bán đồ rác có xác minh từng ô + tự chẩn đoán vì sao server không nhận.
+// ============================================================================
+
+function isMerchantWindowOpen() {
+    try {
+        if (nativeGetGameUI === null) return false;
+        var gui = nativeGetGameUI();
+        if (gui.isNull()) return false;
+        var mo = off('__UI_MERCHANT_WINDOW__');
+        var mw = mo.isNull() ? gui.add(ptr('0x198')).readPointer() : gui.add(mo).readPointer();
+        if (mw.isNull()) return false;
+        var win = mw.add(0x20).readPointer();
+        if (win.isNull()) return false;
+        return win.add(0x48).readU8() === 1;
+    } catch (eMWO) {
+        return false;
+    }
+}
+
+function readDisposalContext() {
+    // Thu thập mọi thứ cần thiết để chẩn đoán vì sao việc dọn rác thất bại.
+    var ctx = { gsOk: false, playerOk: false, invOk: false, x: 0, y: 0, merchantOpen: false, mossOpen: false };
+    try { ctx.playerOk = !getPlayerPtr().isNull(); } catch (e1) {}
+    try { ctx.gsOk = !getGSConnection().isNull(); } catch (e2) {}
+    try {
+        var p = getPlayerPtr();
+        if (!p.isNull()) {
+            var c = p.add(off('__PLAYER_COORD__')).readPointer();
+            if (!c.isNull()) {
+                ctx.x = c.add(0x10).readS32();
+                ctx.y = c.add(0x14).readS32();
+            }
+            if (ctx.x === 0 && ctx.y === 0) {
+                var lc = p.add(off('__PLAYER_LAST_COORD__')).readPointer();
+                if (!lc.isNull()) {
+                    ctx.x = lc.add(0x10).readS32();
+                    ctx.y = lc.add(0x14).readS32();
+                }
+            }
+            ctx.invOk = !p.add(off('__PLAYER_INVENTORY__')).readPointer().isNull();
+        }
+    } catch (e3) {}
+    ctx.merchantOpen = isMerchantWindowOpen();
+    try {
+        if (nativeGetGameUI !== null) {
+            var gui = nativeGetGameUI();
+            if (!gui.isNull()) {
+                var mw = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                if (!mw.isNull()) {
+                    var w = mw.add(0x20).readPointer();
+                    if (!w.isNull()) ctx.mossOpen = (w.add(0x48).readU8() === 1);
+                }
+            }
+        }
+    } catch (e4) {}
+    return ctx;
+}
+
+// Gửi gói drop cho từng slot, chờ server, rồi đọc lại RAM để xác minh.
+// Trả về danh sách slot đã mất khỏi hòm đồ (dropped) và danh sách còn lại (stayed).
+function runDropPass(slots, itemsArr, ctx, offsetX, offsetY) {
+    var out = { dropped: [], stayed: [], sendFailed: 0, attempted: 0 };
+    var tx = ctx.x + offsetX;
+    var ty = ctx.y + offsetY;
+    for (var i = 0; i < slots.length; i++) {
+        var s = slots[i];
+        var before = itemsArr.add(0x20 + s * 8).readPointer();
+        if (before.isNull()) continue;
+        out.attempted++;
+        var sent = false;
+        try {
+            // Ưu tiên hàm drop của chính client (nó tự dựng packet + gọi gs_send chuẩn),
+            // fallback về packet thuần nếu hàm native không khả dụng.
+            if (nativeUserInvDrop !== null) sent = dropSlotNative(s, tx, ty);
+            if (!sent) sent = sendDropPacket(s, tx, ty);
+        } catch (eSD) { sent = false; }
+        if (!sent) {
+            out.sendFailed++;
+            continue;
+        }
+        try { Thread.sleep(0.05); } catch (eSl1) {}
+    }
+    try { Thread.sleep(0.30); } catch (eSl2) {}
+    for (var j = 0; j < slots.length; j++) {
+        var s2 = slots[j];
+        var after = itemsArr.add(0x20 + s2 * 8).readPointer();
+        if (after.isNull()) out.dropped.push(s2);
+        else out.stayed.push(s2);
+    }
+    return out;
+}
+
+// Bán từng slot cho Merchant đang mở (packet C1 04 33) + xác minh bằng RAM.
+function runSellPass(slots, itemsArr) {
+    var out = { sold: [], stayed: [], sendFailed: 0, attempted: 0 };
+    for (var i = 0; i < slots.length; i++) {
+        var s = slots[i];
+        var before = itemsArr.add(0x20 + s * 8).readPointer();
+        if (before.isNull()) continue;
+        out.attempted++;
+        var sent = false;
+        try { sent = sendSellPacket(s); } catch (eSS) { sent = false; }
+        if (!sent) {
+            out.sendFailed++;
+            continue;
+        }
+        try { Thread.sleep(0.06); } catch (eSl3) {}
+    }
+    try { Thread.sleep(0.30); } catch (eSl4) {}
+    for (var j = 0; j < slots.length; j++) {
+        var s2 = slots[j];
+        var after = itemsArr.add(0x20 + s2 * 8).readPointer();
+        if (after.isNull()) out.sold.push(s2);
+        else out.stayed.push(s2);
+    }
+    return out;
 }
 
 function sendMirrorEnterPacket(slot) {
@@ -1180,19 +1356,20 @@ function readItemIndex(itemPtr) {
     try {
         var te = itemPtr.add(0x58).readPointer();
         if (!te.isNull()) {
-            // Priority 1: TableItem.HKLAHJEGHML (+0x68) = Index
+            // Priority 1: Info.Index tại +0x10 (dump: class Info { public int Index; // 0x10 })
+            // Lưu ý: giá trị 0 là "chưa set" -> phải rơi xuống Priority 2, KHÔNG được return 0.
             try {
-                var fieldIdx = te.add(0x68).readS32();
-                if (fieldIdx >= 0 && fieldIdx < 65536) return fieldIdx;
+                var fieldIdx = te.add(0x10).readS32();
+                if (fieldIdx > 0 && fieldIdx < 65536) return fieldIdx;
             } catch (eF) {}
 
             // Priority 2: (Section * 512 + Type) from TableItem (+0x58, +0x5C)
             try {
                 var sec = te.add(0x58).readS32();
                 var type = te.add(0x5C).readS32();
-                if (sec >= 0 && sec < 16 && type >= 0 && type < 512) {
+                if (sec >= 0 && sec < 16 && type >= 0 && type < 512 && (sec > 0 || type > 0)) {
                     var calcIdx = (sec * 512) + type;
-                    if (calcIdx >= 0 && calcIdx < 65536) return calcIdx;
+                    if (calcIdx > 0 && calcIdx < 65536) return calcIdx;
                 }
             } catch (eST) {}
         }
@@ -1304,9 +1481,15 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
         var keywords = [
             "divine", "divino", "divina", "archangel", "arcanjo", "thiên sứ", "nữ thần",
             "dragon", "dragao", "dragão", "rồng",
-            "bloodangel", "darkangel", "holyangel", "awakening", "blue eye", "silver heart", "manticore", "brilliant", "apocalypse", "lightning", "ruud"
-
-
+            "bloodangel", "darkangel", "holyangel", "awakening", "blue eye", "silver heart", "manticore", "brilliant", "apocalypse", "lightning", "ruud",
+            // --- LƯỚI AN TOÀN: các vật phẩm quý KHÔNG BAO GIỜ được dọn ---
+            // (kể cả khi đọc Index thất bại: ngọc, vé sự kiện, rương, cánh, pet...)
+            "jewel", "jóia", "joia", "pedra", "gema", "ngọc",
+            "bless", "soul", "chaos", "harmony", "creation", "life", "guardian",
+            "ticket", "vé", "mirror", "gương",
+            "box", "rương", "wing", "cánh", "feather", "lông", "cloak",
+            "seed", "fruit", "rune", "gem", "stone", "scroll", "horn",
+            "pentagram", "errtel", "muun", "dark horse", "dark raven", "fenrir"
         ];
         for (var k = 0; k < keywords.length; k++) {
             if (name.indexOf(keywords[k]) !== -1) {
@@ -1317,11 +1500,11 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
     return false;
 }
 
-function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl) {
+function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics) {
     if (itemIndex < 0) return true; // Không rõ item -> bảo vệ an toàn
 
     // 1. Đồ Divine, Đồ Rồng, Master/Ruud/High-tier
-    if (isDivineOrDragonItem(itemPtr, itemIndex)) return true;
+    if (!ignoreTypeHeuristics && isDivineOrDragonItem(itemPtr, itemIndex)) return true;
 
     // 2. Đồ Hoàn Hảo (Excellent)
     if (excOpt > 0) return true;
@@ -1335,8 +1518,8 @@ function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt,
     // 5. Đồ Gia Cường Đá Tạo Hóa (Harmony)
     if (harmonyOpt > 0) return true;
 
-    // 6. Đồ cấp cao: Giữ lại toàn bộ đồ từ +5 trở lên (+5, +6, +7, +8, +9, +10, +11, +12, +13, +14, +15)
-    // Cho phép vứt: Đồ thường từ +0 đến +4 không Exc/Ancient/Socket (kể cả có Luck/Skill từ Moss)
+    // 6. Đồ cấp cao: Giữ lại toàn bộ đồ vượt ngưỡng maxJunkLvl
+    // Cho phép vứt: Đồ thường không Exc/Ancient/Socket/Harmony (kể cả có Luck/Skill từ Moss)
     var effectiveMax = 4;
     if (maxJunkLvl !== undefined && maxJunkLvl !== null && maxJunkLvl >= 0) {
         effectiveMax = parseInt(maxJunkLvl);
@@ -1349,9 +1532,16 @@ function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt,
         if (itemLevel > effectiveMax) return true;
     }
 
-    // 7. Toàn bộ ngọc, vé sự kiện, cánh, thú cưỡi, nhẫn, dây chuyền, sách phép, cuộn kỹ năng (sec 12..15)
+    // 7. Toàn bộ ngọc, vé sự kiện, cánh, thú cưỡi, sách phép, cuộn kỹ năng (sec 12..15)
+    // Ngoại lệ duy nhất: Khi đang quay Moss Category 5 (Trang Sức: Nhẫn/Dây chuyền),
+    // cho phép dọn Nhẫn/Dây chuyền cơ bản thuộc sec 13 (không Exc/Ancient/Socket/Harmony).
     var sec = Math.floor(itemIndex / 512);
-    if (sec >= 12 && sec <= 15) return true;
+    var typeInSec = itemIndex % 512;
+    var isBasicMossJewelry = (mossCat === 5 && sec === 13 && (
+        typeInSec === 8 || typeInSec === 9 || typeInSec === 12 || typeInSec === 13 ||
+        (typeInSec >= 21 && typeInSec <= 28)
+    ));
+    if (!isBasicMossJewelry && sec >= 12 && sec <= 15) return true;
 
     // 8. Giới hạn phạm vi theo danh mục Moss đang quay:
     // Nếu đang quay Moss danh mục X thì CHỈ các món đồ rác thường thuộc danh mục X mới được phép dọn!
@@ -1364,14 +1554,58 @@ function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt,
         else if (mossCat === 2 && sec === 4) matchCat = true;                              // 2: Cung & Nỏ (Bow, Crossbow)
         else if (mossCat === 3 && sec === 5) matchCat = true;                              // 3: Gậy Phép & Sách (Staff, Book)
         else if (mossCat === 4 && sec === 6) matchCat = true;                              // 4: Khiên (Shield)
-        else if (mossCat === 5 && (sec === 12 || sec === 13)) matchCat = true;             // 5: Trang Sức (Pendant, Ring)
+        else if (mossCat === 5 && isBasicMossJewelry) matchCat = true;                     // 5: Trang Sức (Pendant, Ring)
         else if (mossCat >= 6 && sec <= 11) matchCat = true;                               // 6..11: Nhóm ngọc (Soul/Bless/Chaos quay ra mọi loại đồ)
         
         // Không thuộc loại đồ đang quay của Moss -> BẢO VỆ TUYỆT ĐỐI
         if (!matchCat) return true;
     }
 
-    return false; // Chỉ những món đồ rác thường (+0..+4 không Exc/Ancient/Socket/Harmony/Divine) mới bị dọn
+    return false; // Chỉ những món đồ rác thường không Exc/Ancient/Socket/Harmony/Divine mới bị dọn
+}
+
+// Trả về MÃ LÝ DO vì sao một món bị GIỮ LẠI (null = được phép dọn).
+// Phản chiếu đúng logic của isItemProtected() nhưng trả về lý do để hiển thị cho người dùng.
+function itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics) {
+    if (itemIndex < 0) return "unknown_item";
+    if (!ignoreTypeHeuristics && isDivineOrDragonItem(itemPtr, itemIndex)) return "divine_or_dragon";
+    if (excOpt > 0) return "excellent";
+    if (ancOpt > 0) return "ancient";
+    if (sockOpt > 0) return "socket";
+    if (harmonyOpt > 0) return "harmony";
+
+    var effectiveMax = 4;
+    if (maxJunkLvl !== undefined && maxJunkLvl !== null && maxJunkLvl >= 0) {
+        effectiveMax = parseInt(maxJunkLvl);
+    } else if (mossCat !== null && mossCat !== undefined && mossCat >= 0) {
+        effectiveMax = 6;
+    }
+    if (effectiveMax <= 4) {
+        if (itemLevel >= 5) return "level_over_max";
+    } else if (itemLevel > effectiveMax) {
+        return "level_over_max";
+    }
+
+    var sec = Math.floor(itemIndex / 512);
+    var typeInSec = itemIndex % 512;
+    var isBasicMossJewelry = (mossCat === 5 && sec === 13 && (
+        typeInSec === 8 || typeInSec === 9 || typeInSec === 12 || typeInSec === 13 ||
+        (typeInSec >= 21 && typeInSec <= 28)
+    ));
+    if (!isBasicMossJewelry && sec >= 12 && sec <= 15) return "jewel_section";
+
+    if (mossCat !== null && mossCat !== undefined && mossCat >= 0) {
+        var matchCat = false;
+        if (mossCat === 0 && (sec === 0 || sec === 1 || sec === 3)) matchCat = true;
+        else if (mossCat === 1 && sec === 2) matchCat = true;
+        else if (mossCat === 2 && sec === 4) matchCat = true;
+        else if (mossCat === 3 && sec === 5) matchCat = true;
+        else if (mossCat === 4 && sec === 6) matchCat = true;
+        else if (mossCat === 5 && isBasicMossJewelry) matchCat = true;
+        else if (mossCat >= 6 && sec <= 11) matchCat = true;
+        if (!matchCat) return "wrong_moss_category";
+    }
+    return null;
 }
 
 var nativeGetGameUI = null;
@@ -1584,6 +1818,9 @@ try {
 
 var pendingMossOpenCategory = null;
 var pendingMossRollCategory = null;
+var pendingMossClose = false;
+var pendingMossResetCategory = null;
+var pendingMerchantClose = false;
 
 function isGameObjectValid(goPtr) {
     if (!goPtr || goPtr.isNull()) return false;
@@ -1686,6 +1923,112 @@ function setupMossWindow(mossWin, cat) {
     } catch (eSetup) {
         return false;
     }
+}
+
+function performMossCloseNow() {
+    pendingMossOpenCategory = null;
+    pendingMossClose = false;
+    try {
+        if (nativeGetGameUI !== null) {
+            var gui = nativeGetGameUI();
+            if (!gui.isNull()) {
+                var mossOff = off('__UI_MOSS_WINDOW__');
+                var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
+                if (!mossWin.isNull()) {
+                    // 1. Phục hồi RollButton và tắt LoadingImage để tránh đơ giao diện
+                    ensureMossRollButtonActive(mossWin, true);
+
+                    // 2. Gọi MMossMerchantWindow.NAAAMOPHFBF (Slot 9, RVA 0x1A183F0)
+                    if (nativeMossWindowClose !== null) {
+                        try { nativeMossWindowClose(mossWin, ptr(0)); } catch (eMWC) {}
+                    }
+
+                    // 3. Xử lý MWindow tại offset 0x20 (KHÔNG tắt GameObject của MMossMerchantWindow để có thể mở lại)
+                    var win = mossWin.add(0x20).readPointer();
+                    if (!win.isNull()) {
+                        try {
+                            var closeBtn = win.add(0x40).readPointer();
+                            if (!closeBtn.isNull()) {
+                                if (nativeButtonPress !== null) {
+                                    try { nativeButtonPress(closeBtn, ptr(0)); } catch (eBP) {}
+                                }
+                                var onClick = closeBtn.add(0x100).readPointer();
+                                if (!onClick.isNull() && nativeUnityEventInvoke !== null) {
+                                    try { nativeUnityEventInvoke(onClick, ptr(0)); } catch (eUE) {}
+                                }
+                            }
+                        } catch (eCB) {}
+
+                        if (nativeWindowHide !== null) {
+                            try { nativeWindowHide(win, ptr(0)); } catch (eWH) {}
+                        } else if (nativeWindowSetState !== null) {
+                            try { nativeWindowSetState(win, 0, ptr(0)); } catch (eWSS) {}
+                        }
+
+                        win.add(0x48).writeU8(0);
+                    }
+                }
+            }
+        }
+    } catch (eUIClose) {}
+
+    // 4. Gửi packet C1:31 đóng phiên đàm thoại NPC và mở khóa thùng đồ
+    if (nativeCloseTalk !== null) {
+        try { nativeCloseTalk(); } catch (eCT) {}
+    }
+    try { sendGSPacket([0xC1, 0x04, 0x31, 0x00]); } catch (eGS) {}
+
+    // 5. Mở khóa toàn diện thùng đồ & nhân vật
+    ensureDropAllowed();
+    return true;
+}
+
+function performMossResetNow(cat) {
+    pendingMossResetCategory = null;
+    try {
+        if (nativeGetGameUI !== null) {
+            var gui = nativeGetGameUI();
+            if (!gui.isNull()) {
+                var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                if (!mossWin.isNull()) {
+                    setupMossWindow(mossWin, cat);
+                    ensureMossRollButtonActive(mossWin, true);
+                    return true;
+                }
+            }
+        }
+    } catch (eReset) {}
+    return false;
+}
+
+function performMerchantCloseNow() {
+    pendingMerchantClose = false;
+    if (nativeCloseTalk !== null) {
+        try { nativeCloseTalk(); } catch (eCT) {}
+    }
+    try { sendGSPacket([0xC1, 0x04, 0x31, 0x00]); } catch (eGS) {}
+    try {
+        if (nativeGetGameUI !== null) {
+            var gui = nativeGetGameUI();
+            if (!gui.isNull()) {
+                var merchOff = off('__UI_MERCHANT_WINDOW__');
+                var mWinPtr = merchOff.isNull() ? gui.add(ptr('0x198')).readPointer() : gui.add(merchOff).readPointer();
+                if (!mWinPtr.isNull()) {
+                    var mwObj = mWinPtr.add(0x20).readPointer();
+                    if (!mwObj.isNull()) {
+                        if (nativeWindowHide !== null) {
+                            try { nativeWindowHide(mwObj, ptr(0)); } catch (eWH) {}
+                        } else if (nativeWindowSetState !== null) {
+                            try { nativeWindowSetState(mwObj, 0, ptr(0)); } catch (eWSS) {}
+                        }
+                        mwObj.add(0x48).writeU8(0);
+                    }
+                }
+            }
+        }
+    } catch (eMerchClose) {}
+    ensureDropAllowed();
+    return true;
 }
 
 function findMossNpc() {
@@ -2189,6 +2532,28 @@ try {
                                 setupMossWindow(mossWin, cat);
                             } catch (eMossUI) {}
                         }
+
+                        if (pendingMossResetCategory !== null) {
+                            try {
+                                var rCat = pendingMossResetCategory;
+                                pendingMossResetCategory = null;
+                                performMossResetNow(rCat);
+                            } catch (eMossReset) {}
+                        }
+
+                        if (pendingMossClose) {
+                            try {
+                                pendingMossClose = false;
+                                performMossCloseNow();
+                            } catch (eMossClose) {}
+                        }
+
+                        if (pendingMerchantClose) {
+                            try {
+                                pendingMerchantClose = false;
+                                performMerchantCloseNow();
+                            } catch (eMerchCloseUI) {}
+                        }
                     }
                     if (pendingCommand !== null) {
                         var cmd = pendingCommand;
@@ -2238,6 +2603,28 @@ try {
                     var mTarget = pendingMoveTarget;
                     pendingMoveTarget = null;
                     try { dispatchMoveTarget(mTarget); } catch (eMGU) {}
+                }
+
+                if (pendingMossClose) {
+                    try {
+                        pendingMossClose = false;
+                        performMossCloseNow();
+                    } catch (eMCGU) {}
+                }
+
+                if (pendingMossResetCategory !== null) {
+                    try {
+                        var rCatGU = pendingMossResetCategory;
+                        pendingMossResetCategory = null;
+                        performMossResetNow(rCatGU);
+                    } catch (eMRGU) {}
+                }
+
+                if (pendingMerchantClose) {
+                    try {
+                        pendingMerchantClose = false;
+                        performMerchantCloseNow();
+                    } catch (eMCHGU) {}
                 }
 
                 if (pendingAutoLogin === null) return;
@@ -2971,80 +3358,26 @@ rpc.exports = {
         try {
             ensureThreadAttached();
             pendingMossOpenCategory = null;
+            pendingMossClose = true;
 
-            if (nativeGetGameUI !== null) {
-                var gui = nativeGetGameUI();
-                if (!gui.isNull()) {
-                    var mossOff = off('__UI_MOSS_WINDOW__');
-                    var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
-                    if (!mossWin.isNull()) {
-                        // 1. Phục hồi RollButton và tắt LoadingImage để tránh đơ giao diện
-                        ensureMossRollButtonActive(mossWin, true);
+            // Ưu tiên ủy quyền đóng cửa sổ cho Unity Main Thread Hook (GameUI.Update / Game.Update)
+            for (var w = 0; w < 4; w++) {
+                if (!pendingMossClose) break;
+                Thread.sleep(0.02);
+            }
 
-                        if (nativeMossWindowClose !== null) {
-                            try { nativeMossWindowClose(mossWin, ptr(0)); } catch (eMWC) {}
-                        }
-
-                        // 2. Xử lý MWindow tại offset 0x20
-                        var win = mossWin.add(0x20).readPointer();
-                        if (!win.isNull()) {
-                            // A. Bấm nút CloseButton (offset 0x40 của Window) để kích hoạt chuẩn event đóng của game
-                            try {
-                                var closeBtn = win.add(0x40).readPointer();
-                                if (!closeBtn.isNull()) {
-                                    if (nativeButtonPress !== null) {
-                                        try { nativeButtonPress(closeBtn, ptr(0)); } catch (eBP) {}
-                                    }
-                                    var onClick = closeBtn.add(0x100).readPointer();
-                                    if (!onClick.isNull() && nativeUnityEventInvoke !== null) {
-                                        try { nativeUnityEventInvoke(onClick, ptr(0)); } catch (eUE) {}
-                                    }
-                                }
-                            } catch (eCB) {}
-
-                            // B. Gọi nativeWindowHide chuẩn RVA 0x25986B0 TRƯỚC KHI chỉnh IsOpen
-                            // (để điều kiện kiểm tra IsOpen trong Window.Hide vẫn hợp lệ)
-                            if (nativeWindowHide !== null) {
-                                try { nativeWindowHide(win, ptr(0)); } catch (eWH) {}
-                            } else if (nativeWindowSetState !== null) {
-                                try { nativeWindowSetState(win, 0, ptr(0)); } catch (eWSS) {}
-                            }
-
-                            // C. Tắt triệt để GameObject của MWindow
-                            if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
-                                try {
-                                    var wGo = nativeComponentGetGameObject(win);
-                                    if (!wGo.isNull() && isGameObjectValid(wGo)) {
-                                        nativeGameObjectSetActive(wGo, 0, ptr(0));
-                                    }
-                                } catch (eWGO) {}
-                            }
-
-                            // D. Cập nhật IsOpen = false (0)
-                            win.add(0x48).writeU8(0);
-                        }
-
-                        // 3. Tắt GameObject của MMossMerchantWindow để đảm bảo cửa sổ biến mất 100% khỏi màn hình
-                        if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
-                            try {
-                                var mGo = nativeComponentGetGameObject(mossWin);
-                                if (!mGo.isNull() && isGameObjectValid(mGo)) {
-                                    nativeGameObjectSetActive(mGo, 0, ptr(0));
-                                }
-                            } catch (eMGO) {}
-                        }
-                    }
+            // Nếu Main Thread chưa kịp tiêu thụ (ví dụ cửa sổ game thu nhỏ/tạm dừng), thực thi trực tiếp
+            if (pendingMossClose) {
+                pendingMossClose = false;
+                performMossCloseNow();
+            } else {
+                // Đảm bảo gói tin đóng đàm thoại C1:31 và mở khóa thùng đồ luôn được gửi
+                if (nativeCloseTalk !== null) {
+                    try { nativeCloseTalk(); } catch (eCT) {}
                 }
+                try { sendGSPacket([0xC1, 0x04, 0x31, 0x00]); } catch (eGS) {}
+                ensureDropAllowed();
             }
-
-            // 4. Gửi packet C1:31 đóng phiên đàm thoại NPC và mở khóa thùng đồ
-            if (nativeCloseTalk !== null) {
-                try { nativeCloseTalk(); } catch (eCT) {}
-            }
-            try { sendGSPacket([0xC1, 0x04, 0x31, 0x00]); } catch (eGS) {}
-
-            // 5. Mở khóa toàn diện thùng đồ & nhân vật
-            ensureDropAllowed();
 
             return true;
         } catch (eCM) {
@@ -3058,12 +3391,23 @@ rpc.exports = {
             var cat = parseInt(categoryId || 0);
             var npc = findMossNpc();
             if (npc && !npc.ptr.isNull()) {
-                if (nativeCloseTalk !== null) {
-                    try { nativeCloseTalk(); } catch (eCT) {}
+                pendingMossInteractPtr = npc.ptr;
+                pendingMossOpenCategory = cat;
+                for (var w = 0; w < 4; w++) {
+                    if (pendingMossInteractPtr === null) break;
+                    Thread.sleep(0.02);
                 }
-                invokeNpcTalk(npc.ptr);
+                if (pendingMossInteractPtr !== null) {
+                    var nPtr = pendingMossInteractPtr;
+                    pendingMossInteractPtr = null;
+                    if (nativeCloseTalk !== null) {
+                        try { nativeCloseTalk(); } catch (eCT) {}
+                    }
+                    invokeNpcTalk(nPtr);
+                }
+            } else {
+                pendingMossOpenCategory = cat;
             }
-            pendingMossOpenCategory = cat;
             return true;
         } catch (eMO) {
             return false;
@@ -3074,18 +3418,13 @@ rpc.exports = {
         try {
             ensureThreadAttached();
             var cat = parseInt(categoryId || 0);
-            if (nativeGetGameUI !== null) {
-                var gui = nativeGetGameUI();
-                if (!gui.isNull()) {
-                    var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
-                    if (!mossWin.isNull()) {
-                        setupMossWindow(mossWin, cat);
-                        ensureMossRollButtonActive(mossWin, true);
-                        return true;
-                    }
-                }
+            pendingMossResetCategory = cat;
+            for (var w = 0; w < 3; w++) {
+                if (pendingMossResetCategory === null) return true;
+                Thread.sleep(0.02);
             }
-            return false;
+            pendingMossResetCategory = null;
+            return performMossResetNow(cat);
         } catch (e) {
             return false;
         }
@@ -3357,37 +3696,22 @@ rpc.exports = {
     closeMerchantNpc: function() {
         try {
             ensureThreadAttached();
-            // 1. Gửi packet C1:31 đóng đối thoại NPC
-            if (nativeCloseTalk !== null) {
-                try { nativeCloseTalk(); } catch (eCT) {}
+            pendingMerchantClose = true;
+            for (var w = 0; w < 3; w++) {
+                if (!pendingMerchantClose) break;
+                Thread.sleep(0.02);
             }
-            // 2. Tắt cửa sổ MerchantWindow trong UI qua nativeWindowHide chuẩn
-            try {
-                if (nativeGetGameUI !== null) {
-                    var gui = nativeGetGameUI();
-                    if (!gui.isNull()) {
-                        var merchOff = off('__UI_MERCHANT_WINDOW__');
-                        var mWinPtr = merchOff.isNull() ? gui.add(ptr('0x198')).readPointer() : gui.add(merchOff).readPointer();
-                        if (!mWinPtr.isNull()) {
-                            var mwObj = mWinPtr.add(0x20).readPointer();
-                            if (!mwObj.isNull()) {
-                                if (nativeWindowHide !== null) {
-                                    try { nativeWindowHide(mwObj, ptr(0)); } catch (eWH) {}
-                                } else if (nativeWindowSetState !== null) {
-                                    try { nativeWindowSetState(mwObj, 0, ptr(0)); } catch (eWSS) {}
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (eMerchClose) {}
+            if (pendingMerchantClose) {
+                pendingMerchantClose = false;
+                performMerchantCloseNow();
+            }
             return { success: true };
         } catch (e) {
             return { success: false, error: e.toString() };
         }
     },
 
-    sellMossPlusItems: function() {
+    sellMossPlusItems: function(maxJunkLevel, ignoreTypeHeuristics) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
@@ -3405,7 +3729,10 @@ rpc.exports = {
                 return JSON.stringify({ sold: 0, error: "no_native_sell_fn" });
             }
 
-            var maxSlot = 140;
+            var maxLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 7;
+            var ignoreType = Boolean(ignoreTypeHeuristics);
+
+            var maxSlot = 240;
             try {
                 var arrLen = itemsArr.add(0x18).readS32();
                 if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
@@ -3477,15 +3804,14 @@ rpc.exports = {
                 var harmonyOpt = itemPtr.add(0x2C).readS32();
 
                 // BẢO VỆ TUYỆT ĐỐI (Không bao giờ bán):
-                // 1. Đồ Divine, Đồ Rồng, Master/Ruud/High-tier (isDivineOrDragonItem)
+                // 1. Đồ Divine, Đồ Rồng, Master/Ruud/High-tier (isDivineOrDragonItem) trừ khi ignoreType
                 // 2. Đồ Hoàn Hảo (excOpt > 0)
                 // 3. Đồ Thần (ancOpt > 0)
                 // 4. Đồ Socket / 380 (sockOpt > 0)
                 // 5. Đồ Harmony (harmonyOpt > 0)
-                // 6. Đồ có May Mắn (luck > 0)
-                // 7. Cấp độ >= +7 (giữ lại đồ xịn +7 trở lên)
-                // 8. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
-                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, -1)) {
+                // 6. Cấp độ > maxLvl (mặc định maxLvl = 7 -> giữ lại đồ >= +8)
+                // 7. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
+                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, -1, maxLvl, ignoreType)) {
                     continue;
                 }
 
@@ -4888,7 +5214,7 @@ rpc.exports = {
             var itemsArr = inv.add(itemsOff).readPointer();
             if (itemsArr.isNull()) return JSON.stringify({ error: "no_items_arr" });
 
-            var maxSlot = 140;
+            var maxSlot = 240;
             try {
                 var arrLen = itemsArr.add(0x18).readS32();
                 if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
@@ -4918,8 +5244,23 @@ rpc.exports = {
 
                 var isSpecial = isDivineOrDragonItem(itemPtr, itemIndex);
                 var isKept = isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl);
+                var isSellableMossPlus = (
+                    itemLevel >= 5 && itemLevel <= 7 &&
+                    !isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, 7)
+                );
                 var isExt = (s >= 76);
                 var itName = getItemName(itemPtr);
+                if (isSellableMossPlus) {
+                    mossPlusSlots.push({
+                        slot: s,
+                        index: itemIndex,
+                        name: itName,
+                        level: itemLevel,
+                        skill: skill,
+                        luck: luck,
+                        isExt: isExt
+                    });
+                }
                 if (isKept) {
                     keptSlots.push({
                         slot: s,
@@ -5039,8 +5380,8 @@ rpc.exports = {
 
             var useMethod = (method || "trash").toLowerCase();
 
-            // Quét đến arrLen (hỗ trợ cả Ba lô mở rộng 1 & 2 lên tới slot 139)
-            var maxSlot = cleanExt ? 140 : 76;
+            // Quét đến arrLen (hỗ trợ cả Ba lô mở rộng 1 & 2 lên tới slot 239)
+            var maxSlot = cleanExt ? 240 : 76;
             try {
                 var arrLen = itemsArr.add(0x18).readS32();
                 if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
@@ -5156,6 +5497,272 @@ rpc.exports = {
         } catch (e) {
             ensureDropAllowed();
             return JSON.stringify({ cleaned: 0, error: e.toString() });
+        }
+    },
+
+    // ------------------------------------------------------------------------
+    // DỌN RÁC v2: vứt (drop) trước, nếu server chặn (safe-zone) thì tự bán,
+    // luôn xác minh lại bằng RAM và trả về lý do cụ thể khi thất bại.
+    // mode: "drop" | "sell" | "auto"
+    // Kết quả: { cleaned, dropped, sold, total, failed, reason, ... }
+    // ------------------------------------------------------------------------
+    disposeJunkItems: function(mode, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel, maxBatch, ignoreTypeHeuristics) {
+        var startedAt = Date.now();
+        try {
+            ensureThreadAttached();
+            var modeVal = String(mode || "auto").toLowerCase();
+            var ignType = (ignoreTypeHeuristics === 1 || ignoreTypeHeuristics === true || ignoreTypeHeuristics === "true");
+            var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 6;
+            var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
+            var cleanExt = (includeExtended === 1 || includeExtended === true || includeExtended === "true" || includeExtended === undefined);
+            var batch = (maxBatch !== undefined && maxBatch !== null && parseInt(maxBatch) > 0) ? parseInt(maxBatch) : 40;
+            var ctx = readDisposalContext();
+            var empty = {
+                cleaned: 0, dropped: 0, sold: 0, total: 0, failed: 0, remaining: 0,
+                reason: "", mode: modeVal, gsOk: ctx.gsOk, coin: { x: ctx.x, y: ctx.y },
+                coord: { x: ctx.x, y: ctx.y }, merchantOpen: ctx.merchantOpen, mossOpen: ctx.mossOpen,
+                failedSlots: [], elapsedMs: 0
+            };
+
+            var p = getPlayerPtr();
+            if (p.isNull()) { empty.reason = "no_player"; return JSON.stringify(empty); }
+            if (!ctx.gsOk && modeVal !== "sell") { empty.reason = "no_gs_connection"; return JSON.stringify(empty); }
+
+            var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+            if (inv.isNull()) { empty.reason = "no_inventory"; return JSON.stringify(empty); }
+            var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+            if (itemsArr.isNull()) { empty.reason = "no_items_arr"; return JSON.stringify(empty); }
+
+            var protMap = {};
+            if (protectedSlotsJson && typeof protectedSlotsJson === "string") {
+                try {
+                    var protArr = JSON.parse(protectedSlotsJson);
+                    for (var pi = 0; pi < protArr.length; pi++) protMap[parseInt(protArr[pi])] = true;
+                } catch (ePJ) {}
+            }
+
+            // Quét tới 240 ô: ba lô mở rộng 1+2 có thể nằm sau slot 139 (mảng thực tế dài ~239).
+            var maxSlot = cleanExt ? 240 : 76;
+            try {
+                var arrLen = itemsArr.add(0x18).readS32();
+                if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+            } catch (eLen) {}
+
+            var candidates = [];
+            for (var s = 12; s < maxSlot; s++) {
+                if (s < 12) continue;                       // GUARD 1: không đụng trang bị trên người
+                if (protMap[s]) continue;                   // GUARD 2: ô có sẵn trước khi quay
+                var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                if (itemPtr.isNull()) continue;
+                var itemIndex = readItemIndex(itemPtr);
+                var itemLevel = itemPtr.add(0x10).readS32();
+                var skill = itemPtr.add(0x14).readS32();
+                var luck = itemPtr.add(0x18).readS32();
+                var excOpt = itemPtr.add(0x20).readS32();
+                var ancOpt = itemPtr.add(0x24).readS32();
+                var sockOpt = itemPtr.add(0x28).readS32();
+                var harmonyOpt = itemPtr.add(0x2C).readS32();
+                // GUARD 3: bảo vệ đồ quý. Nếu người dùng bật "bỏ qua lọc tên/loại"
+                // thì chỉ áp bộ lọc thuộc tính (Exc/Set/Socket/Harmony/cấp), bỏ qua
+                // isDivineOrDragonItem (vốn chặn nhầm rất nhiều đồ Moss thường).
+                if (ignType) {
+                    if (itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, true)) continue;
+                } else if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl)) {
+                    continue;
+                }
+                candidates.push(s);
+                if (candidates.length >= batch) break;
+            }
+
+            empty.total = candidates.length;
+            empty.remaining = candidates.length;
+            if (candidates.length === 0) {
+                empty.reason = "no_candidates";
+                empty.elapsedMs = Date.now() - startedAt;
+                return JSON.stringify(empty);
+            }
+
+            var dropped = [];
+            var sold = [];
+            var sendFailed = 0;
+            var attempted = 0;
+
+            function remainingSlots() {
+                var rem = [];
+                for (var i = 0; i < candidates.length; i++) {
+                    var cs = candidates[i];
+                    if (itemsArr.add(0x20 + cs * 8).readPointer().isNull()) continue;
+                    rem.push(cs);
+                }
+                return rem;
+            }
+
+            // --- BƯỚC 1: DROP (vứt tại chỗ) ---
+            if (modeVal === "drop" || modeVal === "auto" || modeVal === "both" || modeVal === "trash") {
+                ensureDropAllowed();
+                var pass1 = runDropPass(candidates, itemsArr, ctx, 1, 0);
+                dropped = dropped.concat(pass1.dropped);
+                sendFailed += pass1.sendFailed;
+                attempted += pass1.attempted;
+
+                // Thử lại các ô còn lại với toạ độ khác (lệch 2 hướng) trước khi kết luận.
+                var stayed1 = remainingSlots();
+                if (stayed1.length > 0) {
+                    var pass2 = runDropPass(stayed1, itemsArr, ctx, -1, 1);
+                    dropped = dropped.concat(pass2.dropped);
+                    sendFailed += pass2.sendFailed;
+                    attempted += pass2.attempted;
+                }
+            }
+
+            // --- BƯỚC 2: SELL (bán cho Merchant) nếu drop không ăn thua ---
+            var afterDrop = remainingSlots();
+            var wantSell = (modeVal === "sell" || (modeVal === "auto" && afterDrop.length > 0));
+            if (wantSell && afterDrop.length > 0 && isMerchantWindowOpen()) {
+                var sp = runSellPass(afterDrop, itemsArr);
+                sold = sold.concat(sp.sold);
+                sendFailed += sp.sendFailed;
+                attempted += sp.attempted;
+            }
+
+            var finalRemaining = remainingSlots();
+            var cleaned = dropped.length + sold.length;
+            var reason = "done";
+            if (cleaned === 0) {
+                if (attempted === 0) reason = "not_attempted";
+                else if (sendFailed === attempted) reason = "send_failed";
+                else if (modeVal === "sell" && !isMerchantWindowOpen()) reason = "merchant_closed";
+                else if (!isMerchantWindowOpen()) reason = "drop_blocked";   // điển hình: đang ở safe-zone (làng/Elbeland)
+                else reason = "server_rejected";
+            } else if (finalRemaining.length > 0) {
+                reason = "partial";
+            }
+
+            return JSON.stringify({
+                cleaned: cleaned,
+                dropped: dropped.length,
+                sold: sold.length,
+                total: candidates.length,
+                failed: finalRemaining.length,
+                remaining: finalRemaining.length,
+                reason: reason,
+                mode: modeVal,
+                gsOk: ctx.gsOk,
+                coord: { x: ctx.x, y: ctx.y },
+                merchantOpen: isMerchantWindowOpen(),
+                mossOpen: ctx.mossOpen,
+                droppedSlots: dropped,
+                soldSlots: sold,
+                failedSlots: finalRemaining,
+                sendFailed: sendFailed,
+                sendError: lastSendError,
+                nativeDropBound: (nativeUserInvDrop !== null),
+                elapsedMs: Date.now() - startedAt,
+                error: null
+            });
+        } catch (eDJ) {
+            return JSON.stringify({
+                cleaned: 0, dropped: 0, sold: 0, total: 0, failed: 0, reason: "exception",
+                error: eDJ.toString(), elapsedMs: Date.now() - startedAt
+            });
+        }
+    },
+
+    // ------------------------------------------------------------------------
+    // PHÂN TÍCH HÒM ĐỒ: vì sao món nào bị giữ lại, món nào đủ điều kiện dọn.
+    // Dùng để trả lời câu hỏi "tại sao bấm Ném mà không mất món nào".
+    // ------------------------------------------------------------------------
+    analyzeJunkInventory: function(protectedSlotsJson, mossCategory, maxJunkLevel, includeExtended, ignoreTypeHeuristics) {
+        try {
+            ensureThreadAttached();
+            var ignType = (ignoreTypeHeuristics === 1 || ignoreTypeHeuristics === true || ignoreTypeHeuristics === "true");
+            var out = {
+                ok: false, total: 0, occupied: 0, junk: 0, protected: 0,
+                byReason: {}, slots: [], mossOpen: false, merchantOpen: false,
+                coord: { x: 0, y: 0 }, reason: "", maxJunkLevel: 6, mossCategory: -1
+            };
+            var p = getPlayerPtr();
+            if (p.isNull()) { out.reason = "no_player"; return JSON.stringify(out); }
+            var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+            if (inv.isNull()) { out.reason = "no_inventory"; return JSON.stringify(out); }
+            var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+            if (itemsArr.isNull()) { out.reason = "no_items_arr"; return JSON.stringify(out); }
+
+            var ctx = readDisposalContext();
+            out.mossOpen = ctx.mossOpen;
+            out.merchantOpen = ctx.merchantOpen;
+            out.coord = { x: ctx.x, y: ctx.y };
+
+            var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
+            var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 6;
+            out.mossCategory = mossCat;
+            out.maxJunkLevel = maxJunkLvl;
+
+            var protMap = {};
+            if (protectedSlotsJson && typeof protectedSlotsJson === "string") {
+                try {
+                    var protArr = JSON.parse(protectedSlotsJson);
+                    for (var pi = 0; pi < protArr.length; pi++) protMap[parseInt(protArr[pi])] = true;
+                } catch (ePJ) {}
+            }
+
+            var cleanExt = (includeExtended === 1 || includeExtended === true || includeExtended === "true" || includeExtended === undefined);
+            // Quét tới 240 ô để thấy cả ba lô mở rộng 2 (slot 140..238).
+            var maxSlot = cleanExt ? 240 : 76;
+            try {
+                var arrLen = itemsArr.add(0x18).readS32();
+                if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+            } catch (eLen) {}
+            out.total = maxSlot - 12;
+
+            for (var s = 12; s < maxSlot; s++) {
+                var itPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                if (itPtr.isNull()) continue;
+                out.occupied++;
+                var idx = readItemIndex(itPtr);
+                var lvl = itPtr.add(0x10).readS32();
+                var skl = itPtr.add(0x14).readS32();
+                var lck = itPtr.add(0x18).readS32();
+                var exc = itPtr.add(0x20).readS32();
+                var anc = itPtr.add(0x24).readS32();
+                var sock = itPtr.add(0x28).readS32();
+                var harm = itPtr.add(0x2C).readS32();
+                // Đọc tên khá chậm (native call) nên chỉ đọc khi thật sự cần:
+                //  - khi KHÔNG bỏ lọc tên/loại (isDivineOrDragonItem cần tên để phân loại)
+                //  - hoặc để hiển thị, tối đa 40 món đầu
+                var nm = "";
+                var why = null;
+                if (!ignType) {
+                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, false);
+                    if (!why && out.junk < 40) {
+                        try { nm = getItemName(itPtr) || ""; } catch (eNm1) {}
+                    }
+                } else {
+                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, true);
+                    if (!why && out.junk < 40) {
+                        try { nm = getItemName(itPtr) || ""; } catch (eNm2) {}
+                    }
+                }
+                if (protMap[s]) why = "preexisting_snapshot";
+                var section = Math.floor(idx / 512);
+                var entry = {
+                    slot: s, index: idx, name: nm, level: lvl, skill: skl, luck: lck,
+                    exc: exc, anc: anc, sock: sock, harm: harm, section: section,
+                    status: why ? "protected" : "junk", reason: why || ""
+                };
+                out.slots.push(entry);
+                if (why) {
+                    out.protected++;
+                    out.byReason[why] = (out.byReason[why] || 0) + 1;
+                } else {
+                    out.junk++;
+                }
+            }
+            out.ok = true;
+            out.reason = "done";
+            return JSON.stringify(out);
+        } catch (eAJ) {
+            return JSON.stringify({ ok: false, reason: "exception", error: eAJ.toString(), slots: [] });
         }
     },
 
@@ -5609,6 +6216,7 @@ class MegDirectEngine:
             "__INV_DROP_ITEM__": str(self.offsets.get("inv_drop_item") or "0x0"),
             "__INV_SELL_ITEM__": str(self.offsets.get("inv_sell_item") or "0x0"),
             "__USER_INV_TRASH__": str(self.offsets.get("user_inv_trash") or DEFAULT_OFFSETS.get("user_inv_trash", "0x144C8A0")),
+            "__USER_INV_DROP__": str(self.offsets.get("user_inv_drop") or DEFAULT_OFFSETS.get("user_inv_drop", "0x1449740")),
             "__USER_INV_ACTION__": str(self.offsets.get("user_inv_action") or DEFAULT_OFFSETS.get("user_inv_action", "0x1441DF0")),
             "__ITEM_STORAGE_DROP__": str(self.offsets.get("item_storage_drop") or DEFAULT_OFFSETS.get("item_storage_drop", "0x222CD00")),
             "__MERCHANT_SELL_ITEM__": str(self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2743520")),
@@ -6732,11 +7340,13 @@ class MegDirectEngine:
                 return {"success": False, "error": str(e)}
         return {"success": False, "error": "NOT_ATTACHED"}
 
-    def sell_moss_plus_items(self) -> Dict[str, Any]:
-        """Tự động bán các món đồ Moss cấp độ +5, +6, +7 cho NPC thương nhân (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)."""
+    def sell_moss_plus_items(self, max_junk_level: int = 7, ignore_type_heuristics: bool = False) -> Dict[str, Any]:
+        """Tự động bán các món đồ rác Moss cấp độ +0..+7 cho NPC thương nhân (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)."""
         if self.is_ready:
             try:
-                res_str = self._call("sellMossPlusItems")
+                lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 7
+                ign_val = 1 if ignore_type_heuristics else 0
+                res_str = self._call("sellMossPlusItems", lvl_val, ign_val)
                 if res_str:
                     return json.loads(res_str) if isinstance(res_str, str) else res_str
             except Exception as e:
@@ -7276,21 +7886,113 @@ class MegDirectEngine:
         protected_slots: Optional[List[int]] = None,
         category: Optional[int] = None,
         include_extended: bool = True,
-        max_junk_level: int = 4
+        max_junk_level: int = 4,
+        max_batch: int = 40,
+        ignore_type_heuristics: bool = False
     ) -> Dict[str, Any]:
-        """Tự động vứt (drop) hoặc bán toàn bộ vật phẩm rác trong Main Inventory & Ba lô mở rộng (bảo toàn tuyệt đối đồ Exc/Socket/Set/Ngọc/Đồ cộng/Đồ có trước khi quay)."""
-        if self.is_ready:
-            try:
-                prot_json = json.dumps(protected_slots or [])
-                cat_val = int(category) if category is not None and category >= 0 else -1
-                ext_val = 1 if include_extended else 0
-                lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 4
-                res_str = self._call("cleanInventoryJunk", str(method), prot_json, cat_val, ext_val, lvl_val)
-                if res_str:
-                    return json.loads(res_str)
-            except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi clean_inventory_junk: {e}")
+        """Dọn rác trong Main Inventory & Ba lô mở rộng, có xác minh từng ô.
+
+        method:
+          - "drop"/"trash"/"both" : chỉ vứt ra đất (cần đứng ngoài safe-zone)
+          - "sell"                : chỉ bán cho Merchant đang mở
+          - "auto"                : vứt trước, nếu server chặn thì tự bán (khuyến nghị)
+
+        Trả về dict gồm: cleaned, dropped, sold, total, failed, reason, coord, merchantOpen...
+        `reason` cho biết chính xác vì sao thất bại: drop_blocked (safe-zone),
+        merchant_closed, no_gs_connection, server_rejected, partial, done...
+        """
+        if not self.is_ready:
+            return {"cleaned": 0, "dropped": 0, "sold": 0, "total": 0, "failed": 0, "reason": "not_ready", "error": "not_ready"}
+
+        prot_json = json.dumps(protected_slots or [])
+        cat_val = int(category) if category is not None and category >= 0 else -1
+        ext_val = 1 if include_extended else 0
+        lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 4
+
+        m = str(method or "drop").lower()
+        if m in ("trash", "both"):
+            mode = "drop"
+        elif m in ("drop", "sell", "auto"):
+            mode = m
+        else:
+            mode = "drop"
+
+        # Bản v2 có xác minh + tự chẩn đoán lý do thất bại.
+        try:
+            res_str = self._call(
+                "disposeJunkItems", mode, prot_json, cat_val, ext_val, lvl_val, int(max_batch),
+                1 if ignore_type_heuristics else 0
+            )
+            if res_str:
+                data = json.loads(res_str)
+                if isinstance(data, dict):
+                    data.setdefault("method", m)
+                    data.setdefault("cleaned", int(data.get("dropped", 0)) + int(data.get("sold", 0)))
+                    return data
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] disposeJunkItems lỗi, dùng đường cũ: {e}")
+
+        # Fallback: hợp đồng cũ (cleanInventoryJunk) cho engine/JS cũ.
+        try:
+            res_str = self._call("cleanInventoryJunk", str(method), prot_json, cat_val, ext_val, lvl_val)
+            if res_str:
+                return json.loads(res_str)
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi clean_inventory_junk: {e}")
         return {"cleaned": 0, "error": "not_ready"}
+
+    def dispose_junk_items(
+        self,
+        mode: str = "auto",
+        protected_slots: Optional[List[int]] = None,
+        category: Optional[int] = None,
+        include_extended: bool = True,
+        max_junk_level: int = 6,
+        max_batch: int = 40,
+        ignore_type_heuristics: bool = False,
+    ) -> Dict[str, Any]:
+        """API trực tiếp cho pipeline dọn rác v2 (vứt -> bán -> xác minh)."""
+        return self.clean_inventory_junk(
+            method=mode,
+            protected_slots=protected_slots,
+            category=category,
+            include_extended=include_extended,
+            max_junk_level=max_junk_level,
+            max_batch=max_batch,
+            ignore_type_heuristics=ignore_type_heuristics,
+        )
+
+    def analyze_junk_inventory(
+        self,
+        category: Optional[int] = None,
+        max_junk_level: int = 6,
+        protected_slots: Optional[List[int]] = None,
+        include_extended: bool = True,
+        ignore_type_heuristics: bool = False,
+    ) -> Dict[str, Any]:
+        """Liệt kê từng món trong hòm đồ + lý do bị giữ lại (nếu có).
+
+        Trả về: {ok, occupied, junk, protected, byReason, slots: [...], mossOpen, merchantOpen, coord}
+        Mỗi slot: {slot, index, name, level, exc, anc, sock, harm, status, reason}
+        reason ∈ divine_or_dragon | excellent | ancient | socket | harmony |
+                 level_over_max | jewel_section | wrong_moss_category | preexisting_snapshot
+        """
+        if not self.is_ready:
+            return {"ok": False, "reason": "not_ready", "slots": []}
+        try:
+            prot_json = json.dumps(protected_slots or [])
+            cat_val = int(category) if category is not None and category >= 0 else -1
+            lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 6
+            ext_val = 1 if include_extended else 0
+            ign_val = 1 if ignore_type_heuristics else 0
+            res_str = self._call("analyzeJunkInventory", prot_json, cat_val, lvl_val, ext_val, ign_val)
+            if res_str:
+                return json.loads(res_str)
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi analyze_junk_inventory: {e}")
+        return {"ok": False, "reason": "error", "slots": []}
+
+
 
     def drop_inventory_slot(self, slot: int, off_x: int = 1, off_y: int = 0) -> Dict[str, Any]:
         """Gửi lệnh vứt (drop) 1 slot cụ thể trong Main Inventory ra mặt đất (mặc định ô kế bên X+1)."""

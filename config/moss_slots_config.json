@@ -1,7 +1,7 @@
 {
   "slots": {
     "1": {
-      "category": 2,
+      "category": 6,
       "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": true
@@ -71,5 +71,7 @@
       "18:15"
     ]
   },
-  "selected_slots": []
+  "selected_slots": [
+    1
+  ]
 }
