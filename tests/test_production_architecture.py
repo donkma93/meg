@@ -107,6 +107,11 @@ class TestProductionArchitecture(unittest.TestCase):
         logs_view = LogsView(app)
         self.assertFalse(logs_view.is_open())
 
+        # Kiểm tra mở các Modals không bao giờ NameError
+        app.open_devil_global_config_dialog()
+        app.open_license_dialog()
+        app.open_slot_stat_ratio_dialog(1)
+
         app.on_closing()
 
 

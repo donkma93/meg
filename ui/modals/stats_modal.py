@@ -3,7 +3,11 @@ UI Modal: Character Stat Ratio & Auto Points Dialog.
 """
 
 from typing import Any
+from tkinter import messagebox
 import customtkinter as ctk
+
+from core.storage import ConfigPersistenceManager
+from core.constants import CLASS_ID_TO_CODE, CLASS_CODE_TO_NAME
 from ui.components.icons import UiIconFactory
 from ui.components.option_menu import ModernOptionMenu
 
