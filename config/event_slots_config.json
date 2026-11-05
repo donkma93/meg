@@ -9,12 +9,12 @@
       "auto_add_point": true,
       "reset_level": 400,
       "stat_mode": "auto_class",
-      "custom_class": "",
+      "custom_class": "SL",
       "stat_ratio": {
         "str": 0.5,
         "agi": 0.4,
-        "vit": 0.1,
-        "ene": 0.0,
+        "vit": 0.0,
+        "ene": 0.1,
         "cmd": 0.0
       }
     },

@@ -32,6 +32,7 @@ import time
 import math
 import struct
 import re
+import threading
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -166,14 +167,23 @@ user32.MapVirtualKeyW.restype = wintypes.UINT
 user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
 user32.GetWindowThreadProcessId.restype = wintypes.DWORD
 
+_desktop_thread_local = threading.local()
+
 def ensure_desktop_attached():
-    """Gắn thread Python hiện tại vào Interactive Input Desktop để các hàm Win32 hoạt động đầy đủ."""
+    """Gắn thread Python hiện tại vào Interactive Input Desktop một lần duy nhất per-thread để tránh leak HDESK."""
+    if getattr(_desktop_thread_local, "attached", False):
+        return
     try:
         h_desk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
         if not h_desk:
             h_desk = user32.OpenInputDesktop(0, False, 0x01FF)
         if h_desk:
-            user32.SetThreadDesktop(h_desk)
+            success = user32.SetThreadDesktop(h_desk)
+            if success:
+                _desktop_thread_local.attached = True
+                _desktop_thread_local.h_desk = h_desk
+            else:
+                user32.CloseDesktop(h_desk)
     except Exception:
         pass
 
@@ -612,6 +622,20 @@ class ProcessMemoryReader:
         cls._module_cache.pop(pid, None)
         cls._char_name_cache.pop(pid, None)
         cls._cached_coord_regions.pop(pid, None)
+
+    @classmethod
+    def close_all(cls):
+        """Đóng toàn bộ process handle còn mở và xóa toàn bộ caches (chống leak handle khi thoát app)."""
+        for pid, h in list(cls._proc_handles.items()):
+            if h:
+                try:
+                    kernel32.CloseHandle(h)
+                except Exception:
+                    pass
+        cls._proc_handles.clear()
+        cls._module_cache.clear()
+        cls._char_name_cache.clear()
+        cls._cached_coord_regions.clear()
 
     @staticmethod
     def get_module_base(pid: int, module_name: str = "GameAssembly.dll") -> Optional[int]:
@@ -1464,8 +1488,10 @@ class WindowHelper:
 
         h_desk = user32.OpenInputDesktop(0, False, 0x01FF)
         if h_desk:
-            user32.EnumDesktopWindows(h_desk, cb, 0)
-            user32.CloseDesktop(h_desk)
+            try:
+                user32.EnumDesktopWindows(h_desk, cb, 0)
+            finally:
+                user32.CloseDesktop(h_desk)
 
         if not results:
             user32.EnumWindows(cb, 0)

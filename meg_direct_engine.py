@@ -5885,13 +5885,16 @@ class MegDirectEngine:
 
     @classmethod
     def cleanup_all(cls):
-        with cls._pool_lock:
-            for pid, eng in list(cls._instances.items()):
-                try:
-                    eng.detach()
-                except Exception:
-                    pass
-            cls._instances.clear()
+        try:
+            with cls._pool_lock:
+                for pid, eng in list(cls._instances.items()):
+                    try:
+                        eng.detach()
+                    except BaseException:
+                        pass
+                cls._instances.clear()
+        except BaseException:
+            pass
 
     def __init__(self, pid: int):
         self.pid = pid
@@ -7859,7 +7862,7 @@ class MegDirectEngine:
         """
         Ngắt kết nối an toàn tuyệt đối chống crash GameAssembly / frida-agent do LdrUnloadDll:
         1. Gọi exports.cleanup() gỡ Interceptor hook (chatHook, guiHook), dừng timer telemetry, và Interceptor.flush()
-        2. Chờ 120ms để các thread Unity rút sạch hoàn toàn khỏi trampoline
+        2. Chờ để các thread Unity rút sạch hoàn toàn khỏi trampoline
         3. Gọi session.detach() một cách tường minh trước khi dọn dẹp biến
         4. Giải phóng mutex để tiến trình khác có thể kết nối
         """
@@ -7871,20 +7874,26 @@ class MegDirectEngine:
                         exports = getattr(self.script, "exports_sync", None)
                         if exports and hasattr(exports, "cleanup"):
                             exports.cleanup()
-                    except Exception:
+                    except BaseException:
                         pass
-                time.sleep(0.12)
+                try:
+                    time.sleep(0.06)
+                except BaseException:
+                    pass
                 if self.session:
                     try:
                         self.session.detach()
-                    except Exception:
+                    except BaseException:
                         pass
-            except Exception:
+            except BaseException:
                 pass
             finally:
                 self.script = None
                 self.session = None
-                self._release_mutex()
+                try:
+                    self._release_mutex()
+                except BaseException:
+                    pass
 
     def __del__(self):
         try:

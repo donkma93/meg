@@ -11,13 +11,13 @@ import customtkinter as ctk
 
 class UiIconFactory:
     """Tạo vector icon mượt mà sắc nét anti-aliased chất lượng cao (High-DPI)."""
-    _cache: Dict[Tuple[str, str, Tuple[int, int]], ctk.CTkImage] = {}
+    _pil_cache: Dict[Tuple[str, str, Tuple[int, int]], Image.Image] = {}
 
     @classmethod
-    def get(cls, name: str, color: str = "#cbd5e1", size: Tuple[int, int] = (16, 16)) -> ctk.CTkImage:
+    def get_pil(cls, name: str, color: str = "#cbd5e1", size: Tuple[int, int] = (16, 16)) -> Image.Image:
         key = (name, color, size)
-        if key in cls._cache:
-            return cls._cache[key]
+        if key in cls._pil_cache:
+            return cls._pil_cache[key]
 
         scale = 4
         cw = size[0] * scale
@@ -181,7 +181,11 @@ class UiIconFactory:
             d.line([(int(cw * 0.48), int(ch * 0.32)), (int(cw * 0.48), int(ch * 0.68))], fill=color, width=max(1, int(1 * scale)))
 
         res_img = im.resize(size, Image.Resampling.LANCZOS)
-        ctk_img = ctk.CTkImage(light_image=res_img, dark_image=res_img, size=size)
-        cls._cache[key] = ctk_img
-        return ctk_img
+        cls._pil_cache[key] = res_img
+        return res_img
+
+    @classmethod
+    def get(cls, name: str, color: str = "#cbd5e1", size: Tuple[int, int] = (16, 16)) -> ctk.CTkImage:
+        pil_img = cls.get_pil(name, color, size)
+        return ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=size)
 

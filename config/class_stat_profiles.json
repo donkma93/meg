@@ -17,8 +17,8 @@
     "stat_ratio": {
       "str": 0.5,
       "agi": 0.4,
-      "vit": 0.1,
-      "ene": 0.0,
+      "vit": 0.0,
+      "ene": 0.1,
       "cmd": 0.0
     },
     "description": "Tập trung Sức Mạnh (Str) và Nhanh Nhẹn (Agi)"
@@ -113,8 +113,8 @@
     "stat_ratio": {
       "str": 0.5,
       "agi": 0.4,
-      "vit": 0.1,
-      "ene": 0.0,
+      "vit": 0.0,
+      "ene": 0.1,
       "cmd": 0.0
     },
     "description": "Tập trung Sức Mạnh (Str) và Nhanh Nhẹn (Agi)"

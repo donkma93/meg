@@ -13,7 +13,18 @@ from typing import Any, Dict, Optional
 import customtkinter as ctk
 from PIL import Image
 
+from pathlib import Path
 from ui.components.icons import UiIconFactory
+
+try:
+    import updater
+except ImportError:
+    updater = None
+
+def app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent.parent
 
 APP_NAME = "MEGAMU Auto Train"
 APP_VERSION = "v1.5.7"

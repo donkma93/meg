@@ -9,13 +9,41 @@ from typing import Any
 import customtkinter as ctk
 from PIL import Image
 
-try:
-    import license_client
-except ImportError:
+import sys
+import importlib.util
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+def _resolve_license_client(app_self=None):
+    if app_self and getattr(app_self, "license_client", None):
+        return app_self.license_client
+    try:
+        import license_client
+        return license_client
+    except Exception:
+        pass
     try:
         from core import license_client
-    except ImportError:
-        license_client = None
+        return license_client
+    except Exception:
+        pass
+    lic_file = _PROJECT_ROOT / "license_client.py"
+    if lic_file.is_file():
+        try:
+            spec = importlib.util.spec_from_file_location("license_client", str(lic_file))
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules["license_client"] = mod
+                spec.loader.exec_module(mod)
+                return mod
+        except Exception:
+            pass
+    return None
+
+license_client = _resolve_license_client()
 
 from ui.components.icons import UiIconFactory
 from core.constants import LOGO_FILE, ICON_FILE
@@ -24,6 +52,9 @@ APP_VERSION = "v1.5.7"
 
 def open_license_dialog(self):
     """Mở cửa sổ quản lý và kích hoạt bản quyền MEGAMU Auto Train Dashboard."""
+    global license_client
+    if not license_client:
+        license_client = _resolve_license_client(self)
     if hasattr(self, "_license_dialog") and self._license_dialog is not None and self._license_dialog.winfo_exists():
         self._license_dialog.lift()
         self._license_dialog.focus_force()

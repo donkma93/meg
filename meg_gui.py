@@ -6544,6 +6544,11 @@ class DashboardApp(ctk.CTk):
                     ctrl.engine.detach()
                 except Exception:
                     pass
+        try:
+            from meg_navigator import ProcessMemoryReader
+            ProcessMemoryReader.close_all()
+        except Exception:
+            pass
         self.destroy()
 
 
