@@ -1276,13 +1276,34 @@ function sendGSPacketDirect(gs, arr) {
     return sent;
 }
 
+var pendingGSPackets = [];
+var pendingMainThreadActions = [];
+var unityMainThreadId = 0;
+
+function runOnUnityMainThread(fn) {
+    if (unityMainThreadId !== 0 && Process.getCurrentThreadId() === unityMainThreadId) {
+        try { return fn(); } catch (e) { return null; }
+    } else {
+        pendingMainThreadActions.push(fn);
+        return true;
+    }
+}
+
 function sendGSPacket(bytes) {
     try {
-        var gs = getGSConnection();
-        if (gs.isNull()) return false;
-        var arr = createManagedByteArray(bytes);
-        if (!arr || arr.isNull()) return false;
-        return sendGSPacketDirect(gs, arr);
+        var currentTid = Process.getCurrentThreadId();
+        if (unityMainThreadId !== 0 && currentTid === unityMainThreadId) {
+            var gs = getGSConnection();
+            if (gs.isNull()) return false;
+            var arr = createManagedByteArray(bytes);
+            if (!arr || arr.isNull()) return false;
+            return sendGSPacketDirect(gs, arr);
+        } else {
+            // Đẩy vào hàng đợi để Game.Update gửi trực tiếp trên Unity Main Thread (Connection Thread)
+            // Tránh hoàn toàn lỗi 'Connection thread not match'
+            pendingGSPackets.push(bytes);
+            return true;
+        }
     } catch (ePkt) {
         return false;
     }
@@ -2561,6 +2582,70 @@ try {
         gameUpdateHook = Interceptor.attach(baseAddr.add(guOff), {
             onEnter: function(args) {
                 if (shuttingDown) return;
+                unityMainThreadId = Process.getCurrentThreadId();
+
+                // 0A. Thực thi các tác vụ xếp hàng trên Unity Main Thread (tránh lỗi Connection thread not match)
+                if (pendingMainThreadActions.length > 0) {
+                    var acts = pendingMainThreadActions.slice();
+                    pendingMainThreadActions = [];
+                    for (var aIdx = 0; aIdx < acts.length; aIdx++) {
+                        try { acts[aIdx](); } catch (eAct) {}
+                    }
+                }
+
+                // 0B. Gửi toàn bộ gói tin GS trong hàng đợi an toàn 100% trên Unity Main Thread
+                if (pendingGSPackets.length > 0) {
+                    var gsQueue = getGSConnection();
+                    if (!gsQueue.isNull()) {
+                        while (pendingGSPackets.length > 0) {
+                            var pktBytes = pendingGSPackets.shift();
+                            try {
+                                var arrBytes = createManagedByteArray(pktBytes);
+                                if (arrBytes && !arrBytes.isNull()) {
+                                    sendGSPacketDirect(gsQueue, arrBytes);
+                                }
+                            } catch (eSendQ) {}
+                        }
+                    } else {
+                        pendingGSPackets = [];
+                    }
+                }
+
+                // 0C. Điều khiển Turbo Sniping cướp cổng 100% trên Unity Main Thread (Zero thread mismatch)
+                if (_nativeMirrorTurboStats && _nativeMirrorTurboStats.running) {
+                    var nowMs = Date.now();
+                    if (isCurrentMapDoubleGoer()) {
+                        _nativeMirrorTurboStats.running = false;
+                        _nativeMirrorTurboStats.entered = true;
+                        cleanupNativeTurbo();
+                        send({
+                            type: "mirror_turbo_entered",
+                            packets: _nativeMirrorTurboStats.packetsSent,
+                            elapsed: nowMs - _nativeMirrorTurboStats.startTime
+                        });
+                    } else if ((nowMs - _nativeMirrorTurboStats.startTime) >= _nativeMirrorTurboStats.durationMs) {
+                        _nativeMirrorTurboStats.running = false;
+                        cleanupNativeTurbo();
+                        send({
+                            type: "mirror_turbo_timeout",
+                            packets: _nativeMirrorTurboStats.packetsSent,
+                            elapsed: nowMs - _nativeMirrorTurboStats.startTime
+                        });
+                    } else {
+                        if (!_nativeMirrorTurboStats.lastSentTime || (nowMs - _nativeMirrorTurboStats.lastSentTime) >= _nativeMirrorTurboStats.intervalMs) {
+                            _nativeMirrorTurboStats.lastSentTime = nowMs;
+                            if (nativeMirrorEnterAlt !== null) {
+                                try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot); } catch (eNEA) {}
+                            } else if (_cachedTurboPacketArr !== null) {
+                                var gsT = getGSConnection();
+                                if (!gsT.isNull()) sendGSPacketDirect(gsT, _cachedTurboPacketArr);
+                            } else {
+                                sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
+                            }
+                            _nativeMirrorTurboStats.packetsSent += 1;
+                        }
+                    }
+                }
 
                 // 1. Luôn ưu tiên xử lý lệnh Helper Toggle & Chat trên vòng lặp Game.Update chính
                 // Đảm bảo chạy 60 FPS liên tục kể cả khi game đang chạy ngầm, không cần user phải click chuột vào game!
@@ -3013,12 +3098,16 @@ function adaptiveTelemetryTick() {
 fastTelemetryTimer = setTimeout(adaptiveTelemetryTick, 50);
 
 var _nativeMirrorTurboTimer = null;
-var _nativeMirrorTurboStats = { running: false, packetsSent: 0, startTime: 0, durationMs: 0, activeSlot: -1, relSlot: -1, entered: false };
+var _nativeMirrorTurboStats = { running: false, packetsSent: 0, startTime: 0, lastSentTime: 0, durationMs: 0, intervalMs: 35, activeSlot: -1, relSlot: -1, entered: false };
+var _cachedTurboPacketArr = null;
 
 function cleanupNativeTurbo() {
     if (_nativeMirrorTurboTimer !== null) {
         clearInterval(_nativeMirrorTurboTimer);
         _nativeMirrorTurboTimer = null;
+    }
+    if (_nativeMirrorTurboStats) {
+        _nativeMirrorTurboStats.running = false;
     }
     try { dismissActiveGameDialogIfMirror(false); } catch (eCDIG) {}
 }
@@ -4045,72 +4134,21 @@ rpc.exports = {
             };
 
             // Pre-allocate buffer mảng byte IL2CPP một lần duy nhất (Zero GC pressure, chống tràn bộ đệm heap)
-            var _cachedTurboPacketArr = null;
             try {
                 _cachedTurboPacketArr = createManagedByteArray([0xC1, 0x05, 0xBF, 0x0E, relSlot & 0xFF]);
             } catch (ePAB) {}
 
-            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms)
-            if (nativeMirrorEnterAlt !== null) {
-                try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
-            } else if (_cachedTurboPacketArr !== null) {
-                var gs0 = getGSConnection();
-                if (!gs0.isNull()) sendGSPacketDirect(gs0, _cachedTurboPacketArr);
-            } else {
-                sendMirrorEnterPacket(relSlot);
-            }
-            _nativeMirrorTurboStats.packetsSent += 1;
-
-            _nativeMirrorTurboTimer = setInterval(function() {
-                try {
-                    ensureThreadAttached();
-                    if (!_nativeMirrorTurboStats.running) {
-                        cleanupNativeTurbo();
-                        return;
-                    }
-
-                    // --- BƯỚC 1: KIỂM TRA ĐÃ VÀO MAP DOUBLE GOER (MAP ID: 65, 66, 67, 68) ---
-                    if (isCurrentMapDoubleGoer()) {
-                        _nativeMirrorTurboStats.running = false;
-                        _nativeMirrorTurboStats.entered = true;
-                        cleanupNativeTurbo();
-                        send({
-                            type: "mirror_turbo_entered",
-                            packets: _nativeMirrorTurboStats.packetsSent,
-                            elapsed: Date.now() - _nativeMirrorTurboStats.startTime
-                        });
-                        return;
-                    }
-
-                    // --- BƯỚC 2: KIỂM TRA HẾT HẠN THỜI GIAN (TIMEOUT) ---
-                    var elapsed = Date.now() - _nativeMirrorTurboStats.startTime;
-                    if (elapsed >= _nativeMirrorTurboStats.durationMs) {
-                        _nativeMirrorTurboStats.running = false;
-                        cleanupNativeTurbo();
-                        send({
-                            type: "mirror_turbo_timeout",
-                            packets: _nativeMirrorTurboStats.packetsSent,
-                            elapsed: elapsed
-                        });
-                        return;
-                    }
-
-                    // --- BƯỚC 3: GỌI NATIVE ENTRY HOẶC BẮN PACKET DÙNG BUFFER TÁI SỬ DỤNG ---
-                    if (nativeMirrorEnterAlt !== null) {
-                        try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot); } catch (eNEA) {}
-                    } else if (_cachedTurboPacketArr !== null) {
-                        var gs = getGSConnection();
-                        if (!gs.isNull()) sendGSPacketDirect(gs, _cachedTurboPacketArr);
-                    } else {
-                        sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
-                    }
-                    _nativeMirrorTurboStats.packetsSent += 1;
-                    if (dialogSuppressionActive || _nativeMirrorTurboStats.running) {
-                        dismissActiveGameDialogIfMirror(true);
-                    }
-
-                } catch (eLoop) {}
-            }, intMs);
+            _nativeMirrorTurboStats = {
+                running: true,
+                packetsSent: 0,
+                startTime: Date.now(),
+                lastSentTime: 0,
+                durationMs: maxDur,
+                intervalMs: intMs,
+                activeSlot: itemSlot,
+                relSlot: relSlot,
+                entered: false
+            };
 
             return JSON.stringify({
                 success: true,
@@ -4205,11 +4243,13 @@ rpc.exports = {
 
             if (itemSlot >= 0) {
                 var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
-                if (nativeMirrorEnterAlt !== null) {
-                    try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
-                } else {
-                    sendMirrorEnterPacket(relSlot);
-                }
+                runOnUnityMainThread(function() {
+                    if (nativeMirrorEnterAlt !== null) {
+                        try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
+                    } else {
+                        sendMirrorEnterPacket(relSlot);
+                    }
+                });
                 return JSON.stringify({
                     success: true,
                     slot: itemSlot,
@@ -5110,16 +5150,18 @@ rpc.exports = {
 
             if (itemSlot >= 0) {
                 var actualSlot = (itemSlot < 12) ? (itemSlot + 12) : itemSlot;
-                // Gửi trực tiếp vào NPC và bỏ qua xác nhận (Zero-confirm)
-                if (nativeDevilEnter !== null) {
-                    try { nativeDevilEnter(dsLevel, actualSlot, ptr(0)); } catch (eNDE1) {}
-                }
-                // Fallback qua GS packet [0xC1, 0x05, 0x90, level, slot]
-                sendDevilEnterPacket(dsLevel, actualSlot);
+                runOnUnityMainThread(function() {
+                    // Gửi trực tiếp vào NPC trên Unity Main Thread (Zero-confirm)
+                    if (nativeDevilEnter !== null) {
+                        try { nativeDevilEnter(dsLevel, actualSlot, ptr(0)); } catch (eNDE1) {}
+                    }
+                    // Fallback qua GS packet [0xC1, 0x05, 0x90, level, slot]
+                    sendDevilEnterPacket(dsLevel, actualSlot);
 
-                if (nativeCloseTalk !== null) {
-                    try { nativeCloseTalk(); } catch (eCT2) {}
-                }
+                    if (nativeCloseTalk !== null) {
+                        try { nativeCloseTalk(); } catch (eCT2) {}
+                    }
+                });
 
                 return JSON.stringify({
                     success: true,

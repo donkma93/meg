@@ -6139,14 +6139,20 @@ class DashboardApp(ctk.CTk):
                     self.update_header_stats()
                     for c in self.controllers:
                         self.update_slot_run_button_state(c.slot_idx)
-                if self.running:
-                    self.after(0, _apply)
+                if getattr(self, "running", False):
+                    try:
+                        self.after(0, _apply)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             finally:
                 self._game_scan_active = False
-                if self.running:
-                    self.after(2500, self._periodic_game_scan)
+                if getattr(self, "running", False):
+                    try:
+                        self.after(2500, self._periodic_game_scan)
+                    except Exception:
+                        pass
 
         threading.Thread(target=_scan_worker, daemon=True, name="GameScanWorker").start()
 
