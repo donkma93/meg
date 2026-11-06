@@ -35,40 +35,40 @@
   ],
   "combat_spots": {
     "GunApao": [
-      75,
-      66
+      185,
+      187
     ],
     "EndGun": [
-      188,
-      70
+      75,
+      66
     ],
     "laclac24": [
       75,
       66
     ],
     "Goobin": [
-      68,
-      180
+      75,
+      66
     ],
     "Hface": [
-      68,
-      180
+      185,
+      187
     ],
     "Evilzzz": [
-      188,
-      70
+      68,
+      180
     ],
     "HiRW": [
       188,
       70
     ],
     "HSmart": [
-      68,
-      180
-    ],
-    "VgDongNhi": [
       188,
       70
+    ],
+    "VgDongNhi": [
+      185,
+      187
     ],
     "Hface_NW": [
       68,
@@ -109,6 +109,82 @@
     "laclac24_SW": [
       75,
       66
+    ],
+    "HSmart_SE": [
+      188,
+      70
+    ],
+    "GunApao_NE": [
+      185,
+      187
+    ],
+    "EndGun_SW": [
+      75,
+      66
+    ],
+    "Evilzzz_SW": [
+      75,
+      66
+    ],
+    "HiRW_NW": [
+      68,
+      180
+    ],
+    "Hface_NE": [
+      185,
+      187
+    ],
+    "laclac24_NW": [
+      68,
+      180
+    ],
+    "Goobin_NE": [
+      185,
+      187
+    ],
+    "laclac24_SE": [
+      188,
+      70
+    ],
+    "HSmart_NE": [
+      185,
+      187
+    ],
+    "Evilzzz_NE": [
+      185,
+      187
+    ],
+    "EndGun_NE": [
+      185,
+      187
+    ],
+    "Hface_SW": [
+      75,
+      66
+    ],
+    "GunApao_NW": [
+      68,
+      180
+    ],
+    "VgDongNhi_NW": [
+      68,
+      180
+    ],
+    "HiRW_SW": [
+      75,
+      66
+    ],
+    "HSmart_NW": [
+      68,
+      180
+    ],
+    "Evilzzz_NW": [
+      68,
+      180
+    ],
+    "VgDongNhi_NE": [
+      185,
+      187
     ]
   }
 }

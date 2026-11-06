@@ -3524,6 +3524,8 @@ class SlotController:
                 looted_chests = 0
                 opened_chest_keys = set()
                 chest_attempt_counts = {}
+                chest_seen_times = {}
+                helper_disabled_for_exit = False
                 stand_x, stand_y = -1, -1
 
                 def _read_cur_xy():
@@ -3690,7 +3692,11 @@ class SlotController:
                     if cx <= 0 or cy <= 0 or _is_in_safe_zone(cx, cy):
                         return False
                     cdist = float(ch.get("distance", ch.get("dist", 999)))
-                    if cdist > 12.0:
+                    # Mở rộng ô quét rương khi đánh boss rơi ra (lên 30.0 ô để không bao giờ bị sót rương quà)
+                    if cdist > 30.0:
+                        return False
+                    # Đảm bảo rương thuộc hành lang nhánh cửa hiện tại (cách chốt cố định <= 32.0 ô)
+                    if stand_x > 0 and stand_y > 0 and math.hypot(cx - stand_x, cy - stand_y) > 32.0:
                         return False
                     is_chest_id = cid in (541, 542, 528)
                     is_chest_kw = any(k in n_low for k in ("reward chest", "final reward", "chest", "baú", "bau", "tesouro", "caixa", "coffer", "rương"))
@@ -3704,16 +3710,16 @@ class SlotController:
                     if c_px > 0 and c_py > 0 and math.hypot(c_px - stand_x, c_py - stand_y) <= 2.0:
                         return
                     try:
-                        if hasattr(eng, "is_helper_active") and eng.is_helper_active(force_refresh=True):
+                        if hasattr(eng, "is_helper_active") and eng.is_helper_active():
                             eng.stop_helper()
-                            time.sleep(0.15)
+                            time.sleep(0.12)
                     except Exception:
                         pass
                     eng.move_to(stand_x, stand_y)
-                    for _bstep in range(16):
+                    for _bstep in range(26):
                         if not getattr(self, "mirror_enabled", True) or not getattr(self, "_mirror_dungeon_running", False) or (hasattr(self.app, "cb_mirror_auto_lifecycle") and self.app.cb_mirror_auto_lifecycle.get() != 1):
                             break
-                        time.sleep(0.35)
+                        time.sleep(0.30)
                         bx, by = _read_cur_xy()
                         if bx > 0 and by > 0:
                             if math.hypot(bx - stand_x, by - stand_y) <= 2.0:
@@ -3721,7 +3727,7 @@ class SlotController:
                             if _bstep % 3 == 2:
                                 eng.move_to(stand_x, stand_y)
                     _stop_movement_immediately()
-                    time.sleep(0.2)
+                    time.sleep(0.15)
 
                 # Xác định sẵn tọa độ cố định của cửa hiện tại ngay khi vào map Double Goer
                 spot_key = str(self.char_name).strip() if getattr(self, "char_name", None) else f"slot_{self.slot_idx}"
@@ -3743,6 +3749,26 @@ class SlotController:
                         break
 
                     now = datetime.now()
+
+                    # TỰ ĐỘNG TẮT MUHELPER TỪ PHÚT THỨ :26 ĐỂ CHUẨN BỊ VỀ THÀNH AN TOÀN (CHỐNG LỖI/POPUP CỦA GAME)
+                    is_helper_allowed = (now.minute < 26)
+                    if not is_helper_allowed:
+                        if not helper_disabled_for_exit:
+                            helper_disabled_for_exit = True
+                            try:
+                                if hasattr(eng, "is_helper_active") and eng.is_helper_active():
+                                    eng.stop_helper()
+                            except Exception:
+                                pass
+                            self.app.after(0, lambda: self.app.append_mirror_log(
+                                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ ĐÃ ĐẾN PHÚT THỨ :26! Tự động tắt MuHelper để chuẩn bị về thành an toàn (tránh lỗi popup)..."
+                            ))
+                        else:
+                            try:
+                                if hasattr(eng, "is_helper_active") and eng.is_helper_active():
+                                    eng.stop_helper()
+                            except Exception:
+                                pass
 
                     # BƯỚC 1: ĐỨNG YÊN TRONG VÙNG AN TOÀN (:10 -> :15:59), ĐẾN ĐÚNG PHÚT :16 KIỂM TRA MAP/CỬA VÀ DI CHUYỂN RA TỌA ĐỘ FIX CỐ ĐỊNH
                     if not has_stepped_out:
@@ -3859,28 +3885,33 @@ class SlotController:
                             seen_ptrs = set()
 
                             # 2.1. Quét trực tiếp từ Frida Viewport.ObjectList (chỉ nhận Rương thật 541/542/528, loại trừ mọi quái 529..539)
+                            frida_scan_ok = False
                             if hasattr(eng, "scan_mirror_loot"):
                                 try:
                                     m_loot = eng.scan_mirror_loot() or {}
-                                    m_monsters.extend(m_loot.get("monsters", []) or [])
-                                    for ch_obj in m_loot.get("chests", []) or []:
-                                        if not _is_valid_mirror_chest(ch_obj):
-                                            continue
-                                        cx, cy = int(ch_obj.get("x", -1)), int(ch_obj.get("y", -1))
-                                        c_key = f"chest_{cx}_{cy}"
-                                        if c_key in opened_chest_keys or c_key in seen_ptrs:
-                                            continue
-                                        seen_ptrs.add(c_key)
-                                        ch_obj["chest_key"] = c_key
-                                        chest_targets.append(ch_obj)
-                                    for gi_obj in m_loot.get("items", []) or []:
-                                        if float(gi_obj.get("distance", 999)) <= 4.0:
-                                            ground_loot.append(gi_obj)
+                                    if m_loot.get("ok"):
+                                        frida_scan_ok = True
+                                        m_monsters.extend(m_loot.get("monsters", []) or [])
+                                        for ch_obj in m_loot.get("chests", []) or []:
+                                            if not _is_valid_mirror_chest(ch_obj):
+                                                continue
+                                            cx, cy = int(ch_obj.get("x", -1)), int(ch_obj.get("y", -1))
+                                            c_idx = ch_obj.get("index", -1)
+                                            c_ptr_str = str(ch_obj.get("ptr", "0"))
+                                            c_key = f"chest_{c_idx}_{c_ptr_str}_{cx}_{cy}"
+                                            if c_key in opened_chest_keys or c_key in seen_ptrs:
+                                                continue
+                                            seen_ptrs.add(c_key)
+                                            ch_obj["chest_key"] = c_key
+                                            chest_targets.append(ch_obj)
+                                        for gi_obj in m_loot.get("items", []) or []:
+                                            if float(gi_obj.get("distance", 999)) <= 4.0:
+                                                ground_loot.append(gi_obj)
                                 except Exception:
                                     pass
 
-                            # 2.2. Kết hợp / Fallback thêm từ MemoryScanner (ReadProcessMemory)
-                            if scanner and scanner.base_addr:
+                            # 2.2. Chỉ fallback MemoryScanner (ReadProcessMemory) khi Frida không sẵn sàng
+                            if not frida_scan_ok and scanner and scanner.base_addr:
                                 try:
                                     it_data = scanner.scan_radar(radius=35.0) or {}
                                     m_monsters.extend(it_data.get("monsters", []) or [])
@@ -3893,7 +3924,9 @@ class SlotController:
                                         if not _is_valid_mirror_chest(it):
                                             continue
                                         cx, cy = int(it.get("x", -1)), int(it.get("y", -1))
-                                        c_key = f"chest_{cx}_{cy}"
+                                        c_idx = it.get("index", -1)
+                                        c_ptr_str = str(it.get("ptr", "0"))
+                                        c_key = f"chest_{c_idx}_{c_ptr_str}_{cx}_{cy}"
                                         if c_key in opened_chest_keys or c_key in seen_ptrs:
                                             continue
                                         seen_ptrs.add(c_key)
@@ -3918,42 +3951,57 @@ class SlotController:
                                 c_idx = int(target_chest.get("index", -1))
                                 c_key = target_chest.get("chest_key", f"{c_idx}_{cx}_{cy}")
 
-                                # Kiểm tra xem quanh vị trí chốt cố định (stand_x, stand_y) còn quái trong bán kính <= 6 ô không
-                                near_monsters = [
-                                    m for m in m_monsters
-                                    if _is_valid_live_monster(m) and (
-                                        float(m.get("distance", m.get("dist", 999))) <= 6.0
-                                        or (stand_x > 0 and stand_y > 0 and math.hypot(int(m.get("x", -1)) - stand_x, int(m.get("y", -1)) - stand_y) <= 6.0)
-                                    )
-                                ]
+                                # Kiểm tra xem quanh nhân vật có quái đang áp sát cận chiến (<= 4.5 ô) không
+                                seen_m_keys = set()
+                                near_monsters = []
+                                for m in m_monsters:
+                                    if not _is_valid_live_monster(m):
+                                        continue
+                                    mx, my = int(m.get("x", -1)), int(m.get("y", -1))
+                                    mid = m.get("index", f"{mx}_{my}")
+                                    m_k = f"{mid}_{mx}_{my}"
+                                    if m_k in seen_m_keys:
+                                        continue
+                                    seen_m_keys.add(m_k)
+                                    m_d = float(m.get("distance", m.get("dist", 999)))
+                                    # Chỉ chặn khi quái thực sự áp sát cận chiến <= 4.5 ô
+                                    if m_d <= 4.5:
+                                        near_monsters.append(m)
 
-                                # Nếu vẫn đang có quái áp sát chốt và rương ở xa (> 3.0 ô): đứng yên tại chốt cố định cho MuHelper diệt hết quái trước!
-                                if near_monsters and cdist > 3.0:
-                                    if not eng.is_helper_active():
+                                # Đánh dấu thời điểm phát hiện rương
+                                now_ts = time.time()
+                                if c_key not in chest_seen_times:
+                                    chest_seen_times[c_key] = now_ts
+                                chest_wait_duration = now_ts - chest_seen_times[c_key]
+
+                                # ƯU TIÊN ĐÁNH QUÁI THÔNG MINH: Nếu có quái áp sát cận chiến (<= 4.5 ô) VÀ rương chưa chờ quá 6.0s
+                                # Nếu rương đã nằm trên đất quá 6s: ưu tiên chạy ra nhặt ngay để chống biến mất (despawn) hoặc hết giờ trận đấu!
+                                if near_monsters and chest_wait_duration < 6.0:
+                                    if is_helper_allowed and hasattr(eng, "is_helper_active") and not eng.is_helper_active():
                                         eng.start_helper(target_x=stand_x, target_y=stand_y)
-                                    time.sleep(0.45)
+                                    time.sleep(0.35)
                                     continue
 
                                 self.app.after(0, lambda cn=cname, x=cx, y=cy, d=cdist: self.app.append_mirror_log(
-                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎁 PHÁT HIỆN RƯƠNG: '{cn}' tại ({x}, {y}) cách {d:.1f} ô! Đang mở rương..."
+                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎁 ĐANG TIẾN TỚI MỞ RƯƠNG: '{cn}' tại ({x}, {y}) cách {d:.1f} ô..."
                                 ))
 
-                                # Chỉ tạm dừng Helper và di chuyển khi rương cách > 3.0 ô (không ngắt quãng giữa chừng gây đơ nhân vật)
+                                # Tạm dừng Helper và di chuyển khi rương cách > 3.0 ô
                                 if cdist > 3.0:
                                     try:
-                                        if hasattr(eng, "is_helper_active") and eng.is_helper_active(force_refresh=True):
+                                        if hasattr(eng, "is_helper_active") and eng.is_helper_active():
                                             eng.stop_helper()
-                                            time.sleep(0.15)
+                                            time.sleep(0.10)
                                     except Exception:
                                         pass
                                     if hasattr(eng, "move_to"):
                                         eng.move_to(cx, cy)
-                                        max_steps = int(min(12, max(3, round(cdist * 1.1))))
+                                        max_steps = int(min(28, max(4, round(cdist * 1.2))))
                                         for _step in range(max_steps):
                                             if not getattr(self, "mirror_enabled", True) or not getattr(self, "_mirror_dungeon_running", False) or (hasattr(self.app, "cb_mirror_auto_lifecycle") and self.app.cb_mirror_auto_lifecycle.get() != 1):
                                                 _stop_movement_immediately()
                                                 break
-                                            time.sleep(0.30)
+                                            time.sleep(0.25)
                                             try:
                                                 px_now, py_now = _read_cur_xy()
                                                 if px_now > 0 and py_now > 0:
@@ -3968,7 +4016,7 @@ class SlotController:
                                 # THAO TÁC 1 (CHUẨN NATIVE): Gọi NpcManager.GEBGEGOEFAD (0x1023B10) gửi C3:30 mở rương tại chỗ
                                 if hasattr(eng, "open_and_loot_mirror"):
                                     try:
-                                        eng.open_and_loot_mirror(chest_ptr=c_ptr, chest_index=c_idx, radius=5.0)
+                                        eng.open_and_loot_mirror(chest_ptr=c_ptr, chest_index=c_idx, radius=6.0)
                                     except Exception:
                                         pass
 
@@ -3977,7 +4025,6 @@ class SlotController:
                                 if hwnd:
                                     cw, ch = 1024, 768
                                     try:
-                                        import ctypes.wintypes
                                         rect = ctypes.wintypes.RECT()
                                         if ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
                                             cw = max(800, rect.right - rect.left)
@@ -3998,40 +4045,32 @@ class SlotController:
                                     except Exception as e_click:
                                         print(f"Error clicking chest: {e_click}")
 
-                                # Chờ 0.45s để vật phẩm văng ra từ rương xuất hiện trên mặt đất rồi nhặt bằng gói C1:22 tại chỗ
-                                time.sleep(0.45)
+                                # Chờ 0.75s để rương hoàn tất bung toàn bộ vật phẩm ra đất
+                                time.sleep(0.75)
+
+                                # VÒNG LẶP NHẶT SẠCH TOÀN BỘ QUÀ TRÊN ĐẤT (Packet C1:22 + Phím SPACE):
                                 if hasattr(eng, "open_and_loot_mirror"):
                                     try:
-                                        for _round_pick in range(2):
-                                            eng.open_and_loot_mirror(chest_ptr=0, chest_index=-1, radius=5.0)
-                                            time.sleep(0.18)
+                                        for _round_pick in range(3):
+                                            eng.open_and_loot_mirror(chest_ptr=0, chest_index=-1, radius=6.0)
+                                            if hwnd:
+                                                MegDirectEngine.send_background_key(hwnd, 0x20, 0.05) # Phím SPACE nhặt đồ
+                                            time.sleep(0.20)
                                     except Exception:
                                         pass
 
-                                # Kiểm tra xem rương đã thực sự mở hay chưa (tối đa thử 2 lần để không kẹt lặp vô tận)
+                                # Ghi nhận rương đã mở thành công
                                 chest_attempt_counts[c_key] = chest_attempt_counts.get(c_key, 0) + 1
-                                still_exists = False
-                                if hasattr(eng, "scan_mirror_loot"):
-                                    try:
-                                        verify_loot = eng.scan_mirror_loot() or {}
-                                        for vch in verify_loot.get("chests", []) or []:
-                                            if _is_valid_mirror_chest(vch) and int(vch.get("x", -1)) == cx and int(vch.get("y", -1)) == cy:
-                                                still_exists = True
-                                                break
-                                    except Exception:
-                                        pass
+                                opened_chest_keys.add(c_key)
+                                looted_chests += 1
+                                self.app.after(0, lambda cn=cname, lc=looted_chests: self.app.append_mirror_log(
+                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 ĐÃ MỞ & NHẶT RƯƠNG THÀNH CÔNG #{lc}: {cn}! Quay về tọa độ cố định ({stand_x}, {stand_y})..."
+                                ))
 
-                                if (not still_exists) or chest_attempt_counts[c_key] >= 2:
-                                    opened_chest_keys.add(c_key)
-                                    looted_chests += 1
-                                    self.app.after(0, lambda cn=cname, lc=looted_chests: self.app.append_mirror_log(
-                                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 ĐÃ MỞ & NHẶT RƯƠNG THÀNH CÔNG #{lc}: {cn}! Quay về tọa độ cố định ({stand_x}, {stand_y})..."
-                                    ))
-
-                                # TUYỆT ĐỐI KHÔNG ĐỨNG LẠI Ở ĐIỂM NHẶT RƯƠNG: Di chuyển trọn vẹn về lại tọa độ cố định (stand_x, stand_y) rồi mới bật lại Helper
+                                # TUYỆT ĐỐI KHÔNG ĐỨNG LẠI Ở ĐIỂM NHẶT RƯƠNG: Di chuyển trọn vẹn về lại tọa độ cố định (stand_x, stand_y) rồi mới bật lại Helper (nếu trước phút 26)
                                 _walk_back_to_fixed_spot()
-                                if not eng.is_helper_active(force_refresh=True):
-                                    eng.start_helper(target_x=stand_x, target_y=stand_y, force_restart=True)
+                                if is_helper_allowed and hasattr(eng, "is_helper_active") and not eng.is_helper_active():
+                                    eng.start_helper(target_x=stand_x, target_y=stand_y)
 
                             # 2.4. NHẶT VẬT PHẨM RƠI TRÊN ĐẤT (VIEWPORTITEM) TẠI CHỖ BẰNG PACKET C1:22 (TUYỆT ĐỐI KHÔNG DI CHUYỂN NHÂN VẬT!)
                             elif ground_loot:
@@ -4040,28 +4079,38 @@ class SlotController:
                                         eng.open_and_loot_mirror(chest_ptr=0, chest_index=-1, radius=4.0)
                                     except Exception:
                                         pass
-                                if not eng.is_helper_active(force_refresh=True) and stand_x > 0 and stand_y > 0:
+                                if is_helper_allowed and hasattr(eng, "is_helper_active") and not eng.is_helper_active() and stand_x > 0 and stand_y > 0:
                                     eng.start_helper(target_x=stand_x, target_y=stand_y)
                         except Exception as e:
                             print(f"Error looting chest in Double Goer: {e}")
 
-                    # Duy trì nhân vật đứng yên tại vị trí cố định (stand_x, stand_y) và đảm bảo Helper luôn bật
-                    if has_stepped_out and (now.second % 2 == 0):
+                    # Duy trì nhân vật đứng yên tại vị trí cố định (stand_x, stand_y) và đảm bảo Helper luôn bật (nếu trước phút 26)
+                    if has_stepped_out and (now.second % 3 == 0):
                         try:
                             cpx, cpy = _read_cur_xy()
                             if cpx > 0 and cpy > 0 and stand_x > 0 and stand_y > 0:
                                 drift_d = math.hypot(cpx - stand_x, cpy - stand_y)
-                                if _is_in_safe_zone(cpx, cpy) or drift_d > 3.5:
-                                    # Đưa nhân vật đi bộ trọn vẹn về lại đúng tọa độ cố định (stand_x, stand_y) trước khi bật lại Helper
+                                if _is_in_safe_zone(cpx, cpy) or drift_d > 6.0:
+                                    # Chỉ khi nhân vật bị đẩy vào Safe Zone hoặc drift quá xa (> 6.0 ô) mới kéo về chốt
                                     _walk_back_to_fixed_spot()
-                            if not eng.is_helper_active(force_refresh=True):
-                                eng.start_helper(target_x=stand_x, target_y=stand_y, force_restart=True)
+                            if is_helper_allowed:
+                                if hasattr(eng, "is_helper_active") and not eng.is_helper_active():
+                                    eng.start_helper(target_x=stand_x, target_y=stand_y)
+                            else:
+                                if hasattr(eng, "is_helper_active") and eng.is_helper_active():
+                                    eng.stop_helper()
                         except Exception:
                             pass
 
                     time.sleep(0.45)
 
-                # BƯỚC 3: SỰ KIỆN KẾT THÚC (Rời khỏi map Double Goer)
+                # BƯỚC 3: SỰ KIỆN KẾT THÚC (Rời khỏi map Double Goer) - ĐẢM BẢO TẮT SẠCH MUHELPER TRÁNH POPUP BÁO LỖI VỀ THÀNH
+                try:
+                    if hasattr(eng, "is_helper_active") and eng.is_helper_active():
+                        eng.stop_helper()
+                except Exception:
+                    pass
+
                 self.app.after(0, lambda: self.app.append_mirror_log(
                     f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏁 SỰ KIỆN DOUBLE GOER KẾT THÚC! (Đã nhặt {looted_chests} rương). Khôi phục Auto Train..."
                 ))
