@@ -943,7 +943,7 @@ class AutoTrainWorker:
                     time.sleep(self.poll_interval)
                     continue
 
-                if current_map_id in (65, 66, 67, 68):
+                if (current_map_id in (65, 66, 67, 68)) or (82 <= current_map_id <= 90):
                     time.sleep(self.poll_interval)
                     continue
 
