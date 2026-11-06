@@ -1536,6 +1536,38 @@ class ConfigPersistenceManager:
                 pass
 
     @classmethod
+    def load_mirror_combat_spots(cls) -> Dict[str, List[int]]:
+        """Đọc danh sách vị trí cắm chốt Double Goer đã lưu của từng nhân vật/slot."""
+        with cls._lock:
+            if MIRROR_CONFIG_FILE.exists():
+                try:
+                    data = json.loads(MIRROR_CONFIG_FILE.read_text(encoding="utf-8"))
+                    return data.get("combat_spots", {})
+                except Exception:
+                    pass
+            return {}
+
+    @classmethod
+    def save_mirror_combat_spot(cls, key: str, x: int, y: int):
+        """Lưu vị trí cắm chốt Double Goer (x, y) cho nhân vật/slot."""
+        with cls._lock:
+            try:
+                store = {}
+                if MIRROR_CONFIG_FILE.exists():
+                    try:
+                        store = json.loads(MIRROR_CONFIG_FILE.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                if "combat_spots" not in store:
+                    store["combat_spots"] = {}
+                store["combat_spots"][str(key)] = [int(x), int(y)]
+                tmp = MIRROR_CONFIG_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(MIRROR_CONFIG_FILE)
+            except Exception:
+                pass
+
+    @classmethod
     def load_class_stat_profiles(cls) -> Dict[str, Any]:
         """Đọc bảng cấu hình chỉ số Point của tất cả 16 Class từ class_stat_profiles.json."""
         with cls._lock:
@@ -3490,6 +3522,50 @@ class SlotController:
                 looted_chests = 0
                 opened_chest_keys = set()
                 chest_attempt_counts = {}
+                stand_x, stand_y = -1, -1
+
+                def _read_cur_xy():
+                    cx, cy = -1, -1
+                    try:
+                        t_info = eng.get_player_info(max_age=0.05) if hasattr(eng, "get_player_info") else None
+                        if not t_info and self.engine and hasattr(self.engine, "read_player_info_via_ram"):
+                            t_info = self.engine.read_player_info_via_ram()
+                        if t_info:
+                            cx = int(t_info.get("x", t_info.get("tileX", -1)))
+                            cy = int(t_info.get("y", t_info.get("tileY", -1)))
+                    except Exception:
+                        pass
+                    if (cx <= 0 or cy <= 0) and scanner and scanner.base_addr:
+                        try:
+                            rd = scanner.scan_radar(radius=8.0)
+                            cp = rd.get("player", {})
+                            cx = int(cp.get("x", cx))
+                            cy = int(cp.get("y", cy))
+                        except Exception:
+                            pass
+                    return cx, cy
+
+                # Tọa độ Vùng An Toàn Double Goer từ GameAssembly (DoubleGoer.PDBGKHBDGIH): [122, 121, 133, 131]
+                def _is_in_safe_zone(chk_x: int, chk_y: int) -> bool:
+                    return (122 <= chk_x <= 133) and (121 <= chk_y <= 131)
+
+                def _dist_from_safe_zone(chk_x: int, chk_y: int) -> float:
+                    # Khoảng cách từ (chk_x, chk_y) đến hình chữ nhật Safe Zone [122, 121, 133, 131]
+                    dx = max(0, 122 - chk_x, chk_x - 133)
+                    dy = max(0, 121 - chk_y, chk_y - 131)
+                    return math.hypot(dx, dy)
+
+                # Nạp lại vị trí cắm chốt đã lưu trước đó của nhân vật/slot (nếu hợp lệ <= 5 ô ngoài Safe Zone)
+                spot_key = str(self.char_name).strip() if getattr(self, "char_name", None) else f"slot_{self.slot_idx}"
+                try:
+                    saved_spots = ConfigPersistenceManager.load_mirror_combat_spots()
+                    saved_spot = saved_spots.get(spot_key) or saved_spots.get(str(getattr(self, "char_name", "")).strip()) or saved_spots.get(f"slot_{self.slot_idx}")
+                    if saved_spot and len(saved_spot) >= 2:
+                        sx_cand, sy_cand = int(saved_spot[0]), int(saved_spot[1])
+                        if not _is_in_safe_zone(sx_cand, sy_cand) and _dist_from_safe_zone(sx_cand, sy_cand) <= 5.0:
+                            stand_x, stand_y = sx_cand, sy_cand
+                except Exception:
+                    pass
 
                 while eng and eng.is_mirror_event_map():
                     # KIỂM TRA BẬT/TẮT: Nếu người dùng bỏ tích slot hoặc tính năng ra bãi: Dừng ngay lập tức!
@@ -3515,33 +3591,11 @@ class SlotController:
                             ))
 
                             px, py = spawn_x, spawn_y
-                            monsters = []
-
-                            def _read_cur_xy():
-                                cx, cy = -1, -1
-                                try:
-                                    t_info = eng.get_player_info(max_age=0.05) if hasattr(eng, "get_player_info") else None
-                                    if not t_info and self.engine and hasattr(self.engine, "read_player_info_via_ram"):
-                                        t_info = self.engine.read_player_info_via_ram()
-                                    if t_info:
-                                        cx = int(t_info.get("x", t_info.get("tileX", -1)))
-                                        cy = int(t_info.get("y", t_info.get("tileY", -1)))
-                                except Exception:
-                                    pass
-                                if (cx <= 0 or cy <= 0) and scanner and scanner.base_addr:
-                                    try:
-                                        rd = scanner.scan_radar(radius=8.0)
-                                        cp = rd.get("player", {})
-                                        cx = int(cp.get("x", cx))
-                                        cy = int(cp.get("y", cy))
-                                    except Exception:
-                                        pass
-                                return cx, cy
-
                             cur_x, cur_y = _read_cur_xy()
                             if cur_x > 0 and cur_y > 0:
                                 px, py = cur_x, cur_y
 
+                            monsters = []
                             if scanner and scanner.base_addr:
                                 try:
                                     # Quét xa tới 120 ô để bắt trọn đợt quái vật đầu tiên đang tiến lại dọc hành lang
@@ -3553,27 +3607,26 @@ class SlotController:
                                 except Exception as e:
                                     print(f"Error scanning monsters in step-out: {e}")
 
-                            # Tọa độ Vùng An Toàn Double Goer từ GameAssembly (DoubleGoer.PDBGKHBDGIH): [122, 121, 133, 131]
-                            def _is_in_safe_zone(chk_x: int, chk_y: int) -> bool:
-                                return (122 <= chk_x <= 133) and (121 <= chk_y <= 131)
-
-                            # 4 Hành lang cửa mở thực tế ra bãi quái (DoubleGoer.BPHGNKGGCKM):
-                            # Bắc: (127, 138), Nam: (127, 114), Đông: (138, 126), Tây: (116, 126)
+                            # 4 Hành lang cửa mở thực tế ra bãi quái (DoubleGoer.BPHGNKGGCKM) được căn chỉnh cách Safe Zone <= 3 ô (đáp ứng điều kiện <= 5 ô)
+                            # Safe Zone: [122..133, 121..131]
+                            # Bắc: (127, 134) [cách 3 ô], Nam: (127, 118) [cách 3 ô], Đông: (136, 126) [cách 3 ô], Tây: (119, 126) [cách 3 ô]
                             exit_corridors = [
-                                (127, 138),  # Hướng Bắc
-                                (127, 114),  # Hướng Nam
-                                (138, 126),  # Hướng Đông
-                                (116, 126),  # Hướng Tây
+                                (127, 134),  # Hướng Bắc
+                                (127, 118),  # Hướng Nam
+                                (136, 126),  # Hướng Đông
+                                (119, 126),  # Hướng Tây
                             ]
 
-                            # Ưu tiên hành lang gần quái vật nhất nếu radar đã phát hiện quái
-                            if monsters and px > 0 and py > 0:
+                            # Nếu có vị trí cắm chốt đã lưu từ các lần trước, ưu tiên chạy thẳng tới đó
+                            if stand_x > 0 and stand_y > 0:
+                                exit_corridors.insert(0, (stand_x, stand_y))
+                            elif monsters and px > 0 and py > 0:
                                 nearest_m = monsters[0]
                                 mx = float(nearest_m.get("x", 127))
                                 my = float(nearest_m.get("y", 126))
                                 exit_corridors.sort(key=lambda c: math.hypot(c[0] - mx, c[1] - my))
 
-                            # Nếu nhân vật đang trong Safe Zone, di chuyển dứt khoát ra hành lang
+                            # Nếu nhân vật đang trong Safe Zone, di chuyển ra hành lang (không vượt quá 5 ô ngoài Safe Zone)
                             if hasattr(eng, "move_to") and _is_in_safe_zone(px, py):
                                 for target_x, target_y in exit_corridors:
                                     if not getattr(self, "mirror_enabled", True) or not getattr(self, "_mirror_dungeon_running", False) or (hasattr(self.app, "cb_mirror_auto_lifecycle") and self.app.cb_mirror_auto_lifecycle.get() != 1):
@@ -3581,25 +3634,15 @@ class SlotController:
                                             try: eng.cancel_move()
                                             except Exception: pass
                                         break
-                                    # Bước trung gian (tối đa 5 ô/bước)
-                                    mid_x = int(round((px + target_x) / 2.0))
-                                    mid_y = int(round((py + target_y) / 2.0))
                                     try:
-                                        eng.move_to(mid_x, mid_y)
-                                        time.sleep(0.4)
-                                        if not getattr(self, "mirror_enabled", True) or not getattr(self, "_mirror_dungeon_running", False) or (hasattr(self.app, "cb_mirror_auto_lifecycle") and self.app.cb_mirror_auto_lifecycle.get() != 1):
-                                            if hasattr(eng, "cancel_move"):
-                                                try: eng.cancel_move()
-                                                except Exception: pass
-                                            break
                                         eng.move_to(target_x, target_y)
-                                        time.sleep(0.6)
+                                        time.sleep(0.7)
                                         nx, ny = _read_cur_xy()
                                         if nx > 0 and ny > 0:
                                             px, py = nx, ny
-                                        if not _is_in_safe_zone(px, py):
+                                        if not _is_in_safe_zone(px, py) and _dist_from_safe_zone(px, py) <= 5.0:
                                             self.app.after(0, lambda x1=px, y1=py: self.app.append_mirror_log(
-                                                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đã bước ra khỏi Safe Zone tới hành lang ({x1}, {y1})!"
+                                                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đã bước ra khỏi Safe Zone tới vị trí cắm chốt ({x1}, {y1}) (cách Safe Zone {_dist_from_safe_zone(x1, y1):.1f} ô <= 5 ô)!"
                                             ))
                                             break
                                     except Exception as eMove:
@@ -3618,19 +3661,21 @@ class SlotController:
                             for attempt in range(1, 4):
                                 try:
                                     if not eng.is_helper_active(force_refresh=True):
-                                        eng.start_helper()
+                                        eng.start_helper(target_x=px, target_y=py, force_restart=True)
                                         time.sleep(0.7)
                                     if eng.is_helper_active(force_refresh=True):
                                         helper_started = True
                                         has_stepped_out = True
+                                        stand_x, stand_y = px, py
+                                        ConfigPersistenceManager.save_mirror_combat_spot(spot_key, stand_x, stand_y)
                                         self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "⚔️ Trong Double Goer", text_color="#10b981"))
-                                        self.app.after(0, lambda: self.app.append_mirror_log(
-                                            f"[Slot {self.slot_idx:02d} - {self.char_name}] ✅ ĐÃ RA KHỎI VÙNG AN TOÀN! Bật Helper thành công, bắt đầu chiến đấu và săn 3 rương!"
+                                        self.app.after(0, lambda sx=stand_x, sy=stand_y: self.app.append_mirror_log(
+                                            f"[Slot {self.slot_idx:02d} - {self.char_name}] ✅ ĐÃ RA KHỎI VÙNG AN TOÀN! Đã ghim & lưu vị trí cắm chốt ({sx}, {sy}) cho các lần sau. Bật Helper thành công!"
                                         ))
                                         break
                                     else:
                                         self.app.after(0, lambda a=attempt: self.app.append_mirror_log(
-                                            f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Helper chưa bật (vẫn vướng Safe Zone, lần {a}/3). Bước thêm ra ngoài..."
+                                            f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Helper chưa bật (vẫn vướng Safe Zone, lần {a}/3). Bước nhẹ ra ngoài..."
                                         ))
                                         if hasattr(eng, "move_to") and px > 0 and py > 0:
                                             alt_corridor = exit_corridors[(attempt - 1) % len(exit_corridors)]
@@ -3738,6 +3783,27 @@ class SlotController:
 
                             # 2.3. XỬ LÝ MỞ RƯƠNG SỰ KIỆN (541 SILVER CHEST / 542 GOLDEN CHEST)
                             if chest_targets:
+                                # KIỂM TRA CHẶN LỌT QUÁI: Nếu có quái vật đang áp sát Safe Zone (khoảng cách <= 6 ô), ưu tiên đứng chốt tiêu diệt quái trước!
+                                leaking_monsters = []
+                                if scanner and scanner.base_addr:
+                                    try:
+                                        r_monsters = scanner.scan_radar(radius=40.0).get("monsters", []) or []
+                                        for m in r_monsters:
+                                            mx, my = float(m.get("x", 0)), float(m.get("y", 0))
+                                            if mx > 0 and my > 0 and _dist_from_safe_zone(int(mx), int(my)) <= 6.0:
+                                                leaking_monsters.append(m)
+                                    except Exception:
+                                        pass
+
+                                if leaking_monsters:
+                                    self.app.after(0, lambda cnt=len(leaking_monsters): self.app.append_mirror_log(
+                                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Phát hiện {cnt} quái vật đang áp sát Safe Zone! Ưu tiên đứng chốt ({stand_x}, {stand_y}) tiêu diệt quái, tạm hoãn mở rương để KHÔNG LỌT QUÁI!"
+                                    ))
+                                    if not eng.is_helper_active():
+                                        eng.start_helper(target_x=stand_x, target_y=stand_y)
+                                    time.sleep(1.0)
+                                    continue
+
                                 target_chest = sorted(chest_targets, key=lambda x: float(x.get("distance", 999)))[0]
                                 cx, cy = int(target_chest["x"]), int(target_chest["y"])
                                 cname = target_chest.get("name", "Reward Chest")
@@ -3849,42 +3915,48 @@ class SlotController:
                                         f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 ĐÃ MỞ & NHẶT RƯƠNG THÀNH CÔNG #{lc}: {cn}!"
                                     ))
 
-                                # Bật lại Helper sau khi mở rương & nhặt đồ xong
-                                time.sleep(0.25)
+                                # LẬP TỨC QUAY TRỞ LẠI VỊ TRÍ CẮM CHỐT ĐỂ CHẶN QUÁI
+                                if stand_x > 0 and stand_y > 0 and hasattr(eng, "move_to"):
+                                    c_px, c_py = _read_cur_xy()
+                                    if c_px > 0 and c_py > 0 and math.hypot(c_px - stand_x, c_py - stand_y) > 2.0:
+                                        self.app.after(0, lambda sx=stand_x, sy=stand_y: self.app.append_mirror_log(
+                                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔙 Đã xử lý rương xong! Lập tức quay lại vị trí cắm chốt ({sx}, {sy}) để không lọt quái..."
+                                        ))
+                                        eng.move_to(stand_x, stand_y)
+                                        time.sleep(0.5)
+
+                                # Bật lại Helper tại vị trí cắm chốt sau khi mở rương & nhặt đồ xong
+                                time.sleep(0.2)
                                 if not eng.is_helper_active():
-                                    eng.start_helper()
+                                    eng.start_helper(target_x=stand_x, target_y=stand_y)
 
                             # 2.4. XỬ LÝ NHẶT VẬT PHẨM RƠI TRÊN ĐẤT (VIEWPORTITEM) KHI KHÔNG CÓ RƯƠNG
                             elif ground_loot:
+                                # CHỈ NHẶT TẠI CHỖ (bán kính <= 3.5 ô), TUYỆT ĐỐI KHÔNG CHẠY XA KHỎI CHỐT TRÁNH LỌT QUÁI!
                                 nearest_item = sorted(ground_loot, key=lambda x: float(x.get("distance", 999)))[0]
-                                ix, iy = int(nearest_item.get("x", -1)), int(nearest_item.get("y", -1))
-                                idist = float(nearest_item.get("distance", 0))
-                                if idist > 2.5 and hasattr(eng, "move_to"):
-                                    try:
-                                        if hasattr(eng, "is_helper_active") and eng.is_helper_active(force_refresh=True):
-                                            eng.stop_helper()
-                                    except Exception:
-                                        pass
-                                    eng.move_to(ix, iy)
-                                    time.sleep(min(1.5, max(0.35, idist * 0.2)))
-                                if hasattr(eng, "open_and_loot_mirror"):
-                                    try:
-                                        eng.open_and_loot_mirror(chest_ptr=0, chest_index=-1, radius=6.5)
-                                    except Exception:
-                                        pass
-                                hwnd = eng.get_hwnd() if hasattr(eng, "get_hwnd") else None
-                                if hwnd:
-                                    MegDirectEngine.send_background_key(hwnd, 0x20, duration_s=0.04)
-                                if not eng.is_helper_active():
-                                    eng.start_helper()
+                                idist = float(nearest_item.get("distance", 999))
+                                if idist <= 3.5:
+                                    if hasattr(eng, "open_and_loot_mirror"):
+                                        try:
+                                            eng.open_and_loot_mirror(chest_ptr=0, chest_index=-1, radius=4.0)
+                                        except Exception:
+                                            pass
+                                    hwnd = eng.get_hwnd() if hasattr(eng, "get_hwnd") else None
+                                    if hwnd:
+                                        MegDirectEngine.send_background_key(hwnd, 0x20, duration_s=0.04)
                         except Exception as e:
                             print(f"Error looting chest in Double Goer: {e}")
 
-                    # Duy trì Helper nếu đang chiến đấu
-                    if has_stepped_out and (now.second % 6 == 0):
+                    # Duy trì Helper & bảo đảm vị trí cắm chốt không bị trôi nếu đang chiến đấu
+                    if has_stepped_out and (now.second % 5 == 0):
                         try:
+                            if stand_x > 0 and stand_y > 0 and hasattr(eng, "move_to"):
+                                cpx, cpy = _read_cur_xy()
+                                if cpx > 0 and cpy > 0 and math.hypot(cpx - stand_x, cpy - stand_y) > 3.0:
+                                    eng.move_to(stand_x, stand_y)
+                                    time.sleep(0.3)
                             if not eng.is_helper_active():
-                                eng.start_helper()
+                                eng.start_helper(target_x=stand_x, target_y=stand_y)
                         except Exception:
                             pass
 
