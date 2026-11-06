@@ -4385,6 +4385,7 @@ rpc.exports = {
 
             var chests = [];
             var items = [];
+            var monsters = [];
 
             for (var i = 0; i < count; i++) {
                 var entryAddr = entries.add(0x20 + i * 24);
@@ -4470,11 +4471,11 @@ rpc.exports = {
                     // Nhận diện Rương Sự Kiện Mirror (Double Goer):
                     // - Class ID 541 (0x21D): Rương Bạc / Interim Reward Chest (Baú de Prata)
                     // - Class ID 542 (0x21E): Rương Vàng / Final Reward Chest (Baú de Ouro)
-                    // - Hoặc MNpcBody / NpcBody / infoType in (1, 4) trong Map 65-68 (trừ NPC Lugard 540 / 723)
-                    var isMirrorMap = ((mapId >= 65 && mapId <= 68) || (mapId >= 82 && mapId <= 90));
+                    // TUYỆT ĐỐI KHÔNG dùng infoType === 1 || infoType === 4 vì quái Double Goer (529..539) có infoType = 1!
                     var isLugardId = (clsId === 540 || clsId === 723 || clsId === 45 || lowName.indexOf("lugard") !== -1 || lowName.indexOf("sartigan") !== -1);
+                    var isMonsterId = (clsId >= 529 && clsId <= 539);
                     var isChestId = (clsId === 541 || clsId === 542 || clsId === 528);
-                    var isChestKw = (
+                    var isChestKw = !isMonsterId && !isLugardId && (
                         lowName.indexOf("chest") !== -1 ||
                         lowName.indexOf("baú") !== -1 ||
                         lowName.indexOf("bau") !== -1 ||
@@ -4483,13 +4484,8 @@ rpc.exports = {
                         lowName.indexOf("coffer") !== -1 ||
                         lowName.indexOf("rương") !== -1
                     );
-                    var isMirrorNpcChest = isMirrorMap && !isLugardId && (
-                        bKlassName.indexOf("NpcBody") !== -1 ||
-                        infoType === 1 ||
-                        infoType === 4
-                    );
 
-                    if (isChestId || isChestKw || isMirrorNpcChest) {
+                    if (isChestId || isChestKw) {
                         var dist = (px >= 0 && py >= 0) ? Math.sqrt((bx - px) * (bx - px) + (by - py) * (by - py)) : 0;
                         if (!finalName) {
                             finalName = (clsId === 542) ? "Final Reward Chest (Golden)" : "Reward Chest (Silver)";
@@ -4504,6 +4500,17 @@ rpc.exports = {
                             x: bx,
                             y: by,
                             distance: Math.round(dist * 10) / 10
+                        });
+                    } else if (!isLugardId && (isMonsterId || (bKlassName.indexOf("MonsterBody") !== -1 && bKlassName.indexOf("NpcBody") === -1))) {
+                        var mdist = (px >= 0 && py >= 0) ? Math.sqrt((bx - px) * (bx - px) + (by - py) * (by - py)) : 0;
+                        monsters.push({
+                            ptr: body.toString(),
+                            index: bIdx,
+                            classId: clsId,
+                            name: finalName || ("Monster #" + clsId),
+                            x: bx,
+                            y: by,
+                            distance: Math.round(mdist * 10) / 10
                         });
                     }
                 } else if (vKlassName.indexOf("ViewportItem") !== -1) {
@@ -4547,10 +4554,11 @@ rpc.exports = {
                 playerX: px,
                 playerY: py,
                 chests: chests,
-                items: items
+                items: items,
+                monsters: monsters
             });
         } catch (eScanM) {
-            return JSON.stringify({ ok: false, error: eScanM.toString(), chests: [], items: [] });
+            return JSON.stringify({ ok: false, error: eScanM.toString(), chests: [], items: [], monsters: [] });
         }
     },
 
@@ -4561,7 +4569,7 @@ rpc.exports = {
             var openedChest = false;
             var pickedCount = 0;
 
-            // 1. Tương tác mở Rương Sự Kiện (Body* -> NpcManager.MGPLAHFHGKP 0x102AA00 + NpcManager.GEBGEGOEFAD 0x1023B10 -> C3:30)
+            // 1. Tương tác mở Rương Sự Kiện (Gửi trực tiếp NpcManager.GEBGEGOEFAD 0x1023B10 -> C3:30 + C1:30 để KHÔNG gây tự động di chuyển)
             var targetBody = ptr(0);
             if (chestPtrStr && chestPtrStr !== "0" && chestPtrStr !== "0x0") {
                 try { targetBody = ptr(chestPtrStr); } catch (eTP) {}
@@ -4622,15 +4630,16 @@ rpc.exports = {
             if (!targetBody.isNull()) {
                 try {
                     var isDest = targetBody.add(0xC0).readU8();
-                    if (isDest === 0) {
+                    var tClsId = -1;
+                    try { tClsId = targetBody.add(0x34).readS32(); } catch (eTCI) {}
+                    if (isDest === 0 && !(tClsId >= 529 && tClsId <= 539) && tClsId !== 540 && tClsId !== 723 && tClsId !== 45) {
                         var bIdx = targetBody.add(0x20).readS32();
-                        // Gán LocalCharacterBody.LastTalkNpc (+0x430) = targetBody
-                        if (!localPlayer.isNull()) {
-                            try { localPlayer.add(0x430).writePointer(targetBody); } catch (eLT) {}
-                        }
-                        // Gọi NpcManager.MGPLAHFHGKP (0x102AA00) + NpcManager.GEBGEGOEFAD (0x1023B10) gửi C3:30
-                        if (invokeNpcTalk(targetBody)) {
-                            openedChest = true;
+                        // Ưu tiên gọi trực tiếp NpcManager.GEBGEGOEFAD (0x1023B10) gửi C3:30 mà KHÔNG kích hoạt vtable MoveTo của 0x102AA00
+                        if (nativeNpcSendTalk !== null) {
+                            try {
+                                nativeNpcSendTalk(targetBody, ptr(0));
+                                openedChest = true;
+                            } catch (eNST) {}
                         }
                         // Fallback gói C1:30 chuẩn little-endian Index
                         if (bIdx >= 0) {
@@ -4643,11 +4652,11 @@ rpc.exports = {
                 } catch (eOpen) {}
             }
 
-            // 2. Tự động nhặt toàn bộ ViewportItem rơi trên đất trong bán kính radius
-            // Gọi UserInventory.AEJKNNOBDIG(index, itemPtr) (0x1446400 -> C3:22) + LocalCharacterBody (0xB92800)
+            // 2. Tự động nhặt ViewportItem rơi trên đất trong bán kính radius
+            // LƯU Ý QUAN TRỌNG: Hàm 0x1446400 (nativeUserInvPickItem) và 0xB92800 (nativeLocalPickNearest) sẽ gọi MoveTo (0x1446680)
+            // làm nhân vật tự chạy đi nếu vật phẩm cách > 2 ô! Do đó chỉ gọi 0x1446400 khi dist <= 2.0, còn lại gửi thẳng packet C1:22 tại chỗ!
             if (!objDict.isNull()) {
                 try {
-                    // Reset cooldown nhặt đồ tại UserInventory.static_fields + 0x8 (nếu có)
                     var entries = objDict.add(ptr('0x18')).readPointer();
                     var count = objDict.add(ptr('0x20')).readS32();
                     for (var i = 0; i < count && i < 600; i++) {
@@ -4673,25 +4682,20 @@ rpc.exports = {
                             var vIdx = val.add(0x10).readS32();
                             var itemPtr = val.add(0x18).readPointer();
                             if (vIdx >= 0 && !itemPtr.isNull()) {
-                                if (nativeUserInvPickItem !== null) {
+                                if (dist <= 2.0 && nativeUserInvPickItem !== null) {
                                     try {
                                         nativeUserInvPickItem(vIdx, itemPtr, ptr(0));
-                                        pickedCount++;
                                     } catch (ePick1) {}
                                 }
-                                // Fallback gửi thêm packet C1:22 little-endian Index
+                                // Gửi trực tiếp packet C1:22 little-endian Index (nhặt tại chỗ 100% không gây di chuyển nhân vật)
                                 var iLo = vIdx & 0xFF;
                                 var iHi = (vIdx >> 8) & 0xFF;
                                 sendGSPacket([0xC1, 0x05, 0x22, iLo, iHi]);
+                                pickedCount++;
                             }
                         }
                     }
                 } catch (ePickLoop) {}
-            }
-
-            // Gọi thêm hàm nhặt vật phẩm gần nhất của LocalCharacterBody (0xB92800 - tương đương phím Spacebar trong game)
-            if (nativeLocalPickNearest !== null) {
-                try { nativeLocalPickNearest(); } catch (eLPN2) {}
             }
 
             return JSON.stringify({
@@ -5657,7 +5661,7 @@ rpc.exports = {
         try {
             ensureThreadAttached();
             var info = readPlayerInfoSnapshot(false);
-            if (info && info.mapId !== undefined && (info.mapId === 40 || info.mapId === 53 || (info.mapId >= 65 && info.mapId <= 68))) {
+            if (info && info.mapId !== undefined && (info.mapId === 40 || info.mapId === 53 || (info.mapId >= 65 && info.mapId <= 68) || (info.mapId >= 82 && info.mapId <= 90))) {
                 return true;
             }
             dispatchChatMessage("/m ev");

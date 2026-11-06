@@ -22,7 +22,8 @@
       "server": 3,
       "enabled": true,
       "source": "registry",
-      "password": "Nammothai3"
+      "password": "Nammothai3",
+      "token": "7e8ad238816a411dce5a4f20d1bf1c91"
     },
     {
       "username": "anhdontb",
@@ -46,7 +47,8 @@
       ],
       "server": 1,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "token": "3f020010111fb11d2b5edc38a14cb7c8"
     },
     {
       "username": "cravr",
@@ -94,7 +96,7 @@
       "server": 1,
       "enabled": true,
       "source": "registry",
-      "token": "6434f34e4e25df6d79815dee21d00606"
+      "token": "ba2236ab307a72fa139f0a514375502e"
     },
     {
       "username": "hqneu511",

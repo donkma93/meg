@@ -1,7 +1,7 @@
 {
   "schedule": {
     "auto_schedule": true,
-    "auto_prep_before": false,
+    "auto_prep_before": true,
     "auto_lifecycle": true,
     "auto_gremory": true,
     "prefire_sec": 5.0,
@@ -32,5 +32,83 @@
     7,
     8,
     9
-  ]
+  ],
+  "combat_spots": {
+    "GunApao": [
+      75,
+      66
+    ],
+    "EndGun": [
+      188,
+      70
+    ],
+    "laclac24": [
+      75,
+      66
+    ],
+    "Goobin": [
+      68,
+      180
+    ],
+    "Hface": [
+      68,
+      180
+    ],
+    "Evilzzz": [
+      188,
+      70
+    ],
+    "HiRW": [
+      188,
+      70
+    ],
+    "HSmart": [
+      68,
+      180
+    ],
+    "VgDongNhi": [
+      188,
+      70
+    ],
+    "Hface_NW": [
+      68,
+      180
+    ],
+    "laclac24_NE": [
+      185,
+      187
+    ],
+    "Goobin_SW": [
+      75,
+      66
+    ],
+    "GunApao_SW": [
+      75,
+      66
+    ],
+    "HiRW_SE": [
+      188,
+      70
+    ],
+    "EndGun_SE": [
+      188,
+      70
+    ],
+    "Evilzzz_SE": [
+      188,
+      70
+    ],
+    "VgDongNhi_SE": [
+      188,
+      70
+    ],
+    "Goobin_NW": [
+      68,
+      180
+    ],
+    "laclac24_SW": [
+      75,
+      66
+    ]
+  }
 }
