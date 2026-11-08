@@ -196,7 +196,7 @@
     {
       "username": "dtn2026",
       "nickname": "dtn2026",
-      "token": "b9301279d64c67d331f550323205e190",
+      "token": "0c20575ebcef1450ac1e43debebc5db3",
       "character": "dtn199x",
       "characters_list": [
         "dtn199x"
@@ -297,6 +297,18 @@
       "character": "osint88",
       "characters_list": [
         "osint88"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "hanoi",
+      "nickname": "hanoi95",
+      "token": "e68377a589aba2f4bfa74226c8a18599",
+      "character": "VISlayer93",
+      "characters_list": [
+        "VISlayer93"
       ],
       "server": 1,
       "enabled": true,
