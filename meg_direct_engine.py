@@ -149,6 +149,10 @@ DEFAULT_OFFSETS = {
     "devil_is_event_map": "0xF75C40",
     "item_devil_ticket": 7187,
     "item_devil_ticket_master": 6702,
+    "table_event_entry_level": "0xCEA9B0",
+    "helper_ui_get_instance": "0x107EF80",
+    "helper_ui_show_dialog": "0x1BFEA00",
+    "helper_ui_show_confirm": "0x1BFFFB0",
     "get_gs_connection": "0x1077910",
     "gs_send": "0x11F9280",
     "gs_send_alt": "0x11F9280",
@@ -3371,6 +3375,125 @@ function cleanupNativeTurbo() {
     }
 }
 
+// =========================================================================
+// REA HOOK: TableEventEntryLevel.EAJKFGNLDBN (RVA 0xCEA9B0)
+// Sửa lỗi client MEGAMU trả về -1 cho nhân vật Master (ChangeUp >= 2, vd: Slayer 175/197rr)
+// Khi hàm trả về -1, client MEGAMU tự động bỏ qua vòng lặp tìm vé Master (6702) và hiển thị
+// popup "You don't have a ticket for your level". Hook này đảm bảo hàm trả về cấp phòng
+// Devil Square chuẩn theo level nhân vật, giúp client tự động nhận diện vé Master.
+// =========================================================================
+var tableEventEntryLevelHook = null;
+try {
+    var offEntryLevel = off('__TABLE_EVENT_ENTRY_LEVEL__');
+    if (!offEntryLevel.isNull()) {
+        tableEventEntryLevelHook = Interceptor.attach(baseAddr.add(offEntryLevel), {
+            onEnter: function(args) {
+                if (shuttingDown) return;
+                // args[0] = TableEventEntryLevel this
+                // args[1] = type (0 = DevilSquare, 1 = BloodCastle, 2 = ChaosCastle, 3 = IllusionTemple)
+                // args[2] = body (Player Body)
+                this.isDS = (args[1].toInt32() === 0);
+            },
+            onLeave: function(retval) {
+                if (shuttingDown) return;
+                if (this.isDS && retval.toInt32() === -1) {
+                    var dsLvl = getPlayerDevilSquareLevel();
+                    retval.replace(ptr(dsLvl));
+                }
+            }
+        });
+    }
+} catch (eHookEntryLevel) {}
+
+// =========================================================================
+// REA HOOK: HelperUI.LPFAFDNGGLF (ShowDialog - RVA 0x1BFEA00)
+// Chặn triệt để popup báo lỗi "You don't have a ticket for your level" trên client
+// =========================================================================
+var helperUIShowDialogHook = null;
+try {
+    var offHSDHook = off('__HELPER_UI_SHOW_DIALOG__');
+    if (!offHSDHook.isNull()) {
+        helperUIShowDialogHook = Interceptor.attach(baseAddr.add(offHSDHook), {
+            onEnter: function(args) {
+                this.suppress = false;
+                if (shuttingDown) return;
+                try {
+                    var msg = "";
+                    if (args[2] && !args[2].isNull()) {
+                        var len = args[2].add(0x10).readS32();
+                        if (len > 0 && len < 256) {
+                            msg = args[2].add(0x14).readUtf16String(len);
+                        }
+                    }
+                    var lowMsg = msg.toLowerCase();
+                    if (lowMsg.indexOf("ticket for your level") !== -1 || lowMsg.indexOf("don't have a ticket") !== -1) {
+                        this.suppress = true;
+                    }
+                } catch (eMsg) {}
+            },
+            onLeave: function(retval) {
+                if (this.suppress) {
+                    retval.replace(ptr(0));
+                }
+            }
+        });
+    }
+} catch (eHSDHook) {}
+
+// =========================================================================
+// REA HOOK: HelperUI.HMIFHHIEDNL (ShowConfirm - RVA 0x1BFFFB0)
+// Tự động xác nhận vào Devil Square (100% Zero-Confirm, không cần người dùng click)
+// =========================================================================
+var helperUIShowConfirmHook = null;
+try {
+    var offShowConfirm = off('__HELPER_UI_SHOW_CONFIRM__');
+    if (!offShowConfirm.isNull()) {
+        helperUIShowConfirmHook = Interceptor.attach(baseAddr.add(offShowConfirm), {
+            onEnter: function(args) {
+                this.autoConfirm = false;
+                if (shuttingDown) return;
+                try {
+                    var title = "";
+                    if (args[2] && !args[2].isNull()) {
+                        var tLen = args[2].add(0x10).readS32();
+                        if (tLen > 0 && tLen < 128) title = args[2].add(0x14).readUtf16String(tLen);
+                    }
+                    var msg = "";
+                    if (args[3] && !args[3].isNull()) {
+                        var mLen = args[3].add(0x10).readS32();
+                        if (mLen > 0 && mLen < 256) msg = args[3].add(0x14).readUtf16String(mLen);
+                    }
+                    var lowT = title.toLowerCase();
+                    var lowM = msg.toLowerCase();
+                    if (lowT.indexOf("devil") !== -1 || lowM.indexOf("devil") !== -1) {
+                        var actionPtr = null;
+                        try {
+                            actionPtr = this.context.rsp.add(0x30).readPointer();
+                        } catch (eStk) {}
+                        if (!actionPtr || actionPtr.isNull()) {
+                            try { actionPtr = args[5]; } catch (eA5) {}
+                        }
+                        if (actionPtr && !actionPtr.isNull()) {
+                            var mPtr = actionPtr.add(0x10).readPointer();
+                            var target = actionPtr.add(0x18).readPointer();
+                            if (!mPtr.isNull()) {
+                                var actFn = new NativeFunction(mPtr, 'void', ['pointer', 'bool', 'pointer']);
+                                actFn(target, 1, ptr(0));
+                                this.autoConfirm = true;
+                            }
+                        }
+                    }
+                } catch (eConfirm) {}
+            },
+            onLeave: function(retval) {
+                if (this.autoConfirm) {
+                    retval.replace(ptr(0));
+                }
+            }
+        });
+    }
+} catch (eHSCFH) {}
+
 rpc.exports = {
     getPlayerInfo: function() {
         return readPlayerInfoSnapshot(true);
@@ -5877,6 +6000,7 @@ rpc.exports = {
                     sendGSPacket([0xC1, 0x05, 0x5B, targetDsLvl, wireSlot]);
                     // Fallback raw opcode 0x90
                     sendGSPacket([0xC1, 0x05, 0x90, targetDsLvl, wireSlot]);
+                    sendDevilEnterPacket(targetDsLvl, actualSlot);
                 }
 
                 return JSON.stringify({
@@ -6891,6 +7015,24 @@ rpc.exports = {
             }
         } catch (e0) {}
         try {
+            if (tableEventEntryLevelHook !== null) {
+                tableEventEntryLevelHook.detach();
+                tableEventEntryLevelHook = null;
+            }
+        } catch (eTEL) {}
+        try {
+            if (helperUIShowDialogHook !== null) {
+                helperUIShowDialogHook.detach();
+                helperUIShowDialogHook = null;
+            }
+        } catch (eHSD) {}
+        try {
+            if (helperUIShowConfirmHook !== null) {
+                helperUIShowConfirmHook.detach();
+                helperUIShowConfirmHook = null;
+            }
+        } catch (eHSC) {}
+        try {
             Interceptor.flush();
         } catch (eF) {}
         return true;
@@ -7135,8 +7277,10 @@ class MegDirectEngine:
             "__DEVIL_ENTER_1E__": str(self.offsets.get("devil_enter_1e") or DEFAULT_OFFSETS.get("devil_enter_1e", "0xF75CF0")),
             "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xF82E70")),
             "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xF75C40")),
+            "__TABLE_EVENT_ENTRY_LEVEL__": str(self.offsets.get("table_event_entry_level") or DEFAULT_OFFSETS.get("table_event_entry_level", "0xCEA9B0")),
             "__HELPER_UI_GET_INSTANCE__": str(self.offsets.get("helper_ui_get_instance") or DEFAULT_OFFSETS.get("helper_ui_get_instance", "0x107EF80")),
             "__HELPER_UI_SHOW_DIALOG__": str(self.offsets.get("helper_ui_show_dialog") or DEFAULT_OFFSETS.get("helper_ui_show_dialog", "0x1BFEA00")),
+            "__HELPER_UI_SHOW_CONFIRM__": str(self.offsets.get("helper_ui_show_confirm") or DEFAULT_OFFSETS.get("helper_ui_show_confirm", "0x1BFFFB0")),
             "__GAME_CLASS_OFFSET__": str(self.offsets.get("game_class_offset") or DEFAULT_OFFSETS.get("game_class_offset", "0x553B900")),
             "__GET_GS_CONNECTION__": str(self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0x1077910")),
             "__GS_SEND__": str(self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x11F9280")),

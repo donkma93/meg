@@ -32,6 +32,8 @@ class TestDevilReaEntry(unittest.TestCase):
         self.assertEqual(cfg.get("devil_enter"), "0xF91530")
         self.assertEqual(cfg.get("devil_enter_alt"), "0xF834C0")
         self.assertEqual(cfg.get("devil_enter_1e"), "0xF75CF0")
+        self.assertEqual(cfg.get("table_event_entry_level"), "0xCEA9B0")
+        self.assertEqual(cfg.get("helper_ui_show_confirm"), "0x1BFFFB0")
         self.assertEqual(cfg.get("item_devil_ticket_master"), 6702)
         self.assertEqual(cfg.get("item_devil_ticket"), 7187)
 
@@ -45,6 +47,8 @@ class TestDevilReaEntry(unittest.TestCase):
         self.assertIn('"devil_npc_click": "0xF82E70"', code)
         self.assertIn('"devil_enter_alt": "0xF834C0"', code)
         self.assertIn('"devil_enter_1e": "0xF75CF0"', code)
+        self.assertIn('"table_event_entry_level": "0xCEA9B0"', code)
+        self.assertIn('"helper_ui_show_confirm": "0x1BFFFB0"', code)
 
     def test_frida_js_devil_closure_and_wire_slot(self):
         # 3. Kiểm tra mã JavaScript Frida trong meg_direct_engine.py
@@ -55,6 +59,21 @@ class TestDevilReaEntry(unittest.TestCase):
         self.assertIn("var nativeDevilClosureEnter = null;", code)
         self.assertIn("off('__DEVIL_CLOSURE_ENTER__')", code)
         self.assertIn("off('__DEVIL_CLOSURE_TYPE_INFO__')", code)
+        self.assertIn("off('__TABLE_EVENT_ENTRY_LEVEL__')", code)
+        self.assertIn("off('__HELPER_UI_SHOW_CONFIRM__')", code)
+
+        # Kiểm tra REA hooks:
+        # a) tableEventEntryLevelHook: Thay thế kết quả -1 thành DS level chuẩn
+        self.assertIn("tableEventEntryLevelHook", code)
+        self.assertIn("retval.replace(ptr(dsLvl));", code)
+
+        # b) helperUIShowDialogHook: Chặn dialog báo lỗi thiếu vé
+        self.assertIn("helperUIShowDialogHook", code)
+        self.assertIn('lowMsg.indexOf("ticket for your level") !== -1', code)
+
+        # c) helperUIShowConfirmHook: Auto confirm popup để vào ngay (Zero-confirm 100%)
+        self.assertIn("helperUIShowConfirmHook", code)
+        self.assertIn("actFn(target, 1, ptr(0));", code)
 
         # Kiểm tra tính toán wireSlot = actualSlot + 12
         self.assertIn("var wireSlot = (actualSlot + 12) & 0xFF;", code)
