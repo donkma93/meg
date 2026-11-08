@@ -11589,7 +11589,7 @@ class DashboardApp(ctk.CTk):
 
             # Nếu chưa ở Event Square (map 53 hoặc 40), tự động chuyển sang Event Square (/m ev) trước
             if cmap not in (53, 40):
-                self.log_message(f"[Slot {slot_idx:02d}] 📍 Đang chuyển sang bản đồ Event Square (/m ev) để tiếp cận NPC Charon...", "INFO")
+                self.log_message(f"[Slot {slot_idx:02d}] 📍 Đang chuyển sang bản đồ Event Square (/m ev)...", "INFO")
                 eng.send_chat("/m ev")
                 in_ev = False
                 for step in range(12):  # Chờ tối đa 6 giây
@@ -11611,22 +11611,22 @@ class DashboardApp(ctk.CTk):
                     return
                 time.sleep(0.4)
 
-            # 1.5. Tiếp cận NPC Charon tại Event Square (tọa độ 225, 52):
+            # 1.5. Tiếp cận NPC Charon tại Event Square (tọa độ chuẩn: 220, 2):
             char_pos = eng.get_player_info() or {}
             cur_x = char_pos.get("tileX", char_pos.get("x", 0))
             cur_y = char_pos.get("tileY", char_pos.get("y", 0))
-            if abs(cur_x - 225) > 5 or abs(cur_y - 52) > 5:
-                self.log_message(f"[Slot {slot_idx:02d}] 🚶 Đang di chuyển lại gần NPC Charon (225, 52)...", "INFO")
+            if abs(cur_x - 220) > 4 or abs(cur_y - 2) > 4:
+                self.log_message(f"[Slot {slot_idx:02d}] 🚶 Đang tiếp cận NPC Charon (220, 2)...", "INFO")
                 if hasattr(eng, "start_auto_move"):
-                    eng.start_auto_move(225, 52, helper=False)
+                    eng.start_auto_move(220, 2, helper=False)
                 elif hasattr(eng, "move_to"):
-                    eng.move_to(225, 52)
-                for _ in range(12):  # Chờ tối đa 6 giây cho nhân vật chạy lại gần
+                    eng.move_to(220, 2)
+                for _ in range(12):  # Chờ tối đa 6 giây cho nhân vật di chuyển lại gần
                     time.sleep(0.5)
                     pos = eng.get_player_info() or {}
                     nx = pos.get("tileX", pos.get("x", 0))
                     ny = pos.get("tileY", pos.get("y", 0))
-                    if abs(nx - 225) <= 5 and abs(ny - 52) <= 5:
+                    if abs(nx - 220) <= 4 and abs(ny - 2) <= 4:
                         break
                 if hasattr(eng, "cancel_move"):
                     try: eng.cancel_move()
@@ -11635,14 +11635,6 @@ class DashboardApp(ctk.CTk):
                     try: eng.stop_auto_move()
                     except Exception: pass
                 time.sleep(0.3)
-
-            # Dừng mọi hành động di chuyển dở để nhân vật đứng yên
-            if hasattr(eng, "cancel_move"):
-                try: eng.cancel_move()
-                except Exception: pass
-            if hasattr(eng, "stop_auto_move"):
-                try: eng.stop_auto_move()
-                except Exception: pass
 
             # 2. Quét thông tin vé trong hòm đồ (Cả vé thường lẫn vé master)
             t_info = eng.get_devil_ticket_info() if hasattr(eng, "get_devil_ticket_info") else {}
@@ -11657,62 +11649,77 @@ class DashboardApp(ctk.CTk):
             elif has_normal:
                 self.log_message(f"[Slot {slot_idx:02d}] 🎫 Phát hiện Vé thường Devil Square ({t_info.get('normalCount', 1)} vé)!", "INFO")
             else:
-                self.log_message(f"[Slot {slot_idx:02d}] ℹ️ Không phát hiện vé trong hòm đồ - Đang gọi NPC Charon để Game phát thông báo trực tiếp...", "INFO")
-                # Hiển thị thông báo trực tiếp trên màn hình game
-                try:
-                    eng.send_chat("[DEVIL] Bạn không có Vé Devil Square (hoặc cấp độ vé không phù hợp)!")
-                except Exception:
-                    pass
+                self.log_message(f"[Slot {slot_idx:02d}] ℹ️ Không phát hiện vé trong hòm đồ...", "INFO")
 
-            # 3. Gửi lệnh trực tiếp vào NPC Charon tại Event Square:
+            # 3. Gửi lệnh trực tiếp vào Devil Square tại NPC Charon (220, 2):
             # - Bỏ qua hoàn toàn hộp thoại xác nhận (Zero-confirm)
-            # - Nếu chưa mở cổng: GameServer sẽ phát thông báo cổng đóng trên màn hình game
-            # - Nếu không có vé: NPC Charon sẽ hiển thị popup dialog trong game
+            # - Thử gửi tối đa 3 lần nếu đang trong khung giờ mở cổng để đảm bảo vào thành công
             ticket_desc = "Vé Master" if has_master else "Vé thường"
-            self.log_message(f"[Slot {slot_idx:02d}] 🚪 Đang tương tác NPC Charon tại Event Square (Bỏ qua confirm)...", "INFO")
-            if has_ticket:
-                try:
-                    eng.send_chat(f"[DEVIL] Đang tương tác NPC Charon vào Devil Square ({ticket_desc})...")
-                except Exception:
-                    pass
+            self.log_message(f"[Slot {slot_idx:02d}] 🚪 Đang gửi lệnh vào thẳng Devil Square ({ticket_desc}) tại NPC Charon (220, 2) - Bỏ qua confirm...", "INFO")
 
             t_pref = getattr(ctrl, "devil_ticket_type", "auto")
-            res = eng.enter_devil(ticket_preference=t_pref)
-            ds_lvl = "?"
-            if isinstance(res, dict):
-                ds_lvl = res.get("ds_level") or res.get("dsLevel") or "?"
+            # Khi người dùng chủ động bấm Đi ngay Devil: nếu chỉ có một loại vé thì tự động chọn đúng loại đó
+            if has_master and not has_normal:
+                t_pref = "master"
+            elif has_normal and not has_master:
+                t_pref = "normal"
 
-            # 4. Xác nhận xem nhân vật đã vào map Devil Square (Map 9 hoặc 32) hay chưa
             entered_ds = False
-            for _ in range(8):  # Chờ 4 giây phản hồi từ GameServer
-                time.sleep(0.5)
+            ds_lvl = "?"
+            res = {}
+            for attempt in range(3):
                 try:
-                    inf = eng.get_player_info()
-                    mid = inf.get("mapId", -1) if inf else -1
-                    if mid in (9, 32) or (hasattr(eng, "is_devil_event_map") and eng.is_devil_event_map()):
-                        entered_ds = True
-                        break
-                except Exception:
-                    pass
+                    res = eng.enter_devil(ticket_preference=t_pref)
+                except Exception as e_enter:
+                    res = {"success": False, "error": str(e_enter)}
+                if isinstance(res, dict) and (res.get("ds_level") or res.get("dsLevel")):
+                    ds_lvl = res.get("ds_level") or res.get("dsLevel")
+
+                for _ in range(3):  # Chờ 1.5 giây sau mỗi lần gửi lệnh
+                    time.sleep(0.5)
+                    try:
+                        inf = eng.get_player_info()
+                        mid = inf.get("mapId", -1) if inf else -1
+                        if mid in (9, 32) or (hasattr(eng, "is_devil_event_map") and eng.is_devil_event_map()):
+                            entered_ds = True
+                            break
+                    except Exception:
+                        pass
+                if entered_ds:
+                    break
 
             if not entered_ds:
-                if not has_ticket:
+                no_ticket_err = (isinstance(res, dict) and res.get("error") == "no_ticket")
+                if not has_ticket or no_ticket_err:
                     self.log_message(
-                        f"[Slot {slot_idx:02d}] ⚠️ Nhân vật không có vé Devil Square (Đã phát thông báo thiếu vé trực tiếp trên màn hình Game)!",
+                        f"[Slot {slot_idx:02d}] ⚠️ Nhân vật không có vé Devil Square phù hợp!",
                         "WARNING"
                     )
                 else:
-                    # Gửi thông báo trực tiếp trên màn hình Game qua lệnh chat native
-                    try:
-                        eng.send_chat("[DEVIL] Chưa đến giờ mở cửa sự kiện Devil Square! Cổng hiện đang đóng.")
-                        if hasattr(eng, "click_devil_npc"):
-                            eng.click_devil_npc()
-                    except Exception:
-                        pass
-                    self.log_message(
-                        f"[Slot {slot_idx:02d}] ⏰ Đã gửi lệnh vào NPC Charon! Nếu chưa vào được cổng, vui lòng xem thông báo cổng đóng hiển thị trực tiếp trên Game.",
-                        "INFO"
-                    )
+                    cur_dt = datetime.now()
+                    is_odd_hour = (cur_dt.hour % 2 == 1)
+                    is_gate_open_now = is_odd_hour and (27 <= cur_dt.minute <= 29)
+
+                    if is_gate_open_now:
+                        self.log_message(
+                            f"[Slot {slot_idx:02d}] ⚠️ Đang trong khung giờ mở cổng (:27-:30) nhưng GameServer chưa tiếp nhận (Có thể số người trong phòng đã đủ hoặc đang bận).",
+                            "WARNING"
+                        )
+                    else:
+                        self.log_message(
+                            f"[Slot {slot_idx:02d}] ⏰ Chưa đến giờ mở cổng Devil Square! Cổng chỉ mở vào giờ lẻ (:27 - :30). Đang hiển thị thông báo trên màn hình game...",
+                            "INFO"
+                        )
+                        # Hiển thị thông báo native của Game trên màn hình: DEVIL SQUARE - Entrance is currently closed
+                        try:
+                            shown = False
+                            if hasattr(eng, "show_modal_box"):
+                                shown = bool(eng.show_modal_box("DEVIL SQUARE", "Entrance is currently closed", "OK"))
+                            if not shown and hasattr(eng, "click_devil_npc"):
+                                shown = bool(eng.click_devil_npc())
+                        except Exception as e_npc:
+                            logger.warning(f"[Slot {slot_idx:02d}] Không thể gọi show_modal_box/click_devil_npc: {e_npc}")
+
                 if was_training and hasattr(ctrl, "worker") and ctrl.worker:
                     ctrl.worker.resume_from_event("Chưa vào được Devil Square")
                 return
@@ -11741,6 +11748,9 @@ class DashboardApp(ctk.CTk):
                                 ctrl.worker.current_stage_key = None
                                 ctrl.worker.arrived_at_spot = False
                                 ctrl.worker.in_devil_square = False
+                                if was_training and ctrl.worker.running:
+                                    time.sleep(1.0)
+                                    ctrl.worker.resume_from_event("Devil Square kết thúc, khôi phục Auto Train")
                             break
                     except Exception:
                         pass

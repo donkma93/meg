@@ -378,10 +378,17 @@
                     },
                     {
                         "min_level": 40,
-                        "max_level": 400,
+                        "max_level": 79,
                         "map_name": "Dungeon 2",
                         "x": 218,
                         "y": 116
+                    },
+                    {
+                        "min_level": 80,
+                        "max_level": 400,
+                        "map_name": "Atlans 2",
+                        "x": 236,
+                        "y": 21
                     }
                 ]
             }

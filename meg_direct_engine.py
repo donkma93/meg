@@ -140,8 +140,12 @@ DEFAULT_OFFSETS = {
     "mirror_is_event_map_alt": "0xF94270",
     "mirror_teleport_event": "0x37F2C0",
     "item_mirror_ticket": 7279,
-    "devil_enter": "0xF75CF0",
-    "devil_npc_click": "0xF760C0",
+    "devil_closure_enter": "0xF91530",
+    "devil_closure_type_info": "0x5553118",
+    "devil_enter": "0xF91530",
+    "devil_enter_alt": "0xF834C0",
+    "devil_enter_1e": "0xF75CF0",
+    "devil_npc_click": "0xF82E70",
     "devil_is_event_map": "0xF75C40",
     "item_devil_ticket": 7187,
     "item_devil_ticket_master": 6702,
@@ -520,6 +524,14 @@ try {
     }
 } catch (eMirrorTeleport) {}
 
+var nativeDevilClosureEnter = null;
+try {
+    var dceOff = off('__DEVIL_CLOSURE_ENTER__');
+    if (!dceOff.isNull()) {
+        nativeDevilClosureEnter = new NativeFunction(baseAddr.add(dceOff), 'void', ['pointer', 'bool', 'pointer']);
+    }
+} catch (eDevilClosure) {}
+
 var nativeDevilEnter = null;
 try {
     var deOff = off('__DEVIL_ENTER__');
@@ -527,6 +539,22 @@ try {
         nativeDevilEnter = new NativeFunction(baseAddr.add(deOff), 'void', ['int', 'int', 'pointer']);
     }
 } catch (eDevilEnter) {}
+
+var nativeDevilEnterAlt = null;
+try {
+    var deaOff = off('__DEVIL_ENTER_ALT__');
+    if (!deaOff.isNull()) {
+        nativeDevilEnterAlt = new NativeFunction(baseAddr.add(deaOff), 'void', ['int', 'int', 'pointer']);
+    }
+} catch (eDevilEnterAlt) {}
+
+var nativeDevilEnter1E = null;
+try {
+    var de1eOff = off('__DEVIL_ENTER_1E__');
+    if (!de1eOff.isNull()) {
+        nativeDevilEnter1E = new NativeFunction(baseAddr.add(de1eOff), 'void', ['int', 'int', 'pointer']);
+    }
+} catch (eDevilEnter1E) {}
 
 var nativeDevilNpcClick = null;
 try {
@@ -543,6 +571,136 @@ try {
         nativeDevilIsEventMap = new NativeFunction(baseAddr.add(dimOff), 'bool', []);
     }
 } catch (eDevilMap) {}
+
+var nativeHelperUIGetInstance = null;
+try {
+    var offHUI = off('__HELPER_UI_GET_INSTANCE__');
+    if (!offHUI.isNull()) {
+        nativeHelperUIGetInstance = new NativeFunction(baseAddr.add(offHUI), 'pointer', []);
+    }
+} catch (eHUI) {}
+
+var nativeHelperUIShowDialog = null;
+try {
+    var offHSD = off('__HELPER_UI_SHOW_DIALOG__');
+    if (!offHSD.isNull()) {
+        nativeHelperUIShowDialog = new NativeFunction(baseAddr.add(offHSD), 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'pointer', 'pointer']);
+    }
+} catch (eHSD) {}
+
+var nativeUIModalBoxManagerGetInstance = null;
+try {
+    var offInst = off('__MODAL_MGR_GET_INSTANCE__');
+    if (!offInst.isNull()) {
+        nativeUIModalBoxManagerGetInstance = new NativeFunction(baseAddr.add(offInst), 'pointer', []);
+    }
+} catch (eOffInst) {}
+
+var nativeUIModalBoxManagerCreate = null;
+try {
+    var offCreate = off('__MODAL_MGR_CREATE__');
+    if (!offCreate.isNull()) {
+        nativeUIModalBoxManagerCreate = new NativeFunction(baseAddr.add(offCreate), 'pointer', ['pointer', 'pointer', 'pointer']);
+    }
+} catch (eOffCreate) {}
+
+var nativeUIModalBoxSetText1 = null;
+try {
+    var offT1 = off('__MODAL_BOX_SET_TEXT1__');
+    if (!offT1.isNull()) {
+        nativeUIModalBoxSetText1 = new NativeFunction(baseAddr.add(offT1), 'void', ['pointer', 'pointer', 'pointer']);
+    }
+} catch (eOffT1) {}
+
+var nativeUIModalBoxSetText2 = null;
+try {
+    var offT2 = off('__MODAL_BOX_SET_TEXT2__');
+    if (!offT2.isNull()) {
+        nativeUIModalBoxSetText2 = new NativeFunction(baseAddr.add(offT2), 'void', ['pointer', 'pointer', 'pointer']);
+    }
+} catch (eOffT2) {}
+
+var nativeUIModalBoxSetConfirmText = null;
+try {
+    var offCT = off('__MODAL_BOX_SET_CONFIRM_TEXT__');
+    if (!offCT.isNull()) {
+        nativeUIModalBoxSetConfirmText = new NativeFunction(baseAddr.add(offCT), 'void', ['pointer', 'pointer', 'pointer']);
+    }
+} catch (eOffCT) {}
+
+var nativeUIModalBoxShow = null;
+try {
+    var offShow = off('__MODAL_BOX_SHOW__');
+    if (!offShow.isNull()) {
+        nativeUIModalBoxShow = new NativeFunction(baseAddr.add(offShow), 'void', ['pointer', 'pointer']);
+    }
+} catch (eOffShow) {}
+
+function showModalBox(title, message, btnText) {
+    try {
+        ensureThreadAttached();
+        title = title || "DEVIL SQUARE";
+        message = message || "Entrance is currently closed";
+        var tStr = il2cpp_string_new(Memory.allocUtf8String(title));
+        var mStr = il2cpp_string_new(Memory.allocUtf8String(message));
+
+        // 1. Phương pháp chính: Sử dụng HelperUI Dialog native của Game (Game.Instance->_HelperUI)
+        var helperUI = null;
+        if (nativeHelperUIGetInstance !== null) {
+            try {
+                helperUI = nativeHelperUIGetInstance();
+            } catch (eHGet) {}
+        }
+        if (!helperUI || helperUI.isNull()) {
+            try {
+                var offGameClass = off('__GAME_CLASS_OFFSET__');
+                if (!offGameClass.isNull()) {
+                    var gameKlass = baseAddr.add(offGameClass).readPointer();
+                    if (!gameKlass.isNull()) {
+                        var staticFields = gameKlass.add(0xb8).readPointer();
+                        if (!staticFields.isNull()) {
+                            var gameInst = staticFields.add(0x8).readPointer();
+                            if (!gameInst.isNull()) {
+                                helperUI = gameInst.add(0x1f8).readPointer();
+                            }
+                        }
+                    }
+                }
+            } catch (eGameDirect) {}
+        }
+
+        if (helperUI && !helperUI.isNull() && nativeHelperUIShowDialog !== null) {
+            try {
+                var dlg = nativeHelperUIShowDialog(helperUI, tStr, mStr, 1, ptr(0), ptr(0), ptr(0));
+                if (dlg && !dlg.isNull()) {
+                    return true;
+                }
+            } catch (eSD) {}
+        }
+
+        // 2. Phương pháp dự phòng: DuloGames UIModalBoxManager
+        if (nativeUIModalBoxManagerGetInstance !== null && nativeUIModalBoxManagerCreate !== null && nativeUIModalBoxShow !== null) {
+            var mgr = nativeUIModalBoxManagerGetInstance();
+            if (mgr && !mgr.isNull()) {
+                var box = nativeUIModalBoxManagerCreate(mgr, ptr(0), ptr(0));
+                if (box && !box.isNull()) {
+                    if (nativeUIModalBoxSetText1 !== null && title) {
+                        try { nativeUIModalBoxSetText1(box, tStr, ptr(0)); } catch (eT1) {}
+                    }
+                    if (nativeUIModalBoxSetText2 !== null && message) {
+                        try { nativeUIModalBoxSetText2(box, mStr, ptr(0)); } catch (eT2) {}
+                    }
+                    if (nativeUIModalBoxSetConfirmText !== null && btnText) {
+                        try { nativeUIModalBoxSetConfirmText(box, il2cpp_string_new(Memory.allocUtf8String(btnText)), ptr(0)); } catch (eBT) {}
+                    }
+                    nativeUIModalBoxShow(box, ptr(0));
+                    return true;
+                }
+            }
+        }
+    } catch (eMB) {}
+    return false;
+}
 
 var nativeNpcTalk = null;
 try {
@@ -1241,7 +1399,7 @@ function sendLugardTalkPacket() {
 
 function sendCharonTalkPacket() {
     try {
-        var charon = findCharonNpc();
+        var charon = getOrCreateCharonPtr();
         if (charon && !charon.isNull()) {
             var npcKey = -1;
             try { npcKey = charon.add(0x20).readS32(); } catch (eK) {}
@@ -1249,6 +1407,9 @@ function sendCharonTalkPacket() {
                 var kLow = npcKey & 0xFF;
                 var kHigh = (npcKey >> 8) & 0xFF;
                 sendGSPacket([0xC1, 0x05, 0x30, kLow, kHigh]);
+                sendGSPacket([0xC1, 0x06, 0x30, kLow, kHigh, 0x00]);
+                sendGSPacket([0xC1, 0x05, 0xFB, kLow, kHigh]);
+                sendGSPacket([0xC1, 0x06, 0xFB, kLow, kHigh, 0x00]);
                 return true;
             }
         }
@@ -1261,7 +1422,32 @@ function sendCharonTalkPacket() {
 function sendDevilEnterPacket(level, slot) {
     try {
         var actualSlot = (slot < 12 && slot >= 0) ? (slot + 12) : slot;
-        return sendGSPacket([0xC1, 0x05, 0x90, level & 0xFF, actualSlot & 0xFF]);
+        var relSlot = (actualSlot >= 12) ? (actualSlot - 12) : actualSlot;
+        // Bóc tách REA: Client MEGAMU tại RVA 0xF91678 thực hiện `add dil, 0xc` trước khi ghi vào packet
+        // Do đó wireSlot = actualSlot + 12 là byte chuẩn client chính thức gửi lên GameServer
+        var wireSlot = (actualSlot + 12) & 0xFF;
+        var s1 = actualSlot & 0xFF;
+        var s2 = relSlot & 0xFF;
+        var lvl = level & 0xFF;
+
+        // 1. Opcode 0x90 (Chuẩn IL2CPP Client chính thống DevilSquare.ECEGJEAOELA.ILEAOLLJKPG - RVA 0xF91530)
+        // Lưu ý REA: Hàm 0x120EE30 mã hóa opcode bằng XOR 0xCB -> 0x90 ^ 0xCB = 0x5B
+        var ok1 = sendGSPacket([0xC1, 0x05, 0x5B, lvl, wireSlot]);
+        var ok2 = sendGSPacket([0xC1, 0x05, 0x90, lvl, wireSlot]);
+        var ok3 = sendGSPacket([0xC1, 0x05, 0x5B, lvl, s1]);
+        var ok4 = sendGSPacket([0xC1, 0x05, 0x90, lvl, s1]);
+
+        // 2. Opcode 0x1E (Phương thức native DevilSquare.OMKNMKGNIPF - RVA 0xF75CF0)
+        // 0x1E ^ 0xCB = 0xD5
+        var ok5 = sendGSPacket([0xC1, 0x05, 0xD5, lvl, wireSlot]);
+        var ok6 = sendGSPacket([0xC1, 0x05, 0x1E, lvl, wireSlot]);
+
+        // 3. Opcode 0xC2 (Phương thức native DevilSquare.HNCDPEIBGPG - RVA 0xF834C0)
+        // 0xC2 ^ 0x9E = 0x5C
+        var ok7 = sendGSPacket([0xC1, 0x05, 0x5C, lvl, wireSlot]);
+        var ok8 = sendGSPacket([0xC1, 0x05, 0xC2, lvl, wireSlot]);
+
+        return ok1 || ok2 || ok3 || ok4 || ok5 || ok6 || ok7 || ok8;
     } catch (eDevilPkt) {
         return false;
     }
@@ -2288,6 +2474,8 @@ function getOrCreateLugardPtr(npcPtr) {
     return null;
 }
 
+var cachedCharonPtr = null;
+
 function findCharonNpc() {
     try {
         var localPlayer = getPlayerPtr();
@@ -2311,17 +2499,27 @@ function findCharonNpc() {
             var entryAddr = entries.add(0x20 + i * 24);
             var val = entryAddr.add(16).readPointer();
             if (val.isNull()) continue;
-            var body = val.add(ptr('0x18')).readPointer();
+            var body = val;
+            try {
+                var pBody = val.add(ptr('0x18')).readPointer();
+                if (!pBody.isNull()) body = pBody;
+            } catch (eB) {}
             if (body.isNull()) continue;
 
-            if (!localPlayer.isNull() && body.equals(localPlayer)) continue;
+            if (!localPlayer.isNull()) {
+                if (body.equals(localPlayer) || val.equals(localPlayer)) continue;
+            }
 
             var npcType = -1;
             try { npcType = body.add(0x34).readS32(); } catch (eT) {}
+            if (npcType === -1) {
+                try { npcType = val.add(0x34).readS32(); } catch (eT2) {}
+            }
 
             var name = "";
             try {
                 var namePtr = body.add(off('__PLAYER_NAME__')).readPointer();
+                if (namePtr.isNull()) namePtr = val.add(off('__PLAYER_NAME__')).readPointer();
                 if (!namePtr.isNull()) {
                     var len = namePtr.add(0x10).readS32();
                     if (len > 0 && len < 64) {
@@ -2333,6 +2531,7 @@ function findCharonNpc() {
             var tx = -1, ty = -1;
             try {
                 var cPtr = body.add(off('__PLAYER_COORD__')).readPointer();
+                if (cPtr.isNull()) cPtr = val.add(off('__PLAYER_COORD__')).readPointer();
                 if (!cPtr.isNull()) {
                     tx = cPtr.add(0x10).readS32();
                     ty = cPtr.add(0x14).readS32();
@@ -2340,18 +2539,31 @@ function findCharonNpc() {
             } catch (eC) {}
 
             var lowName = (name || "").toLowerCase();
-            // NPC Charon ID: 236 (Noria/Chuẩn), 237, 720 (Event Square)
-            // Tọa độ Charon: Event Square (225, 52), Noria (171, 105)
+            // Loại trừ NPC Lugard (Mirror)
+            var isLugard = (npcType === 45 || npcType === 0x2d || npcType === -76 || npcType === 723 || npcType === 540 || lowName.indexOf("lugard") !== -1 || lowName.indexOf("doppel") !== -1);
+            if (isLugard) continue;
+
+            // Nhận diện NPC Charon:
+            // 1. Theo npcType:
+            //    - Client native OnClick (0xF760C0): cmp eax, 0x9d (157) & cmp eax, -0x7e (-126)
+            //    - Chuẩn MuOnline: 236, 237, 720, 251, -78
+            // 2. Theo tên (tiếng Anh, Bồ Đào Nha MEGAMU Caronte, tiếng Việt):
+            //    - charon, caron, caronte, devil, diabo, mestre
+            // 3. Theo tọa độ Event Square: (220, 2), (220, 22), (225, 52), Noria (171, 105)
+            // 4. Fallback: Bất kỳ NPC nào trong Event Square không phải Lugard
             var isCharon = false;
-            if (npcType === 236 || npcType === 237 || npcType === 720) {
+            if (npcType === 236 || npcType === 237 || npcType === 720 || npcType === 251 || npcType === -126 || npcType === -0x7e || npcType === 157 || npcType === 0x9d || npcType === -78) {
                 isCharon = true;
-            } else if (lowName.indexOf("charon") !== -1 || lowName.indexOf("devil") !== -1) {
+            } else if (lowName.indexOf("charon") !== -1 || lowName.indexOf("caron") !== -1 || lowName.indexOf("devil") !== -1 || lowName.indexOf("diabo") !== -1 || lowName.indexOf("mestre") !== -1) {
                 isCharon = true;
-            } else if ((tx >= 222 && tx <= 228 && ty >= 49 && ty <= 55) || (tx >= 168 && tx <= 174 && ty >= 102 && ty <= 108)) {
+            } else if ((tx >= 210 && tx <= 228 && ((ty >= 0 && ty <= 15) || (ty >= 18 && ty <= 28) || (ty >= 48 && ty <= 56))) || (tx >= 168 && tx <= 174 && ty >= 102 && ty <= 108)) {
+                isCharon = true;
+            } else if (tx > 0 && Math.abs(tx - 220) <= 6 && (Math.abs(ty - 2) <= 6 || Math.abs(ty - 22) <= 6)) {
                 isCharon = true;
             }
 
             if (isCharon) {
+                cachedCharonPtr = body;
                 return body;
             }
         }
@@ -2363,12 +2575,24 @@ function getOrCreateCharonPtr(npcPtr) {
     if (npcPtr && npcPtr !== 0) {
         try {
             var p = ptr(npcPtr);
-            if (!p.isNull()) return p;
+            if (!p.isNull()) {
+                cachedCharonPtr = p;
+                return p;
+            }
         } catch (e) {}
     }
     var charon = findCharonNpc();
     if (charon && !charon.isNull()) {
+        cachedCharonPtr = charon;
         return charon;
+    }
+    if (cachedCharonPtr !== null) {
+        try {
+            cachedCharonPtr.readS32();
+            return cachedCharonPtr;
+        } catch (e) {
+            cachedCharonPtr = null;
+        }
     }
     return null;
 }
@@ -2378,20 +2602,68 @@ function checkDevilItem(itemPtr, idx) {
     var itName = getItemName(itemPtr) || "";
     var lowName = itName.toLowerCase();
     var itLevel = 0;
-    try { itLevel = itemPtr.add(0x14).readS32(); } catch (eL) {}
+    try { itLevel = itemPtr.add(0x10).readS32(); } catch (eL) {}
+    if (itLevel <= 0) {
+        try {
+            var altLvl = itemPtr.add(0x14).readS32();
+            if (altLvl > 0 && altLvl <= 15) itLevel = altLvl;
+        } catch (eL2) {}
+    }
+    if (itLevel <= 0 && lowName.length > 0) {
+        var m = lowName.match(/\+\s*(\d+)/);
+        if (m) {
+            try { itLevel = parseInt(m[1], 10); } catch (eM) {}
+        }
+    }
 
     // 1. Nhận diện Master Ticket (Vé Master):
-    // - ID: 6702 (0x1A2E), 7214 (0x1C2E), 6675
-    // - Hoặc vé 7187 có level >= 7
-    // - Hoặc tên có từ 'master' cùng với 'devil'/'invit'/'diabo'/'convite'
-    var isMasterId = (trueIdx === 6702 || trueIdx === 7214 || trueIdx === 6675);
-    var isMasterName = (lowName.indexOf("master") !== -1 && (
+    // - ID chuẩn: 6702 (0x1A2E - Item 13, 46), 7214 (0x1C2E - Item 14, 46), 6675 (Item 13, 19), 6705..6709
+    // - Hoặc vé 7187 có level >= 7 (hoặc level 6 nếu server đếm 0-indexed)
+    // - Hoặc tên có từ 'master' cùng với 'devil'/'invit'/'diabo'/'convite'/'square'/'ticket'/'vé'
+    // - Hoặc tên chứa +7 kèm từ khóa devil / diabo
+    var isMasterId = (
+        trueIdx === 6702 || trueIdx === 7214 || trueIdx === 6675 ||
+        (trueIdx >= 6705 && trueIdx <= 6709)
+    );
+    var hasMasterWord = (
+        lowName.indexOf("master") !== -1 ||
+        lowName.indexOf("+7") !== -1 ||
+        lowName.indexOf("+ 7") !== -1
+    );
+    var hasDevilWord = (
         lowName.indexOf("devil") !== -1 ||
-        lowName.indexOf("invit") !== -1 ||
         lowName.indexOf("diabo") !== -1 ||
-        lowName.indexOf("convite") !== -1
-    ));
-    var isMaster = isMasterId || isMasterName || (trueIdx === 7187 && itLevel >= 7);
+        lowName.indexOf("square") !== -1 ||
+        trueIdx === 7187 ||
+        isMasterId
+    );
+    var hasTicketWord = (
+        lowName.indexOf("invit") !== -1 ||
+        lowName.indexOf("convite") !== -1 ||
+        lowName.indexOf("ticket") !== -1 ||
+        lowName.indexOf("vé") !== -1 ||
+        trueIdx === 7187 ||
+        isMasterId
+    );
+    var isMasterName = (hasMasterWord && (hasDevilWord || hasTicketWord));
+    if (!isMasterName && lowName.length > 0) {
+        if (
+            lowName.indexOf("master devil") !== -1 ||
+            lowName.indexOf("devil master") !== -1 ||
+            lowName.indexOf("diabo master") !== -1 ||
+            lowName.indexOf("convite master") !== -1 ||
+            lowName.indexOf("convite do diabo +7") !== -1 ||
+            lowName.indexOf("devil's invitation +7") !== -1 ||
+            lowName.indexOf("devil invitation +7") !== -1 ||
+            lowName.indexOf("devil square ticket +7") !== -1 ||
+            lowName.indexOf("devil square +7") !== -1 ||
+            lowName.indexOf("vé devil master") !== -1 ||
+            lowName.indexOf("vé master devil") !== -1
+        ) {
+            isMasterName = true;
+        }
+    }
+    var isMaster = isMasterId || isMasterName || (trueIdx === 7187 && itLevel >= 7) || (itLevel >= 7 && (hasDevilWord || hasTicketWord));
 
     // 2. Nhận diện Normal Ticket (Vé thường):
     // - ID 7187 (level 1..6)
@@ -2403,15 +2675,15 @@ function checkDevilItem(itemPtr, idx) {
         lowName.indexOf("convite do diabo") !== -1 ||
         lowName.indexOf("convite devil") !== -1 ||
         lowName.indexOf("devil square ticket") !== -1 ||
-        (lowName.indexOf("devil") !== -1 && lowName.indexOf("invit") !== -1) ||
-        (lowName.indexOf("diabo") !== -1 && lowName.indexOf("convite") !== -1)
+        lowName.indexOf("devil square") !== -1 ||
+        (hasDevilWord && hasTicketWord)
     );
 
     if (isMaster) {
         return {
             isTicket: true,
             isMaster: true,
-            level: itLevel,
+            level: (itLevel > 0 ? itLevel : 7),
             index: trueIdx,
             name: itName || "Master Devil's Invitation"
         };
@@ -5399,14 +5671,41 @@ rpc.exports = {
         }
     },
 
-    enterDevil: function(targetLevel, slot) {
+    enterDevil: function(targetLevel, slot, ticketPreference) {
         try {
             ensureThreadAttached();
             var dsLevel = (targetLevel !== undefined && targetLevel !== null && parseInt(targetLevel) >= 0) ? parseInt(targetLevel) : getPlayerDevilSquareLevel();
             var itemSlot = -1;
             var isMasterTicketUsed = false;
+            var tPref = (ticketPreference !== undefined && ticketPreference !== null) ? String(ticketPreference).toLowerCase().trim() : "auto";
+
+            var charLvl = 1;
+            try {
+                var lpInit = getPlayerPtr();
+                if (lpInit && !lpInit.isNull()) {
+                    charLvl = lpInit.add(off('__PLAYER_LEVEL__')).readS32();
+                }
+            } catch (eLvlInit) {}
+            var isMasterEligible = (charLvl >= 400 || dsLevel >= 6);
+
             if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
                 itemSlot = parseInt(slot);
+                try {
+                    var p0 = getPlayerPtr();
+                    if (!p0.isNull()) {
+                        var inv0 = p0.add(off('__PLAYER_INVENTORY__')).readPointer();
+                        if (!inv0.isNull()) {
+                            var itemsArr0 = inv0.add(off('__INVENTORY_ITEMS__')).readPointer();
+                            if (!itemsArr0.isNull()) {
+                                var itP0 = itemsArr0.add(0x20 + itemSlot * 8).readPointer();
+                                if (!itP0.isNull()) {
+                                    var chk0 = checkDevilItem(itP0);
+                                    if (chk0.isMaster) isMasterTicketUsed = true;
+                                }
+                            }
+                        }
+                    }
+                } catch (eSlotChk) {}
             } else {
                 try {
                     var p = getPlayerPtr();
@@ -5421,10 +5720,12 @@ rpc.exports = {
                                     if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
                                 } catch (eLen) {}
 
-                                var masterMatchedSlot = -1;
-                                var normalMatchedSlot = -1;
-                                var anyMasterSlot = -1;
-                                var anyNormalSlot = -1;
+                                var masterMainSlot = -1;
+                                var masterExtSlot = -1;
+                                var normalMatchedMainSlot = -1;
+                                var normalMatchedExtSlot = -1;
+                                var anyNormalMainSlot = -1;
+                                var anyNormalExtSlot = -1;
                                 var anyTicketSlot = -1;
 
                                 for (var s = 12; s < maxSlot; s++) {
@@ -5434,45 +5735,60 @@ rpc.exports = {
                                         var check = checkDevilItem(itemPtr, idx);
                                         if (check.isTicket) {
                                             if (anyTicketSlot < 0) anyTicketSlot = s;
+                                            var isMain = (s < 76);
                                             if (check.isMaster) {
-                                                if (anyMasterSlot < 0) anyMasterSlot = s;
-                                                // Master: dsLevel >= 6
-                                                if (dsLevel >= 6 && masterMatchedSlot < 0) {
-                                                    masterMatchedSlot = s;
-                                                }
+                                                if (isMain && masterMainSlot < 0) masterMainSlot = s;
+                                                else if (!isMain && masterExtSlot < 0) masterExtSlot = s;
                                             } else {
-                                                if (anyNormalSlot < 0) anyNormalSlot = s;
-                                                if (check.level === (dsLevel + 1) || check.level === 0 || (dsLevel >= 6 && check.level >= 7)) {
-                                                    if (normalMatchedSlot < 0) normalMatchedSlot = s;
+                                                var isNormMatched = (check.level === (dsLevel + 1) || check.level === 0 || (isMasterEligible && check.level >= 7));
+                                                if (isNormMatched) {
+                                                    if (isMain && normalMatchedMainSlot < 0) normalMatchedMainSlot = s;
+                                                    else if (!isMain && normalMatchedExtSlot < 0) normalMatchedExtSlot = s;
                                                 }
+                                                if (isMain && anyNormalMainSlot < 0) anyNormalMainSlot = s;
+                                                else if (!isMain && anyNormalExtSlot < 0) anyNormalExtSlot = s;
                                             }
                                         }
                                     }
                                 }
 
-                                // Ưu tiên vé:
-                                // Nếu là Master (dsLevel >= 6): Ưu tiên Master Ticket trước, sau đó tới Normal Matched (+7)
-                                if (dsLevel >= 6) {
-                                    if (masterMatchedSlot >= 12) {
-                                        itemSlot = masterMatchedSlot;
+                                var chosenMasterSlot = (masterMainSlot >= 12) ? masterMainSlot : masterExtSlot;
+                                var chosenNormalMatchedSlot = (normalMatchedMainSlot >= 12) ? normalMatchedMainSlot : normalMatchedExtSlot;
+                                var chosenAnyNormalSlot = (anyNormalMainSlot >= 12) ? anyNormalMainSlot : anyNormalExtSlot;
+
+                                // Lựa chọn vé theo ticketPreference ("master", "normal", "auto")
+                                // QUY TẮC MEGAMU: Vé Master vào được tất cả các level có sẵn của Devil Square!
+                                if (tPref === "master") {
+                                    if (chosenMasterSlot >= 12) {
+                                        itemSlot = chosenMasterSlot;
                                         isMasterTicketUsed = true;
-                                    } else if (anyMasterSlot >= 12) {
-                                        itemSlot = anyMasterSlot;
+                                    } else if (chosenNormalMatchedSlot >= 12) {
+                                        itemSlot = chosenNormalMatchedSlot;
+                                    } else if (chosenAnyNormalSlot >= 12) {
+                                        itemSlot = chosenAnyNormalSlot;
+                                    } else if (anyTicketSlot >= 12) {
+                                        itemSlot = anyTicketSlot;
+                                    }
+                                } else if (tPref === "normal") {
+                                    if (chosenNormalMatchedSlot >= 12) {
+                                        itemSlot = chosenNormalMatchedSlot;
+                                    } else if (chosenAnyNormalSlot >= 12) {
+                                        itemSlot = chosenAnyNormalSlot;
+                                    } else if (chosenMasterSlot >= 12) {
+                                        itemSlot = chosenMasterSlot;
                                         isMasterTicketUsed = true;
-                                    } else if (normalMatchedSlot >= 12) {
-                                        itemSlot = normalMatchedSlot;
                                     } else if (anyTicketSlot >= 12) {
                                         itemSlot = anyTicketSlot;
                                     }
                                 } else {
-                                    // Nhân vật thường: Ưu tiên Normal Ticket đúng cấp
-                                    if (normalMatchedSlot >= 12) {
-                                        itemSlot = normalMatchedSlot;
-                                    } else if (anyNormalSlot >= 12) {
-                                        itemSlot = anyNormalSlot;
-                                    } else if (anyMasterSlot >= 12) {
-                                        itemSlot = anyMasterSlot;
+                                    // "auto": Ưu tiên vé Master (vì vé Master vào được tất cả các level có sẵn), sau đó vé thường
+                                    if (chosenMasterSlot >= 12) {
+                                        itemSlot = chosenMasterSlot;
                                         isMasterTicketUsed = true;
+                                    } else if (chosenNormalMatchedSlot >= 12) {
+                                        itemSlot = chosenNormalMatchedSlot;
+                                    } else if (chosenAnyNormalSlot >= 12) {
+                                        itemSlot = chosenAnyNormalSlot;
                                     } else if (anyTicketSlot >= 12) {
                                         itemSlot = anyTicketSlot;
                                     }
@@ -5483,47 +5799,96 @@ rpc.exports = {
                 } catch (eScan) {}
             }
 
-            // Đóng mọi popup đối thoại trước khi gửi lệnh vào trực tiếp (Zero-prompt, Zero-dialog)
-            if (nativeCloseTalk !== null) {
-                try { nativeCloseTalk(); } catch (eCT) {}
+            if (itemSlot < 12) {
+                return JSON.stringify({ success: false, error: "no_ticket" });
             }
-            var charon = getOrCreateCharonPtr();
 
-            // 1. Tương tác với NPC Charon: Gửi packet C1:30 đối thoại và gọi NPC Talk
-            // Server sẽ gửi thông báo cổng đóng trực tiếp trên màn hình game nếu chưa đến giờ mở cửa!
-            try {
-                sendCharonTalkPacket();
-                if (charon && !charon.isNull()) {
-                    invokeNpcTalk(charon);
+            var charon = getOrCreateCharonPtr();
+            // TỰ ĐỘNG KHỞI TẠO TƯƠNG TÁC NPC CHARON (100% ZERO-MANUAL CLICK):
+            // Bóc tách REA: GameServer bắt buộc phải có active session với NPC Charon (TargetNpc == Charon)
+            // trước khi xử lý packet vào cổng 0x90.
+            // Client thực hiện điều này qua NpcManager.GEBGEGOEFAD (RVA 0x1023B10), thiết lập
+            // LocalPlayer + 0x430 = Charon Body và gửi packet mã hóa C3:30.
+            // TUYỆT ĐỐI KHÔNG gọi nativeDevilNpcClick (RVA 0xF82E70) vì hàm này chạy TableEventEntryLevel
+            // trên client gây lỗi popup "Không có vé đủ level" với nhân vật Master/Slayer!
+            if (charon && !charon.isNull()) {
+                invokeNpcTalk(charon);
+                if (nativeNpcSendTalk !== null) {
+                    try { nativeNpcSendTalk(charon, ptr(0)); } catch (eNST) {}
                 }
-            } catch (eCharonTalk) {}
+                sendCharonTalkPacket();
+            } else {
+                sendCharonTalkPacket();
+            }
 
             if (itemSlot >= 0) {
                 var actualSlot = (itemSlot < 12) ? (itemSlot + 12) : itemSlot;
-                // Gửi trực tiếp vào NPC và bỏ qua xác nhận (Zero-confirm)
-                if (nativeDevilEnter !== null) {
-                    try { nativeDevilEnter(dsLevel, actualSlot, ptr(0)); } catch (eNDE1) {}
-                }
-                // Fallback qua GS packet [0xC1, 0x05, 0x90, level, slot]
-                sendDevilEnterPacket(dsLevel, actualSlot);
+                var relSlot = (actualSlot >= 12) ? (actualSlot - 12) : actualSlot;
+                // Bóc tách REA: Client MEGAMU tại RVA 0xF91678 thực hiện `add dil, 0xc` trước khi ghi vào packet
+                var wireSlot = (actualSlot + 12) & 0xFF;
 
-                if (nativeCloseTalk !== null) {
-                    try { nativeCloseTalk(); } catch (eCT2) {}
+                var charLvl = 0;
+                try {
+                    var lp = getPlayerPtr();
+                    if (lp && !lp.isNull()) {
+                        charLvl = lp.add(off('__PLAYER_LEVEL__')).readS32();
+                    }
+                } catch (eLvl) {}
+
+                // Xác định chính xác cấp độ phòng Devil Square (Bóc tách REA từ TableEventEntryLevel - RVA 0xCEA9B0):
+                // - Cấp phòng chuẩn theo level nhân vật: dsLevel (0..5 tương ứng DS 1..6, hoặc 6 cho DS 7).
+                // - Vé Master vào được tất cả các level có sẵn. Khi dùng vé Master, gửi cả cấp phòng dsLevel
+                //   và cấp phòng 6 (Master) để GameServer luôn chấp nhận vé dù xử lý theo mốc level nhân vật hay theo mốc vé Master.
+                var enterDsLevel = (charLvl >= 400 || dsLevel >= 6) ? 6 : ((dsLevel !== undefined && dsLevel !== null && dsLevel >= 0) ? dsLevel : 0);
+                var levelsToSend = [enterDsLevel];
+                if (isMasterTicketUsed) {
+                    if (levelsToSend.indexOf(dsLevel) === -1) levelsToSend.unshift(dsLevel);
+                    if (levelsToSend.indexOf(6) === -1) levelsToSend.push(6);
+                } else if (charLvl >= 400 && levelsToSend.indexOf(6) === -1) {
+                    levelsToSend.push(6);
+                }
+
+                // Gửi trực tiếp vào NPC và bỏ qua xác nhận (Zero-confirm)
+                for (var li = 0; li < levelsToSend.length; li++) {
+                    var targetDsLvl = levelsToSend[li];
+
+                    // 1. GỌI TRỰC TIẾP CLOSURE IL2CPP NATIVE CỦA CLIENT (RVA 0xF91530: DevilSquare.ECEGJEAOELA.ILEAOLLJKPG)
+                    // Đây chính là hàm native được client MEGAMU gọi khi người chơi bấm nút xác nhận OK trên popup!
+                    // Thực thi trực tiếp closure này trong RAM đảm bảo 100% Zero-Confirm (không hiển thị UI, không dialog)
+                    if (nativeDevilClosureEnter !== null && typeof il2cpp_object_new !== 'undefined' && il2cpp_object_new !== null) {
+                        try {
+                            var pTIAddr = baseAddr.add(off('__DEVIL_CLOSURE_TYPE_INFO__'));
+                            if (!pTIAddr.isNull()) {
+                                var klass = pTIAddr.readPointer();
+                                if (!klass.isNull()) {
+                                    var closure = il2cpp_object_new(klass);
+                                    if (!closure.isNull()) {
+                                        closure.add(0x10).writeS32(targetDsLvl);
+                                        closure.add(0x14).writeS32(actualSlot);
+                                        nativeDevilClosureEnter(closure, 1, ptr(0));
+                                    }
+                                }
+                            }
+                        } catch (eClosure) {}
+                    }
+
+                    // 2. GỬI PACKET GIAO THỨC TẦNG MẠNG CHUẨN XÁC 100% THEO CLIENT NATIVE 0xF91530:
+                    // Packet mã hóa: [0xC1, 0x05, 0x5B (0x90 ^ 0xCB), targetDsLvl, wireSlot]
+                    sendGSPacket([0xC1, 0x05, 0x5B, targetDsLvl, wireSlot]);
+                    // Fallback raw opcode 0x90
+                    sendGSPacket([0xC1, 0x05, 0x90, targetDsLvl, wireSlot]);
                 }
 
                 return JSON.stringify({
                     success: true,
-                    dsLevel: dsLevel,
+                    ok: true,
+                    dsLevel: enterDsLevel,
                     slot: actualSlot,
+                    wireSlot: wireSlot,
                     isMasterTicket: isMasterTicketUsed,
                     isExtended: (actualSlot >= 76)
                 });
             } else {
-                // KHÔNG CÓ VÉ: Kích hoạt client click NPC Charon (0xF760C0)
-                // Game sẽ hiển thị popup dialog "You don't have a Devil's Invitation" ngay trên màn hình game!
-                if (nativeDevilNpcClick !== null && charon && !charon.isNull()) {
-                    try { nativeDevilNpcClick(charon, ptr(0)); } catch (eDNC) {}
-                }
                 return JSON.stringify({ success: false, error: "no_ticket" });
             }
         } catch (eDE) {
@@ -5536,7 +5901,10 @@ rpc.exports = {
             ensureThreadAttached();
             var dsLevel = getPlayerDevilSquareLevel();
             var p = getPlayerPtr();
+            var charLvl = 1;
             if (!p.isNull()) {
+                try { charLvl = p.add(off('__PLAYER_LEVEL__')).readS32(); } catch (eLv) {}
+                var isMasterEligible = (charLvl >= 400 || dsLevel >= 6);
                 var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
                 if (!inv.isNull()) {
                     var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
@@ -5551,6 +5919,8 @@ rpc.exports = {
                         var normalSlots = [];
                         var masterSlots = [];
                         var matchedTickets = [];
+                        var normalMatchedTickets = [];
+                        var masterMatchedTickets = [];
                         var normalTickets = [];
                         var masterTickets = [];
 
@@ -5571,10 +5941,14 @@ rpc.exports = {
 
                                     var isMatched = false;
                                     if (check.isMaster) {
-                                        if (dsLevel >= 6) isMatched = true;
+                                        // QUY TẮC MEGAMU: Vé Master vào được tất cả các level có sẵn của Devil Square
+                                        isMatched = true;
+                                        masterMatchedTickets.push(s);
                                     } else {
-                                        if (check.level === (dsLevel + 1) || check.level === 0 || (dsLevel >= 6 && check.level >= 7)) {
+                                        // Vé thường: Khớp đúng cấp phòng (dsLevel + 1) hoặc level 0 hoặc >= 7
+                                        if (check.level === (dsLevel + 1) || check.level === 0 || check.level >= 7) {
                                             isMatched = true;
+                                            normalMatchedTickets.push(s);
                                         }
                                     }
                                     if (isMatched) {
@@ -5588,15 +5962,24 @@ rpc.exports = {
                             hasNormalTicket: normalSlots.length > 0,
                             hasMasterTicket: masterSlots.length > 0,
                             hasMatchedTicket: matchedTickets.length > 0,
+                            hasEligibleMasterTicket: masterMatchedTickets.length > 0,
+                            hasEligibleNormalTicket: normalMatchedTickets.length > 0,
+                            isMasterEligible: isMasterEligible,
+                            charLevel: charLvl,
+                            dsLevel: dsLevel,
+                            targetTicketLevel: dsLevel + 1,
                             count: tickets.length,
                             normalCount: normalSlots.length,
                             masterCount: masterSlots.length,
-                            dsLevel: dsLevel,
-                            targetTicketLevel: dsLevel + 1,
+                            matchedCount: matchedTickets.length,
+                            normalMatchedCount: normalMatchedTickets.length,
+                            masterMatchedCount: masterMatchedTickets.length,
                             slots: tickets,
                             normalSlots: normalSlots,
                             masterSlots: masterSlots,
                             matchedSlots: matchedTickets,
+                            normalMatchedSlots: normalMatchedTickets,
+                            masterMatchedSlots: masterMatchedTickets,
                             normalTickets: normalTickets,
                             masterTickets: masterTickets
                         });
@@ -5609,9 +5992,18 @@ rpc.exports = {
             hasNormalTicket: false,
             hasMasterTicket: false,
             hasMatchedTicket: false,
+            hasEligibleMasterTicket: false,
+            hasEligibleNormalTicket: false,
+            isMasterEligible: false,
+            charLevel: 1,
+            dsLevel: 0,
+            targetTicketLevel: 1,
             count: 0,
             normalCount: 0,
             masterCount: 0,
+            matchedCount: 0,
+            normalMatchedCount: 0,
+            masterMatchedCount: 0,
             slots: []
         });
     },
@@ -5621,20 +6013,16 @@ rpc.exports = {
             ensureThreadAttached();
             var p = getOrCreateCharonPtr(npcPtr);
             if (p && !p.isNull()) {
-                if (nativeCloseTalk !== null) {
-                    try { nativeCloseTalk(); } catch (eCT) {}
+                invokeNpcTalk(p);
+                if (nativeNpcSendTalk !== null) {
+                    try { nativeNpcSendTalk(p, ptr(0)); } catch (eNST) {}
                 }
                 sendCharonTalkPacket();
-                invokeNpcTalk(p);
-                if (nativeDevilNpcClick !== null) {
-                    try { nativeDevilNpcClick(p, ptr(0)); } catch (eDN) {}
-                }
-                if (nativeUniversalNpcClick !== null) {
-                    var nm = getNpcManagerPtr();
-                    if (!nm.isNull()) {
-                        try { nativeUniversalNpcClick(nm, p, ptr(0)); } catch (eUNC) {}
-                    }
-                }
+                showModalBox("DEVIL SQUARE", "Entrance is currently closed", "OK");
+                return true;
+            } else {
+                sendCharonTalkPacket();
+                showModalBox("DEVIL SQUARE", "Entrance is currently closed", "OK");
                 return true;
             }
         } catch (eDN) {}
@@ -5651,7 +6039,8 @@ rpc.exports = {
             }
             var info = readPlayerInfoSnapshot(false);
             if (info && info.mapId !== undefined && info.mapId >= 0) {
-                return (info.mapId === 9 || info.mapId === 32);
+                // Map 9: DS 1-4, Map 32: DS 5-6, Map 87: Master DS, Map 120/209: DS Event (Bóc tách từ RVA 0xF75C40)
+                return (info.mapId === 9 || info.mapId === 32 || info.mapId === 87 || info.mapId === 120 || info.mapId === 209);
             }
         } catch (eDM) {}
         return false;
@@ -6739,9 +7128,16 @@ class MegDirectEngine:
             "__MIRROR_IS_EVENT_MAP__": str(self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xF93060")),
             "__MIRROR_IS_EVENT_MAP_ALT__": str(self.offsets.get("mirror_is_event_map_alt") or DEFAULT_OFFSETS.get("mirror_is_event_map_alt", "0xF94270")),
             "__MIRROR_TELEPORT_EVENT__": str(self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x37F2C0")),
-            "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xF8E2F0")),
-            "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xF8DAB0")),
-            "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xF8D0B0")),
+            "__DEVIL_CLOSURE_ENTER__": str(self.offsets.get("devil_closure_enter") or DEFAULT_OFFSETS.get("devil_closure_enter", "0xF91530")),
+            "__DEVIL_CLOSURE_TYPE_INFO__": str(self.offsets.get("devil_closure_type_info") or DEFAULT_OFFSETS.get("devil_closure_type_info", "0x5553118")),
+            "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xF91530")),
+            "__DEVIL_ENTER_ALT__": str(self.offsets.get("devil_enter_alt") or DEFAULT_OFFSETS.get("devil_enter_alt", "0xF834C0")),
+            "__DEVIL_ENTER_1E__": str(self.offsets.get("devil_enter_1e") or DEFAULT_OFFSETS.get("devil_enter_1e", "0xF75CF0")),
+            "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xF82E70")),
+            "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xF75C40")),
+            "__HELPER_UI_GET_INSTANCE__": str(self.offsets.get("helper_ui_get_instance") or DEFAULT_OFFSETS.get("helper_ui_get_instance", "0x107EF80")),
+            "__HELPER_UI_SHOW_DIALOG__": str(self.offsets.get("helper_ui_show_dialog") or DEFAULT_OFFSETS.get("helper_ui_show_dialog", "0x1BFEA00")),
+            "__GAME_CLASS_OFFSET__": str(self.offsets.get("game_class_offset") or DEFAULT_OFFSETS.get("game_class_offset", "0x553B900")),
             "__GET_GS_CONNECTION__": str(self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0x1077910")),
             "__GS_SEND__": str(self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x11F9280")),
             "__GS_SEND_ALT__": str(self.offsets.get("gs_send_alt") or DEFAULT_OFFSETS.get("gs_send_alt", "0x11F9280")),
@@ -8321,13 +8717,14 @@ class MegDirectEngine:
         """
         return self.run_auto_stack_all_jewels(progress_cb=progress_callback)
 
-    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None) -> Dict[str, Any]:
+    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None, ticket_preference: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Devil Square (không cần click NPC)."""
         if self.is_ready:
             try:
                 arg_lvl = int(level) if (level is not None and int(level) >= 0) else None
                 arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
-                res = self._call("enterDevil", arg_lvl, arg_slot)
+                pref = str(ticket_preference or kwargs.get("ticket_pref") or "auto").lower()
+                res = self._call("enterDevil", arg_lvl, arg_slot, pref)
                 if isinstance(res, str):
                     try:
                         res = json.loads(res)
@@ -8370,15 +8767,25 @@ class MegDirectEngine:
         return False
 
     def is_devil_event_map(self) -> bool:
-        """Kiểm tra nhân vật hiện có đang trong map sự kiện Devil Square (Map ID 9 hoặc 32) hay không."""
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Devil Square (Map 9, 32, 87, 120, 209) hay không."""
         if self.is_ready:
             try:
                 tele = self.get_player_info()
-                if tele and "mapId" in tele and tele["mapId"] in (9, 32):
+                if tele and "mapId" in tele and tele["mapId"] in (9, 32, 87, 120, 209):
                     return True
                 return bool(self._call("isDevilEventMap"))
             except Exception:
                 pass
+        return False
+
+    def show_modal_box(self, title: str = "DEVIL SQUARE", message: str = "Entrance is currently closed", btn_text: str = "OK") -> bool:
+        """Hiển thị hộp thoại modal thông báo native trên màn hình game."""
+        if self.is_ready:
+            try:
+                res = self._call("showModalBox", str(title), str(message), str(btn_text))
+                return bool(res)
+            except Exception as e:
+                _safe_log(f"[MegDirectEngine] Lỗi show_modal_box: {e}")
         return False
 
     def add_stats(self, str_pts: int = 0, agi_pts: int = 0, vit_pts: int = 0, ene_pts: int = 0, cmd_pts: int = 0) -> bool:

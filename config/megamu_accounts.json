@@ -59,7 +59,8 @@
       ],
       "server": 1,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "token": "57876fe2869d3a4a6c8ce5bf9898ce2b"
     },
     {
       "username": "pvdon",
@@ -113,7 +114,7 @@
     {
       "username": "anhdontb3",
       "nickname": "anhdontb3",
-      "token": "8aea692c1bb9823bab1740762cf7ab18",
+      "token": "e5385fced38c3b59bd0f3b11e343f7be",
       "character": "laclac24",
       "characters_list": [
         "laclac24",
@@ -154,7 +155,7 @@
     {
       "username": "thaibinh1",
       "nickname": "thaibinh1",
-      "token": "629df011be7ea7254b4a150a7f3d46e4",
+      "token": "fde7ff850e91a9a532c387441d3e7f20",
       "character": "VgDongNhi",
       "characters_list": [
         "VgDongNhi"
@@ -195,7 +196,7 @@
     {
       "username": "dtn2026",
       "nickname": "dtn2026",
-      "token": "17d4d577eab5d0ce0259b951f634acd4",
+      "token": "b9301279d64c67d331f550323205e190",
       "character": "dtn199x",
       "characters_list": [
         "dtn199x"
@@ -223,6 +224,79 @@
       "character": "Cursor",
       "characters_list": [
         "Cursor"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "thuydon",
+      "nickname": "thuydon",
+      "token": "a2cd563c2bce97f610a7671c7f90d0f3",
+      "character": "ELFTOP1v",
+      "characters_list": [
+        "ELFTOP1v"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "anhdontb10",
+      "nickname": "anhdontb10",
+      "token": "b519c76d2368e3edb6416b5721f02783",
+      "character": "donpvDL",
+      "characters_list": [
+        "donpvDL"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "hvideo",
+      "nickname": "hvideo",
+      "token": "6027f972f65a2b22b844455319f6c913",
+      "character": "SaoxoaKuta",
+      "characters_list": [
+        "SaoxoaKuta"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "viyeu93",
+      "nickname": "viyeu93",
+      "token": "86d0dda2d73feb516fd074ea203916a0",
+      "character": "pvSlayer",
+      "characters_list": [
+        "pvSlayer",
+        "donmoss"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "hungyen34",
+      "nickname": "hungyen34",
+      "token": "6b156fd9c17b9125d6a16ca554166f72",
+      "character": "donpvRW",
+      "characters_list": [
+        "donpvRW"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "osint",
+      "nickname": "osint",
+      "token": "91045a620cb06c2b26d0d0d9807aea50",
+      "character": "osint88",
+      "characters_list": [
+        "osint88"
       ],
       "server": 1,
       "enabled": true,

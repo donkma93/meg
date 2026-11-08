@@ -185,6 +185,66 @@
     "VgDongNhi_NE": [
       185,
       187
+    ],
+    "pvSlayer": [
+      68,
+      180
+    ],
+    "pvSlayer_SW": [
+      75,
+      66
+    ],
+    "pvSlayer_NW": [
+      68,
+      180
+    ],
+    "SaoxoaKuta": [
+      68,
+      180
+    ],
+    "SaoxoaKuta_SW": [
+      75,
+      66
+    ],
+    "donpvRW": [
+      68,
+      180
+    ],
+    "donpvRW_SE": [
+      188,
+      70
+    ],
+    "XxSontritb": [
+      68,
+      180
+    ],
+    "XxSontritb_NW": [
+      68,
+      180
+    ],
+    "osint88": [
+      188,
+      70
+    ],
+    "osint88_SE": [
+      188,
+      70
+    ],
+    "donpvRW_NW": [
+      68,
+      180
+    ],
+    "SaoxoaKuta_NW": [
+      68,
+      180
+    ],
+    "SLayerVNI": [
+      185,
+      187
+    ],
+    "SLayerVNI_NE": [
+      185,
+      187
     ]
   }
 }

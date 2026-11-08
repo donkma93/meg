@@ -998,8 +998,8 @@ class AutoTrainWorker:
                             self._log(f"⭐ Auto Cộng Point [{class_code}]: +{pts} pts ({stat_desc})", "SUCCESS")
                             self.core.add_stats(p_str, p_agi, p_vit, p_ene, p_cmd)
 
-                # 2.1. Xử lý trạng thái đang trong Map Devil Square (Map 9 hoặc 32)
-                is_in_ds = (current_map_id in (9, 32)) or (hasattr(self.core, 'is_devil_event_map') and self.core.is_devil_event_map())
+                # 2.1. Xử lý trạng thái đang trong Map Devil Square (Map 9, 32, 87, 120, 209)
+                is_in_ds = (current_map_id in (9, 32, 87, 120, 209)) or (hasattr(self.core, 'is_devil_event_map') and self.core.is_devil_event_map())
                 if is_in_ds:
                     if not self.in_devil_square:
                         self.in_devil_square = True
@@ -1044,9 +1044,11 @@ class AutoTrainWorker:
                     cur_dt = datetime.now()
                     is_odd_hour = (cur_dt.hour % 2 == 1)
 
-                    # Khung giờ mở cổng chuẩn MEGAMU (Giờ lẻ :27 - :30, chuẩn bị trước 30s từ :26:30)
-                    is_prep_window = is_odd_hour and (cur_dt.minute == 26 and cur_dt.second >= 30)
-                    is_gate_open_window = is_odd_hour and ((cur_dt.minute == 27 and cur_dt.second >= 5) or (28 <= cur_dt.minute < 30))
+                    # Khung giờ mở cổng chuẩn MEGAMU (Giờ lẻ :27 - :30, chuẩn bị từ :25:00)
+                    # 1. Khung giờ chuẩn bị: Giờ lẻ từ :25:00 đến :26:59 (chuẩn bị trước 2 phút, đứng sẵn tại NPC Charon (220, 2) Event Square)
+                    is_prep_window = is_odd_hour and (25 <= cur_dt.minute < 27)
+                    # 2. Khung giờ mở cổng: Giờ lẻ từ :27:00 đến :29:59 (chính xác từng giây, TUYỆT ĐỐI KHÔNG CÓ KHOẢNG CHẾT)
+                    is_gate_open_window = is_odd_hour and (27 <= cur_dt.minute < 30)
 
                     if is_prep_window or is_gate_open_window:
                         min_rs = self.devil_min_resets
@@ -1072,6 +1074,7 @@ class AutoTrainWorker:
 
                         else:
                             # 2. ĐỦ RESET -> KIỂM TRA VÉ TRONG HÒM ĐỒ THEO ĐÚNG LOẠI VÉ ĐÃ CẤU HÌNH
+                            # QUY TẮC MEGAMU: Vé Master vào được tất cả các level có sẵn!
                             t_pref = getattr(self, "devil_ticket_type", "auto").lower()
                             t_info = self.core.get_devil_ticket_info() if hasattr(self.core, "get_devil_ticket_info") else {}
 
@@ -1130,36 +1133,55 @@ class AutoTrainWorker:
                                     time.sleep(0.8)
                                     continue
 
-                                # Nhân vật đã ở Event Square: Tiếp cận vị trí NPC Charon (225, 52)
-                                if abs(px - 225) > 5 or abs(py - 52) > 5:
+                                # Nhân vật đã ở Event Square (Map 53 hoặc 40): Tiếp cận NPC Charon (220, 2)
+                                if abs(px - 220) > 4 or abs(py - 2) > 4:
                                     if hasattr(self.core, "start_auto_move"):
-                                        self.core.start_auto_move(225, 52, helper=False)
+                                        self.core.start_auto_move(220, 2, helper=False)
                                     elif hasattr(self.core, "move_to"):
-                                        self.core.move_to(225, 52)
-                                    self._set_state("DEVIL: TIẾP CẬN CHARON (225, 52)")
+                                        self.core.move_to(220, 2)
                                     time.sleep(0.8)
                                     continue
                                 else:
                                     if hasattr(self.core, "cancel_move"):
                                         self.core.cancel_move()
+                                    if hasattr(self.core, "stop_auto_move"):
+                                        try: self.core.stop_auto_move()
+                                        except Exception: pass
 
                                 if is_prep_window:
-                                    self._set_state("DEVIL: CHỜ CỔNG MỞ (NPC CHARON)")
+                                    self._set_state(f"DEVIL: ĐỨNG YÊN CHỜ CỔNG MỞ ({px}, {py})")
+                                    # Hiển thị thông báo native "Entrance is currently closed" trên màn hình game khi đứng chờ
+                                    if not getattr(self, "prep_dialog_shown", False):
+                                        self.prep_dialog_shown = True
+                                        self._log(f"⏰ Đang đứng chờ cổng mở tại NPC Charon ({px}, {py}). Đang hiển thị thông báo trên màn hình game...", "INFO")
+                                        if hasattr(self.core, "show_modal_box"):
+                                            try: self.core.show_modal_box("DEVIL SQUARE", "Entrance is currently closed", "OK")
+                                            except Exception: pass
+                                        elif hasattr(self.core, "click_devil_npc"):
+                                            try: self.core.click_devil_npc()
+                                            except Exception: pass
                                     time.sleep(0.8)
                                     continue
 
                                 if is_gate_open_window:
-                                    # Tiến hành gửi lệnh vào cửa native mỗi 1.8s
-                                    if (now - self.last_devil_gate_attempt) >= 1.8:
+                                    self.prep_dialog_shown = False
+                                    # Đóng dialog thông báo chuẩn bị trước khi gửi lệnh vào cổng
+                                    if hasattr(self.core, "close_npc_talk"):
+                                        try: self.core.close_npc_talk()
+                                        except Exception: pass
+
+                                    # Tiến hành gửi lệnh vào cửa native: 15s đầu gửi nhanh (0.6s) để tranh slot phòng, sau đó 1.2s
+                                    gate_retry_interval = 0.6 if (cur_dt.minute == 27 and cur_dt.second < 15) else 1.2
+                                    if (now - self.last_devil_gate_attempt) >= gate_retry_interval:
                                         self.last_devil_gate_attempt = now
                                         self.devil_entry_attempts += 1
                                         self._set_state(f"DEVIL: ĐANG VÀO CỔNG... (#{self.devil_entry_attempts})")
-                                        if self.devil_entry_attempts % 3 == 1:
-                                            self._log(f"🚪 Đang gửi lệnh native vào Devil Square (Lần {self.devil_entry_attempts} - {ticket_desc})...", "INFO")
+                                        if self.devil_entry_attempts % 3 == 1 or self.devil_entry_attempts <= 3:
+                                            self._log(f"🚪 Đang gửi lệnh native vào Devil Square tại ({px}, {py}) (Lần {self.devil_entry_attempts} - {ticket_desc})...", "INFO")
                                         res = self.core.enter_devil(ticket_preference=t_pref) if hasattr(self.core, "enter_devil") else {}
                                         if res.get("success") or res.get("ok"):
                                             self._log(f"✅ Đã gửi lệnh vào Devil Square! Chờ xác nhận map...", "SUCCESS")
-                                    time.sleep(0.5)
+                                    time.sleep(0.3)
                                     continue
 
                     else:

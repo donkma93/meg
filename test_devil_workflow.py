@@ -86,7 +86,7 @@ def test_devil_lifecycle():
         fake_core.stop_helper.assert_called()
         fake_core.cancel_move.assert_called()
         fake_core.send_chat.assert_called_with("/m ev")
-        print("  [PASS] Reset = 15 (trong khoảng 10-50): Worker tạm dừng bãi train, gửi /m ev và di chuyển tới Charon (225, 52).")
+        print("  [PASS] Reset = 15 (trong khoảng 10-50): Worker tạm dừng bãi train, gửi /m ev và di chuyển tới Charon (220, 2).")
 
     # Test 3: Khung giờ mở cổng (:27:10 giờ lẻ) -> Gửi lệnh native enter_devil()
     mock_dt_gate = datetime(2026, 10, 16, 21, 27, 10)
@@ -95,8 +95,8 @@ def test_devil_lifecycle():
         fake_core.get_player_info.return_value = {
             "level": 350,
             "mapId": 53,  # Đang ở Event Square
-            "tileX": 225,
-            "tileY": 52,
+            "tileX": 220,
+            "tileY": 2,
             "isMoving": False,
             "resets": 15
         }
@@ -154,8 +154,8 @@ def test_devil_lifecycle():
     fake_core.get_player_info.return_value = {
         "level": 370,
         "mapId": 53,  # Bị đưa về Event Square
-        "tileX": 225,
-        "tileY": 52,
+        "tileX": 220,
+        "tileY": 2,
         "isMoving": False,
         "resets": 16
     }
