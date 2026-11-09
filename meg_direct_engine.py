@@ -596,9 +596,9 @@ function invokeNpcTalk(body) {
             ok = true;
         } catch (eNT) {}
     }
-    if (nativeNpcSendTalk !== null) {
+    if (!ok && nativeNpcSendTalk !== null) {
         try {
-            // Gọi trực tiếp NpcManager.GEBGEGOEFAD(body, 0) (0x1023B10) để bắt buộc mã hóa và gửi packet C3:30
+            // Fallback nếu nativeNpcTalk thất bại: Gọi NpcManager.GEBGEGOEFAD(body, 0) (0x1023B10)
             nativeNpcSendTalk(body, ptr(0));
             ok = true;
         } catch (eNST2) {}
@@ -2593,9 +2593,6 @@ try {
                             try {
                                 var nPtr = pendingMossInteractPtr;
                                 pendingMossInteractPtr = null;
-                                if (nativeCloseTalk !== null) {
-                                    try { nativeCloseTalk(); } catch (eCT) {}
-                                }
                                 invokeNpcTalk(nPtr);
                             } catch (eMossNT) {}
                         }
@@ -3320,6 +3317,60 @@ rpc.exports = {
         return false;
     },
 
+    getPlayerZen: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) return -1;
+            var inv = p.add(ptr('0x1B0')).readPointer();
+            if (inv.isNull()) return -1;
+            var zen = inv.add(ptr('0x58')).readS32();
+            var zenHigh = inv.add(ptr('0x5C')).readU32();
+            if (zenHigh > 0) {
+                var fullZen = inv.add(ptr('0x58')).readU64();
+                return fullZen;
+            }
+            return zen >= 0 ? zen : 0;
+        } catch (e) {
+            return -1;
+        }
+    },
+
+    getMossRollStatus: function() {
+        try {
+            ensureThreadAttached();
+            if (nativeGetGameUI === null) return { ready: false, isOpen: false, hasReward: false, itemCount: 0, isLoading: false };
+            var gui = nativeGetGameUI();
+            if (gui.isNull()) return { ready: false, isOpen: false, hasReward: false, itemCount: 0, isLoading: false };
+            var mossOff = off('__UI_MOSS_WINDOW__');
+            var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
+            if (mossWin.isNull()) return { ready: false, isOpen: false, hasReward: false, itemCount: 0, isLoading: false };
+
+            var win = mossWin.add(0x20).readPointer();
+            var isOpen = (!win.isNull() && win.add(0x48).readU8() === 1);
+
+            var rewStorage = mossWin.add(ptr('0x70')).readPointer();
+            var itemCount = 0;
+            if (!rewStorage.isNull()) {
+                try { itemCount = rewStorage.add(ptr('0x4C')).readS32(); } catch (eIC) {}
+            }
+
+            var timer = 0.0;
+            try { timer = mossWin.add(ptr('0x98')).readFloat(); } catch (eT) {}
+            var isLoading = (timer > 0.0);
+
+            return {
+                ready: true,
+                isOpen: isOpen,
+                hasReward: itemCount > 0,
+                itemCount: itemCount,
+                isLoading: isLoading
+            };
+        } catch (e) {
+            return { ready: false, isOpen: false, hasReward: false, itemCount: 0, isLoading: false, error: e.toString() };
+        }
+    },
+
     isMossOpen: function() {
         try {
             ensureThreadAttached();
@@ -3487,9 +3538,6 @@ rpc.exports = {
                 if (pendingMossInteractPtr !== null) {
                     var nPtr = pendingMossInteractPtr;
                     pendingMossInteractPtr = null;
-                    if (nativeCloseTalk !== null) {
-                        try { nativeCloseTalk(); } catch (eCT) {}
-                    }
                     invokeNpcTalk(nPtr);
                 }
             } else {
@@ -3655,7 +3703,7 @@ rpc.exports = {
                         }
                     }
 
-                    // 3. Đóng luôn bảng Moss nếu đang mở
+                    // 3. Phục hồi RollButton và ẩn MWindow (KHÔNG tắt GameObject của MMossMerchantWindow để có thể mở lại)
                     var mossOff = off('__UI_MOSS_WINDOW__');
                     var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
                     if (!mossWin.isNull()) {
@@ -3666,14 +3714,6 @@ rpc.exports = {
                                 try { nativeWindowHide(mWin, ptr(0)); } catch (eMWH) {}
                             }
                             mWin.add(0x48).writeU8(0);
-                        }
-                        if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
-                            try {
-                                var mGo = nativeComponentGetGameObject(mossWin);
-                                if (!mGo.isNull() && isGameObjectValid(mGo)) {
-                                    nativeGameObjectSetActive(mGo, 0, ptr(0));
-                                }
-                            } catch (eMGO) {}
                         }
                     }
                 }
@@ -3714,9 +3754,6 @@ rpc.exports = {
                 return { success: false, error: "NPC_NOT_FOUND" };
             }
 
-            if (nativeCloseTalk !== null) {
-                try { nativeCloseTalk(); } catch (eCT) {}
-            }
             var talkOk = invokeNpcTalk(npc.ptr);
             if (!talkOk && nativeUniversalNpcClick !== null) {
                 try {
@@ -7601,6 +7638,28 @@ class MegDirectEngine:
             except Exception:
                 pass
         return False
+
+    def get_player_zen(self) -> int:
+        """Lấy số lượng Zen hiện có trong thùng đồ nhân vật (UserInventory +0x58). Trả về -1 nếu không đọc được."""
+        if self.is_ready:
+            try:
+                res = self._call("getPlayerZen")
+                if res is not None:
+                    return int(res)
+            except Exception:
+                pass
+        return -1
+
+    def get_moss_roll_status(self) -> Dict[str, Any]:
+        """Lấy trạng thái thực tế của cửa sổ Moss (ready, isOpen, hasReward, itemCount, isLoading)."""
+        if self.is_ready:
+            try:
+                res = self._call("getMossRollStatus")
+                if res:
+                    return json.loads(res) if isinstance(res, str) else res
+            except Exception:
+                pass
+        return {"ready": False, "isOpen": False, "hasReward": False, "itemCount": 0, "isLoading": False}
 
     def roll_moss(self, category_id: int) -> bool:
         """Gửi gói tin quay đồ Moss Merchant cho Category ID (Zero-Focus, Native Memory)."""
