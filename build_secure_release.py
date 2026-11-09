@@ -95,8 +95,9 @@ def run_nuitka_build():
     cmd = [
         sys.executable, "-m", "nuitka",
         "--onefile",
+        "--onefile-no-compression",
         "--assume-yes-for-downloads",
-        "--windows-disable-console",
+        "--windows-console-mode=disable",
         "--windows-uac-admin",
         "--enable-plugin=tk-inter",
         "--enable-plugin=no-qt",
