@@ -96,7 +96,7 @@
       "server": 1,
       "enabled": true,
       "source": "registry",
-      "token": "a414717dcbb4c270c4a308b29bccb9ec"
+      "token": "794dbcc6c5524796366e4f663a20070b"
     },
     {
       "username": "hqneu511",
@@ -195,7 +195,7 @@
     {
       "username": "dtn2026",
       "nickname": "dtn2026",
-      "token": "17d4d577eab5d0ce0259b951f634acd4",
+      "token": "093f6eebae5af2a4eda83082a0b7dcdf",
       "character": "dtn199x",
       "characters_list": [
         "dtn199x"
@@ -223,6 +223,31 @@
       "character": "Cursor",
       "characters_list": [
         "Cursor"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "viyeu93",
+      "nickname": "viyeu93",
+      "token": "8f7d9517252b9d22a22fab314dcea72c",
+      "character": "pvSlayer",
+      "characters_list": [
+        "pvSlayer",
+        "donmoss"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "thuydon",
+      "nickname": "thuydon",
+      "token": "f899ee29edea5ae0ae75695585371e6d",
+      "character": "ELFTOP1v",
+      "characters_list": [
+        "ELFTOP1v"
       ],
       "server": 1,
       "enabled": true,

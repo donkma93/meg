@@ -1535,7 +1535,8 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
             // --- LƯỚI AN TOÀN: các vật phẩm quý KHÔNG BAO GIỜ được dọn ---
             // (kể cả khi đọc Index thất bại: ngọc, vé sự kiện, rương, cánh, pet...)
             "jewel", "jóia", "joia", "pedra", "gema", "ngọc",
-            "bless", "soul", "chaos", "harmony", "creation", "life", "guardian",
+            "bless", "soul", "chaos", "harmony", "creation", "life",
+            "jewel of guardian", "joia do guardiao", "jóia do guardião", "đá hộ mệnh",
             "ticket", "vé", "mirror", "gương",
             "box", "rương", "wing", "cánh", "feather", "lông", "cloak",
             "seed", "fruit", "rune", "gem", "stone", "scroll", "horn",
@@ -1550,7 +1551,7 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
     return false;
 }
 
-function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics) {
+function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics, cleanEquipmentTrash) {
     if (itemIndex < 0) return true; // Không rõ item -> bảo vệ an toàn
 
     // 1. Đồ Divine, Đồ Rồng, Master/Ruud/High-tier
@@ -1595,20 +1596,23 @@ function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt,
 
     // 8. Giới hạn phạm vi theo danh mục Moss đang quay:
     // Nếu đang quay Moss danh mục X thì CHỈ các món đồ rác thường thuộc danh mục X mới được phép dọn!
-    // Các trang bị khác loại người chơi mang theo người TUYỆT ĐỐI KHÔNG ĐƯỢC ĐỘNG VÀO.
+    // Ngoại lệ: Khi cleanEquipmentTrash == true, cho phép vứt cả đồ rác của quần áo (sec 7..11) và vũ khí (sec 0..6).
     if (mossCat !== null && mossCat !== undefined && mossCat >= 0) {
-        var matchCat = false;
-        // Khớp chuẩn 100% với danh mục Moss trong Game MEGAMU (MOSS_CAT_OPTIONS):
-        if (mossCat === 0 && (sec === 0 || sec === 1 || sec === 3)) matchCat = true;       // 0: Kiếm, Rìu, Thương (Sword, Axe, Spear)
-        else if (mossCat === 1 && sec === 2) matchCat = true;                              // 1: Chùy & Trượng (Mace, Scepter)
-        else if (mossCat === 2 && sec === 4) matchCat = true;                              // 2: Cung & Nỏ (Bow, Crossbow)
-        else if (mossCat === 3 && sec === 5) matchCat = true;                              // 3: Gậy Phép & Sách (Staff, Book)
-        else if (mossCat === 4 && sec === 6) matchCat = true;                              // 4: Khiên (Shield)
-        else if (mossCat === 5 && isBasicMossJewelry) matchCat = true;                     // 5: Trang Sức (Pendant, Ring)
-        else if (mossCat >= 6 && sec <= 11) matchCat = true;                               // 6..11: Nhóm ngọc (Soul/Bless/Chaos quay ra mọi loại đồ)
-        
-        // Không thuộc loại đồ đang quay của Moss -> BẢO VỆ TUYỆT ĐỐI
-        if (!matchCat) return true;
+        var isEquipTrash = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true") && (sec >= 0 && sec <= 11);
+        if (!isEquipTrash) {
+            var matchCat = false;
+            // Khớp chuẩn 100% với danh mục Moss trong Game MEGAMU (MOSS_CAT_OPTIONS):
+            if (mossCat === 0 && (sec === 0 || sec === 1 || sec === 3)) matchCat = true;       // 0: Kiếm, Rìu, Thương (Sword, Axe, Spear)
+            else if (mossCat === 1 && sec === 2) matchCat = true;                              // 1: Chùy & Trượng (Mace, Scepter)
+            else if (mossCat === 2 && sec === 4) matchCat = true;                              // 2: Cung & Nỏ (Bow, Crossbow)
+            else if (mossCat === 3 && sec === 5) matchCat = true;                              // 3: Gậy Phép & Sách (Staff, Book)
+            else if (mossCat === 4 && sec === 6) matchCat = true;                              // 4: Khiên (Shield)
+            else if (mossCat === 5 && isBasicMossJewelry) matchCat = true;                     // 5: Trang Sức (Pendant, Ring)
+            else if (mossCat >= 6 && sec <= 11) matchCat = true;                               // 6..11: Nhóm ngọc (Soul/Bless/Chaos quay ra mọi loại đồ)
+            
+            // Không thuộc loại đồ đang quay của Moss -> BẢO VỆ TUYỆT ĐỐI
+            if (!matchCat) return true;
+        }
     }
 
     return false; // Chỉ những món đồ rác thường không Exc/Ancient/Socket/Harmony/Divine mới bị dọn
@@ -1616,7 +1620,7 @@ function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt,
 
 // Trả về MÃ LÝ DO vì sao một món bị GIỮ LẠI (null = được phép dọn).
 // Phản chiếu đúng logic của isItemProtected() nhưng trả về lý do để hiển thị cho người dùng.
-function itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics) {
+function itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics, cleanEquipmentTrash) {
     if (itemIndex < 0) return "unknown_item";
     if (!ignoreTypeHeuristics && isDivineOrDragonItem(itemPtr, itemIndex)) return "divine_or_dragon";
     if (excOpt > 0) return "excellent";
@@ -1645,15 +1649,18 @@ function itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, soc
     if (!isBasicMossJewelry && sec >= 12 && sec <= 15) return "jewel_section";
 
     if (mossCat !== null && mossCat !== undefined && mossCat >= 0) {
-        var matchCat = false;
-        if (mossCat === 0 && (sec === 0 || sec === 1 || sec === 3)) matchCat = true;
-        else if (mossCat === 1 && sec === 2) matchCat = true;
-        else if (mossCat === 2 && sec === 4) matchCat = true;
-        else if (mossCat === 3 && sec === 5) matchCat = true;
-        else if (mossCat === 4 && sec === 6) matchCat = true;
-        else if (mossCat === 5 && isBasicMossJewelry) matchCat = true;
-        else if (mossCat >= 6 && sec <= 11) matchCat = true;
-        if (!matchCat) return "wrong_moss_category";
+        var isEquipTrash = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true") && (sec >= 0 && sec <= 11);
+        if (!isEquipTrash) {
+            var matchCat = false;
+            if (mossCat === 0 && (sec === 0 || sec === 1 || sec === 3)) matchCat = true;
+            else if (mossCat === 1 && sec === 2) matchCat = true;
+            else if (mossCat === 2 && sec === 4) matchCat = true;
+            else if (mossCat === 3 && sec === 5) matchCat = true;
+            else if (mossCat === 4 && sec === 6) matchCat = true;
+            else if (mossCat === 5 && isBasicMossJewelry) matchCat = true;
+            else if (mossCat >= 6 && sec <= 11) matchCat = true;
+            if (!matchCat) return "wrong_moss_category";
+        }
     }
     return null;
 }
@@ -5677,7 +5684,7 @@ rpc.exports = {
         return false;
     },
 
-    getInventorySummary: function(mossCategory, maxJunkLevel) {
+    getInventorySummary: function(mossCategory, maxJunkLevel, cleanEquipmentTrash) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
@@ -5703,6 +5710,7 @@ rpc.exports = {
             var keptSlots = [];
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
             var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 4;
+            var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
 
             for (var s = 12; s < maxSlot; s++) {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
@@ -5720,10 +5728,10 @@ rpc.exports = {
                 var harmonyOpt = itemPtr.add(0x2C).readS32();
 
                 var isSpecial = isDivineOrDragonItem(itemPtr, itemIndex);
-                var isKept = isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl);
+                var isKept = isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquip);
                 var isSellableMossPlus = (
                     itemLevel >= 5 && itemLevel <= 7 &&
-                    !isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, 7)
+                    !isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, 7, false, cleanEquip)
                 );
                 var isExt = (s >= 76);
                 var itName = getItemName(itemPtr);
@@ -5782,7 +5790,7 @@ rpc.exports = {
         }
     },
 
-    cleanInventoryJunk: function(method, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel) {
+    cleanInventoryJunk: function(method, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel, cleanEquipmentTrash) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
@@ -5885,7 +5893,7 @@ rpc.exports = {
                 var harmonyOpt = itemPtr.add(0x2C).readS32();
 
                 // HARD SAFETY GUARD 3: BẢO VỆ TOÀN DIỆN VẬT PHẨM GIÁ TRỊ VÀ THEO DANH MỤC MOSS
-                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl)) {
+                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquipmentTrash)) {
                     continue;
                 }
 
@@ -5983,12 +5991,13 @@ rpc.exports = {
     // mode: "drop" | "sell" | "auto"
     // Kết quả: { cleaned, dropped, sold, total, failed, reason, ... }
     // ------------------------------------------------------------------------
-    disposeJunkItems: function(mode, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel, maxBatch, ignoreTypeHeuristics) {
+    disposeJunkItems: function(mode, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel, maxBatch, ignoreTypeHeuristics, cleanEquipmentTrash) {
         var startedAt = Date.now();
         try {
             ensureThreadAttached();
             var modeVal = String(mode || "auto").toLowerCase();
             var ignType = (ignoreTypeHeuristics === 1 || ignoreTypeHeuristics === true || ignoreTypeHeuristics === "true");
+            var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
             var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 6;
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
             var cleanExt = (includeExtended === 1 || includeExtended === true || includeExtended === "true" || includeExtended === undefined);
@@ -6043,8 +6052,8 @@ rpc.exports = {
                 // thì chỉ áp bộ lọc thuộc tính (Exc/Set/Socket/Harmony/cấp), bỏ qua
                 // isDivineOrDragonItem (vốn chặn nhầm rất nhiều đồ Moss thường).
                 if (ignType) {
-                    if (itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, true)) continue;
-                } else if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl)) {
+                    if (itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, true, cleanEquip)) continue;
+                } else if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquip)) {
                     continue;
                 }
                 candidates.push(s);
@@ -6149,10 +6158,11 @@ rpc.exports = {
     // PHÂN TÍCH HÒM ĐỒ: vì sao món nào bị giữ lại, món nào đủ điều kiện dọn.
     // Dùng để trả lời câu hỏi "tại sao bấm Ném mà không mất món nào".
     // ------------------------------------------------------------------------
-    analyzeJunkInventory: function(protectedSlotsJson, mossCategory, maxJunkLevel, includeExtended, ignoreTypeHeuristics) {
+    analyzeJunkInventory: function(protectedSlotsJson, mossCategory, maxJunkLevel, includeExtended, ignoreTypeHeuristics, cleanEquipmentTrash) {
         try {
             ensureThreadAttached();
             var ignType = (ignoreTypeHeuristics === 1 || ignoreTypeHeuristics === true || ignoreTypeHeuristics === "true");
+            var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
             var out = {
                 ok: false, total: 0, occupied: 0, junk: 0, protected: 0,
                 byReason: {}, slots: [], mossOpen: false, merchantOpen: false,
@@ -6210,12 +6220,12 @@ rpc.exports = {
                 var nm = "";
                 var why = null;
                 if (!ignType) {
-                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, false);
+                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, false, cleanEquip);
                     if (!why && out.junk < 40) {
                         try { nm = getItemName(itPtr) || ""; } catch (eNm1) {}
                     }
                 } else {
-                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, true);
+                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, true, cleanEquip);
                     if (!why && out.junk < 40) {
                         try { nm = getItemName(itPtr) || ""; } catch (eNm2) {}
                     }
@@ -8419,13 +8429,13 @@ class MegDirectEngine:
 
     get_latest_telemetry = get_player_info
 
-    def get_inventory_summary(self, category: Optional[int] = None, max_junk_level: int = 4) -> Dict[str, Any]:
-        """Lấy thông tin tổng quan hòm đồ chính (số ô trống, số đồ rác, đồ giữ lại). Hỗ trợ lọc theo danh mục Moss category và max_junk_level."""
+    def get_inventory_summary(self, category: Optional[int] = None, max_junk_level: int = 4, clean_equipment_trash: bool = False) -> Dict[str, Any]:
+        """Lấy thông tin tổng quan hòm đồ chính (số ô trống, số đồ rác, đồ giữ lại). Hỗ trợ lọc theo danh mục Moss category, max_junk_level và clean_equipment_trash."""
         if self.is_ready:
             try:
                 cat_val = int(category) if category is not None and category >= 0 else -1
                 lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 4
-                res_str = self._call("getInventorySummary", cat_val, lvl_val)
+                res_str = self._call("getInventorySummary", cat_val, lvl_val, 1 if clean_equipment_trash else 0)
                 if res_str:
                     return json.loads(res_str)
             except Exception as e:
@@ -8440,7 +8450,8 @@ class MegDirectEngine:
         include_extended: bool = True,
         max_junk_level: int = 4,
         max_batch: int = 40,
-        ignore_type_heuristics: bool = False
+        ignore_type_heuristics: bool = False,
+        clean_equipment_trash: bool = False
     ) -> Dict[str, Any]:
         """Dọn rác trong Main Inventory & Ba lô mở rộng, có xác minh từng ô.
 
@@ -8448,6 +8459,9 @@ class MegDirectEngine:
           - "drop"/"trash"/"both" : chỉ vứt ra đất (cần đứng ngoài safe-zone)
           - "sell"                : chỉ bán cho Merchant đang mở
           - "auto"                : vứt trước, nếu server chặn thì tự bán (khuyến nghị)
+
+        clean_equipment_trash:
+          - True                  : vứt cả đồ rác của quần áo (sec 7..11) và vũ khí (sec 0..6) ngoài đồ Moss.
 
         Trả về dict gồm: cleaned, dropped, sold, total, failed, reason, coord, merchantOpen...
         `reason` cho biết chính xác vì sao thất bại: drop_blocked (safe-zone),
@@ -8460,6 +8474,7 @@ class MegDirectEngine:
         cat_val = int(category) if category is not None and category >= 0 else -1
         ext_val = 1 if include_extended else 0
         lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 4
+        clean_equip_val = 1 if clean_equipment_trash else 0
 
         m = str(method or "drop").lower()
         if m in ("trash", "both"):
@@ -8473,7 +8488,7 @@ class MegDirectEngine:
         try:
             res_str = self._call(
                 "disposeJunkItems", mode, prot_json, cat_val, ext_val, lvl_val, int(max_batch),
-                1 if ignore_type_heuristics else 0
+                1 if ignore_type_heuristics else 0, clean_equip_val
             )
             if res_str:
                 data = json.loads(res_str)
@@ -8486,7 +8501,7 @@ class MegDirectEngine:
 
         # Fallback: hợp đồng cũ (cleanInventoryJunk) cho engine/JS cũ.
         try:
-            res_str = self._call("cleanInventoryJunk", str(method), prot_json, cat_val, ext_val, lvl_val)
+            res_str = self._call("cleanInventoryJunk", str(method), prot_json, cat_val, ext_val, lvl_val, clean_equip_val)
             if res_str:
                 return json.loads(res_str)
         except Exception as e:
@@ -8502,6 +8517,7 @@ class MegDirectEngine:
         max_junk_level: int = 6,
         max_batch: int = 40,
         ignore_type_heuristics: bool = False,
+        clean_equipment_trash: bool = False,
     ) -> Dict[str, Any]:
         """API trực tiếp cho pipeline dọn rác v2 (vứt -> bán -> xác minh)."""
         return self.clean_inventory_junk(
@@ -8512,6 +8528,7 @@ class MegDirectEngine:
             max_junk_level=max_junk_level,
             max_batch=max_batch,
             ignore_type_heuristics=ignore_type_heuristics,
+            clean_equipment_trash=clean_equipment_trash,
         )
 
     def analyze_junk_inventory(
@@ -8521,6 +8538,7 @@ class MegDirectEngine:
         protected_slots: Optional[List[int]] = None,
         include_extended: bool = True,
         ignore_type_heuristics: bool = False,
+        clean_equipment_trash: bool = False,
     ) -> Dict[str, Any]:
         """Liệt kê từng món trong hòm đồ + lý do bị giữ lại (nếu có).
 
@@ -8537,7 +8555,8 @@ class MegDirectEngine:
             lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 6
             ext_val = 1 if include_extended else 0
             ign_val = 1 if ignore_type_heuristics else 0
-            res_str = self._call("analyzeJunkInventory", prot_json, cat_val, lvl_val, ext_val, ign_val)
+            clean_equip_val = 1 if clean_equipment_trash else 0
+            res_str = self._call("analyzeJunkInventory", prot_json, cat_val, lvl_val, ext_val, ign_val, clean_equip_val)
             if res_str:
                 return json.loads(res_str)
         except Exception as e:

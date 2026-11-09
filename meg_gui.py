@@ -1380,7 +1380,8 @@ class ConfigPersistenceManager:
                                 "category": int(conf.get("category", 0)),
                                 "delay_ms": int(conf.get("delay_ms", 1000)),
                                 "max_rolls": int(conf.get("max_rolls", 0)),
-                                "auto_clean": bool(conf.get("auto_clean", True))
+                                "auto_clean": bool(conf.get("auto_clean", True)),
+                                "clean_equipment_trash": bool(conf.get("clean_equipment_trash", True))
                             }
                         except Exception:
                             pass
@@ -1389,7 +1390,7 @@ class ConfigPersistenceManager:
             return res
 
     @classmethod
-    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0, auto_clean: bool = True):
+    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0, auto_clean: bool = True, clean_equipment_trash: bool = True):
         """Lưu cấu hình Auto Moss của riêng Slot slot_idx."""
         with cls._lock:
             cur = cls.load_moss_configs()
@@ -1397,7 +1398,8 @@ class ConfigPersistenceManager:
                 "category": int(cat),
                 "delay_ms": int(delay_ms),
                 "max_rolls": int(max_rolls),
-                "auto_clean": bool(auto_clean)
+                "auto_clean": bool(auto_clean),
+                "clean_equipment_trash": bool(clean_equipment_trash)
             }
             try:
                 store = {}
@@ -1718,6 +1720,7 @@ class SlotController:
         self.moss_max_junk_level: int = 6
         self.moss_ignore_junk_type: bool = False
         self.moss_auto_clean: bool = True
+        self.moss_clean_equipment_trash: bool = True
         self.moss_rolls_count: int = 0
         self.moss_running: bool = False
         self.moss_worker_thread: Optional[threading.Thread] = None
@@ -2377,7 +2380,14 @@ class SlotController:
             self.moss_initial_slots = set()
             if eng and eng.is_ready:
                 try:
-                    init_inv = eng.get_inventory_summary(category=self.moss_category)
+                    clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
+                    # Nếu clean_equipment_trash bật: dùng category=-1 để các ô rác quần áo/vũ khí không bị lock vào protected_slots
+                    snap_cat = -1 if clean_equip else self.moss_category
+                    init_inv = eng.get_inventory_summary(
+                        category=snap_cat,
+                        max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
+                        clean_equipment_trash=clean_equip
+                    )
                     if init_inv and not init_inv.get("error"):
                         for item in init_inv.get("keptSlots", []):
                             s_num = item.get("slot")
@@ -2402,16 +2412,22 @@ class SlotController:
                 # 1. Proactive auto-clean: Kiểm tra hòm đồ trước khi quay
                 if self.moss_auto_clean and eng and eng.is_ready:
                     try:
-                        inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
+                        clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
+                        inv = eng.get_inventory_summary(
+                            category=self.moss_category,
+                            max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
+                            clean_equipment_trash=clean_equip
+                        )
                         if inv and not inv.get("error"):
                             free_slots = int(inv.get("free", 64))
                             junk_count = int(inv.get("junkCount", 0))
                             moss_plus = int(inv.get("mossPlusCount", 0))
 
-                            # Nếu còn ít ô trống và có đồ rác thường (+0..+6 thuộc danh mục Moss) -> dọn an toàn
+                            # Nếu còn ít ô trống và có đồ rác thường (+0..+6 thuộc danh mục Moss hoặc quần áo/vũ khí rác) -> dọn an toàn
                             if free_slots < (min_slots_needed + 4) and junk_count > 0:
-                                self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác Moss..."
+                                equip_tag = " (kèm quần áo/vũ khí rác)" if clean_equip else ""
+                                self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count, eq=equip_tag: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác Moss{eq}..."
                                 ))
                                 c_res = eng.clean_inventory_junk(
                                     "auto",
@@ -2420,13 +2436,15 @@ class SlotController:
                                     include_extended=True,
                                     max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                                     ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                                    clean_equipment_trash=clean_equip,
                                 )
                                 cleaned = int(c_res.get("cleaned", 0) or 0)
                                 reason = str(c_res.get("reason", "") or "")
                                 dropped_n = int(c_res.get("dropped", 0) or 0)
                                 sold_n = int(c_res.get("sold", 0) or 0)
-                                self.app.after(0, lambda s=self.slot_idx, c=cleaned, d=dropped_n, sl=sold_n, r=reason: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss (vứt {d}, bán {sl}, kết quả: {r}). "
+                                equip_log = " (+ quần áo, vũ khí rác)" if clean_equip else ""
+                                self.app.after(0, lambda s=self.slot_idx, c=cleaned, d=dropped_n, sl=sold_n, r=reason, eq=equip_log: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss{eq} (vứt {d}, bán {sl}, kết quả: {r}). "
                                     f"Bảo vệ: Divine/Rồng/Exc/Socket/Set/Đồ >= +7/Ngọc."
                                 ))
                                 if cleaned == 0 and reason in ("drop_blocked", "merchant_closed", "server_rejected", "send_failed"):
@@ -2538,6 +2556,7 @@ class SlotController:
                         # Thử dọn rác an toàn nếu được bật (auto: vứt -> bán -> xác minh)
                         if self.moss_auto_clean and eng and eng.is_ready:
                             try:
+                                clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
                                 c_res = eng.clean_inventory_junk(
                                     "auto",
                                     protected_slots=list(getattr(self, "moss_initial_slots", None) or []),
@@ -2545,11 +2564,13 @@ class SlotController:
                                     include_extended=True,
                                     max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                                     ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                                    clean_equipment_trash=clean_equip,
                                 )
                                 cleaned_items = int(c_res.get("cleaned", 0) or 0)
                                 if cleaned_items > 0:
-                                    self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
-                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss khi bị đầy (an toàn). Thử quay tiếp..."
+                                    equip_log = " (kèm quần áo/vũ khí rác)" if clean_equip else ""
+                                    self.app.after(0, lambda s=self.slot_idx, c=cleaned_items, eq=equip_log: self.app.append_moss_log(
+                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss{eq} khi bị đầy (an toàn). Thử quay tiếp..."
                                     ))
                                     time.sleep(0.3)
                                     consecutive_fails = 0
@@ -2888,6 +2909,7 @@ class SlotController:
 
                 # 2. Thực hiện ném đồ rác tại chỗ (category=-1 nghĩa là dọn sạch mọi đồ rác thường +0..+6 trong hòm đồ)
                 # (bảo vệ tuyệt đối đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)
+                clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
                 c_res = eng.clean_inventory_junk(
                     str(method),
                     protected_slots=[] if force_clean else list(getattr(self, "moss_initial_slots", None) or []),
@@ -2895,6 +2917,7 @@ class SlotController:
                     include_extended=True,
                     max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                     ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                    clean_equipment_trash=clean_equip,
                 )
                 cleaned = int(c_res.get("cleaned", 0)) if isinstance(c_res, dict) else 0
                 total_junk = int(c_res.get("total", c_res.get("totalJunk", 0)) or 0) if isinstance(c_res, dict) else 0
@@ -2914,6 +2937,7 @@ class SlotController:
                         include_extended=True,
                         max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                         ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                        clean_equipment_trash=clean_equip,
                     )
                     if isinstance(sell_res, dict) and int(sell_res.get("cleaned", 0) or 0) > 0:
                         c_res = sell_res
@@ -2979,11 +3003,13 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
         try:
+            clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
             res = eng.analyze_junk_inventory(
                 category=-1,
                 max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                 protected_slots=[],
                 ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                clean_equipment_trash=clean_equip,
             )
         except Exception as e:
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi phân tích hòm đồ: {e}")
@@ -4565,6 +4591,7 @@ class DashboardApp(ctk.CTk):
             ctrl.moss_delay_ms = int(c_data.get("delay_ms", 1000))
             ctrl.moss_max_rolls = int(c_data.get("max_rolls", 0))
             ctrl.moss_auto_clean = bool(c_data.get("auto_clean", True))
+            ctrl.moss_clean_equipment_trash = bool(c_data.get("clean_equipment_trash", True))
             ctrl.mirror_enabled = (i in mirror_sel) if (mirror_sel is not None) else True
             ctrl.moss_enabled = (i in moss_sel) if (moss_sel is not None) else True
             self.controllers.append(ctrl)
@@ -8199,7 +8226,25 @@ class DashboardApp(ctk.CTk):
             command=self.on_toggle_global_moss_clean
         )
         self.batch_moss_clean_cb.select()
-        self.batch_moss_clean_cb.pack(side="left", padx=(0, 10))
+        self.batch_moss_clean_cb.pack(side="left", padx=(0, 6))
+
+        self.cb_clean_equipment_trash = ctk.CTkCheckBox(
+            tb_row2,
+            text="👕 Vứt quần áo & vũ khí rác",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#38bdf8",
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            command=self.on_toggle_clean_equipment_trash
+        )
+        self.cb_clean_equipment_trash.select()
+        self.cb_clean_equipment_trash.pack(side="left", padx=(0, 10))
+        add_tooltip(
+            self.cb_clean_equipment_trash,
+            "👕 Vứt quần áo & vũ khí rác (Clean Equipment Trash)\n"
+            "Khi bật: Ngoài các món đồ rác sinh ra từ Moss, bot sẽ dọn sạch cả các món quần áo rác (mũ, áo, quần, găng, giày)\n"
+            "và vũ khí rác thường (+0..+6 không có tính năng) trong hòm đồ để tránh bị đầy thùng đồ."
+        )
 
         btn_clean_all = ctk.CTkButton(
             tb_row2,
@@ -8706,9 +8751,26 @@ class DashboardApp(ctk.CTk):
         is_clean = bool(self.batch_moss_clean_cb.get()) if hasattr(self, "batch_moss_clean_cb") else True
         for i, ctrl in enumerate(self.controllers, 1):
             ctrl.moss_auto_clean = is_clean
-            ConfigPersistenceManager.save_moss_config(i, ctrl.moss_category, ctrl.moss_delay_ms, ctrl.moss_max_rolls, is_clean)
+            ConfigPersistenceManager.save_moss_config(
+                i, ctrl.moss_category, ctrl.moss_delay_ms, ctrl.moss_max_rolls, is_clean,
+                getattr(ctrl, "moss_clean_equipment_trash", True)
+            )
         status_txt = "BẬT" if is_clean else "TẮT"
         self.append_moss_log(f"🧹 Đã {status_txt} tính năng Tự Động Dọn Rác cho tất cả các Slot!")
+
+    def on_toggle_clean_equipment_trash(self):
+        """Bật / Tắt việc vứt các món đồ rác của quần áo (sec 7..11) và vũ khí (sec 0..6) ngoài đồ Moss."""
+        val = bool(self.cb_clean_equipment_trash.get()) if hasattr(self, "cb_clean_equipment_trash") else True
+        for i, ctrl in enumerate(self.controllers, 1):
+            ctrl.moss_clean_equipment_trash = val
+            ConfigPersistenceManager.save_moss_config(
+                i, ctrl.moss_category, ctrl.moss_delay_ms, ctrl.moss_max_rolls, ctrl.moss_auto_clean, val
+            )
+        status_txt = "BẬT" if val else "TẮT"
+        if val:
+            self.append_moss_log("👕 Đã BẬT 'Vứt quần áo & vũ khí rác': Bot sẽ tự động vứt cả quần áo rác và vũ khí rác thường (+0..+6 không tính năng).")
+        else:
+            self.append_moss_log("ℹ️ Đã TẮT 'Vứt quần áo & vũ khí rác': Bot chỉ vứt các vật phẩm thuộc danh mục Moss đang quay.")
 
     def on_toggle_ignore_junk_type(self):
         """Bật/tắt việc bỏ qua bộ lọc theo TÊN/LOẠI item khi dọn rác.
@@ -8777,6 +8839,7 @@ class DashboardApp(ctk.CTk):
                         max_junk_level=int(getattr(ctrl, "moss_max_junk_level", 6) or 6),
                         protected_slots=[],
                         ignore_type_heuristics=bool(getattr(ctrl, "moss_ignore_junk_type", False)),
+                        clean_equipment_trash=bool(getattr(ctrl, "moss_clean_equipment_trash", True)),
                     )
                     reports.append((ctrl, res))
                 except Exception as e:
@@ -8809,6 +8872,8 @@ class DashboardApp(ctk.CTk):
 
         total_junk = 0
         total_held = 0
+        total_clothes = 0
+        total_weapons = 0
         lines = []
         for ctrl, res in reports:
             if not isinstance(res, dict) or not res.get("ok"):
@@ -8819,9 +8884,22 @@ class DashboardApp(ctk.CTk):
             held = [s for s in (res.get("slots") or []) if s.get("status") == "protected"]
             total_junk += len(junk)
             total_held += len(held)
+            clothes_cnt = sum(1 for it in junk if 7 <= (it.get("section") or -1) <= 11)
+            weapons_cnt = sum(1 for it in junk if 0 <= (it.get("section") or -1) <= 6)
+            total_clothes += clothes_cnt
+            total_weapons += weapons_cnt
+            breakdown_parts = []
+            if clothes_cnt > 0:
+                breakdown_parts.append(f"quần áo: {clothes_cnt}")
+            if weapons_cnt > 0:
+                breakdown_parts.append(f"vũ khí: {weapons_cnt}")
+            other_cnt = len(junk) - clothes_cnt - weapons_cnt
+            if other_cnt > 0:
+                breakdown_parts.append(f"khác: {other_cnt}")
+            breakdown_str = f" ({', '.join(breakdown_parts)})" if breakdown_parts else ""
             lines.append(
                 f"[Slot {ctrl.slot_idx:02d} - {ctrl.char_name}] {res.get('occupied', 0)} món | "
-                f"dọn được {len(junk)} | giữ {len(held)} | ({coord.get('x', '?')},{coord.get('y', '?')}) | "
+                f"dọn được {len(junk)}{breakdown_str} | giữ {len(held)} | ({coord.get('x', '?')},{coord.get('y', '?')}) | "
                 f"Merchant {'MỞ' if res.get('merchantOpen') else 'ĐÓNG'}"
             )
             for k, v in sorted((res.get("byReason") or {}).items(), key=lambda kv: -kv[1]):
@@ -8846,9 +8924,10 @@ class DashboardApp(ctk.CTk):
             variable=mode_var, width=220, font=ctk.CTkFont(family="Segoe UI", size=11)
         ).pack(side="left")
 
+        summary_breakdown = f" (gồm {total_clothes} quần áo, {total_weapons} vũ khí)" if (total_clothes > 0 or total_weapons > 0) else ""
         ctk.CTkLabel(
             dlg,
-            text=f"Tổng: dọn được {total_junk} món · giữ {total_held} món. "
+            text=f"Tổng: dọn được {total_junk} món{summary_breakdown} · giữ {total_held} món. "
                  f"Slot 0-11 (trang bị) và đồ Exc/Set/Socket/Harmony/Ngọc luôn được bảo vệ.",
             font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8"
         ).pack(pady=(6, 0))
@@ -8899,6 +8978,7 @@ class DashboardApp(ctk.CTk):
                         include_extended=True,
                         max_junk_level=int(getattr(ctrl, "moss_max_junk_level", 6) or 6),
                         ignore_type_heuristics=bool(getattr(ctrl, "moss_ignore_junk_type", False)),
+                        clean_equipment_trash=bool(getattr(ctrl, "moss_clean_equipment_trash", True)),
                     )
                     cleaned = int((out or {}).get("cleaned", 0) or 0)
                     total += cleaned
