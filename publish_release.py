@@ -38,7 +38,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.7"
+    return "v1.5.8"
 
 def get_github_token() -> str:
     p = subprocess.Popen(
@@ -136,8 +136,8 @@ def create_release_zip(release_dir: Path, zip_dest: Path):
             for f in files:
                 f_path = Path(root) / f
                 name_lower = f.lower()
-                # Bao mat: khong bao gio dong goi license ca nhan, tai khoan, offsets
-                if name_lower.endswith(".old") or name_lower in ("license.json", "megamu_offsets.json", "megamu_accounts.json") or name_lower.endswith(".log"):
+                # Bao mat: khong bao gio dong goi license ca nhan, tai khoan, offsets, token
+                if name_lower.endswith(".old") or name_lower in ("license.json", "megamu_offsets.json", "megamu_accounts.json", "telegram_config.json") or name_lower.endswith(".log"):
                     continue
                 rel_path = f_path.relative_to(release_dir)
                 zf.write(str(f_path), str(rel_path))
@@ -154,19 +154,19 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Tính năng mới trong bản {version}:
-- **Hệ Thống Đánh Chặn & Ghi Vết Lỗi Luồng Toàn Diện (Tri-Layer Crash Tracer):**
-  - Tích hợp 3 tầng bảo vệ lỗi ngoại lệ (`threading.Thread.run wrapping`, `threading.excepthook`, `sys.excepthook`) trong `meg_crash_tracer.py`.
-  - Tự động ghi lại toàn bộ call stack traceback và vị trí leaf frame vào `auto_crash_trace.log`, `app_exceptions.log` và log UI với định tuyến slot chính xác.
-  - Ngăn ngừa tình trạng luồng ngầm bị crash im lặng (silent crash), đảm bảo bot tự phục hồi an toàn.
-- **Tối Ưu & Triệt Tiêu Lỗi Đa Luồng Sự Kiện Double Goer (Mirror Event):**
-  - Loại bỏ hoàn toàn bùng nổ luồng (thread explosion) trong bộ lập lịch Double Goer scheduler.
-  - Áp dụng cơ chế single-flight kiểm tra vé sự kiện và ngăn chặn triệt để rò rỉ handle tiến trình.
-- **Nâng Cấp Direct Engine & Xử Lý Native MLogin:**
-  - Chuẩn hóa các offset native và chữ ký hàm cho MLogin và quản lý scene trong `meg_direct_engine.py`.
-  - Nâng cao tốc độ phản hồi và độ ổn định khi gán và nhận diện nhân vật game.
-- **Kế Thừa Đầy Đủ Các Tính Năng Cao Cấp của v1.5.6:**
-  - Auto Devil Square cấu hình chuẩn theo **Số Lần Reset** và loại vé (Master / Thường).
-  - Thanh công cụ Toolbar tinh gọn **Icon-Only** (36x30 px) kèm nút Master Toggle Chạy/Dừng Tất Cả thông minh.
+- **Tích Hợp Thông Báo Telegram Bot Tự Động Cho Sự Kiện Double Goer (Mirror of Dimensions):**
+  - Tự động nhận diện cuộc trò chuyện trực tiếp qua Telegram Bot Token (`getUpdates`), người dùng chỉ cần dán duy nhất Bot Token từ @BotFather mà không cần tìm hay nhập Chat ID thủ công.
+  - Tự động báo cáo danh sách nhân vật vào qua cổng lúc :10 và báo cáo khi nhân vật thoát ra khỏi Mirror.
+  - Cơ chế gom nhóm thông báo (Debounce 2.0s) gom toàn bộ nhân vật cùng vượt cổng vào 1 tin nhắn duy nhất, tránh spam.
+  - Nâng cấp timeout mạng lên 15 giây và bổ sung cơ chế Auto-Retry 3 lần, loại bỏ hoàn toàn lỗi timeout bắt tay SSL (`_ssl.c: The handshake operation timed out`).
+- **Nâng Cấp Toàn Diện & Tối Ưu Hệ Thống Auto Moss The Gambler:**
+  - Tự động nhận diện trạng thái cửa sổ mở sẵn, không gửi lệnh thừa làm ngắt phiên đàm thoại NPC.
+  - Tự động di chuyển tới NPC Moss tại Elbeland (22, 225) nếu nhân vật đang đứng xa hoặc ở bản đồ khác.
+  - Đọc chính xác số dư Zen 64-bit trực tiếp từ RAM (`LocalCharacterBody -> UserInventory -> Zen`), chẩn đoán lỗi chính xác (ô trống hòm đồ 4x4) và chấm dứt báo nhầm 'không có zen'.
+  - Cơ chế Polling linh hoạt và chẩn đoán biến động Zen trừ để xác nhận quay thưởng thành công.
+- **Kế Thừa Đầy Đủ Các Tính Năng của v1.5.7:**
+  - Hệ thống bẫy lỗi và ghi vết luồng 3 lớp (Tri-Layer Crash Tracer).
+  - Tối ưu hóa chu trình Double Goer và chống bùng nổ luồng kiểm tra vé.
 """
 
     release = create_or_get_release(token, version, title, body)

@@ -185,6 +185,39 @@
     "VgDongNhi_NE": [
       185,
       187
+    ],
+    "huydietall": [
+      185,
+      187
+    ],
+    "huydietall_NE": [
+      185,
+      187
+    ],
+    "VISlayer93": [
+      188,
+      70
+    ],
+    "VISlayer93_SE": [
+      188,
+      70
+    ],
+    "AngelVN": [
+      75,
+      66
+    ],
+    "AngelVN_SW": [
+      75,
+      66
     ]
+  },
+  "telegram": {
+    "bot_token": "",
+    "chat_id": "",
+    "chat_title": "",
+    "bot_username": "",
+    "enabled": true,
+    "notify_enter": true,
+    "notify_exit": true
   }
 }

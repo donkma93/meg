@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MEGAMU Auto Train Dashboard - v1.5.7
+MEGAMU Auto Train Dashboard - v1.5.8
 ====================================
 Giao diện hoàn chỉnh và thuật toán chuẩn 100% khớp MEGAMU Auto Train Dashboard gốc:
 - Giao diện 3 tab: 10 Tài khoản | Cấu hình | Nhật ký
@@ -91,12 +91,25 @@ except ImportError:
     AccountManager = None
     find_megamu_exe_path = None
 
+try:
+    from telegram_notifier import (
+        TelegramConfig,
+        MirrorTelegramNotifier,
+        send_telegram_raw,
+        test_telegram_connection,
+    )
+except ImportError:
+    TelegramConfig = None
+    MirrorTelegramNotifier = None
+    send_telegram_raw = None
+    test_telegram_connection = None
+
 
 # ==============================================================================
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.5.7"
+APP_VERSION = "v1.5.8"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -287,6 +300,7 @@ UI_SETTINGS_FILE = CONFIG_DIR / "ui_settings.json"
 MAP_COMMANDS_FILE = CONFIG_DIR / "map_commands.json"
 MOSS_CONFIG_FILE = CONFIG_DIR / "moss_slots_config.json"
 MIRROR_CONFIG_FILE = CONFIG_DIR / "mirror_schedule_config.json"
+TELEGRAM_CONFIG_FILE = CONFIG_DIR / "telegram_config.json"
 EVENT_CONFIG_FILE = CONFIG_DIR / "event_slots_config.json"
 CLASS_STAT_PROFILES_FILE = CONFIG_DIR / "class_stat_profiles.json"
 
@@ -4621,6 +4635,10 @@ class DashboardApp(ctk.CTk):
         self.account_mgr = AccountManager() if AccountManager else None
         self.autologin_ui_rows: List[Dict[str, Any]] = []
         self.autologin_delay_var = ctk.StringVar(value="3.0")
+
+        # Quản lý Telegram Notifier (Đặc biệt cho sự kiện Double Goer / Mirror)
+        self.telegram_config = TelegramConfig() if TelegramConfig else None
+        self.mirror_telegram_notifier = MirrorTelegramNotifier(self.telegram_config) if (MirrorTelegramNotifier and self.telegram_config) else None
 
         # Xây dựng giao diện hoàn chỉnh
         self.build_ui()
@@ -9457,7 +9475,34 @@ class DashboardApp(ctk.CTk):
             hover_color="#6d28d9",
             command=self.on_toggle_mirror_auto_schedule
         )
-        self.cb_mirror_auto_prep_before.pack(side="left")
+        self.cb_mirror_auto_prep_before.pack(side="left", padx=(0, 15))
+
+        self.cb_mirror_telegram_notify = ctk.CTkCheckBox(
+            row2_h,
+            text="📱 Báo Telegram",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8",
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            command=self.on_toggle_mirror_telegram_notify
+        )
+        self.cb_mirror_telegram_notify.pack(side="left", padx=(0, 8))
+
+        self.btn_mirror_telegram_settings = ctk.CTkButton(
+            row2_h,
+            text="⚙️ Cài đặt Bot",
+            width=85,
+            height=24,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#0284c7",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=self.open_mirror_telegram_settings_dialog
+        )
+        self.btn_mirror_telegram_settings.pack(side="left")
 
         # Nạp cấu hình lịch trình từ file
         try:
@@ -9484,6 +9529,15 @@ class DashboardApp(ctk.CTk):
         except Exception:
             self.cb_mirror_auto_schedule.select()
             self.cb_mirror_auto_prep_before.select()
+
+        # Nạp trạng thái checkbox Telegram
+        try:
+            if hasattr(self, "telegram_config") and self.telegram_config and self.telegram_config.enabled:
+                self.cb_mirror_telegram_notify.select()
+            else:
+                self.cb_mirror_telegram_notify.deselect()
+        except Exception:
+            pass
 
         # 2. ACTION TOOLBAR (2 hàng gọn gàng, tinh giản)
         toolbar_card = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
@@ -10535,6 +10589,363 @@ class DashboardApp(ctk.CTk):
             self.after(0, lambda: self.append_mirror_log(f"✅ Hoàn tất đưa {cnt} tài khoản về Event Map chuẩn bị sự kiện!"))
         threading.Thread(target=_prep, daemon=True).start()
 
+    def on_toggle_mirror_telegram_notify(self):
+        """Bật/Tắt nhanh thông báo Telegram cho sự kiện Mirror từ checkbox giao diện (Chỉ cần Bot Token)."""
+        if not hasattr(self, "cb_mirror_telegram_notify"):
+            return
+        val = bool(self.cb_mirror_telegram_notify.get())
+        if not hasattr(self, "telegram_config") or not self.telegram_config:
+            return
+
+        if val:
+            if not self.telegram_config.bot_token:
+                self.cb_mirror_telegram_notify.deselect()
+                self.append_mirror_log("⚠️ Chưa cài đặt Bot Token Telegram! Mở hộp thoại cài đặt...")
+                self.open_mirror_telegram_settings_dialog()
+                return
+            self.telegram_config.save(enabled=True)
+            self.append_mirror_log("📱 [Telegram] Đã BẬT thông báo Telegram cho sự kiện Double Goer (Mirror).")
+        else:
+            self.telegram_config.save(enabled=False)
+            self.append_mirror_log("⏸️ [Telegram] Đã TẮT thông báo Telegram cho sự kiện Double Goer (Mirror).")
+
+    def open_mirror_telegram_settings_dialog(self):
+        """Hộp thoại cấu hình Telegram Bot cho sự kiện Double Goer (Mirror) - Chỉ cần nhập Bot Token."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Cài Đặt Telegram Bot - Thông Báo Mirror")
+        dlg.geometry("530x480")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        try:
+            dlg.update_idletasks()
+            w, h = 530, 480
+            x = self.winfo_x() + (self.winfo_width() - w) // 2
+            y = self.winfo_y() + (self.winfo_height() - h) // 2
+            dlg.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        # Header
+        h_frame = ctk.CTkFrame(dlg, fg_color="#141722", corner_radius=0)
+        h_frame.pack(fill="x", padx=12, pady=(12, 6))
+
+        ctk.CTkLabel(
+            h_frame,
+            text="📱 CẤU HÌNH BOT TELEGRAM (CHỈ CẦN BOT TOKEN)",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#38bdf8"
+        ).pack(anchor="w", padx=12, pady=(8, 2))
+
+        ctk.CTkLabel(
+            h_frame,
+            text="Tự động nhận diện cuộc trò chuyện và báo cáo khi nhân vật vào qua cổng / thoát ra",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8"
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        # Hướng dẫn nhanh cực kỳ đơn giản
+        guide_frame = ctk.CTkFrame(dlg, fg_color="#0f172a", corner_radius=0, border_width=1, border_color="#1e293b")
+        guide_frame.pack(fill="x", padx=12, pady=(0, 6))
+
+        guide_txt = (
+            "💡 HƯỚNG DẪN 2 BƯỚC ĐƠN GIẢN:\n"
+            "1. Nhắn @BotFather trên Telegram -> gõ /newbot để tạo bot và copy Bot Token.\n"
+            "2. Mở bot của bạn trên Telegram và bấm 'START' (hoặc gửi 1 tin nhắn bất kỳ cho bot).\n"
+            "👉 Chỉ cần dán Bot Token vào ô dưới -> Hệ thống sẽ TỰ ĐỘNG kết nối tới bạn!"
+        )
+        ctk.CTkLabel(
+            guide_frame,
+            text=guide_txt,
+            justify="left",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#cbd5e1"
+        ).pack(anchor="w", padx=10, pady=8)
+
+        # Form nhập duy nhất: Bot Token
+        form_frame = ctk.CTkFrame(dlg, fg_color="#141722", corner_radius=0, border_width=1, border_color="#1e293b")
+        form_frame.pack(fill="x", padx=12, pady=(0, 6))
+
+        ctk.CTkLabel(
+            form_frame,
+            text="Bot Token:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f1f5f9"
+        ).grid(row=0, column=0, sticky="w", padx=10, pady=10)
+
+        cur_token = self.telegram_config.bot_token if hasattr(self, "telegram_config") and self.telegram_config else ""
+        token_entry = ctk.CTkEntry(
+            form_frame,
+            width=390,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            placeholder_text="Dán Bot Token (Ví dụ: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ)"
+        )
+        token_entry.grid(row=0, column=1, sticky="w", padx=10, pady=10)
+        if cur_token:
+            token_entry.insert(0, cur_token)
+
+        # Khung trạng thái tự động nhận diện
+        detect_frame = ctk.CTkFrame(dlg, fg_color="#0f172a", corner_radius=0, border_width=1, border_color="#1e293b")
+        detect_frame.pack(fill="x", padx=12, pady=(0, 6))
+
+        cur_bot_user = self.telegram_config.bot_username if hasattr(self, "telegram_config") and self.telegram_config else ""
+        cur_chat_title = self.telegram_config.chat_title if hasattr(self, "telegram_config") and self.telegram_config else ""
+        cur_chat_id = self.telegram_config.chat_id if hasattr(self, "telegram_config") and self.telegram_config else ""
+
+        bot_disp = f"🤖 Bot: @{cur_bot_user}" if cur_bot_user else "🤖 Bot: Chưa xác định"
+        lbl_bot_status = ctk.CTkLabel(
+            detect_frame,
+            text=bot_disp,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#38bdf8"
+        )
+        lbl_bot_status.pack(anchor="w", padx=10, pady=(6, 2))
+
+        if cur_chat_title:
+            chat_disp = f"👤 Nhận thông báo tại: {cur_chat_title} (ID: {cur_chat_id})"
+            chat_color = "#10b981"
+        elif cur_chat_id:
+            chat_disp = f"👤 Nhận thông báo tại ID: {cur_chat_id}"
+            chat_color = "#10b981"
+        else:
+            chat_disp = "👤 Người nhận: Tự động phát hiện khi bạn bấm START trên Telegram"
+            chat_color = "#94a3b8"
+
+        lbl_chat_status = ctk.CTkLabel(
+            detect_frame,
+            text=chat_disp,
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=chat_color
+        )
+        lbl_chat_status.pack(anchor="w", padx=10, pady=(0, 6))
+
+        # Tuỳ chọn Checkbox
+        opt_frame = ctk.CTkFrame(dlg, fg_color="transparent")
+        opt_frame.pack(fill="x", padx=12, pady=(0, 4))
+
+        cur_en = self.telegram_config.enabled if hasattr(self, "telegram_config") and self.telegram_config else False
+        cb_enable = ctk.CTkCheckBox(
+            opt_frame,
+            text="Bật gửi thông báo Telegram cho Mirror",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8",
+            fg_color="#0284c7"
+        )
+        cb_enable.pack(anchor="w", pady=(0, 3))
+        if cur_en:
+            cb_enable.select()
+        else:
+            cb_enable.deselect()
+
+        cur_in = self.telegram_config.notify_enter if hasattr(self, "telegram_config") and self.telegram_config else True
+        cb_notify_enter = ctk.CTkCheckBox(
+            opt_frame,
+            text="Báo khi nhân vật vào qua cổng: 'Nhân vật A, B, C đã vào qua cổng'",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#a7f3d0",
+            fg_color="#059669"
+        )
+        cb_notify_enter.pack(anchor="w", pady=(0, 3))
+        if cur_in:
+            cb_notify_enter.select()
+        else:
+            cb_notify_enter.deselect()
+
+        cur_out = self.telegram_config.notify_exit if hasattr(self, "telegram_config") and self.telegram_config else True
+        cb_notify_exit = ctk.CTkCheckBox(
+            opt_frame,
+            text="Báo khi nhân vật thoát ra: 'Nhân vật A, B, C đã thoát ra'",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#fde68a",
+            fg_color="#d97706"
+        )
+        cb_notify_exit.pack(anchor="w", pady=(0, 3))
+        if cur_out:
+            cb_notify_exit.select()
+        else:
+            cb_notify_exit.deselect()
+
+        # Status label kết quả kiểm tra
+        status_lbl = ctk.CTkLabel(
+            dlg,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#94a3b8"
+        )
+        status_lbl.pack(pady=(2, 6))
+
+        # Bottom Buttons
+        btn_frame = ctk.CTkFrame(dlg, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=12, pady=(4, 10))
+
+        # Bộ nhớ tạm chat_id vừa phát hiện
+        detected_context = {
+            "chat_id": cur_chat_id,
+            "chat_title": cur_chat_title,
+            "bot_username": cur_bot_user
+        }
+
+        def _do_test():
+            tok = token_entry.get().strip()
+            if not tok:
+                status_lbl.configure(text="⚠️ Vui lòng dán Bot Token trước khi kiểm tra!", text_color="#f59e0b")
+                return
+
+            status_lbl.configure(text="⏳ Đang tự động nhận diện bot và gửi tin nhắn thử nghiệm...", text_color="#38bdf8")
+
+            def _bg_test():
+                if test_telegram_connection:
+                    # Luôn ưu tiên quét getUpdates mới nhất để lấy Chat ID thật của người vừa bấm START
+                    ok, res, c_data = test_telegram_connection(tok, force_detect=True)
+                else:
+                    ok, res, c_data = False, "Chưa nạp module telegram_notifier", None
+
+                def _ui_update():
+                    if c_data:
+                        b_u = c_data.get("bot_username", "")
+                        if b_u:
+                            detected_context["bot_username"] = b_u
+                            lbl_bot_status.configure(text=f"🤖 Bot: @{b_u}")
+                        c_id = c_data.get("chat_id")
+                        if c_id:
+                            detected_context["chat_id"] = str(c_id)
+                            c_tit = c_data.get("title", str(c_id))
+                            detected_context["chat_title"] = c_tit
+                            lbl_chat_status.configure(
+                                text=f"👤 Nhận thông báo tại: {c_tit} (ID: {c_id})",
+                                text_color="#10b981"
+                            )
+                            # Tự động cập nhật vào config
+                            if hasattr(self, "telegram_config") and self.telegram_config:
+                                self.telegram_config.save(
+                                    bot_token=tok,
+                                    chat_id=str(c_id),
+                                    chat_title=c_tit,
+                                    bot_username=b_u
+                                )
+
+                    if ok:
+                        status_lbl.configure(text=res, text_color="#10b981")
+                        self.append_mirror_log("📱 [Telegram Test] Kết nối thành công!")
+                    else:
+                        status_lbl.configure(text=res, text_color="#ef4444")
+                        self.append_mirror_log(f"⚠️ [Telegram Test] {res}")
+                dlg.after(0, _ui_update)
+
+            threading.Thread(target=_bg_test, daemon=True).start()
+
+        def _do_save():
+            tok = token_entry.get().strip()
+            en = bool(cb_enable.get())
+            n_in = bool(cb_notify_enter.get())
+            n_out = bool(cb_notify_exit.get())
+
+            if en and not tok:
+                status_lbl.configure(text="⚠️ Cần nhập Bot Token nếu muốn bật thông báo!", text_color="#f59e0b")
+                return
+
+            if hasattr(self, "telegram_config") and self.telegram_config:
+                self.telegram_config.save(
+                    bot_token=tok,
+                    chat_id=detected_context.get("chat_id", ""),
+                    chat_title=detected_context.get("chat_title", ""),
+                    bot_username=detected_context.get("bot_username", ""),
+                    enabled=en,
+                    notify_enter=n_in,
+                    notify_exit=n_out
+                )
+
+            if hasattr(self, "cb_mirror_telegram_notify"):
+                if en:
+                    self.cb_mirror_telegram_notify.select()
+                else:
+                    self.cb_mirror_telegram_notify.deselect()
+
+            st_text = "BẬT" if en else "TẮT"
+            self.append_mirror_log(f"📱 [Cấu Hình Telegram] Đã lưu Bot Token. Trạng thái: {st_text} | Báo vào: {n_in} | Báo ra: {n_out}")
+            dlg.destroy()
+
+        btn_test = ctk.CTkButton(
+            btn_frame,
+            text="🧪 Nhận Diện & Test",
+            width=140,
+            height=30,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#38bdf8",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_do_test
+        )
+        btn_test.pack(side="left")
+
+        btn_cancel = ctk.CTkButton(
+            btn_frame,
+            text="Đóng",
+            width=80,
+            height=30,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=dlg.destroy
+        )
+        btn_cancel.pack(side="right", padx=(8, 0))
+
+        btn_save = ctk.CTkButton(
+            btn_frame,
+            text="💾 Lưu Cài Đặt",
+            width=110,
+            height=30,
+            corner_radius=0,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            text_color="#ffffff",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_do_save
+        )
+        btn_save.pack(side="right")
+
+    def _monitor_mirror_telemetry_for_telegram(self):
+        """Theo dõi liên tục sự kiện bước vào và thoát ra khỏi Mirror của tất cả các tài khoản."""
+        if not hasattr(self, "mirror_telegram_notifier") or not self.mirror_telegram_notifier:
+            return
+        if not self.mirror_telegram_notifier.is_enabled():
+            return
+
+        for ctrl in self.controllers:
+            if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+                self.mirror_telegram_notifier.record_character_state(
+                    char_name=ctrl.char_name or f"Slot {ctrl.slot_idx:02d}",
+                    slot_idx=ctrl.slot_idx,
+                    is_connected=False,
+                    is_in_mirror=False
+                )
+                continue
+
+            try:
+                eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
+                is_in = False
+                if eng:
+                    is_in = bool(eng.is_mirror_event_map())
+                c_name = ctrl.char_name or f"Slot {ctrl.slot_idx:02d}"
+                self.mirror_telegram_notifier.record_character_state(
+                    char_name=c_name,
+                    slot_idx=ctrl.slot_idx,
+                    is_connected=True,
+                    is_in_mirror=is_in
+                )
+            except Exception:
+                pass
+
+        self.mirror_telegram_notifier.check_and_flush(
+            log_callback=lambda msg: self.after(0, lambda m=msg: self.append_mirror_log(m))
+        )
+
     def _periodic_mirror_scheduler(self):
         """Vòng lặp tính toán đếm ngược và tự động kích hoạt sự kiện Mirror.
         - Mỗi 2 tiếng một lần: 00:15, 02:15, 04:15, ..., 22:15.
@@ -10718,6 +11129,10 @@ class DashboardApp(ctk.CTk):
                                     c.run_mirror_in_dungeon_lifecycle()
                         except Exception:
                             pass
+
+            # 7. Tự động theo dõi nhân vật vào/ra cổng Mirror để gửi thông báo Telegram
+            if hasattr(self, "_monitor_mirror_telemetry_for_telegram"):
+                self._monitor_mirror_telemetry_for_telegram()
 
         except Exception as e:
             log_thread_exception(

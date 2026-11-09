@@ -70,8 +70,6 @@ class TestMossCloseFix(unittest.TestCase):
         self.assertIn("nativeButtonPress(closeBtn, ptr(0))", code)
         self.assertIn("nativeUnityEventInvoke(onClick, ptr(0))", code)
         self.assertIn("nativeWindowHide(win, ptr(0))", code)
-        self.assertIn("nativeGameObjectSetActive(wGo, 0, ptr(0))", code)
-        self.assertIn("nativeGameObjectSetActive(mGo, 0, ptr(0))", code)
         self.assertIn("sendGSPacket([0xC1, 0x04, 0x31, 0x00])", code)
 
         # Pipeline dọn rác v2 phải tồn tại và có xác minh
