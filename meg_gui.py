@@ -2322,7 +2322,6 @@ class SlotController:
                 if eng and eng.is_ready:
                     try:
                         eng.reset_moss_ui(self.moss_category)
-                        eng.close_moss()
                     except Exception:
                         pass
                 self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
@@ -2344,6 +2343,10 @@ class SlotController:
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cs=c_str: self.app.append_moss_log(
                     f"[Slot {s:02d} - {c}] 🎯 Phát hiện bảng Moss ({cs}) ĐÃ MỞ SẴN trên màn hình! Bỏ qua tương tác NPC, bắt đầu quay..."
                 ))
+                try:
+                    eng.reset_moss_ui(self.moss_category)
+                except Exception:
+                    pass
                 npc_ready = True
             else:
                 # 1. Quét chờ NPC Moss xuất hiện thực tế quanh Elbeland (22, 225) trước khi mở bảng

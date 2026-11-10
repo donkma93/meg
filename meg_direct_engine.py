@@ -1976,10 +1976,23 @@ function setupMossWindow(mossWin, cat) {
         if (nativeMossSelectCat !== null && !catList.isNull() && catCount > 0) {
             try {
                 var items = catList.add(0x10).readPointer();
-                if (!items.isNull() && catId < catCount && catId >= 0) {
-                    var catObj = items.add(0x20 + catId * 8).readPointer();
-                    if (!catObj.isNull()) {
-                        nativeMossSelectCat(mossWin, catObj, ptr(0));
+                if (!items.isNull()) {
+                    var targetCatObj = ptr(0);
+                    for (var ci = 0; ci < catCount; ci++) {
+                        var candidate = items.add(0x20 + ci * 8).readPointer();
+                        if (!candidate.isNull()) {
+                            var cId = candidate.add(0x10).readS32();
+                            if (cId === catId) {
+                                targetCatObj = candidate;
+                                break;
+                            }
+                        }
+                    }
+                    if (targetCatObj.isNull() && catId < catCount && catId >= 0) {
+                        targetCatObj = items.add(0x20 + catId * 8).readPointer();
+                    }
+                    if (!targetCatObj.isNull()) {
+                        nativeMossSelectCat(mossWin, targetCatObj, ptr(0));
                     }
                 }
             } catch (eCat) {}
