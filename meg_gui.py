@@ -2533,7 +2533,7 @@ class SlotController:
                     except Exception:
                         pass
 
-                # Kiểm tra Zen thực tế từ RAM trước khi bấm quay
+                # Kiểm tra Zen thực tế từ RAM trước khi bấm quay (chỉ áp dụng cho nhóm quay bằng Zen 0 -> 5)
                 zen_before = -1
                 if eng and eng.is_ready:
                     try:
@@ -2541,7 +2541,7 @@ class SlotController:
                     except Exception:
                         zen_before = -1
 
-                if zen_before >= 0 and zen_before < 1_000_000:
+                if self.moss_category < 6 and zen_before >= 0 and zen_before < 1_000_000:
                     self.app.after(0, lambda s=self.slot_idx, z=zen_before: self.app.append_moss_log(
                         f"[Slot {s:02d} - {self.char_name}] ❌ Không đủ Zen để quay Moss! Hiện có: {z:,} Zen (Cần tối thiểu 1.000.000 Zen). Dừng quay an toàn."
                     ))
@@ -2557,8 +2557,8 @@ class SlotController:
 
                 ok = eng.roll_moss(self.moss_category) if eng else False
                 if ok:
-                    # Multi-channel Polling: Lắng nghe 3 tín hiệu độc lập từ Server trong tối đa 1.5s (bù độ trễ mạng VN - Brazil ~300ms)
-                    # Kênh 1: Zen bị trừ (zen_before - zen_now >= 500.000)
+                    # Multi-channel Polling: Lắng nghe 3 tín hiệu độc lập từ Server trong tối đa 2.0s (bù độ trễ mạng VN - Brazil ~300ms)
+                    # Kênh 1: Zen bị trừ (zen_before - zen_now >= 500.000, đối với danh mục Zen)
                     # Kênh 2: Món đồ mới xuất hiện trong hòm đồ (inv_after vs inv_before)
                     # Kênh 3: RewardStorage nhận được item (hasReward == True)
                     roll_verified = False
@@ -2570,8 +2570,8 @@ class SlotController:
                         if not self.moss_running:
                             break
 
-                        # Kênh 1: Kiểm tra Zen trừ
-                        if zen_before > 0:
+                        # Kênh 1: Kiểm tra Zen trừ (chỉ áp dụng cho danh mục Zen 0 -> 5)
+                        if self.moss_category < 6 and zen_before > 0:
                             try:
                                 zen_now = eng.get_player_zen()
                                 if zen_now >= 0 and (zen_before - zen_now) >= 500_000:
@@ -2683,7 +2683,7 @@ class SlotController:
                             except Exception:
                                 actual_zen = -1
 
-                        if actual_zen >= 0 and actual_zen < 1_000_000:
+                        if self.moss_category < 6 and actual_zen >= 0 and actual_zen < 1_000_000:
                             self.app.after(0, lambda s=self.slot_idx, z=actual_zen: self.app.append_moss_log(
                                 f"[Slot {s:02d} - {self.char_name}] ❌ Hết Zen (Hiện có: {z:,} Zen, cần tối thiểu 1.000.000 Zen). Tự động dừng quay!"
                             ))

@@ -1961,6 +1961,25 @@ function setupMossWindow(mossWin, cat) {
     try {
         var catId = parseInt(cat || 0);
 
+        // A. Đảm bảo InventoryWindow mở sẵn song song (GameUI + 0x188 -> MWindow tại offset 0x28)
+        if (nativeGetGameUI !== null) {
+            try {
+                var gui = nativeGetGameUI();
+                if (!gui.isNull()) {
+                    var invWin = gui.add(ptr('0x188')).readPointer();
+                    if (!invWin.isNull()) {
+                        var invMWin = invWin.add(0x28).readPointer();
+                        if (!invMWin.isNull() && invMWin.add(0x48).readU8() === 0) {
+                            if (nativeWindowShow !== null) {
+                                try { nativeWindowShow(invMWin, ptr(0)); } catch (eIS) {}
+                            }
+                            invMWin.add(0x48).writeU8(1);
+                        }
+                    }
+                }
+            } catch (eInv) {}
+        }
+
         // 1. Cập nhật Category ID (offset 0x78)
         mossWin.add(0x78).writeS32(catId);
 
@@ -2099,6 +2118,99 @@ function performMossResetNow(cat) {
         }
     } catch (eReset) {}
     return false;
+}
+
+function performMossRollNow(cat) {
+    try {
+        if (nativeGetGameUI === null) return false;
+        var gui = nativeGetGameUI();
+        if (gui.isNull()) return false;
+        var mossOff = off('__UI_MOSS_WINDOW__');
+        var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
+        if (mossWin.isNull()) return false;
+
+        // A. Đảm bảo InventoryWindow mở sẵn (GameUI + 0x188 -> MWindow tại offset 0x28)
+        try {
+            var invWin = gui.add(ptr('0x188')).readPointer();
+            if (!invWin.isNull()) {
+                var invMWin = invWin.add(0x28).readPointer();
+                if (!invMWin.isNull() && invMWin.add(0x48).readU8() === 0) {
+                    if (nativeWindowShow !== null) {
+                        try { nativeWindowShow(invMWin, ptr(0)); } catch (eIS) {}
+                    }
+                    invMWin.add(0x48).writeU8(1);
+                }
+            }
+        } catch (eInv) {}
+
+        // 1. Cập nhật Category ID (offset 0x78)
+        mossWin.add(0x78).writeS32(cat);
+
+        // 2. Kích hoạt chọn category nếu hàm khả dụng
+        if (nativeMossSelectCat !== null) {
+            try {
+                var catList = mossWin.add(0x80).readPointer();
+                if (!catList.isNull()) {
+                    var count = catList.add(0x18).readS32();
+                    var items = catList.add(0x10).readPointer();
+                    if (!items.isNull() && count > 0) {
+                        var targetCatObj = ptr(0);
+                        for (var ci = 0; ci < count; ci++) {
+                            var candidate = items.add(0x20 + ci * 8).readPointer();
+                            if (!candidate.isNull()) {
+                                var cId = candidate.add(0x10).readS32();
+                                if (cId === cat) {
+                                    targetCatObj = candidate;
+                                    break;
+                                }
+                            }
+                        }
+                        if (targetCatObj.isNull() && cat < count && cat >= 0) {
+                            targetCatObj = items.add(0x20 + cat * 8).readPointer();
+                        }
+                        if (!targetCatObj.isNull()) {
+                            nativeMossSelectCat(mossWin, targetCatObj, ptr(0));
+                        }
+                    }
+                }
+            } catch (eCat) {}
+        }
+
+        // 3. GỬI LỆNH QUAY:
+        var sent = false;
+        // Ưu tiên 1: Gửi qua Native Packet RPC trực tiếp (MossMerchantWindow.FOILGIOOHJL - RVA 0x23F8BE0)
+        if (nativeMossSendRoll !== null) {
+            try {
+                nativeMossSendRoll(cat);
+                sent = true;
+            } catch (eSend) {}
+        }
+
+        // Ưu tiên 2: Fallback qua OnClick của RollButton (MMossMerchantWindow.OGILEDKJPLF - RVA 0x27AA8B0)
+        if (!sent && nativeMossRollClick !== null) {
+            try {
+                nativeMossRollClick(mossWin, ptr(0));
+                sent = true;
+            } catch (eRC) {}
+        }
+
+        // 4. Bật hiệu ứng LoadingImage quay mượt mà trên giao diện (Tự phục hồi sau 1.2s nếu Server không trả item)
+        try {
+            var loadingImg = mossWin.add(0x60).readPointer();
+            if (!loadingImg.isNull() && isGameObjectValid(loadingImg) && nativeGameObjectSetActive !== null) {
+                nativeGameObjectSetActive(loadingImg, 1, ptr(0));
+                setTimeout(function() {
+                    try {
+                        ensureMossRollButtonActive(mossWin, false);
+                    } catch (eTO) {}
+                }, 1200);
+            }
+        } catch (eLI) {}
+
+        return sent;
+    } catch (eNow) {
+        return false;
+    }
 }
 
 function performMerchantCloseNow() {
@@ -2638,6 +2750,14 @@ try {
                             } catch (eMossReset) {}
                         }
 
+                        if (pendingMossRollCategory !== null) {
+                            try {
+                                var rollCat = pendingMossRollCategory;
+                                pendingMossRollCategory = null;
+                                performMossRollNow(rollCat);
+                            } catch (eMossRoll) {}
+                        }
+
                         if (pendingMossClose) {
                             try {
                                 pendingMossClose = false;
@@ -2715,6 +2835,14 @@ try {
                         pendingMossResetCategory = null;
                         performMossResetNow(rCatGU);
                     } catch (eMRGU) {}
+                }
+
+                if (pendingMossRollCategory !== null) {
+                    try {
+                        var rollCatGU = pendingMossRollCategory;
+                        pendingMossRollCategory = null;
+                        performMossRollNow(rollCatGU);
+                    } catch (eRollGU) {}
                 }
 
                 if (pendingMerchantClose) {
@@ -3338,14 +3466,23 @@ rpc.exports = {
             var inv = p.add(ptr('0x1B0')).readPointer();
             if (inv.isNull()) return -1;
             var zen = inv.add(ptr('0x58')).readS32();
-            var zenHigh = inv.add(ptr('0x5C')).readU32();
-            if (zenHigh > 0) {
-                var fullZen = inv.add(ptr('0x58')).readU64();
-                return fullZen;
-            }
             return zen >= 0 ? zen : 0;
         } catch (e) {
             return -1;
+        }
+    },
+
+    getPlayerRuud: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) return 0;
+            var inv = p.add(ptr('0x1B0')).readPointer();
+            if (inv.isNull()) return 0;
+            var ruud = inv.add(ptr('0x5C')).readU32();
+            return ruud >= 0 ? ruud : 0;
+        } catch (e) {
+            return 0;
         }
     },
 
@@ -3427,95 +3564,24 @@ rpc.exports = {
             ensureThreadAttached();
             var cat = parseInt(categoryId || 0);
 
-            if (nativeGetGameUI !== null) {
-                var gui = nativeGetGameUI();
-                if (!gui.isNull()) {
-                    var mossOff = off('__UI_MOSS_WINDOW__');
-                    var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
-                    if (!mossWin.isNull()) {
-                        // A. Đảm bảo InventoryWindow mở sẵn (offset 0x188 / 0x20)
-                        try {
-                            var invWin = gui.add(ptr('0x188')).readPointer();
-                            if (!invWin.isNull()) {
-                                var invMWin = invWin.add(0x20).readPointer();
-                                if (!invMWin.isNull() && invMWin.add(0x48).readU8() === 0) {
-                                    if (nativeWindowShow !== null) {
-                                        try { nativeWindowShow(invMWin, ptr(0)); } catch (eIS) {}
-                                    }
-                                    invMWin.add(0x48).writeU8(1);
-                                }
-                            }
-                        } catch (eInv) {}
-
-                        // 1. Cập nhật Category ID (offset 0x78)
-                        mossWin.add(0x78).writeS32(cat);
-
-                        // 2. Kích hoạt chọn category nếu hàm khả dụng
-                        if (nativeMossSelectCat !== null) {
-                            try {
-                                var catList = mossWin.add(0x80).readPointer();
-                                if (!catList.isNull()) {
-                                    var count = catList.add(0x18).readS32();
-                                    var items = catList.add(0x10).readPointer();
-                                    if (!items.isNull() && count > 0) {
-                                        var targetCatObj = ptr(0);
-                                        for (var ci = 0; ci < count; ci++) {
-                                            var candidate = items.add(0x20 + ci * 8).readPointer();
-                                            if (!candidate.isNull()) {
-                                                var cId = candidate.add(0x10).readS32();
-                                                if (cId === cat) {
-                                                    targetCatObj = candidate;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        if (targetCatObj.isNull() && cat < count && cat >= 0) {
-                                            targetCatObj = items.add(0x20 + cat * 8).readPointer();
-                                        }
-                                        if (!targetCatObj.isNull()) {
-                                            nativeMossSelectCat(mossWin, targetCatObj, ptr(0));
-                                        }
-                                    }
-                                }
-                            } catch (eCat) {}
-                        }
-
-                        // 3. GỬI LỆNH QUAY:
-                        // Ưu tiên 1: Gửi qua Native Packet RPC trực tiếp (MossMerchantWindow.FOILGIOOHJL - RVA 0x23F8BE0)
-                        var sent = false;
-                        if (nativeMossSendRoll !== null) {
-                            try {
-                                nativeMossSendRoll(cat);
-                                sent = true;
-                            } catch (eSend) {}
-                        }
-
-                        // Ưu tiên 2: Fallback qua OnClick của RollButton (MMossMerchantWindow.OGILEDKJPLF - RVA 0x27AA8B0)
-                        if (!sent && nativeMossRollClick !== null) {
-                            try {
-                                nativeMossRollClick(mossWin, ptr(0));
-                                sent = true;
-                            } catch (eRC) {}
-                        }
-
-                        // 4. Kích hoạt hiệu ứng LoadingImage quay mượt mà trên giao diện (Tự phục hồi sau 1.2s nếu Server không trả item)
-                        try {
-                            var loadingImg = mossWin.add(0x60).readPointer();
-                            if (!loadingImg.isNull() && isGameObjectValid(loadingImg) && nativeGameObjectSetActive !== null) {
-                                nativeGameObjectSetActive(loadingImg, 1, ptr(0));
-                                setTimeout(function() {
-                                    try {
-                                        ensureMossRollButtonActive(mossWin, false);
-                                    } catch (eTO) {}
-                                }, 1200);
-                            }
-                        } catch (eLI) {}
-
-                        return sent;
-                    }
+            // Ủy quyền cho Unity Main Thread Hook thực thi (GameUI.Update / Game.Update)
+            pendingMossRollCategory = cat;
+            var rolled = false;
+            for (var w = 0; w < 10; w++) {
+                if (pendingMossRollCategory === null) {
+                    rolled = true;
+                    break;
                 }
+                Thread.sleep(0.015);
             }
-            return false;
+
+            // Nếu Main Thread hook chưa kịp tiêu thụ (game pause / minimize), thực thi trực tiếp an toàn
+            if (!rolled) {
+                pendingMossRollCategory = null;
+                rolled = performMossRollNow(cat);
+            }
+
+            return rolled;
         } catch (eMR) {
             return false;
         }
@@ -7678,6 +7744,17 @@ class MegDirectEngine:
             except Exception:
                 pass
         return -1
+
+    def get_player_ruud(self) -> int:
+        """Lấy số lượng Ruud hiện có trong thùng đồ nhân vật (UserInventory +0x5C). Trả về 0 nếu không đọc được."""
+        if self.is_ready:
+            try:
+                res = self._call("getPlayerRuud")
+                if res is not None:
+                    return int(res)
+            except Exception:
+                pass
+        return 0
 
     def get_moss_roll_status(self) -> Dict[str, Any]:
         """Lấy trạng thái thực tế của cửa sổ Moss (ready, isOpen, hasReward, itemCount, isLoading)."""
