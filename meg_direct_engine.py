@@ -104,7 +104,10 @@ DEFAULT_OFFSETS = {
     "user_inv_trash": "0x144C8A0",
     "user_inv_drop": "0x1449740",
     "user_inv_action": "0x1441DF0",
+    "user_inv_sell": "0x144B9A0",
+    "user_inv_sell_5": "0x144AB60",
     "item_storage_drop": "0x222CD00",
+    "item_storage_sell": "0x2250560",
     "merchant_sell_item": "0x2747310",
     "slot_quick_action": "0x23E24A0",
     "item_storage_move": "0x22317E0",
@@ -638,6 +641,30 @@ try {
     }
 } catch (eInvSell) {}
 
+var nativeUserInvSell = null;
+try {
+    var uisOff = off('__USER_INV_SELL__');
+    if (!uisOff.isNull()) {
+        nativeUserInvSell = new NativeFunction(baseAddr.add(uisOff), 'void', ['int']);
+    }
+} catch (eUIS) {}
+
+var nativeUserInvSell5 = null;
+try {
+    var uis5Off = off('__USER_INV_SELL_5__');
+    if (!uis5Off.isNull()) {
+        nativeUserInvSell5 = new NativeFunction(baseAddr.add(uis5Off), 'void', ['int', 'int']);
+    }
+} catch (eUIS5) {}
+
+var nativeItemStorageSell = null;
+try {
+    var issOff = off('__ITEM_STORAGE_SELL__');
+    if (!issOff.isNull()) {
+        nativeItemStorageSell = new NativeFunction(baseAddr.add(issOff), 'void', ['pointer']);
+    }
+} catch (eISS) {}
+
 var nativeMerchantSellItem = null;
 try {
     var msiOff = off('__MERCHANT_SELL_ITEM__');
@@ -1072,8 +1099,14 @@ function sendDropPacket(slot, targetX, targetY) {
         if (s < 12) return false;
         var tx = parseInt(targetX) & 0xFF;
         var ty = parseInt(targetY) & 0xFF;
-        // In MEGAMU protocol packet 0x23: [0xC1, 0x06, 0x23, targetX, targetY, slot]
-        return sendGSPacket([0xC1, 0x06, 0x23, tx, ty, s]);
+        // Chuẩn mã hóa MEGAMU ANHCGMHDOKM.JENEDENFEFD (RVA 0x120ED40): Headcode XOR 0xCB
+        // 0x23 ^ 0xCB = 0xE8
+        var encDrop = 0x23 ^ 0xCB; // 0xE8
+        var sent = sendGSPacket([0xC1, 0x06, encDrop, tx, ty, s]);
+        if (!sent) {
+            sent = sendGSPacket([0xC1, 0x06, 0x23, tx, ty, s]);
+        }
+        return sent;
     } catch (eDropPkt) {
         return false;
     }
@@ -1084,8 +1117,30 @@ function sendSellPacket(slot) {
         var s = parseInt(slot) & 0xFF;
         // BẢO VỆ TUYỆT ĐỐI: Không bao giờ bán các slot trang bị trên người (0..11)
         if (s < 12) return false;
-        // Chuẩn protocol bán đồ NPC MEGAMU: [0xC1, 0x04, 0x33, slot]
-        return sendGSPacket([0xC1, 0x04, 0x33, s]);
+
+        ensureThreadAttached();
+
+        // 1. Native UserInventory 5thEra KAEFGNMOMFJ(1, s) (RVA 0x144AB60 - NNGFHKOLKFO struct)
+        if (nativeUserInvSell5 !== null) {
+            try { nativeUserInvSell5(1, s); } catch (eUIS5) {}
+        }
+
+        // 2. Native UserInventory.CBNAHIPFNOF(s) (RVA 0x144B9A0)
+        if (nativeUserInvSell !== null) {
+            try { nativeUserInvSell(s); } catch (eUISell) {}
+        }
+
+        // 3. Chuẩn protocol bán đồ NPC MEGAMU: Headcode được XOR 0xCB (RVA 0x120ED40)
+        // 0x32 ^ 0xCB = 0xF9
+        var encSell = 0x32 ^ 0xCB; // 0xF9
+
+        // Gói tin 5-byte chuẩn MEGAMU 5thEra: [0xC1, 0x05, 0xF9, slot, 0x01] (0x01: Main Inventory)
+        var sent5 = sendGSPacket([0xC1, 0x05, encSell, s, 0x01]);
+
+        // Gói tin 4-byte tương thích: [0xC1, 0x04, 0xF9, slot]
+        var sent4 = sendGSPacket([0xC1, 0x04, encSell, s]);
+
+        return sent5 || sent4;
     } catch (eSellPkt) {
         return false;
     }
@@ -1185,7 +1240,7 @@ function runDropPass(slots, itemsArr, ctx, offsetX, offsetY) {
     return out;
 }
 
-// Bán từng slot cho Merchant đang mở (packet C1 04 33) + xác minh bằng RAM.
+// Bán từng slot cho Merchant đang mở (packet C1 04 32) + xác minh bằng RAM.
 function runSellPass(slots, itemsArr) {
     var out = { sold: [], stayed: [], sendFailed: 0, attempted: 0 };
     for (var i = 0; i < slots.length; i++) {
@@ -1199,9 +1254,9 @@ function runSellPass(slots, itemsArr) {
             out.sendFailed++;
             continue;
         }
-        try { Thread.sleep(0.06); } catch (eSl3) {}
+        try { Thread.sleep(0.08); } catch (eSl3) {}
     }
-    try { Thread.sleep(0.30); } catch (eSl4) {}
+    try { Thread.sleep(0.35); } catch (eSl4) {}
     for (var j = 0; j < slots.length; j++) {
         var s2 = slots[j];
         var after = itemsArr.add(0x20 + s2 * 8).readPointer();
@@ -2218,7 +2273,11 @@ function performMerchantCloseNow() {
     if (nativeCloseTalk !== null) {
         try { nativeCloseTalk(); } catch (eCT) {}
     }
-    try { sendGSPacket([0xC1, 0x04, 0x31, 0x00]); } catch (eGS) {}
+    try {
+        var encClose = 0x31 ^ 0xCB; // 0xFA
+        sendGSPacket([0xC1, 0x04, encClose, 0x00]);
+        sendGSPacket([0xC1, 0x04, 0x31, 0x00]);
+    } catch (eGS) {}
     try {
         if (nativeGetGameUI !== null) {
             var gui = nativeGetGameUI();
@@ -3898,14 +3957,23 @@ rpc.exports = {
                 return { success: false, error: "MERCHANT_NOT_FOUND" };
             }
 
-            // 1. Gửi gói tin C1:30 tới GameServer báo mở đối thoại NPC thương nhân
+            // 1. Gửi gói tin C1:05 tới GameServer báo mở đối thoại NPC thương nhân (Opcode XOR 0xCB: 0x30 ^ 0xCB = 0xFB)
             if (npc.index >= 0) {
                 var lo = npc.index & 0xFF;
                 var hi = (npc.index >> 8) & 0xFF;
+                var encTalk = 0x30 ^ 0xCB; // 0xFB
+                sendGSPacket([0xC1, 0x05, encTalk, lo, hi]);
                 sendGSPacket([0xC1, 0x05, 0x30, lo, hi]);
             }
 
-            // 2. Gọi trực tiếp invokeNpcTalk trên thread hiện tại
+            // 2. Gọi native NpcManager.GEBGEGOEFAD(npc.ptr) (RVA 0x1023B10) - Hàm client gửi packet 0x30
+            if (nativeNpcSendTalk !== null) {
+                try {
+                    nativeNpcSendTalk(npc.ptr, ptr(0));
+                } catch (eNST) {}
+            }
+
+            // 3. Gọi trực tiếp invokeNpcTalk trên thread hiện tại
             var talkOk = invokeNpcTalk(npc.ptr);
             if (!talkOk && nativeUniversalNpcClick !== null) {
                 try {
@@ -3948,7 +4016,7 @@ rpc.exports = {
         }
     },
 
-    sellMossPlusItems: function(maxJunkLevel, ignoreTypeHeuristics, allowedSlots, mossCategory) {
+    sellMossPlusItems: function(maxJunkLevel, ignoreTypeHeuristics, allowedSlots, mossCategory, cleanEquipmentTrash) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
@@ -3967,13 +4035,14 @@ rpc.exports = {
             var itemsArr = inv.add(itemsOff).readPointer();
             if (itemsArr.isNull()) return JSON.stringify({ sold: 0, error: "no_items_arr" });
 
-            if (nativeInvSellItem === null && nativeGetGS === null && nativeSlotQuickAction === null) {
+            if (nativeInvSellItem === null && nativeGetGS === null && nativeSlotQuickAction === null && nativeUserInvSell === null) {
                 return JSON.stringify({ sold: 0, error: "no_native_sell_fn" });
             }
 
             var maxLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 7;
             var ignoreType = Boolean(ignoreTypeHeuristics);
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
+            var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
 
             var allowedSet = null;
             if (allowedSlots) {
@@ -4071,7 +4140,7 @@ rpc.exports = {
                 // 6. Cấp độ > maxLvl (mặc định maxLvl = 7 -> giữ lại đồ >= +8)
                 // 7. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
                 // 8. Đồ không thuộc mossCat đang quay (nếu mossCat >= 0)
-                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxLvl, ignoreType)) {
+                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxLvl, ignoreType, cleanEquip)) {
                     continue;
                 }
 
@@ -4109,36 +4178,41 @@ rpc.exports = {
 
                 var soldSuccess = false;
                 try {
-                    // PHƯƠNG ÁN 1 (Chuẩn nhất): Slot Quick Action (Mô phỏng click chuột phải ô đồ khi mở shop)
-                    if (nativeSlotQuickAction !== null && !slotObj.isNull()) {
-                        nativeSlotQuickAction(slotObj, ptr(0));
-                        try { Thread.sleep(0.12); } catch (eSleep1) {}
-                        dismissExpensiveSellWindow();
-                        var verifyPtr1 = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (verifyPtr1.isNull() || !verifyPtr1.equals(itemPtr)) {
-                            soldSuccess = true;
-                        }
+                    // PHƯƠNG ÁN 1: Native UserInventory 5thEra KAEFGNMOMFJ(1, s) (RVA 0x144AB60)
+                    if (nativeUserInvSell5 !== null) {
+                        try {
+                            nativeUserInvSell5(1, s);
+                        } catch (eUIS5) {}
                     }
 
-                    // PHƯƠNG ÁN 2: Gọi trực tiếp MMerchantWindow.DCIOGINKECD
-                    if (!soldSuccess && nativeMerchantSellItem !== null && !mWinPtr.isNull()) {
-                        nativeMerchantSellItem(mWinPtr, s, itemPtr, ptr(0));
-                        try { Thread.sleep(0.12); } catch (eSleep2) {}
-                        dismissExpensiveSellWindow();
-                        var verifyPtr2 = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (verifyPtr2.isNull() || !verifyPtr2.equals(itemPtr)) {
-                            soldSuccess = true;
-                        }
+                    // PHƯƠNG ÁN 2: Native UserInventory.CBNAHIPFNOF(s) (RVA 0x144B9A0)
+                    if (nativeUserInvSell !== null) {
+                        try {
+                            nativeUserInvSell(s);
+                        } catch (eUIS1) {}
                     }
 
-                    // PHƯƠNG ÁN 3: Gửi trực tiếp packet GS C1:33 (Chuẩn protocol bán đồ vào shop MEGAMU)
-                    if (!soldSuccess) {
-                        sendSellPacket(s);
-                        try { Thread.sleep(0.12); } catch (eSleepPkt) {}
+                    // PHƯƠNG ÁN 3: Native ItemStorage.OHIDPFMJIJB(slotObj) (RVA 0x2250560)
+                    if (!slotObj.isNull() && nativeItemStorageSell !== null) {
+                        try {
+                            nativeItemStorageSell(slotObj);
+                        } catch (eISS1) {}
+                    }
+
+                    // PHƯƠNG ÁN 4 (Đảm bảo 100%): Gửi wire packet chuẩn MEGAMU (Opcode XOR 0xCB: 0x32 ^ 0xCB = 0xF9)
+                    sendSellPacket(s);
+
+                    // Polling verify: Chờ server phản hồi gói tin C3:33 và xóa item khỏi RAM (tối đa 500ms)
+                    for (var vi = 0; vi < 10; vi++) {
+                        try { Thread.sleep(0.05); } catch (eSleepPkt) {}
                         dismissExpensiveSellWindow();
                         var verifyPkt = itemsArr.add(0x20 + s * 8).readPointer();
                         if (verifyPkt.isNull() || !verifyPkt.equals(itemPtr)) {
                             soldSuccess = true;
+                            break;
+                        }
+                        if (vi === 3) {
+                            sendSellPacket(s);
                         }
                     }
                 } catch (eSell) {}
@@ -6895,7 +6969,10 @@ class MegDirectEngine:
             "__USER_INV_TRASH__": str(self.offsets.get("user_inv_trash") or DEFAULT_OFFSETS.get("user_inv_trash", "0x144C8A0")),
             "__USER_INV_DROP__": str(self.offsets.get("user_inv_drop") or DEFAULT_OFFSETS.get("user_inv_drop", "0x1449740")),
             "__USER_INV_ACTION__": str(self.offsets.get("user_inv_action") or DEFAULT_OFFSETS.get("user_inv_action", "0x1441DF0")),
+            "__USER_INV_SELL__": str(self.offsets.get("user_inv_sell") or DEFAULT_OFFSETS.get("user_inv_sell", "0x144B9A0")),
+            "__USER_INV_SELL_5__": str(self.offsets.get("user_inv_sell_5") or DEFAULT_OFFSETS.get("user_inv_sell_5", "0x144AB60")),
             "__ITEM_STORAGE_DROP__": str(self.offsets.get("item_storage_drop") or DEFAULT_OFFSETS.get("item_storage_drop", "0x222CD00")),
+            "__ITEM_STORAGE_SELL__": str(self.offsets.get("item_storage_sell") or DEFAULT_OFFSETS.get("item_storage_sell", "0x2250560")),
             "__MERCHANT_SELL_ITEM__": str(self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2743520")),
             "__SLOT_QUICK_ACTION__": str(self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x23E24A0")),
             "__ITEM_STORAGE_MOVE__": str(self.offsets.get("item_storage_move") or DEFAULT_OFFSETS.get("item_storage_move", "0x22317E0")),
@@ -8081,7 +8158,8 @@ class MegDirectEngine:
         max_junk_level: int = 7,
         ignore_type_heuristics: bool = False,
         allowed_slots: Optional[List[int]] = None,
-        category: Optional[int] = None
+        category: Optional[int] = None,
+        clean_equipment_trash: bool = True
     ) -> Dict[str, Any]:
         """Tự động bán các món đồ rác Moss cấp độ +0..+7 cho NPC thương nhân (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)."""
         if self.is_ready:
@@ -8090,7 +8168,8 @@ class MegDirectEngine:
                 ign_val = 1 if ignore_type_heuristics else 0
                 slots_val = json.dumps([int(x) for x in allowed_slots]) if (allowed_slots is not None and len(allowed_slots) > 0) else None
                 cat_val = int(category) if category is not None and category >= 0 else -1
-                res_str = self._call("sellMossPlusItems", lvl_val, ign_val, slots_val, cat_val)
+                clean_eq_val = 1 if clean_equipment_trash else 0
+                res_str = self._call("sellMossPlusItems", lvl_val, ign_val, slots_val, cat_val, clean_eq_val)
                 if res_str:
                     return json.loads(res_str) if isinstance(res_str, str) else res_str
             except Exception as e:

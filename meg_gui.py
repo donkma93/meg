@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MEGAMU Auto Train Dashboard - v1.5.8
+MEGAMU Auto Train Dashboard - v1.5.9
 ====================================
 Giao diện hoàn chỉnh và thuật toán chuẩn 100% khớp MEGAMU Auto Train Dashboard gốc:
 - Giao diện 3 tab: 10 Tài khoản | Cấu hình | Nhật ký
@@ -43,6 +43,7 @@ if sys.platform == "win32":
         pass
 
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk, ImageDraw
 import psutil
@@ -109,7 +110,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.5.8"
+APP_VERSION = "v1.5.9"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -737,6 +738,142 @@ class ModernOptionMenu(ctk.CTkFrame):
             super().configure(**kwargs)
 
 # ==============================================================================
+# POPUP ACTION MENU HIỆN ĐẠI ĐỒNG BỘ DARK THEME (MODERN ACTION MENU)
+# ==============================================================================
+class ModernActionMenu:
+    """
+    Menu popup thao tác hiện đại đồng bộ Dark Mode cho CustomTkinter:
+    - Hiển thị popover nổi ngay bên dưới nút bấm hoặc tại tọa độ chỉ định.
+    - Hỗ trợ icon, tiêu đề nhóm, phân cách (separator), màu sắc tuỳ biến cho từng mục.
+    - Tự động đóng khi click ra ngoài hoặc khi chọn một tác vụ.
+    """
+    def __init__(self, master, items: Optional[List[Tuple[str, Optional[Callable], str]]] = None, min_width: int = 240):
+        self.master = master
+        self.items = items or []
+        self.min_width = min_width
+        self.popup = None
+        self._last_close_time = 0.0
+
+    def show(self, anchor_widget=None, x: Optional[int] = None, y: Optional[int] = None):
+        if self.popup and self.popup.winfo_exists():
+            self.close()
+            return
+        if time.time() - self._last_close_time < 0.15:
+            return
+
+        self.close()
+
+        rx, ry, w = 200, 200, self.min_width
+        if anchor_widget and anchor_widget.winfo_exists():
+            try:
+                anchor_widget.update_idletasks()
+                rx = anchor_widget.winfo_rootx()
+                ry = anchor_widget.winfo_rooty() + anchor_widget.winfo_height() + 2
+                w = max(self.min_width, anchor_widget.winfo_width())
+            except Exception:
+                pass
+        elif x is not None and y is not None:
+            rx, ry, w = x, y, self.min_width
+
+        try:
+            screen_w = self.master.winfo_screenwidth()
+            if rx + w > screen_w - 20:
+                rx = max(10, screen_w - w - 20)
+        except Exception:
+            pass
+
+        self.popup = ctk.CTkToplevel(self.master)
+        self.popup.overrideredirect(True)
+        self.popup.attributes("-topmost", True)
+
+        outer = ctk.CTkFrame(
+            self.popup,
+            fg_color="#181c26",
+            border_width=1,
+            border_color="#334155",
+            corner_radius=4
+        )
+        outer.pack(fill="both", expand=True)
+
+        for item in self.items:
+            label = item[0]
+            cmd = item[1] if len(item) > 1 else None
+            col = item[2] if len(item) > 2 and item[2] else "#f1f5f9"
+
+            if label == "---":
+                ctk.CTkFrame(outer, fg_color="#2b3244", height=1).pack(fill="x", padx=6, pady=3)
+                continue
+
+            btn = ctk.CTkButton(
+                outer,
+                text=f"  {label}",
+                anchor="w",
+                height=28,
+                corner_radius=2,
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                fg_color="transparent",
+                hover_color="#222736",
+                text_color=col,
+                command=lambda c=cmd: self._on_item_click(c)
+            )
+            btn.pack(fill="x", padx=3, pady=1)
+
+        outer.update_idletasks()
+        h = outer.winfo_reqheight()
+
+        try:
+            screen_h = self.master.winfo_screenheight()
+            if ry + h > screen_h - 40:
+                if anchor_widget and anchor_widget.winfo_exists():
+                    ry = max(10, anchor_widget.winfo_rooty() - h - 2)
+                else:
+                    ry = max(10, ry - h - 10)
+        except Exception:
+            pass
+
+        self.popup.geometry(f"{w}x{h}+{rx}+{ry}")
+        try:
+            top_win = self.master.winfo_toplevel()
+            self.popup.after(80, lambda: top_win.bind_all("<Button-1>", self._on_global_click, add="+"))
+        except Exception:
+            pass
+
+    def _on_item_click(self, callback: Optional[Callable]):
+        self.close()
+        if callback:
+            try:
+                callback()
+            except Exception as e:
+                print(f"[ModernActionMenu] Callback error: {e}", flush=True)
+
+    def _on_global_click(self, event):
+        if not self.popup or not self.popup.winfo_exists():
+            return
+        try:
+            px = self.popup.winfo_rootx()
+            py = self.popup.winfo_rooty()
+            pw = self.popup.winfo_width()
+            ph = self.popup.winfo_height()
+            if not (px <= event.x_root <= px + pw and py <= event.y_root <= py + ph):
+                self.close()
+        except Exception:
+            self.close()
+
+    def close(self):
+        self._last_close_time = time.time()
+        try:
+            top_win = self.master.winfo_toplevel()
+            top_win.unbind_all("<Button-1>")
+        except Exception:
+            pass
+        if self.popup:
+            try:
+                self.popup.destroy()
+            except Exception:
+                pass
+            self.popup = None
+
+# ==============================================================================
 # HỆ THỐNG TOOLTIP HIỆN ĐẠI (MODERN SLEEK TOOLTIP SYSTEM)
 # ==============================================================================
 class ModernToolTip:
@@ -861,10 +998,23 @@ class ModernToolTip:
 
     def update_text(self, new_text: str):
         self.text = new_text
+        if self.tipwindow:
+            self._hide_tip()
 
 def add_tooltip(widget, text: str, delay_ms: int = 250) -> ModernToolTip:
-    """Gắn tooltip chỉ dẫn hiện đại vào widget."""
-    return ModernToolTip(widget, text, delay_ms=delay_ms)
+    """Gắn tooltip chỉ dẫn hiện đại vào widget. Tự động tái sử dụng nếu đã có để tránh leak event Tcl."""
+    if not widget:
+        return None
+    existing = getattr(widget, "_modern_tooltip", None)
+    if existing and isinstance(existing, ModernToolTip):
+        existing.update_text(text)
+        return existing
+    tip = ModernToolTip(widget, text, delay_ms=delay_ms)
+    try:
+        widget._modern_tooltip = tip
+    except Exception:
+        pass
+    return tip
 
 # ==============================================================================
 # BẢNG DỊCH NGÔN NGỮ (I18N)
@@ -3343,17 +3493,25 @@ class SlotController:
                 self._move_back_to_moss(eng)
                 return False
 
-            # BƯỚC 3: Lọc danh sách ô được phép bán (CHỈ đồ rác do Moss vừa quay ra)
-            allowed_slots = list(self.moss_rolled_slots - self.moss_initial_slots)
+            # Đợi 0.4s để GameServer và Client đồng bộ hoàn toàn trạng thái phiên giao dịch Shop
+            time.sleep(0.4)
+
+            # BƯỚC 3: Lọc danh sách ô được phép bán (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)
+            clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
+            effective_cat = -1 if clean_equip else self.moss_category
+            is_manual = getattr(self, "_manual_selling", False)
+
+            # Nếu là bán thủ công (bấm nút Toolbar / chuột phải) HOẶC chưa có moss_rolled_slots:
+            allowed_slots = [] if is_manual else list(self.moss_rolled_slots - self.moss_initial_slots)
             if not allowed_slots:
-                # Nếu chưa có moss_rolled_slots (ví dụ bấm tay thủ công): lọc theo junkSlots của category hiện tại
+                # Quét trực tiếp danh sách junkSlots thực tế trong hòm đồ
                 try:
-                    inv_sum = eng.get_inventory_summary(category=self.moss_category, max_junk_level=7, clean_equipment_trash=False)
+                    inv_sum = eng.get_inventory_summary(category=effective_cat, max_junk_level=7, clean_equipment_trash=clean_equip)
                     if inv_sum and not inv_sum.get("error"):
                         cand_items = inv_sum.get("junkSlots", []) + inv_sum.get("mossPlusSlots", [])
                         allowed_slots = [
                             it.get("slot") for it in cand_items
-                            if it.get("slot") is not None and it.get("slot") not in self.moss_initial_slots
+                            if it.get("slot") is not None and (is_manual or it.get("slot") not in self.moss_initial_slots)
                         ]
                 except Exception:
                     allowed_slots = []
@@ -3361,9 +3519,10 @@ class SlotController:
             # Gửi lệnh bán các món đồ rác Moss (+0..+7, bảo vệ +8+, Divine, Rồng, Exc, Anc, Sock, Ngọc)
             s_res = eng.sell_moss_plus_items(
                 max_junk_level=7,
-                ignore_type_heuristics=False,
+                ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
                 allowed_slots=allowed_slots,
-                category=self.moss_category
+                category=effective_cat,
+                clean_equipment_trash=clean_equip
             )
             sold_count = s_res.get("sold", 0) if isinstance(s_res, dict) else 0
             sold_items = s_res.get("items", []) if isinstance(s_res, dict) else []
@@ -4797,6 +4956,13 @@ class DashboardApp(ctk.CTk):
         for w_type in ("CTkFrame", "CTkButton", "CTkEntry", "CTkScrollableFrame", "CTkProgressBar", "CTkCheckBox"):
             if w_type in ctk.ThemeManager.theme and "corner_radius" in ctk.ThemeManager.theme[w_type]:
                 ctk.ThemeManager.theme[w_type]["corner_radius"] = 0
+
+        # Caching Font dùng chung tránh tạo mới đối tượng CTkFont liên tục gây rò rỉ bộ nhớ Tcl/Tk (Crash tcl86t.dll)
+        self.font_segoe_10 = ctk.CTkFont(family="Segoe UI", size=10)
+        self.font_segoe_10_bold = ctk.CTkFont(family="Segoe UI", size=10, weight="bold")
+        self.font_segoe_11 = ctk.CTkFont(family="Segoe UI", size=11)
+        self.font_segoe_11_bold = ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+        self.font_segoe_12_bold = ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
 
         # Debounce co giãn cửa sổ / Zoom in / Zoom out để tránh tính toán dồn dập
         self._resize_timer = None
@@ -8102,8 +8268,18 @@ class DashboardApp(ctk.CTk):
         self.after(0, _done)
 
     def _safe_append_textbox(self, widget, text: str, max_lines: int = 1000, trim_lines: int = 150):
-        """Chèn log an toàn vào Textbox và tự động cắt tỉa các dòng cũ để chống phình to RAM."""
+        """Chèn log an toàn đa luồng vào Textbox và tự động cắt tỉa các dòng cũ để chống phình to RAM."""
+        if not getattr(self, "running", True):
+            return
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self._safe_append_textbox(widget, text, max_lines, trim_lines))
+            except Exception:
+                pass
+            return
         try:
+            if not widget or not widget.winfo_exists():
+                return
             t_str = time.strftime("%H:%M:%S")
             widget.insert("end", f"[{t_str}] {text}\n")
             line_count = int(widget.index("end-1c").split(".")[0])
@@ -8482,7 +8658,7 @@ class DashboardApp(ctk.CTk):
         # Biến ẩn tương thích cho cb_ignore_junk_type
         self.cb_ignore_junk_type = None
 
-        # Cụm 3: Phím tắt Silvia + Nút Tiện ích mở rộng (Bên phải)
+        # Cụm 3: Phím tắt Silvia + Ném rác + Nút Tiện ích mở rộng (Bên phải)
         tb_row2_r = ctk.CTkFrame(tb_row2, fg_color="transparent")
         tb_row2_r.pack(side="right")
 
@@ -8500,6 +8676,23 @@ class DashboardApp(ctk.CTk):
             command=self.show_moss_batch_tools_menu
         )
         self.btn_moss_more_tools.pack(side="right", padx=(6, 0))
+        add_tooltip(self.btn_moss_more_tools, "🛠️ Bấm để mở menu tiện ích mở rộng: Di chuyển Elbeland, Mở NPC, Mở khóa kẹt...")
+
+        btn_clean_quick = ctk.CTkButton(
+            tb_row2_r,
+            text="🗑️ Ném Tại Chỗ",
+            height=28,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#ef4444",
+            text_color="#f87171",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.clean_all_moss_inventories
+        )
+        btn_clean_quick.pack(side="right", padx=(6, 0))
+        add_tooltip(btn_clean_quick, "🗑️ Ném sạch đồ rác tại chỗ trên các tài khoản đã chọn")
 
         btn_sell_silvia_quick = ctk.CTkButton(
             tb_row2_r,
@@ -8515,6 +8708,7 @@ class DashboardApp(ctk.CTk):
             command=self.sell_all_moss_inventories
         )
         btn_sell_silvia_quick.pack(side="right")
+        add_tooltip(btn_sell_silvia_quick, "💰 Chạy tới NPC Silvia bán đồ rác lấy Zen trên các tài khoản đã chọn")
 
         # 3. BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
         table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
@@ -8732,7 +8926,7 @@ class DashboardApp(ctk.CTk):
         add_tooltip(btn_more, "⋯ Menu thao tác nâng cao (Quay thử, Mở bảng, Bán Silvia, Về Moss...)")
 
         for _mw in (row_frame, char_lbl, rolls_lbl, status_lbl):
-            _mw.bind("<Button-3>", lambda e, s=i: self._show_moss_row_menu(s))
+            _mw.bind("<Button-3>", lambda e, s=i: self._show_moss_row_menu(s, event=e))
 
         # Lưu UI cache
         self.moss_ui_elements[i] = {
@@ -8752,80 +8946,58 @@ class DashboardApp(ctk.CTk):
             "btn_drop": None,
         }
 
-    def _show_moss_row_menu(self, s_idx: int, widget=None):
+    def _show_moss_row_menu(self, s_idx: int, widget=None, event=None):
         """Hiển thị menu thao tác nhanh cho từng Slot Moss."""
         try:
             ctrl_item = self.controllers[s_idx - 1]
-            m_menu = tk.Menu(
-                self,
-                tearoff=0,
-                bg="#181c26",
-                fg="#f1f5f9",
-                activebackground="#0284c7",
-                activeforeground="#ffffff",
-                font=("Segoe UI", 10)
-            )
-            m_menu.add_command(label=f"🎲 Quay thử 1 lần (Slot {s_idx:02d})", command=lambda: ctrl_item.roll_moss_once())
-            m_menu.add_command(label="🚪 Mở bảng Moss NPC", command=lambda: ctrl_item.open_moss_npc())
-            m_menu.add_command(label="🚪 Đóng bảng Moss NPC", command=lambda: ctrl_item.close_moss_dialog())
-            m_menu.add_separator()
-            m_menu.add_command(label="💰 Đi bán đồ rác tại NPC Silvia", command=lambda: ctrl_item.sell_moss_inventory())
-            m_menu.add_command(label="🗑️ Ném đồ rác tại chỗ ngay", command=lambda: ctrl_item.clean_moss_inventory(run_in_thread=True))
-            m_menu.add_separator()
-            m_menu.add_command(label="🚶 Chạy về NPC Moss (Elbeland 22, 225)", command=lambda: ctrl_item.move_to_moss_elbeland())
-            m_menu.add_command(label="🔓 Mở khóa kẹt thùng đồ & Moss", command=lambda: ctrl_item.unlock_and_close_inventory())
-
-            if widget:
-                x = widget.winfo_rootx()
-                y = widget.winfo_rooty() + widget.winfo_height() + 2
-                m_menu.tk_popup(x, y)
+            items = [
+                (f"🎲 Quay thử 1 lần (Slot {s_idx:02d})", lambda: ctrl_item.roll_moss_once(), "#fbbf24"),
+                ("🚪 Mở bảng Moss NPC", lambda: ctrl_item.open_moss_npc(), "#38bdf8"),
+                ("🚪 Đóng bảng Moss NPC", lambda: ctrl_item.close_moss_dialog(), "#94a3b8"),
+                ("---", None, ""),
+                ("💰 Đi bán đồ rác tại NPC Silvia", lambda: ctrl_item.sell_moss_inventory(), "#34d399"),
+                ("🗑️ Ném đồ rác tại chỗ ngay", lambda: ctrl_item.clean_moss_inventory(run_in_thread=True), "#f87171"),
+                ("---", None, ""),
+                ("🚶 Chạy về NPC Moss (Elbeland 22, 225)", lambda: ctrl_item.move_to_moss_elbeland(), "#38bdf8"),
+                ("🔓 Mở khóa kẹt thùng đồ & Moss", lambda: ctrl_item.unlock_and_close_inventory(), "#fbbf24"),
+            ]
+            menu = ModernActionMenu(self, items=items, min_width=250)
+            if event:
+                menu.show(x=event.x_root, y=event.y_root)
             else:
                 el = self.moss_ui_elements.get(s_idx)
-                b = el.get("btn_more") if el else None
-                if b:
-                    x = b.winfo_rootx()
-                    y = b.winfo_rooty() + b.winfo_height() + 2
-                    m_menu.tk_popup(x, y)
-                else:
-                    m_menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
-        except Exception:
-            pass
+                b = el.get("btn_more") if el else widget
+                menu.show(anchor_widget=b)
+        except Exception as e:
+            self.append_moss_log(f"⚠️ Lỗi mở menu slot: {e}")
 
     def show_moss_batch_tools_menu(self):
         """Hiển thị menu popup tiện ích mở rộng cho Moss Merchant."""
         try:
-            m_menu = tk.Menu(
-                self,
-                tearoff=0,
-                bg="#181c26",
-                fg="#f1f5f9",
-                activebackground="#0284c7",
-                activeforeground="#ffffff",
-                font=("Segoe UI", 10)
-            )
-            m_menu.add_command(label="💰 Bán đồ rác tại NPC Silvia ngay (Tất cả)", command=self.sell_all_moss_inventories)
-            m_menu.add_command(label="🗑️ Ném đồ rác tại chỗ ngay (Tất cả)", command=self.clean_all_moss_inventories)
-            m_menu.add_command(label="🔍 Phân tích rác hòm đồ các tài khoản", command=self.analyze_all_moss_inventories)
-            m_menu.add_command(label="🧹 Hộp thoại dọn rác nâng cao...", command=self.open_junk_disposal_dialog)
-            m_menu.add_separator()
-            m_menu.add_command(label="🚶 Di chuyển tất cả về NPC Moss (Elbeland 22, 225)", command=self.move_all_to_moss_elbeland)
-            m_menu.add_command(label="🚪 Mở bảng NPC Moss (Tất cả)", command=self.open_all_moss_npc)
-            m_menu.add_command(label="🚪 Đóng bảng NPC Moss (Tất cả)", command=self.close_all_moss_dialogs)
-            m_menu.add_command(label="🔓 Mở khóa kẹt thùng đồ & nhân vật (Tất cả)", command=self.unlock_all_moss_inventories)
-            m_menu.add_separator()
             ign_cur = getattr(self, "_moss_ignore_junk_type_val", False)
             ign_lbl = "✅ Bỏ qua lọc tên/loại rác (Đang BẬT)" if ign_cur else "⬜ Bỏ qua lọc tên/loại rác (Đang TẮT)"
-            m_menu.add_command(label=ign_lbl, command=self._toggle_ignore_junk_type_from_menu)
+            items = [
+                ("💰 Bán đồ rác tại NPC Silvia ngay (Tất cả)", self.sell_all_moss_inventories, "#34d399"),
+                ("🗑️ Ném đồ rác tại chỗ ngay (Tất cả)", self.clean_all_moss_inventories, "#f87171"),
+                ("🔍 Phân tích rác hòm đồ các tài khoản", self.analyze_all_moss_inventories, "#38bdf8"),
+                ("🧹 Hộp thoại dọn rác nâng cao...", self.open_junk_disposal_dialog, "#cbd5e1"),
+                ("---", None, ""),
+                ("🚶 Di chuyển tất cả về NPC Moss (Elbeland 22, 225)", self.move_all_to_moss_elbeland, "#38bdf8"),
+                ("🚪 Mở bảng NPC Moss (Tất cả)", self.open_all_moss_npc, "#f1f5f9"),
+                ("🚪 Đóng bảng NPC Moss (Tất cả)", self.close_all_moss_dialogs, "#94a3b8"),
+                ("🔓 Mở khóa kẹt thùng đồ & nhân vật (Tất cả)", self.unlock_all_moss_inventories, "#fbbf24"),
+                ("---", None, ""),
+                (ign_lbl, self._toggle_ignore_junk_type_from_menu, "#f59e0b" if ign_cur else "#94a3b8"),
+            ]
+            if not hasattr(self, "_moss_batch_action_menu") or not self._moss_batch_action_menu:
+                self._moss_batch_action_menu = ModernActionMenu(self, items=items, min_width=310)
+            else:
+                self._moss_batch_action_menu.items = items
 
             btn = getattr(self, "btn_moss_more_tools", None)
-            if btn:
-                x = btn.winfo_rootx()
-                y = btn.winfo_rooty() + btn.winfo_height() + 2
-                m_menu.tk_popup(x, y)
-            else:
-                m_menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
-        except Exception:
-            pass
+            self._moss_batch_action_menu.show(anchor_widget=btn)
+        except Exception as e:
+            self.append_moss_log(f"⚠️ Lỗi mở menu tiện ích: {e}")
 
     def apply_batch_moss_settings(self):
         """Gán cả Danh mục vật phẩm VÀ Delay cho các Slot đã chọn trong 1 lần click."""
@@ -8895,13 +9067,22 @@ class DashboardApp(ctk.CTk):
 
     def update_moss_selected_badge(self):
         """Cập nhật nhãn số lượng tài khoản đã chọn quay Moss trên Toolbar."""
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, self.update_moss_selected_badge)
+            except Exception:
+                pass
+            return
         if hasattr(self, "lbl_moss_count_badge") and self.lbl_moss_count_badge:
             total = len(self.controllers)
             sel = sum(1 for c in self.controllers if getattr(c, "moss_enabled", True))
-            self.lbl_moss_count_badge.configure(
-                text=f"🎯 Đã chọn: {sel}/{total} Slots",
-                text_color="#f59e0b" if sel > 0 else "#64748b"
-            )
+            cache_key = (sel, total)
+            if getattr(self, "_last_moss_badge_cache", None) != cache_key:
+                self._last_moss_badge_cache = cache_key
+                self.lbl_moss_count_badge.configure(
+                    text=f"🎯 Đã chọn: {sel}/{total} Slots",
+                    text_color="#f59e0b" if sel > 0 else "#64748b"
+                )
 
     def update_moss_row_visuals(self, slot_idx: int):
         """Cập nhật màu sắc và trạng thái trực quan khi bật/tắt checkbox slot Moss."""
@@ -9285,6 +9466,12 @@ class DashboardApp(ctk.CTk):
         threading.Thread(target=_unlocker, daemon=True).start()
 
     def update_moss_slot_ui_state(self, slot_idx: int, is_running: bool):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_moss_slot_ui_state(slot_idx, is_running))
+            except Exception:
+                pass
+            return
         el = self.moss_ui_elements.get(slot_idx)
         if not el:
             return
@@ -9308,28 +9495,54 @@ class DashboardApp(ctk.CTk):
                 )
 
     def update_moss_slot_rolls(self, slot_idx: int, count: int):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_moss_slot_rolls(slot_idx, count))
+            except Exception:
+                pass
+            return
         el = self.moss_ui_elements.get(slot_idx)
         if el and el.get("rolls_lbl"):
-            el["rolls_lbl"].configure(text=f"{count} Lượt")
+            cache_key = f"{count}"
+            if el.get("_last_rolls_cache") != cache_key:
+                el["_last_rolls_cache"] = cache_key
+                el["rolls_lbl"].configure(text=f"{count} Lượt")
 
     def update_moss_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int]):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_moss_slot_telemetry(slot_idx, name, pid))
+            except Exception:
+                pass
+            return
         el = self.moss_ui_elements.get(slot_idx)
         if not el or not el.get("char_lbl"):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
         is_en = getattr(ctrl, "moss_enabled", True) if ctrl else True
-        if pid and psutil.pid_exists(pid):
+        is_running = getattr(ctrl, "moss_running", False) if ctrl else False
+        pid_alive = bool(pid and psutil.pid_exists(pid))
+
+        cache_key = (name, pid if pid_alive else None, is_en, is_running)
+        if el.get("_last_telemetry_cache") == cache_key:
+            return
+        el["_last_telemetry_cache"] = cache_key
+
+        target_font = getattr(self, "font_segoe_11_bold", None) if is_en else getattr(self, "font_segoe_11", None)
+        norm_font = getattr(self, "font_segoe_11", None)
+
+        if pid_alive:
             disp = f"● {name} ({pid})" if name and name != "---" else f"● MEGAMU ({pid})"
-            el["char_lbl"].configure(text=disp, text_color="#38bdf8" if is_en else "#64748b", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_en else "normal"))
+            el["char_lbl"].configure(text=disp, text_color="#38bdf8" if is_en else "#64748b", font=target_font)
             if el.get("status_lbl"):
                 if not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua", text_color="#64748b")
-                elif ctrl and ctrl.moss_running:
+                elif is_running:
                     el["status_lbl"].configure(text="⚡ Đang quay...", text_color="#10b981")
                 else:
                     el["status_lbl"].configure(text="🟢 Sẵn sàng", text_color="#10b981")
         else:
-            el["char_lbl"].configure(text="⚪ Chưa kết nối", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            el["char_lbl"].configure(text="⚪ Chưa kết nối", text_color="#64748b", font=norm_font)
             if el.get("status_lbl"):
                 el["status_lbl"].configure(text="⛔ Bỏ qua" if not is_en else "⚪ Chưa kết nối", text_color="#64748b")
 
@@ -10255,13 +10468,22 @@ class DashboardApp(ctk.CTk):
 
     def update_mirror_selected_badge(self):
         """Cập nhật nhãn số lượng tài khoản đã chọn đi Mirror trên Toolbar."""
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, self.update_mirror_selected_badge)
+            except Exception:
+                pass
+            return
         if hasattr(self, "lbl_mirror_count_badge") and self.lbl_mirror_count_badge:
             total = len(self.controllers)
             sel = sum(1 for c in self.controllers if getattr(c, "mirror_enabled", True))
-            self.lbl_mirror_count_badge.configure(
-                text=f"Đi Mirror: {sel}/{total}",
-                text_color="#2dd4bf" if sel > 0 else "#64748b"
-            )
+            cache_key = (sel, total)
+            if getattr(self, "_last_mirror_badge_cache", None) != cache_key:
+                self._last_mirror_badge_cache = cache_key
+                self.lbl_mirror_count_badge.configure(
+                    text=f"Đi Mirror: {sel}/{total}",
+                    text_color="#2dd4bf" if sel > 0 else "#64748b"
+                )
 
     def update_mirror_row_visuals(self, slot_idx: int):
         """Cập nhật màu sắc và trạng thái trực quan khi bật/tắt checkbox slot."""
@@ -10358,6 +10580,12 @@ class DashboardApp(ctk.CTk):
                 self.refresh_mirror_slot_ticket_display(i)
 
     def update_mirror_slot_ui_state(self, slot_idx: int, is_running: bool):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_ui_state(slot_idx, is_running))
+            except Exception:
+                pass
+            return
         el = self.mirror_ui_elements.get(slot_idx)
         if not el:
             return
@@ -10375,6 +10603,12 @@ class DashboardApp(ctk.CTk):
                 el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa kết nối", text_color="#94a3b8")
 
     def update_mirror_slot_status(self, slot_idx: int, text: str, text_color: str = "#94a3b8"):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_status(slot_idx, text, text_color))
+            except Exception:
+                pass
+            return
         el = self.mirror_ui_elements.get(slot_idx)
         if el and el.get("status_lbl"):
             ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
@@ -10384,14 +10618,32 @@ class DashboardApp(ctk.CTk):
                 el["status_lbl"].configure(text=text, text_color=text_color)
 
     def update_mirror_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int], coords: str = ""):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_telemetry(slot_idx, name, pid, coords))
+            except Exception:
+                pass
+            return
         el = self.mirror_ui_elements.get(slot_idx)
         if not el or not el.get("char_lbl"):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
         is_en = getattr(ctrl, "mirror_enabled", True) if ctrl else True
-        if pid:
+        is_sniping = getattr(ctrl, "mirror_sniping", False) if ctrl else False
+        is_running = getattr(ctrl, "mirror_running", False) if ctrl else False
+        pid_alive = bool(pid and psutil.pid_exists(pid))
+
+        cache_key = (name, pid if pid_alive else None, coords, is_en, is_sniping, is_running)
+        if el.get("_last_telemetry_cache") == cache_key:
+            return
+        el["_last_telemetry_cache"] = cache_key
+
+        target_font = getattr(self, "font_segoe_11_bold", None) if is_en else getattr(self, "font_segoe_11", None)
+        norm_font = getattr(self, "font_segoe_11", None)
+
+        if pid_alive:
             disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
-            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_en else "normal"))
+            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=target_font)
             if el.get("status_lbl"):
                 if not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
@@ -10400,7 +10652,7 @@ class DashboardApp(ctk.CTk):
                     if cur_st in ("Chưa kết nối", "Chưa gán", "⛔ Bỏ qua (Không đi)"):
                         el["status_lbl"].configure(text="Sẵn sàng", text_color="#10b981")
         else:
-            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=norm_font)
             if el.get("status_lbl"):
                 el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)" if not is_en else "Chưa kết nối", text_color="#64748b")
             if el.get("ticket_lbl"):
@@ -13603,6 +13855,10 @@ class DashboardApp(ctk.CTk):
         def _apply():
             try:
                 any_running = any(c.worker and c.worker.running for c in self.controllers) or any(c.auto_requested for c in self.controllers)
+                if getattr(self, "_last_master_run_state", None) == any_running:
+                    return
+                self._last_master_run_state = any_running
+
                 if any_running:
                     # Đang có ít nhất 1 tài khoản chạy -> Hiển thị icon Dừng (Màu đỏ nổi bật)
                     self.btn_master_run.configure(
@@ -13898,12 +14154,23 @@ class DashboardApp(ctk.CTk):
 
     def update_header_stats(self):
         """Cập nhật các số liệu thống kê trên thanh tiêu đề và chân trang."""
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, self.update_header_stats)
+            except Exception:
+                pass
+            return
         num_games = len(self.detected_games)
         num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
         num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
         num_slots = len(self.controllers)
 
         lic_str = license_client.get_license_display_text() if license_client else CURRENT_LICENSE
+        cache_key = (num_games, num_conn, num_auto, num_slots, lic_str)
+        if getattr(self, "_last_header_stats_cache", None) == cache_key:
+            return
+        self._last_header_stats_cache = cache_key
+
         stat_text = tr(
             "header_stats",
             games=num_games,

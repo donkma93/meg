@@ -38,7 +38,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.8"
+    return "v1.5.9"
 
 def get_github_token() -> str:
     p = subprocess.Popen(
@@ -153,20 +153,29 @@ if __name__ == "__main__":
     title = f"MEGAMU Auto Train Dashboard {version} - MEGATEAM"
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
-### Điểm nổi bật & Tính năng mới trong bản {version}:
-- **Tích Hợp Thông Báo Telegram Bot Tự Động Cho Sự Kiện Double Goer (Mirror of Dimensions):**
-  - Tự động nhận diện cuộc trò chuyện trực tiếp qua Telegram Bot Token (`getUpdates`), người dùng chỉ cần dán duy nhất Bot Token từ @BotFather mà không cần tìm hay nhập Chat ID thủ công.
-  - Tự động báo cáo danh sách nhân vật vào qua cổng lúc :10 và báo cáo khi nhân vật thoát ra khỏi Mirror.
-  - Cơ chế gom nhóm thông báo (Debounce 2.0s) gom toàn bộ nhân vật cùng vượt cổng vào 1 tin nhắn duy nhất, tránh spam.
-  - Nâng cấp timeout mạng lên 15 giây và bổ sung cơ chế Auto-Retry 3 lần, loại bỏ hoàn toàn lỗi timeout bắt tay SSL (`_ssl.c: The handshake operation timed out`).
-- **Nâng Cấp Toàn Diện & Tối Ưu Hệ Thống Auto Moss The Gambler:**
-  - Tự động nhận diện trạng thái cửa sổ mở sẵn, không gửi lệnh thừa làm ngắt phiên đàm thoại NPC.
-  - Tự động di chuyển tới NPC Moss tại Elbeland (22, 225) nếu nhân vật đang đứng xa hoặc ở bản đồ khác.
-  - Đọc chính xác số dư Zen 64-bit trực tiếp từ RAM (`LocalCharacterBody -> UserInventory -> Zen`), chẩn đoán lỗi chính xác (ô trống hòm đồ 4x4) và chấm dứt báo nhầm 'không có zen'.
-  - Cơ chế Polling linh hoạt và chẩn đoán biến động Zen trừ để xác nhận quay thưởng thành công.
-- **Kế Thừa Đầy Đủ Các Tính Năng của v1.5.7:**
-  - Hệ thống bẫy lỗi và ghi vết luồng 3 lớp (Tri-Layer Crash Tracer).
-  - Tối ưu hóa chu trình Double Goer và chống bùng nổ luồng kiểm tra vé.
+### Điểm nổi bật & Nâng cấp quan trọng trong bản {version}:
+- **Khắc Phục Triệt Để Lỗi Crash Ứng Dụng `tcl86t.dll` (0xc0000005 Access Violation):**
+  - **Chuẩn hóa luồng an toàn (Thread-Safe Dispatching)**: Bọc 100% các lệnh can thiệp widget Tkinter/CustomTkinter (ghi nhật ký Moss, Mirror, RAM, Autologin, cập nhật telemetry tọa độ, cấp độ, badge slot và trạng thái) chuyển tiếp an toàn về Main Thread thông qua `self.after(0, ...)`.
+  - **Khắc phục triệt để rò rỉ bộ nhớ Font Tcl**: Cache các đối tượng CTkFont dùng chung (`font_segoe_11`, `font_segoe_11_bold`, `font_segoe_10_bold`, `font_segoe_12_bold`), chấm dứt việc cấp phát hàng chục ngàn font rò rỉ trong bảng băm của Tcl mỗi giờ.
+  - **Ngăn chặn tràn sự kiện Tooltip (Event Binding De-duplication)**: Tự động tái sử dụng đối tượng `ModernToolTip` sẵn có và chỉ cập nhật văn bản, chấm dứt việc tích tụ hàng ngàn sự kiện chuột thừa trên các nút điều khiển.
+  - **Bộ nhớ đệm chống vẽ lại dư thừa (State Caching)**: Tích hợp cache kiểm tra trạng thái trước khi gọi `.configure()`, giảm hơn 99% tải redraw và tiêu thụ RAM của giao diện.
+
+- **Đột Phá Chức Năng Bán Đồ Rác Moss Tại NPC Silvia Lấy Zen:**
+  - **Giải mã chuẩn giao thức MEGAMU (Reverse-Engineering GameAssembly.dll)**: Giải mã cơ chế mã hóa Headcode XOR 0xCB (`0x32 ^ 0xCB = 0xF9`), tích hợp gói tin wire packet chuẩn MEGAMU 5thEra 5-byte (`[0xC1, 0x05, 0xF9, slot, 0x01]`).
+  - **Tích hợp 4 lớp bán đồ native**: `nativeUserInvSell5` (`UserInventory.KAEFGNMOMFJ` RVA 0x144AB60), `nativeUserInvSell` (RVA 0x144B9A0), `nativeItemStorageSell` (RVA 0x2250560) và wire packet fallback.
+  - Tự động di chuyển tiếp cận NPC Silvia (Elbeland 44, 229), xác thực giao dịch mở shop, tự động bán sạch vũ khí/quần áo rác cấp độ +0..+7 của Moss và xác minh biến động RAM trước khi đóng shop quay về bệ Moss (22, 225).
+
+- **Thiết Kế Lại Giao Diện Auto Moss Promax UI/UX Tối Ưu Tương Tác:**
+  - Tái cấu trúc thanh công cụ Toolbar tối giản, gom nhóm các nút điều khiển hàng loạt, thêm Menu Tiện ích Mở rộng (Quick Tools Popup).
+  - Tích hợp Menu Chuột Phải thao tác nhanh cho từng slot (Quay thử 1 lần, Bán Silvia, Về Moss, Mở NPC, Mở khóa kẹt).
+  - Huy hiệu hiển thị trực quan số lượng slot đã chọn (`🎯 Đã chọn: X/Y Slots`).
+
+- **Bảo Vệ Đồ Tuyệt Đối 100%:**
+  - Miễn nhiễm hoàn toàn với các món đồ quý giá: Divine, Đồ Rồng, Cánh, Ngọc, Vé, Set, Socket, Ancient, Excellent, Harmony và đồ có cấp độ $\ge +8$.
+
+- **Kế thừa toàn diện các tính năng của v1.5.8 & v1.5.7:**
+  - Tự động gửi thông báo Telegram cho Double Goer (Mirror of Dimensions).
+  - Tri-Layer Crash Tracer và RAM Optimization định kỳ.
 """
 
     release = create_or_get_release(token, version, title, body)

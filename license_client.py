@@ -324,7 +324,7 @@ def _http_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         "license_key": cleaned_key,
         "hwid": hwid,
         "machine_name": os.environ.get("COMPUTERNAME", "PC"),
-        "client_version": "v1.5.8",
+        "client_version": "v1.5.9",
         "product_code": "megamu-navigator"
     }).encode("utf-8")
 
@@ -364,7 +364,7 @@ def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         srv_bytes = srv.encode("utf-8")
         key_bytes = cleaned_key.encode("utf-8")
         prod_bytes = b"megamu-navigator"
-        ver_bytes = b"v1.5.8"
+        ver_bytes = b"v1.5.9"
         ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 8192)
         res_str = out_buf.value.decode("utf-8")
         if res_str:
@@ -449,7 +449,7 @@ def _http_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
     payload = json.dumps({
         "license_key": str(key).strip(),
         "hwid": hwid,
-        "client_version": "v1.5.8"
+        "client_version": "v1.5.9"
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=payload, headers=BROWSER_HEADERS)
@@ -506,7 +506,7 @@ def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
         out_buf = ctypes.create_string_buffer(8192)
         srv_bytes = srv.encode("utf-8")
         key_bytes = str(key).encode("utf-8")
-        ver_bytes = b"v1.5.8"
+        ver_bytes = b"v1.5.9"
         ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
         res_str = out_buf.value.decode("utf-8")
         if res_str:
