@@ -8322,14 +8322,14 @@ class DashboardApp(ctk.CTk):
         inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
         inner_tb.pack(fill="x", padx=10, pady=6)
 
-        # Hàng 1 Toolbar: Chọn tài khoản + Gán nhanh danh mục + Nút chính
+        # Hàng 1 Toolbar: Chọn tài khoản + Điều khiển tổng (Start / Stop All)
         tb_row1 = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        tb_row1.pack(fill="x", pady=(0, 4))
+        tb_row1.pack(fill="x", pady=(0, 6))
 
         btn_sel_all = ctk.CTkButton(
             tb_row1,
             text="✅ Chọn tất cả",
-            width=90,
+            width=95,
             height=28,
             corner_radius=0,
             fg_color="#1e293b",
@@ -8356,21 +8356,21 @@ class DashboardApp(ctk.CTk):
 
         self.lbl_moss_count_badge = ctk.CTkLabel(
             tb_row1,
-            text="Quay Moss: 0/0",
+            text="🎯 Đã chọn: 0/0 Slots",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#f59e0b"
         )
         self.lbl_moss_count_badge.pack(side="left", padx=(0, 15))
 
-        # Phải Hàng 1: Nút BẮT ĐẦU QUAY + DỪNG QUAY
+        # Phải Hàng 1: Nút BẮT ĐẦU QUAY + DỪNG QUAY (Nổi bật, Promax)
         tb_row1_r = ctk.CTkFrame(tb_row1, fg_color="transparent")
         tb_row1_r.pack(side="right")
 
         self.btn_moss_stop_all = ctk.CTkButton(
             tb_row1_r,
-            text="⏹️ DỪNG QUAY",
-            width=100,
-            height=28,
+            text="⏹️ DỪNG TẤT CẢ",
+            width=110,
+            height=30,
             corner_radius=0,
             fg_color="#dc2626",
             hover_color="#b91c1c",
@@ -8378,13 +8378,13 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.stop_all_moss_auto
         )
-        self.btn_moss_stop_all.pack(side="right", padx=(6, 0))
+        self.btn_moss_stop_all.pack(side="right", padx=(8, 0))
 
         self.btn_moss_start_all = ctk.CTkButton(
             tb_row1_r,
-            text="▶️ BẮT ĐẦU QUAY (ĐÃ CHỌN)",
-            width=190,
-            height=28,
+            text="▶️ BẮT ĐẦU QUAY TỰ ĐỘNG",
+            width=200,
+            height=30,
             corner_radius=0,
             fg_color="#059669",
             hover_color="#047857",
@@ -8394,42 +8394,27 @@ class DashboardApp(ctk.CTk):
         )
         self.btn_moss_start_all.pack(side="right")
 
-        # Hàng 2 Toolbar: Gán danh mục + Delay + Dọn rác
+        # Hàng 2 Toolbar: Thiết lập cấu hình hàng loạt + Tùy chọn dọn rác + Tiện ích nâng cao
         tb_row2 = ctk.CTkFrame(inner_tb, fg_color="transparent")
         tb_row2.pack(fill="x")
 
+        # Cụm 1: Thiết lập cấu hình hàng loạt (1-Click Apply)
         ctk.CTkLabel(
             tb_row2,
-            text="Gán nhanh:",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text="Cấu hình:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#94a3b8"
-        ).pack(side="left", padx=(0, 4))
+        ).pack(side="left", padx=(0, 6))
 
         self.batch_moss_cat_combo = ModernOptionMenu(
             tb_row2,
             values=[name for name, _ in self.MOSS_CAT_OPTIONS],
-            width=180,
-            height=26,
+            width=210,
+            height=28,
             font=ctk.CTkFont(family="Segoe UI", size=11)
         )
         self.batch_moss_cat_combo.set(self.MOSS_CAT_OPTIONS[0][0])
-        self.batch_moss_cat_combo.pack(side="left", padx=(0, 4))
-
-        btn_apply_cat = ctk.CTkButton(
-            tb_row2,
-            text="📋 Áp dụng",
-            width=70,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#475569",
-            text_color="#f1f5f9",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.apply_batch_moss_category
-        )
-        btn_apply_cat.pack(side="left", padx=(0, 10))
+        self.batch_moss_cat_combo.pack(side="left", padx=(0, 8))
 
         ctk.CTkLabel(
             tb_row2,
@@ -8441,20 +8426,70 @@ class DashboardApp(ctk.CTk):
         self.batch_moss_delay_entry = ctk.CTkEntry(
             tb_row2,
             width=55,
-            height=26,
+            height=28,
             font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color="#181c26",
             border_color="#2b3244",
             text_color="#f8fafc"
         )
         self.batch_moss_delay_entry.insert(0, "1000")
-        self.batch_moss_delay_entry.pack(side="left", padx=(0, 4))
+        self.batch_moss_delay_entry.pack(side="left", padx=(0, 6))
 
-        btn_apply_delay = ctk.CTkButton(
+        btn_apply_all = ctk.CTkButton(
             tb_row2,
-            text="⏱ Đặt delay",
-            width=75,
-            height=26,
+            text="⚡ Áp dụng tất cả",
+            width=105,
+            height=28,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#38bdf8",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.apply_batch_moss_settings
+        )
+        btn_apply_all.pack(side="left", padx=(0, 14))
+
+        # Phân cách thanh mảnh
+        ctk.CTkFrame(tb_row2, fg_color="#202430", width=1, height=20).pack(side="left", padx=(0, 14))
+
+        # Cụm 2: Tùy chọn tự dọn rác thông minh
+        self.batch_moss_clean_cb = ctk.CTkCheckBox(
+            tb_row2,
+            text="🧹 Tự dọn rác khi đầy",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f87171",
+            fg_color="#ef4444",
+            hover_color="#dc2626",
+            command=self.on_toggle_global_moss_clean
+        )
+        self.batch_moss_clean_cb.select()
+        self.batch_moss_clean_cb.pack(side="left", padx=(0, 8))
+
+        self.cb_clean_equipment_trash = ctk.CTkCheckBox(
+            tb_row2,
+            text="👕 Kèm đồ rác (+0..+6)",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8",
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            command=self.on_toggle_clean_equipment_trash
+        )
+        self.cb_clean_equipment_trash.select()
+        self.cb_clean_equipment_trash.pack(side="left", padx=(0, 14))
+
+        # Biến ẩn tương thích cho cb_ignore_junk_type
+        self.cb_ignore_junk_type = None
+
+        # Cụm 3: Phím tắt Silvia + Nút Tiện ích mở rộng (Bên phải)
+        tb_row2_r = ctk.CTkFrame(tb_row2, fg_color="transparent")
+        tb_row2_r.pack(side="right")
+
+        self.btn_moss_more_tools = ctk.CTkButton(
+            tb_row2_r,
+            text="🛠️ Tiện ích mở rộng ▾",
+            height=28,
             corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
@@ -8462,155 +8497,24 @@ class DashboardApp(ctk.CTk):
             border_color="#475569",
             text_color="#cbd5e1",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.apply_batch_moss_delay
+            command=self.show_moss_batch_tools_menu
         )
-        btn_apply_delay.pack(side="left", padx=(0, 10))
+        self.btn_moss_more_tools.pack(side="right", padx=(6, 0))
 
-        self.batch_moss_clean_cb = ctk.CTkCheckBox(
-            tb_row2,
-            text="🧹 Tự dọn rác",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#f87171",
-            fg_color="#ef4444",
-            hover_color="#dc2626",
-            command=self.on_toggle_global_moss_clean
-        )
-        self.batch_moss_clean_cb.select()
-        self.batch_moss_clean_cb.pack(side="left", padx=(0, 6))
-
-        self.cb_clean_equipment_trash = ctk.CTkCheckBox(
-            tb_row2,
-            text="👕 Vứt quần áo & vũ khí rác",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#38bdf8",
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            command=self.on_toggle_clean_equipment_trash
-        )
-        self.cb_clean_equipment_trash.select()
-        self.cb_clean_equipment_trash.pack(side="left", padx=(0, 10))
-        add_tooltip(
-            self.cb_clean_equipment_trash,
-            "👕 Vứt quần áo & vũ khí rác (Clean Equipment Trash)\n"
-            "Khi bật: Ngoài các món đồ rác sinh ra từ Moss, bot sẽ dọn sạch cả các món quần áo rác (mũ, áo, quần, găng, giày)\n"
-            "và vũ khí rác thường (+0..+6 không có tính năng) trong hòm đồ để tránh bị đầy thùng đồ."
-        )
-
-        btn_clean_all = ctk.CTkButton(
-            tb_row2,
-            text="🗑️ Ném Tại Chỗ",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#ef4444",
-            text_color="#f87171",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.clean_all_moss_inventories
-        )
-        btn_clean_all.pack(side="left", padx=(0, 6))
-
-        self.btn_analyze_junk = ctk.CTkButton(
-            tb_row2,
-            text="🔍 Phân Tích Rác",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#a78bfa",
-            text_color="#c4b5fd",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.analyze_all_moss_inventories
-        )
-        self.btn_analyze_junk.pack(side="left", padx=(0, 6))
-
-        self.btn_junk_dialog = ctk.CTkButton(
-            tb_row2,
-            text="🧹 Dọn Rác",
-            height=26,
-            corner_radius=0,
-            fg_color="#7f1d1d",
-            hover_color="#991b1b",
-            border_width=1,
-            border_color="#ef4444",
-            text_color="#fecaca",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.open_junk_disposal_dialog
-        )
-        self.btn_junk_dialog.pack(side="left", padx=(0, 6))
-
-        self.cb_ignore_junk_type = ctk.CTkCheckBox(
-            tb_row2,
-            text="⚠️ Bỏ lọc tên/loại",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#fbbf24",
-            fg_color="#f59e0b",
-            hover_color="#d97706",
-            command=self.on_toggle_ignore_junk_type
-        )
-        self.cb_ignore_junk_type.pack(side="left", padx=(0, 6))
-
-        btn_sell_all = ctk.CTkButton(
-            tb_row2,
-            text="💰 Bán Silvia",
-            height=26,
+        btn_sell_silvia_quick = ctk.CTkButton(
+            tb_row2_r,
+            text="💰 Bán Silvia ngay",
+            height=28,
             corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
             border_color="#10b981",
             text_color="#34d399",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.sell_all_moss_inventories
         )
-        btn_sell_all.pack(side="left", padx=(0, 6))
-
-        btn_move_all = ctk.CTkButton(
-            tb_row2,
-            text="🚶 Về NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#38bdf8",
-            text_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.move_all_to_moss_elbeland
-        )
-        btn_move_all.pack(side="left", padx=(0, 6))
-
-        btn_open_all = ctk.CTkButton(
-            tb_row2,
-            text="🚪 Mở NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#f59e0b",
-            text_color="#fbbf24",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.open_all_moss_npc
-        )
-        btn_open_all.pack(side="left", padx=(0, 6))
-
-        btn_close_all = ctk.CTkButton(
-            tb_row2,
-            text="🚪 Đóng NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#64748b",
-            text_color="#cbd5e1",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.close_all_moss_dialogs
-        )
-        btn_close_all.pack(side="left")
+        btn_sell_silvia_quick.pack(side="right")
 
         # 3. BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
         table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
@@ -8621,14 +8525,13 @@ class DashboardApp(ctk.CTk):
         tbl_h.pack(fill="x", padx=10, pady=(6, 2))
 
         headers = [
-            ("Quay Moss", 95, "w"),
-            ("Nº", 35, "w"),
-            ("Tài khoản / PID", 175, "w"),
-            ("Vật Phẩm Quay (Config)", 185, "w"),
-            ("Delay", 70, "center"),
-            ("Đã Quay", 70, "center"),
-            ("Trạng Thái", 115, "center"),
-            ("Thao Tác", 220, "center"),
+            ("Slot", 90, "w"),
+            ("Tài khoản / Nhân vật", 185, "w"),
+            ("Vật Phẩm Quay (Cấu hình)", 195, "w"),
+            ("Delay", 75, "center"),
+            ("Đã Quay", 85, "center"),
+            ("Trạng Thái", 110, "center"),
+            ("Thao Tác", 115, "center"),
         ]
         for title, w, anc in headers:
             ctk.CTkLabel(
@@ -8694,16 +8597,16 @@ class DashboardApp(ctk.CTk):
         ctrl = self.controllers[i - 1]
         is_en = getattr(ctrl, "moss_enabled", True)
         row_bg = "#141722" if is_en else "#0f1118"
-        row_frame = ctk.CTkFrame(self.moss_scroll_frame, fg_color=row_bg, height=40, corner_radius=0)
+        row_frame = ctk.CTkFrame(self.moss_scroll_frame, fg_color=row_bg, height=38, corner_radius=0)
         row_frame.pack(fill="x", padx=2, pady=2)
 
-        # Cột 1: Checkbox Quay Moss
+        # Cột 1: Checkbox Slot (Kèm mã Slot)
         cb_enabled = ctk.CTkCheckBox(
             row_frame,
-            text="Quay Moss",
-            width=90,
+            text=f"Slot {i:02d}",
+            width=85,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f59e0b",
+            text_color="#f59e0b" if is_en else "#64748b",
             fg_color="#d97706",
             hover_color="#b45309",
             command=lambda s=i: self.on_moss_slot_enabled_toggled(s)
@@ -8714,19 +8617,11 @@ class DashboardApp(ctk.CTk):
             cb_enabled.deselect()
         cb_enabled.pack(side="left", padx=(8, 4))
 
-        # Cột 2: No.
-        no_lbl = ctk.CTkLabel(
-            row_frame,
-            text=f"{i:02d}",
-            width=35,
-            anchor="w",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94a3b8" if is_en else "#475569"
-        )
-        no_lbl.pack(side="left", padx=2)
+        # Dummy label cho no_lbl (đảm bảo 100% tương thích ngược nếu có hàm truy cập)
+        no_lbl = ctk.CTkLabel(row_frame, text="", width=0)
 
-        # Cột 3: Nhân vật / PID
-        char_disp = f"{ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "Chưa gán"
+        # Cột 2: Nhân vật / PID
+        char_disp = f"● {ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "⚪ Chưa kết nối"
         char_color = "#f8fafc" if (ctrl.assigned_pid and is_en) else "#64748b"
         char_lbl = ctk.CTkLabel(
             row_frame,
@@ -8738,7 +8633,7 @@ class DashboardApp(ctk.CTk):
         )
         char_lbl.pack(side="left", padx=4)
 
-        # Cột 4: Vật phẩm quay (Config)
+        # Cột 3: Vật phẩm quay (Config)
         cat_var = ctk.StringVar(value=self.get_moss_cat_name(ctrl.moss_category))
         cat_combo = ModernOptionMenu(
             row_frame,
@@ -8751,10 +8646,12 @@ class DashboardApp(ctk.CTk):
         )
         cat_combo.pack(side="left", padx=4)
 
-        # Cột 5: Delay (ms)
+        # Cột 4: Delay (ms)
+        delay_f = ctk.CTkFrame(row_frame, fg_color="transparent", width=75)
+        delay_f.pack(side="left", padx=2)
         delay_entry = ctk.CTkEntry(
-            row_frame,
-            width=65,
+            delay_f,
+            width=50,
             height=26,
             font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color="#181c26",
@@ -8762,50 +8659,51 @@ class DashboardApp(ctk.CTk):
             text_color="#f8fafc"
         )
         delay_entry.insert(0, str(ctrl.moss_delay_ms))
-        delay_entry.pack(side="left", padx=4)
+        delay_entry.pack(side="left")
         delay_entry.bind("<FocusOut>", lambda e, s=i: self.on_moss_slot_delay_changed(s))
         delay_entry.bind("<Return>", lambda e, s=i: self.on_moss_slot_delay_changed(s))
+        ctk.CTkLabel(delay_f, text="ms", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=10)).pack(side="left", padx=(2, 0))
 
-        # Cột 6: Đã quay
+        # Cột 5: Đã quay
         rolls_lbl = ctk.CTkLabel(
             row_frame,
-            text=f"{ctrl.moss_rolls_count} Lượt",
-            width=75,
+            text=f"🎰 {ctrl.moss_rolls_count} lượt",
+            width=80,
             anchor="center",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#10b981" if is_en else "#475569"
+            text_color="#10b981" if is_en and ctrl.moss_rolls_count > 0 else "#64748b"
         )
         rolls_lbl.pack(side="left", padx=4)
 
-        # Cột 7: Trạng thái
+        # Cột 6: Trạng thái
         if not is_en:
             st_text = "⛔ Bỏ qua"
             st_color = "#64748b"
         elif ctrl.assigned_pid:
-            st_text = "Chờ"
-            st_color = "#94a3b8"
+            st_text = "🟢 Sẵn sàng"
+            st_color = "#10b981"
         else:
-            st_text = "Chưa gán"
+            st_text = "⚪ Chưa gán"
             st_color = "#64748b"
 
         status_lbl = ctk.CTkLabel(
             row_frame,
             text=st_text,
-            width=120,
+            width=105,
             anchor="center",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=st_color
         )
         status_lbl.pack(side="left", padx=4)
 
-        # Cột 8: Thao tác (4 nút: Auto, Mở, 1 Lần, Ném tại chỗ)
-        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=220)
+        # Cột 7: Thao tác (Tối giản: 1 Nút Chạy/Dừng chính + 1 Nút Menu tiện ích [⋯])
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=110)
         action_box.pack(side="left", padx=4)
 
         btn_toggle = ctk.CTkButton(
             action_box,
-            text="▶️ Auto",
-            width=54,
+            text="▶️ Bắt đầu",
+            width=72,
             height=26,
             corner_radius=0,
             fg_color="#059669",
@@ -8814,73 +8712,27 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda s=i: self.toggle_moss_slot_auto(s)
         )
-        btn_toggle.pack(side="left", padx=(0, 3))
+        btn_toggle.pack(side="left", padx=(0, 4))
 
-        btn_open = ctk.CTkButton(
+        btn_more = ctk.CTkButton(
             action_box,
-            text="🚪 Mở",
-            width=44,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#f59e0b",
-            text_color="#fbbf24",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: ctrl.open_moss_npc()
-        )
-        btn_open.pack(side="left", padx=(0, 3))
-
-        btn_once = ctk.CTkButton(
-            action_box,
-            text="🎲 1 Lần",
-            width=50,
+            text="⋯",
+            width=28,
             height=26,
             corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
             border_color="#475569",
-            text_color="#e2e8f0",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: ctrl.roll_moss_once()
+            text_color="#cbd5e1",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            command=lambda s=i: self._show_moss_row_menu(s)
         )
-        btn_once.pack(side="left", padx=(0, 3))
+        btn_more.pack(side="left")
+        add_tooltip(btn_more, "⋯ Menu thao tác nâng cao (Quay thử, Mở bảng, Bán Silvia, Về Moss...)")
 
-        btn_drop = ctk.CTkButton(
-            action_box,
-            text="🗑️ Ném",
-            width=48,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#ef4444",
-            text_color="#f87171",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: ctrl.clean_moss_inventory(run_in_thread=True)
-        )
-        btn_drop.pack(side="left")
-
-        def _show_moss_ctx(event, s_idx):
-            try:
-                ctrl_item = self.controllers[s_idx - 1]
-                m_menu = tk.Menu(self, tearoff=0, bg="#181c26", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
-                m_menu.add_command(label=f"🗑️ Ném đồ rác tại chỗ (Slot {s_idx:02d})", command=lambda: ctrl_item.clean_moss_inventory(run_in_thread=True))
-                m_menu.add_command(label=f"💰 Bán đồ rác tại NPC Silvia (Slot {s_idx:02d})", command=lambda: ctrl_item.sell_moss_inventory())
-                m_menu.add_separator()
-                m_menu.add_command(label="🚪 Mở bảng Moss NPC", command=lambda: ctrl_item.open_moss_npc())
-                m_menu.add_command(label="🚪 Đóng bảng Moss NPC", command=lambda: ctrl_item.close_moss_dialog())
-                m_menu.add_command(label="🔓 Mở khóa kẹt thùng đồ & Moss", command=lambda: ctrl_item.unlock_and_close_inventory())
-                m_menu.add_command(label="🚶 Chạy về NPC Moss (22, 225)", command=lambda: ctrl_item.move_to_moss_elbeland())
-                m_menu.tk_popup(event.x_root, event.y_root)
-            except Exception:
-                pass
-
-        for _mw in (row_frame, no_lbl, char_lbl, rolls_lbl, status_lbl):
-            _mw.bind("<Button-3>", lambda e, s=i: _show_moss_ctx(e, s))
+        for _mw in (row_frame, char_lbl, rolls_lbl, status_lbl):
+            _mw.bind("<Button-3>", lambda e, s=i: self._show_moss_row_menu(s))
 
         # Lưu UI cache
         self.moss_ui_elements[i] = {
@@ -8894,10 +8746,113 @@ class DashboardApp(ctk.CTk):
             "rolls_lbl": rolls_lbl,
             "status_lbl": status_lbl,
             "btn_toggle": btn_toggle,
-            "btn_open": btn_open,
-            "btn_once": btn_once,
-            "btn_drop": btn_drop,
+            "btn_more": btn_more,
+            "btn_open": None,
+            "btn_once": None,
+            "btn_drop": None,
         }
+
+    def _show_moss_row_menu(self, s_idx: int, widget=None):
+        """Hiển thị menu thao tác nhanh cho từng Slot Moss."""
+        try:
+            ctrl_item = self.controllers[s_idx - 1]
+            m_menu = tk.Menu(
+                self,
+                tearoff=0,
+                bg="#181c26",
+                fg="#f1f5f9",
+                activebackground="#0284c7",
+                activeforeground="#ffffff",
+                font=("Segoe UI", 10)
+            )
+            m_menu.add_command(label=f"🎲 Quay thử 1 lần (Slot {s_idx:02d})", command=lambda: ctrl_item.roll_moss_once())
+            m_menu.add_command(label="🚪 Mở bảng Moss NPC", command=lambda: ctrl_item.open_moss_npc())
+            m_menu.add_command(label="🚪 Đóng bảng Moss NPC", command=lambda: ctrl_item.close_moss_dialog())
+            m_menu.add_separator()
+            m_menu.add_command(label="💰 Đi bán đồ rác tại NPC Silvia", command=lambda: ctrl_item.sell_moss_inventory())
+            m_menu.add_command(label="🗑️ Ném đồ rác tại chỗ ngay", command=lambda: ctrl_item.clean_moss_inventory(run_in_thread=True))
+            m_menu.add_separator()
+            m_menu.add_command(label="🚶 Chạy về NPC Moss (Elbeland 22, 225)", command=lambda: ctrl_item.move_to_moss_elbeland())
+            m_menu.add_command(label="🔓 Mở khóa kẹt thùng đồ & Moss", command=lambda: ctrl_item.unlock_and_close_inventory())
+
+            if widget:
+                x = widget.winfo_rootx()
+                y = widget.winfo_rooty() + widget.winfo_height() + 2
+                m_menu.tk_popup(x, y)
+            else:
+                el = self.moss_ui_elements.get(s_idx)
+                b = el.get("btn_more") if el else None
+                if b:
+                    x = b.winfo_rootx()
+                    y = b.winfo_rooty() + b.winfo_height() + 2
+                    m_menu.tk_popup(x, y)
+                else:
+                    m_menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+        except Exception:
+            pass
+
+    def show_moss_batch_tools_menu(self):
+        """Hiển thị menu popup tiện ích mở rộng cho Moss Merchant."""
+        try:
+            m_menu = tk.Menu(
+                self,
+                tearoff=0,
+                bg="#181c26",
+                fg="#f1f5f9",
+                activebackground="#0284c7",
+                activeforeground="#ffffff",
+                font=("Segoe UI", 10)
+            )
+            m_menu.add_command(label="💰 Bán đồ rác tại NPC Silvia ngay (Tất cả)", command=self.sell_all_moss_inventories)
+            m_menu.add_command(label="🗑️ Ném đồ rác tại chỗ ngay (Tất cả)", command=self.clean_all_moss_inventories)
+            m_menu.add_command(label="🔍 Phân tích rác hòm đồ các tài khoản", command=self.analyze_all_moss_inventories)
+            m_menu.add_command(label="🧹 Hộp thoại dọn rác nâng cao...", command=self.open_junk_disposal_dialog)
+            m_menu.add_separator()
+            m_menu.add_command(label="🚶 Di chuyển tất cả về NPC Moss (Elbeland 22, 225)", command=self.move_all_to_moss_elbeland)
+            m_menu.add_command(label="🚪 Mở bảng NPC Moss (Tất cả)", command=self.open_all_moss_npc)
+            m_menu.add_command(label="🚪 Đóng bảng NPC Moss (Tất cả)", command=self.close_all_moss_dialogs)
+            m_menu.add_command(label="🔓 Mở khóa kẹt thùng đồ & nhân vật (Tất cả)", command=self.unlock_all_moss_inventories)
+            m_menu.add_separator()
+            ign_cur = getattr(self, "_moss_ignore_junk_type_val", False)
+            ign_lbl = "✅ Bỏ qua lọc tên/loại rác (Đang BẬT)" if ign_cur else "⬜ Bỏ qua lọc tên/loại rác (Đang TẮT)"
+            m_menu.add_command(label=ign_lbl, command=self._toggle_ignore_junk_type_from_menu)
+
+            btn = getattr(self, "btn_moss_more_tools", None)
+            if btn:
+                x = btn.winfo_rootx()
+                y = btn.winfo_rooty() + btn.winfo_height() + 2
+                m_menu.tk_popup(x, y)
+            else:
+                m_menu.tk_popup(self.winfo_pointerx(), self.winfo_pointery())
+        except Exception:
+            pass
+
+    def apply_batch_moss_settings(self):
+        """Gán cả Danh mục vật phẩm VÀ Delay cho các Slot đã chọn trong 1 lần click."""
+        self.apply_batch_moss_category()
+        self.apply_batch_moss_delay()
+
+    def unlock_all_moss_inventories(self):
+        """Mở khóa kẹt thùng đồ và giao diện Moss cho tất cả các Slot."""
+        def _exec():
+            cnt = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "moss_enabled", True):
+                    continue
+                ctrl.unlock_and_close_inventory()
+                cnt += 1
+            self.append_moss_log(f"🔓 Đã mở khóa kẹt thùng đồ & Moss cho {cnt} Slot đã chọn.")
+        threading.Thread(target=_exec, daemon=True).start()
+
+    def _toggle_ignore_junk_type_from_menu(self):
+        """Bật/tắt bỏ lọc tên/loại từ menu tiện ích."""
+        cur = getattr(self, "_moss_ignore_junk_type_val", False)
+        new_val = not cur
+        self._moss_ignore_junk_type_val = new_val
+        for ctrl in self.controllers:
+            ctrl.moss_ignore_junk_type = new_val
+        st = "ĐÃ BẬT (vứt/bán mọi đồ thường <= max level)" if new_val else "ĐÃ TẮT (chỉ dọn đồ theo danh mục Moss)"
+        self.append_moss_log(f"⚠️ Chế độ Bỏ lọc tên/loại rác: {st}.")
 
     def on_moss_slot_enabled_toggled(self, slot_idx: int):
         """Xử lý khi người dùng bật/tắt checkbox tham gia Moss của từng slot."""
@@ -8944,7 +8899,7 @@ class DashboardApp(ctk.CTk):
             total = len(self.controllers)
             sel = sum(1 for c in self.controllers if getattr(c, "moss_enabled", True))
             self.lbl_moss_count_badge.configure(
-                text=f"Quay Moss: {sel}/{total}",
+                text=f"🎯 Đã chọn: {sel}/{total} Slots",
                 text_color="#f59e0b" if sel > 0 else "#64748b"
             )
 
@@ -8958,19 +8913,19 @@ class DashboardApp(ctk.CTk):
         if is_en:
             if el.get("row_frame"):
                 el["row_frame"].configure(fg_color="#141722")
-            if el.get("no_lbl"):
-                el["no_lbl"].configure(text_color="#94a3b8")
+            if el.get("cb_enabled"):
+                el["cb_enabled"].configure(text_color="#f59e0b")
             if el.get("char_lbl"):
                 el["char_lbl"].configure(text_color="#f8fafc" if ctrl.assigned_pid else "#64748b")
             if el.get("status_lbl"):
                 cur_text = el["status_lbl"].cget("text")
                 if "Bỏ qua" in cur_text:
-                    el["status_lbl"].configure(text="Chờ" if ctrl.assigned_pid else "Chưa gán", text_color="#94a3b8" if ctrl.assigned_pid else "#64748b")
+                    el["status_lbl"].configure(text="🟢 Sẵn sàng" if ctrl.assigned_pid else "⚪ Chưa gán", text_color="#10b981" if ctrl.assigned_pid else "#64748b")
         else:
             if el.get("row_frame"):
                 el["row_frame"].configure(fg_color="#0f1118")
-            if el.get("no_lbl"):
-                el["no_lbl"].configure(text_color="#475569")
+            if el.get("cb_enabled"):
+                el["cb_enabled"].configure(text_color="#64748b")
             if el.get("char_lbl"):
                 el["char_lbl"].configure(text_color="#475569")
             if el.get("status_lbl"):
@@ -9342,12 +9297,15 @@ class DashboardApp(ctk.CTk):
             if is_running:
                 el["btn_toggle"].configure(text="⏹️ Dừng", fg_color="#dc2626", hover_color="#b91c1c")
             else:
-                el["btn_toggle"].configure(text="▶️ Auto", fg_color="#059669", hover_color="#047857")
+                el["btn_toggle"].configure(text="▶️ Bắt đầu", fg_color="#059669", hover_color="#047857")
         if el.get("status_lbl"):
             if is_running:
-                el["status_lbl"].configure(text="Đang quay...", text_color="#10b981")
+                el["status_lbl"].configure(text="⚡ Đang quay...", text_color="#10b981")
             else:
-                el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa gán", text_color="#94a3b8")
+                el["status_lbl"].configure(
+                    text="🟢 Sẵn sàng" if (ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid)) else "⚪ Chưa kết nối",
+                    text_color="#10b981" if (ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid)) else "#64748b"
+                )
 
     def update_moss_slot_rolls(self, slot_idx: int, count: int):
         el = self.moss_ui_elements.get(slot_idx)
@@ -9360,18 +9318,20 @@ class DashboardApp(ctk.CTk):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
         is_en = getattr(ctrl, "moss_enabled", True) if ctrl else True
-        if pid:
-            disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
-            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_en else "normal"))
+        if pid and psutil.pid_exists(pid):
+            disp = f"● {name} ({pid})" if name and name != "---" else f"● MEGAMU ({pid})"
+            el["char_lbl"].configure(text=disp, text_color="#38bdf8" if is_en else "#64748b", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_en else "normal"))
             if el.get("status_lbl"):
                 if not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua", text_color="#64748b")
-                elif not ctrl.moss_running:
-                    el["status_lbl"].configure(text="Chờ", text_color="#94a3b8")
+                elif ctrl and ctrl.moss_running:
+                    el["status_lbl"].configure(text="⚡ Đang quay...", text_color="#10b981")
+                else:
+                    el["status_lbl"].configure(text="🟢 Sẵn sàng", text_color="#10b981")
         else:
-            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            el["char_lbl"].configure(text="⚪ Chưa kết nối", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
             if el.get("status_lbl"):
-                el["status_lbl"].configure(text="⛔ Bỏ qua" if not is_en else "Chưa gán", text_color="#64748b")
+                el["status_lbl"].configure(text="⛔ Bỏ qua" if not is_en else "⚪ Chưa kết nối", text_color="#64748b")
 
     def toggle_moss_slot_auto(self, slot_idx: int):
         ctrl = self.controllers[slot_idx - 1]
