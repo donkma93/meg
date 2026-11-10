@@ -40,7 +40,7 @@ def run_cross_audit():
 
     expected = {
         "moss_send_roll": "0x23F8BE0",
-        "moss_roll_click": "0x27A8F90",
+        "moss_roll_click": "0x27AA8B0",
         "moss_window_close": "0x1A183F0",
         "moss_select_cat": "0x27A8510",
         "ui_moss_window": "0x1C8",

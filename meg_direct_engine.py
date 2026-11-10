@@ -120,7 +120,7 @@ DEFAULT_OFFSETS = {
     "moss_init": "0x27A77C0",
     "moss_select_cat": "0x27A8510",
     "moss_send_roll": "0x23F8BE0",
-    "moss_roll_click": "0x27A8F90",
+    "moss_roll_click": "0x27AA8B0",
     "moss_window_close": "0x1A183F0",
     "game_object_set_active": "0x45CCB90",
     "component_get_game_object": "0x45C8770",
@@ -3377,7 +3377,8 @@ rpc.exports = {
             if (nativeGetGameUI === null) return false;
             var gui = nativeGetGameUI();
             if (gui.isNull()) return false;
-            var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+            var mossOff = off('__UI_MOSS_WINDOW__');
+            var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
             if (mossWin.isNull()) return false;
             var win = mossWin.add(0x20).readPointer();
             if (win.isNull()) return false;
@@ -3393,7 +3394,8 @@ rpc.exports = {
             if (nativeGetGameUI === null) return false;
             var gui = nativeGetGameUI();
             if (gui.isNull()) return false;
-            var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+            var mossOff = off('__UI_MOSS_WINDOW__');
+            var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
             if (mossWin.isNull()) return false;
             var win = mossWin.add(0x20).readPointer();
             if (win.isNull()) return false;
@@ -3415,7 +3417,8 @@ rpc.exports = {
             if (nativeGetGameUI !== null) {
                 var gui = nativeGetGameUI();
                 if (!gui.isNull()) {
-                    var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
+                    var mossOff = off('__UI_MOSS_WINDOW__');
+                    var mossWin = mossOff.isNull() ? gui.add(ptr('0x1C8')).readPointer() : gui.add(mossOff).readPointer();
                     if (!mossWin.isNull()) {
                         // A. Đảm bảo InventoryWindow mở sẵn (offset 0x188 / 0x20)
                         try {
@@ -3441,10 +3444,23 @@ rpc.exports = {
                                 if (!catList.isNull()) {
                                     var count = catList.add(0x18).readS32();
                                     var items = catList.add(0x10).readPointer();
-                                    if (!items.isNull() && cat < count && cat >= 0) {
-                                        var catObj = items.add(0x20 + cat * 8).readPointer();
-                                        if (!catObj.isNull()) {
-                                            nativeMossSelectCat(mossWin, catObj, ptr(0));
+                                    if (!items.isNull() && count > 0) {
+                                        var targetCatObj = ptr(0);
+                                        for (var ci = 0; ci < count; ci++) {
+                                            var candidate = items.add(0x20 + ci * 8).readPointer();
+                                            if (!candidate.isNull()) {
+                                                var cId = candidate.add(0x10).readS32();
+                                                if (cId === cat) {
+                                                    targetCatObj = candidate;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if (targetCatObj.isNull() && cat < count && cat >= 0) {
+                                            targetCatObj = items.add(0x20 + cat * 8).readPointer();
+                                        }
+                                        if (!targetCatObj.isNull()) {
+                                            nativeMossSelectCat(mossWin, targetCatObj, ptr(0));
                                         }
                                     }
                                 }
@@ -3452,7 +3468,7 @@ rpc.exports = {
                         }
 
                         // 3. GỬI LỆNH QUAY:
-                        // Ưu tiên 1: Gửi qua Native Packet RPC trực tiếp (MossMerchantWindow.PPGKJNECJHO - RVA 0x238B780)
+                        // Ưu tiên 1: Gửi qua Native Packet RPC trực tiếp (MossMerchantWindow.FOILGIOOHJL - RVA 0x23F8BE0)
                         var sent = false;
                         if (nativeMossSendRoll !== null) {
                             try {
@@ -3461,7 +3477,7 @@ rpc.exports = {
                             } catch (eSend) {}
                         }
 
-                        // Ưu tiên 2: Fallback qua OnClick của RollButton (MMossMerchantWindow.HHHGKHKLGHB - RVA 0x2791220)
+                        // Ưu tiên 2: Fallback qua OnClick của RollButton (MMossMerchantWindow.OGILEDKJPLF - RVA 0x27AA8B0)
                         if (!sent && nativeMossRollClick !== null) {
                             try {
                                 nativeMossRollClick(mossWin, ptr(0));

@@ -57,7 +57,7 @@
     "moss_init": "0x27A77C0",
     "moss_select_cat": "0x27A8510",
     "moss_send_roll": "0x23F8BE0",
-    "moss_roll_click": "0x27A8F90",
+    "moss_roll_click": "0x27AA8B0",
     "moss_window_close": "0x1A183F0",
     "game_object_set_active": "0x45CCB90",
     "component_get_game_object": "0x45C8770",

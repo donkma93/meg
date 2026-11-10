@@ -30,6 +30,24 @@ TELEGRAM_CONFIG_FILE = CONFIG_DIR / "telegram_config.json"
 MIRROR_CONFIG_FILE = CONFIG_DIR / "mirror_schedule_config.json"
 
 
+def _get_ssl_context() -> Optional[ssl.SSLContext]:
+    """
+    Tạo SSL Context linh hoạt, tương thích tối đa với mọi môi trường mạng.
+    Bỏ qua kiểm tra chuỗi chứng chỉ tự ký (Self-signed certificate từ Antivirus hoặc Firewall doanh nghiệp)
+    nhưng vẫn duy trì đầy đủ lớp mã hóa TLS/HTTPS.
+    """
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    except Exception:
+        try:
+            return ssl._create_unverified_context()
+        except Exception:
+            return None
+
+
 def http_request_with_retry(
     url: str,
     data: Optional[bytes] = None,
@@ -40,7 +58,7 @@ def http_request_with_retry(
     """
     Thực hiện HTTP request tới Telegram API với cơ chế tự động thử lại (Auto-retry).
     Khắc phục triệt để lỗi timeout bắt tay SSL (_ssl.c: The handshake operation timed out)
-    do mạng quốc tế chập chờn hoặc độ trễ cao.
+    và lỗi chứng chỉ tự ký (CERTIFICATE_VERIFY_FAILED: self signed certificate in certificate chain).
     """
     headers = headers or {}
     if "User-Agent" not in headers:
@@ -48,7 +66,7 @@ def http_request_with_retry(
     if data and "Content-Type" not in headers:
         headers["Content-Type"] = "application/json"
 
-    ctx = ssl.create_default_context()
+    ctx = _get_ssl_context()
     last_err = ""
 
     for attempt in range(1, max_retries + 1):

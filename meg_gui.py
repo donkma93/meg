@@ -2338,52 +2338,84 @@ class SlotController:
         def _run_moss_loop():
             consecutive_fails = 0
 
-            # 1. Quét chờ NPC Moss xuất hiện thực tế quanh Elbeland (22, 225) trước khi mở bảng
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🔍 Đang quét tìm NPC Moss thực tế tại Elbeland (22, 225)..."
-            ))
+            # 0. Kiểm tra nếu bảng Moss đã được người dùng mở sẵn thủ công trong game -> Nhận diện ngay lập tức!
+            if eng and (eng.is_moss_open() or eng.is_moss_ready()):
+                c_str = self.app.get_moss_cat_name(self.moss_category)
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cs=c_str: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🎯 Phát hiện bảng Moss ({cs}) ĐÃ MỞ SẴN trên màn hình! Bỏ qua tương tác NPC, bắt đầu quay..."
+                ))
+                npc_ready = True
+            else:
+                # 1. Quét chờ NPC Moss xuất hiện thực tế quanh Elbeland (22, 225) trước khi mở bảng
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🔍 Đang quét tìm NPC Moss thực tế tại Elbeland (22, 225)..."
+                ))
 
-            npc_ready = False
-            wait_ticks = 0
-            while self.moss_running:
-                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
-                    break
+                npc_ready = False
+                wait_ticks = 0
+                while self.moss_running:
+                    if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
+                        break
 
-                npc_info = eng.find_moss_npc() if eng else None
-                if npc_info and npc_info.get("found"):
-                    # Đã phát hiện NPC Moss xuất hiện -> Tự động click vào NPC để Server mở bảng Moss
-                    interact_res = eng.interact_moss_npc(self.moss_category) if eng else None
-                    if interact_res and interact_res.get("success"):
-                        n_name = interact_res.get("name", "Moss The Gambler")
-                        n_idx = interact_res.get("index", "?")
-                        n_x = interact_res.get("x", 22)
-                        n_y = interact_res.get("y", 225)
+                    # Nếu trong lúc chờ, người chơi mở bảng Moss thủ công trong game
+                    if eng and (eng.is_moss_open() or eng.is_moss_ready()):
                         c_str = self.app.get_moss_cat_name(self.moss_category)
-                        # Chờ Server phản hồi gói C2:30 và hoàn tất nạp danh sách vật phẩm
-                        for _ in range(20):
-                            if eng and eng.is_moss_ready():
-                                break
-                            time.sleep(0.1)
-                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, i=n_idx, x=n_x, y=n_y, cs=c_str: self.app.append_moss_log(
-                            f"[Slot {s:02d} - {c}] 🎯 NPC {n} đã xuất hiện tại ({x},{y}, ID: {i})! Đã click vào NPC mở bảng Moss ({cs}) từ Server. Bắt đầu quay..."
+                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cs=c_str: self.app.append_moss_log(
+                            f"[Slot {s:02d} - {c}] 🎯 Bảng Moss ({cs}) đã được mở! Bắt đầu quay..."
                         ))
                         npc_ready = True
-                        time.sleep(0.3)
                         break
-                    else:
-                        err_msg = interact_res.get("error", "Unknown") if interact_res else "None"
-                        self.app.after(0, lambda s=self.slot_idx, err=err_msg: self.app.append_moss_log(
-                            f"[Slot {s:02d}] ⚠️ Đã phát hiện NPC Moss nhưng click tương tác chưa thành công ({err}), đang thử lại..."
-                        ))
-                else:
-                    wait_ticks += 1
-                    if wait_ticks % 10 == 0:
-                        self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                            f"[Slot {s:02d}] ⏳ NPC Moss chưa xuất hiện. Vẫn đang tiếp tục chờ NPC spawn để click vào..."
-                        ))
 
-                time.sleep(0.5)
+                    npc_info = eng.find_moss_npc() if eng else None
+                    if npc_info and npc_info.get("found"):
+                        # Đã phát hiện NPC Moss xuất hiện -> Tự động click vào NPC để Server mở bảng Moss
+                        interact_res = eng.interact_moss_npc(self.moss_category) if eng else None
+                        if interact_res and interact_res.get("success"):
+                            n_name = interact_res.get("name", "Moss The Gambler")
+                            n_idx = interact_res.get("index", "?")
+                            n_x = interact_res.get("x", 22)
+                            n_y = interact_res.get("y", 225)
+                            c_str = self.app.get_moss_cat_name(self.moss_category)
+                            # Chờ Server phản hồi gói C2:30 và hoàn tất nạp danh sách vật phẩm
+                            for _ in range(20):
+                                if eng and (eng.is_moss_ready() or eng.is_moss_open()):
+                                    break
+                                time.sleep(0.1)
+                            self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, i=n_idx, x=n_x, y=n_y, cs=c_str: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {c}] 🎯 NPC {n} đã xuất hiện tại ({x},{y}, ID: {i})! Đã click vào NPC mở bảng Moss ({cs}) từ Server. Bắt đầu quay..."
+                            ))
+                            npc_ready = True
+                            time.sleep(0.3)
+                            break
+                        else:
+                            err_msg = interact_res.get("error", "Unknown") if interact_res else "None"
+                            self.app.after(0, lambda s=self.slot_idx, err=err_msg: self.app.append_moss_log(
+                                f"[Slot {s:02d}] ⚠️ Đã phát hiện NPC Moss nhưng click tương tác chưa thành công ({err}), đang thử lại..."
+                            ))
+                    else:
+                        # Kiểm tra khoảng cách tới Elbeland (22, 225)
+                        if wait_ticks == 0 and eng:
+                            try:
+                                pos = eng.get_player_info()
+                                if pos:
+                                    cx = pos.get("tileX", pos.get("x", 0))
+                                    cy = pos.get("tileY", pos.get("y", 0))
+                                    if ((cx - 22) ** 2 + (cy - 225) ** 2) ** 0.5 > 15:
+                                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, x=cx, y=cy: self.app.append_moss_log(
+                                            f"[Slot {s:02d} - {c}] 📍 Nhân vật ở xa ({x},{y}), tự động di chuyển về Elbeland (22, 225)..."
+                                        ))
+                                        self._sync_move_to_moss_elbeland(eng)
+                            except Exception:
+                                pass
+
+                        wait_ticks += 1
+                        if wait_ticks % 10 == 0:
+                            self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
+                                f"[Slot {s:02d}] ⏳ NPC Moss chưa xuất hiện. Vẫn đang tiếp tục chờ NPC spawn để click vào..."
+                            ))
+
+                    time.sleep(0.5)
 
             if not self.moss_running or not npc_ready:
                 self.moss_running = False
@@ -2498,6 +2530,20 @@ class SlotController:
                     except Exception:
                         pass
 
+                # Kiểm tra Zen thực tế từ RAM trước khi bấm quay
+                zen_before = -1
+                if eng and eng.is_ready:
+                    try:
+                        zen_before = eng.get_player_zen()
+                    except Exception:
+                        zen_before = -1
+
+                if zen_before >= 0 and zen_before < 1_000_000:
+                    self.app.after(0, lambda s=self.slot_idx, z=zen_before: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {self.char_name}] ❌ Không đủ Zen để quay Moss! Hiện có: {z:,} Zen (Cần tối thiểu 1.000.000 Zen). Dừng quay an toàn."
+                    ))
+                    break
+
                 # Chụp lại trạng thái hòm đồ trước khi quay để kiểm tra item trúng thưởng
                 inv_before = None
                 if eng and eng.is_ready:
@@ -2508,46 +2554,75 @@ class SlotController:
 
                 ok = eng.roll_moss(self.moss_category) if eng else False
                 if ok:
-                    # Chờ ngắn để Server trả kết quả packet vật phẩm về hòm đồ
-                    time.sleep(0.35)
-
-                    # So sánh hòm đồ để tìm món đồ mới quay được (cả kept và junk)
-                    new_item_found = False
+                    # Multi-channel Polling: Lắng nghe 3 tín hiệu độc lập từ Server trong tối đa 1.5s (bù độ trễ mạng VN - Brazil ~300ms)
+                    # Kênh 1: Zen bị trừ (zen_before - zen_now >= 500.000)
+                    # Kênh 2: Món đồ mới xuất hiện trong hòm đồ (inv_after vs inv_before)
+                    # Kênh 3: RewardStorage nhận được item (hasReward == True)
+                    roll_verified = False
                     new_item_desc = ""
-                    if eng and eng.is_ready and inv_before:
-                        try:
-                            inv_after = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
-                            if inv_after and not inv_after.get("error"):
-                                b_kept = {item.get("slot"): item for item in inv_before.get("keptSlots", [])}
-                                a_kept = {item.get("slot"): item for item in inv_after.get("keptSlots", [])}
-                                b_junk = {item.get("slot"): item for item in inv_before.get("junkSlots", [])}
-                                a_junk = {item.get("slot"): item for item in inv_after.get("junkSlots", [])}
 
-                                for s_idx, itm in a_kept.items():
-                                    if s_idx not in b_kept:
-                                        new_item_found = True
-                                        it_name = itm.get("name", "Vật phẩm")
-                                        it_lvl = itm.get("level", 0)
-                                        is_sp = itm.get("isSpecial", False)
-                                        is_exc = itm.get("exc", 0) > 0
-                                        is_anc = itm.get("anc", 0) > 0
-                                        is_luck = itm.get("luck", 0) > 0
-                                        tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else ("🍀 MAY MẮN!" if is_luck else f"+{it_lvl}")))
-                                        new_item_desc = f" -> 🎁 Trúng: {it_name} ({tag})"
-                                        break
+                    poll_start = time.time()
+                    while time.time() - poll_start < 1.5:
+                        time.sleep(0.15)
+                        if not self.moss_running:
+                            break
 
-                                if not new_item_found:
-                                    for s_idx, itm in a_junk.items():
-                                        if s_idx not in b_junk:
-                                            new_item_found = True
+                        # Kênh 1: Kiểm tra Zen trừ
+                        if zen_before > 0:
+                            try:
+                                zen_now = eng.get_player_zen()
+                                if zen_now >= 0 and (zen_before - zen_now) >= 500_000:
+                                    roll_verified = True
+                            except Exception:
+                                pass
+
+                        # Kênh 2: Kiểm tra hòm đồ
+                        if eng and eng.is_ready and inv_before:
+                            try:
+                                inv_after = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
+                                if inv_after and not inv_after.get("error"):
+                                    b_kept = {item.get("slot"): item for item in inv_before.get("keptSlots", [])}
+                                    a_kept = {item.get("slot"): item for item in inv_after.get("keptSlots", [])}
+                                    b_junk = {item.get("slot"): item for item in inv_before.get("junkSlots", [])}
+                                    a_junk = {item.get("slot"): item for item in inv_after.get("junkSlots", [])}
+
+                                    for s_idx, itm in a_kept.items():
+                                        if s_idx not in b_kept:
+                                            roll_verified = True
                                             it_name = itm.get("name", "Vật phẩm")
                                             it_lvl = itm.get("level", 0)
-                                            new_item_desc = f" -> 🗑️ Nhận: {it_name} (+{it_lvl})"
+                                            is_sp = itm.get("isSpecial", False)
+                                            is_exc = itm.get("exc", 0) > 0
+                                            is_anc = itm.get("anc", 0) > 0
+                                            is_luck = itm.get("luck", 0) > 0
+                                            tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else ("🍀 MAY MẮN!" if is_luck else f"+{it_lvl}")))
+                                            new_item_desc = f" -> 🎁 Trúng: {it_name} ({tag})"
                                             break
-                        except Exception:
-                            pass
 
-                    if new_item_found:
+                                    if not new_item_desc:
+                                        for s_idx, itm in a_junk.items():
+                                            if s_idx not in b_junk:
+                                                roll_verified = True
+                                                it_name = itm.get("name", "Vật phẩm")
+                                                it_lvl = itm.get("level", 0)
+                                                new_item_desc = f" -> 🗑️ Nhận: {it_name} (+{it_lvl})"
+                                                break
+                            except Exception:
+                                pass
+
+                        # Kênh 3: Kiểm tra RewardStorage qua get_moss_roll_status
+                        if not roll_verified:
+                            try:
+                                st = eng.get_moss_roll_status()
+                                if st.get("hasReward") or st.get("itemCount", 0) > 0:
+                                    roll_verified = True
+                            except Exception:
+                                pass
+
+                        if roll_verified:
+                            break
+
+                    if roll_verified:
                         consecutive_fails = 0
                         self.moss_rolls_count += 1
                         r_num = self.moss_rolls_count
@@ -2558,7 +2633,6 @@ class SlotController:
                             self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}{desc}")
                         self.app.after(0, _update_ui)
                     else:
-                        # Server KHÔNG gửi item về (Hòm đồ đầy không đủ khối trống, hoặc hết Zen)
                         consecutive_fails += 1
                         # Giải phóng LoadingImage ngay lập tức trên game client
                         try:
@@ -2598,14 +2672,30 @@ class SlotController:
                             except Exception:
                                 pass
 
-                        if consecutive_fails >= 2:
-                            self.app.after(0, lambda s=self.slot_idx, c=cat, req=min_slots_needed: self.app.append_moss_log(
-                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Server không trả vật phẩm (Hòm đồ đầy không đủ khối {req} ô cho {self.app.get_moss_cat_name(c)} hoặc hết Zen). Tự động dừng quay và đóng bảng Moss an toàn!"
+                        # Chẩn đoán chính xác nguyên nhân thay vì đoán mò
+                        actual_zen = -1
+                        if eng and eng.is_ready:
+                            try:
+                                actual_zen = eng.get_player_zen()
+                            except Exception:
+                                actual_zen = -1
+
+                        if actual_zen >= 0 and actual_zen < 1_000_000:
+                            self.app.after(0, lambda s=self.slot_idx, z=actual_zen: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] ❌ Hết Zen (Hiện có: {z:,} Zen, cần tối thiểu 1.000.000 Zen). Tự động dừng quay!"
+                            ))
+                            break
+
+                        if consecutive_fails >= 4:
+                            self.app.after(0, lambda s=self.slot_idx, c=cat, z=actual_zen: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Server không trả vật phẩm sau {consecutive_fails} lần thử. "
+                                f"Hòm đồ không có đủ khối trống 4x4 (16 ô liền kề) theo cơ chế client CheckFreeBlock(4,4) "
+                                f"(Zen còn: {z:,} Zen). Tự động dừng quay an toàn!"
                             ))
                             break
                         else:
-                            self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Lượt quay chưa nhận được vật phẩm (đang kiểm tra lại hòm đồ và giải phóng giao diện)..."
+                            self.app.after(0, lambda s=self.slot_idx, cf=consecutive_fails: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Lượt quay chưa nhận được vật phẩm (Lần thử {cf}/4, đang kiểm tra lại hòm đồ và giải phóng giao diện)..."
                             ))
                             time.sleep(0.5)
                 else:
@@ -2632,8 +2722,8 @@ class SlotController:
                     except Exception:
                         pass
 
-                    if consecutive_fails >= 3:
-                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công 3 lần liên tiếp (Hòm đầy không còn rác, không đủ Zen, hoặc nhân vật chưa đứng gần NPC Moss)."))
+                    if consecutive_fails >= 4:
+                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công 4 lần liên tiếp (Hòm đầy không còn rác, không đủ Zen, hoặc nhân vật chưa đứng gần NPC Moss)."))
                         time.sleep(1.0)
                     else:
                         self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công (Hòm đầy, không đủ Zen, hoặc phiên NPC bị ngắt)."))
@@ -2654,7 +2744,6 @@ class SlotController:
             if eng and eng.is_ready:
                 try:
                     eng.reset_moss_ui(self.moss_category)
-                    eng.close_moss()
                 except Exception:
                     pass
             self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
@@ -2749,6 +2838,37 @@ class SlotController:
             ))
             return False
 
+    def _sync_move_to_moss_elbeland(self, eng) -> bool:
+        """Đồng bộ di chuyển tới Elbeland (22, 225) nếu nhân vật đang ở xa NPC Moss."""
+        try:
+            # 1. Tạm dừng Auto Train nếu đang chạy
+            if self.worker or self.auto_requested:
+                self.moss_paused_worker = True
+                self.stop_auto("Tạm dừng Auto Train tham gia sự kiện Moss Merchant", trigger_by="EVENT")
+                time.sleep(0.3)
+
+            # 2. Tắt MuHelper trước khi chuyển map nếu đang chạy (MEGAMU cấm warp khi Helper đang đánh)
+            if eng.is_helper_active(force_refresh=True):
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] ⚔️ Tạm tắt MuHelper để chuyển map về Elbeland..."
+                ))
+                eng.stop_helper()
+                time.sleep(0.3)
+
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland..."
+            ))
+            eng.send_chat("/move Elbeland")
+            time.sleep(2.0)
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."
+            ))
+            eng.start_auto_move(22, 225, helper=False)
+            time.sleep(3.5)
+            return True
+        except Exception:
+            return False
+
     def roll_moss_once(self) -> bool:
         """Quay thử 1 lần cho riêng slot này (Yêu cầu phải có NPC Moss xuất hiện)."""
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
@@ -2760,31 +2880,51 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
-        # Kiểm tra xem NPC Moss có xuất hiện không
-        npc_info = eng.find_moss_npc()
-        if not npc_info or not npc_info.get("found"):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225)! Không thể quay thử.")
-            return False
-
-        # Nếu chưa mở hoặc chưa nạp danh sách từ Server, kích hoạt tương tác NPC trước
+        # 0. Kiểm tra nếu chưa mở bảng Moss thì tìm NPC mở bảng
         if not eng.is_moss_open():
+            npc_info = eng.find_moss_npc()
+            if not npc_info or not npc_info.get("found"):
+                pos = eng.get_player_info()
+                if pos:
+                    cx = pos.get("tileX", pos.get("x", 0))
+                    cy = pos.get("tileY", pos.get("y", 0))
+                    if ((cx - 22) ** 2 + (cy - 225) ** 2) ** 0.5 > 15:
+                        self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Nhân vật ở xa ({cx},{cy}), tự động di chuyển về Elbeland (22, 225)...")
+                        self._sync_move_to_moss_elbeland(eng)
+                        time.sleep(1.0)
+                        npc_info = eng.find_moss_npc()
+
+            if not npc_info or not npc_info.get("found"):
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225)! Không thể quay thử.")
+                return False
+
             try:
                 eng.interact_moss_npc(self.moss_category)
-                for _ in range(10):
+                for _ in range(12):
                     time.sleep(0.1)
                     if eng.is_moss_open():
                         break
             except Exception:
                 pass
+
+        # Kiểm tra Zen trước khi quay
+        try:
+            cur_zen = eng.get_player_zen()
+            if cur_zen >= 0 and cur_zen < 1_000_000:
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không đủ Zen để quay Moss! Hiện có: {cur_zen:,} Zen (Cần tối thiểu 1.000.000 Zen).")
+                return False
+        except Exception:
+            pass
+
         ok = eng.roll_moss(self.moss_category)
         if ok:
             self.moss_rolls_count += 1
             self.app.update_moss_slot_rolls(self.slot_idx, self.moss_rolls_count)
             c_str = self.app.get_moss_cat_name(self.moss_category)
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎲 Quay 1 lần thành công: {c_str} (Lượt #{self.moss_rolls_count})")
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎲 Đã gửi lệnh quay 1 lần: {c_str} (Lượt #{self.moss_rolls_count})")
             return True
         else:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Quay 1 lần thất bại.")
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Gửi lệnh quay 1 lần thất bại.")
             return False
 
     def open_moss_npc(self) -> bool:
@@ -2798,8 +2938,31 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
+        # 0. Nếu bảng Moss đã mở sẵn trong game -> nhận diện ngay và sẵn sàng!
+        if eng.is_moss_open():
+            c_str = self.app.get_moss_cat_name(self.moss_category)
+            self.app.append_moss_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Bảng Moss ({c_str}) đã mở sẵn trên màn hình game, sẵn sàng quay!"
+            )
+            return True
+
         # 1. Quét tìm NPC Moss thực tế xuất hiện quanh Elbeland (22, 225)
         npc_info = eng.find_moss_npc()
+        if not npc_info or not npc_info.get("found"):
+            # Kiểm tra khoảng cách tới Elbeland (22, 225)
+            pos = eng.get_player_info()
+            if pos:
+                cur_x = pos.get("tileX", pos.get("x", 0))
+                cur_y = pos.get("tileY", pos.get("y", 0))
+                dist = ((cur_x - 22) ** 2 + (cur_y - 225) ** 2) ** 0.5
+                if dist > 15:
+                    self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Nhân vật ở xa ({cur_x}, {cur_y}), tự động di chuyển về Elbeland (22, 225)..."
+                    )
+                    self._sync_move_to_moss_elbeland(eng)
+                    time.sleep(1.0)
+                    npc_info = eng.find_moss_npc()
+
         if not npc_info or not npc_info.get("found"):
             self.app.append_moss_log(
                 f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225). Phải có NPC Moss xuất hiện mới mở bảng!"
@@ -2818,7 +2981,7 @@ class SlotController:
             ready = False
             for _ in range(15):
                 time.sleep(0.1)
-                if eng.is_moss_ready():
+                if eng.is_moss_ready() or eng.is_moss_open():
                     ready = True
                     break
             if ready:

@@ -6,7 +6,7 @@ import os
 # GameAssembly.dll đang cài (byte đầu hàm phải là prologue hợp lệ, không nằm giữa hàm khác).
 VERIFIED_MOSS_RVAS = {
     "moss_send_roll": "0x23F8BE0",   # MossMerchantWindow.FOILGIOOHJL(int) - gửi packet quay
-    "moss_roll_click": "0x27A8F90",  # MMossMerchantWindow.BPHDCANLIID() - OnClick RollButton
+    "moss_roll_click": "0x27AA8B0",  # MMossMerchantWindow.OGILEDKJPLF() - OnClick RollButton
     "moss_select_cat": "0x27A8510",  # MMossMerchantWindow.IGGEKEFMNIJ(category)
 }
 
