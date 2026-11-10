@@ -2726,9 +2726,6 @@ try {
                             try {
                                 var mPtr = pendingMerchantInteractPtr;
                                 pendingMerchantInteractPtr = null;
-                                if (nativeCloseTalk !== null) {
-                                    try { nativeCloseTalk(); } catch (eCTM) {}
-                                }
                                 invokeNpcTalk(mPtr);
                             } catch (eNTM) {}
                         }
@@ -3889,6 +3886,10 @@ rpc.exports = {
         }
     },
 
+    isMerchantOpen: function() {
+        return isMerchantWindowOpen();
+    },
+
     interactMerchantNpc: function() {
         try {
             ensureThreadAttached();
@@ -3897,7 +3898,24 @@ rpc.exports = {
                 return { success: false, error: "MERCHANT_NOT_FOUND" };
             }
 
-            // Xếp hàng tương tác thương nhân trên Unity Main Thread trong guiHook
+            // 1. Gửi gói tin C1:30 tới GameServer báo mở đối thoại NPC thương nhân
+            if (npc.index >= 0) {
+                var lo = npc.index & 0xFF;
+                var hi = (npc.index >> 8) & 0xFF;
+                sendGSPacket([0xC1, 0x05, 0x30, lo, hi]);
+            }
+
+            // 2. Gọi trực tiếp invokeNpcTalk trên thread hiện tại
+            var talkOk = invokeNpcTalk(npc.ptr);
+            if (!talkOk && nativeUniversalNpcClick !== null) {
+                try {
+                    var nm = getNpcManagerPtr();
+                    nativeUniversalNpcClick(nm, npc.ptr, ptr(0));
+                    talkOk = true;
+                } catch (eUNC) {}
+            }
+
+            // 3. Xếp hàng tương tác thương nhân trên Unity Main Thread trong guiHook
             pendingMerchantInteractPtr = npc.ptr;
 
             return {
@@ -3930,11 +3948,16 @@ rpc.exports = {
         }
     },
 
-    sellMossPlusItems: function(maxJunkLevel, ignoreTypeHeuristics) {
+    sellMossPlusItems: function(maxJunkLevel, ignoreTypeHeuristics, allowedSlots, mossCategory) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
             if (p.isNull()) return JSON.stringify({ sold: 0, error: "no_player" });
+
+            // Kiểm tra shop thương nhân có đang mở hay không
+            if (!isMerchantWindowOpen()) {
+                return JSON.stringify({ sold: 0, candidates: 0, error: "merchant_not_open" });
+            }
 
             var invOff = off('__PLAYER_INVENTORY__');
             var inv = p.add(invOff).readPointer();
@@ -3950,6 +3973,20 @@ rpc.exports = {
 
             var maxLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 7;
             var ignoreType = Boolean(ignoreTypeHeuristics);
+            var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
+
+            var allowedSet = null;
+            if (allowedSlots) {
+                try {
+                    var aArr = (typeof allowedSlots === "string") ? JSON.parse(allowedSlots) : allowedSlots;
+                    if (Array.isArray(aArr) && aArr.length > 0) {
+                        allowedSet = {};
+                        for (var ai = 0; ai < aArr.length; ai++) {
+                            allowedSet[parseInt(aArr[ai])] = true;
+                        }
+                    }
+                } catch (eAS) {}
+            }
 
             var maxSlot = 240;
             try {
@@ -4010,6 +4047,9 @@ rpc.exports = {
                 // HARD SAFETY GUARD: Tuyệt đối không bao giờ bán trang bị trên người (0..11)
                 if (s < 12) continue;
 
+                // Nếu có danh sách allowedSet (các slot đồ vừa quay từ Moss), CHỈ bán các slot trong danh sách này!
+                if (allowedSet !== null && !allowedSet[s]) continue;
+
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
                 if (itemPtr.isNull()) continue;
 
@@ -4030,7 +4070,8 @@ rpc.exports = {
                 // 5. Đồ Harmony (harmonyOpt > 0)
                 // 6. Cấp độ > maxLvl (mặc định maxLvl = 7 -> giữ lại đồ >= +8)
                 // 7. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
-                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, -1, maxLvl, ignoreType)) {
+                // 8. Đồ không thuộc mossCat đang quay (nếu mossCat >= 0)
+                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxLvl, ignoreType)) {
                     continue;
                 }
 
@@ -4093,7 +4134,7 @@ rpc.exports = {
                     // PHƯƠNG ÁN 3: Gửi trực tiếp packet GS C1:33 (Chuẩn protocol bán đồ vào shop MEGAMU)
                     if (!soldSuccess) {
                         sendSellPacket(s);
-                        try { Thread.sleep(0.10); } catch (eSleepPkt) {}
+                        try { Thread.sleep(0.12); } catch (eSleepPkt) {}
                         dismissExpensiveSellWindow();
                         var verifyPkt = itemsArr.add(0x20 + s * 8).readPointer();
                         if (verifyPkt.isNull() || !verifyPkt.equals(itemPtr)) {
@@ -8026,13 +8067,30 @@ class MegDirectEngine:
                 return {"success": False, "error": str(e)}
         return {"success": False, "error": "NOT_ATTACHED"}
 
-    def sell_moss_plus_items(self, max_junk_level: int = 7, ignore_type_heuristics: bool = False) -> Dict[str, Any]:
+    def is_merchant_open(self) -> bool:
+        """Kiểm tra xem cửa sổ Merchant Shop có đang mở trên giao diện game hay không."""
+        if self.is_ready:
+            try:
+                return bool(self._call("isMerchantOpen"))
+            except Exception:
+                pass
+        return False
+
+    def sell_moss_plus_items(
+        self,
+        max_junk_level: int = 7,
+        ignore_type_heuristics: bool = False,
+        allowed_slots: Optional[List[int]] = None,
+        category: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Tự động bán các món đồ rác Moss cấp độ +0..+7 cho NPC thương nhân (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)."""
         if self.is_ready:
             try:
                 lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 7
                 ign_val = 1 if ignore_type_heuristics else 0
-                res_str = self._call("sellMossPlusItems", lvl_val, ign_val)
+                slots_val = json.dumps([int(x) for x in allowed_slots]) if (allowed_slots is not None and len(allowed_slots) > 0) else None
+                cat_val = int(category) if category is not None and category >= 0 else -1
+                res_str = self._call("sellMossPlusItems", lvl_val, ign_val, slots_val, cat_val)
                 if res_str:
                     return json.loads(res_str) if isinstance(res_str, str) else res_str
             except Exception as e:

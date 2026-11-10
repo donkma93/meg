@@ -79,6 +79,21 @@ class TestMossFlowResilience(unittest.TestCase):
         """meg_direct_engine.py và offsets.json phải trỏ tới 0x27AA8B0 (OGILEDKJPLF)."""
         self.assertIn('"moss_roll_click": "0x27AA8B0"', self.engine_code)
 
+    def test_merchant_selling_resilience(self):
+        """Kiểm thử tính kiên cường và an toàn khi tự động bán đồ Moss tại Silvia:
+        1. Phải có kiểm tra is_merchant_open trước khi bán
+        2. sell_moss_plus_items phải nhận allowed_slots và category
+        3. Chỉ bán đồ thuộc moss_rolled_slots (không bán đồ ban đầu trong túi)
+        4. Di chuyển tới NPC Silvia (44, 229)
+        """
+        self.assertIn("def is_merchant_open(self)", self.engine_code)
+        self.assertIn("isMerchantOpen:", self.engine_code)
+        self.assertIn("allowed_slots: Optional[List[int]]", self.engine_code)
+        self.assertIn("self.moss_rolled_slots: set = set()", self.gui_code)
+        self.assertIn("target_silvia_x, target_silvia_y = 44, 229", self.gui_code)
+        self.assertIn("eng.is_merchant_open()", self.gui_code)
+        self.assertIn("self.moss_rolled_slots - self.moss_initial_slots", self.gui_code)
+
 
 if __name__ == '__main__':
     unittest.main()
