@@ -13171,33 +13171,42 @@ class DashboardApp(ctk.CTk):
         self._resize_timer = None
 
     def _periodic_telemetry(self):
-        if not self.running or getattr(self, "_is_resizing", False):
-            self.after(500, self._periodic_telemetry)
+        """Khởi động worker telemetry một lần duy nhất theo mô hình Persistent Daemon Thread (Zero Thread Churn)."""
+        if getattr(self, "_telemetry_loop_started", False):
             return
+        self._telemetry_loop_started = True
 
-        if getattr(self, "_telemetry_worker_active", False):
-            self.after(500, self._periodic_telemetry)
-            return
+        def _persistent_worker():
+            import gc
+            last_gc_time = time.time()
+            while getattr(self, "running", True):
+                try:
+                    if not getattr(self, "_is_resizing", False):
+                        for ctrl in self.controllers:
+                            if ctrl.assigned_pid:
+                                ctrl.sync_telemetry()
+                except Exception as e:
+                    log_thread_exception(
+                        source="DashboardApp._persistent_worker",
+                        exc=e,
+                        thread_name="TelemetryPersistentWorker",
+                        details="Lỗi đồng bộ dữ liệu Telemetry"
+                    )
 
-        self._telemetry_worker_active = True
-        def _worker():
-            try:
-                for ctrl in self.controllers:
-                    if ctrl.assigned_pid:
-                        ctrl.sync_telemetry()
-            except Exception as e:
-                log_thread_exception(
-                    source="DashboardApp._periodic_telemetry",
-                    exc=e,
-                    thread_name="TelemetryWorker",
-                    details="Lỗi đồng bộ dữ liệu Telemetry"
-                )
-            finally:
-                self._telemetry_worker_active = False
-                if self.running:
-                    self.after(500, self._periodic_telemetry)
+                # Định kỳ mỗi 120s dọn rác heap Python và thu hồi RAM Working Set
+                now = time.time()
+                if now - last_gc_time >= 120.0:
+                    last_gc_time = now
+                    try:
+                        gc.collect()
+                        from meg_ram_optimizer import trim_self
+                        trim_self()
+                    except Exception:
+                        pass
 
-        threading.Thread(target=_worker, daemon=True, name="TelemetryWorker").start()
+                time.sleep(0.5)
+
+        threading.Thread(target=_persistent_worker, daemon=True, name="TelemetryPersistentWorker").start()
 
     def _periodic_license_monitor(self):
         """Giám sát liên tục sự tồn tại của file .dll và trạng thái bản quyền theo thời gian thực (1 giây/lần)."""

@@ -2711,24 +2711,22 @@ function getPlayerDevilSquareLevel() {
         var p = getPlayerPtr();
         if (p.isNull()) return 0;
         var lvl = p.add(off('__PLAYER_LEVEL__')).readS32();
-        var cls = p.add(off('__PLAYER_CLASS__')).readS32();
-        var isSpecial = (cls >= 48 && cls <= 67);
-        if (lvl >= 400) return 6; // DS 7
-        if (isSpecial) {
-            if (lvl <= 110) return 0; // DS 1
-            if (lvl <= 160) return 1; // DS 2
-            if (lvl <= 210) return 2; // DS 3
-            if (lvl <= 260) return 3; // DS 4
-            if (lvl <= 310) return 4; // DS 5
-            return 5;                 // DS 6
-        } else {
-            if (lvl <= 130) return 0; // DS 1
-            if (lvl <= 180) return 1; // DS 2
-            if (lvl <= 230) return 2; // DS 3
-            if (lvl <= 280) return 3; // DS 4
-            if (lvl <= 330) return 4; // DS 5
-            return 5;                 // DS 6
-        }
+        // Phân cấp Devil Square chuẩn Server MEGAMU:
+        // Tier 1: Level 50 - 199 (DS 1 - Vé +1)
+        // Tier 2: Level 200 - 299 (DS 2 - Vé +2)
+        // Tier 3: Level 300 - 349 (DS 3 - Vé +3)
+        // Tier 4: Level 350 - 399 (DS 4 - Vé +4)
+        // Tier 5: Level 400 - 749 (DS 5 - Vé +5)
+        // Tier 6: Level 750 - 899 (DS 6 - Vé +6)
+        // Tier 7: Level 900+ (DS 7 - Vé +7 / Master Ticket)
+        if (lvl < 50) return -1;
+        if (lvl <= 199) return 0; // DS 1
+        if (lvl <= 299) return 1; // DS 2
+        if (lvl <= 349) return 2; // DS 3
+        if (lvl <= 399) return 3; // DS 4
+        if (lvl <= 749) return 4; // DS 5
+        if (lvl <= 899) return 5; // DS 6
+        return 6;                 // DS 7 (Master)
     } catch (e) {
         return 0;
     }
@@ -5843,12 +5841,12 @@ rpc.exports = {
                                     if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
                                 } catch (eLen) {}
 
-                                var masterMainSlot = -1;
-                                var masterExtSlot = -1;
+                                var masterMatchedMainSlot = -1;
+                                var masterMatchedExtSlot = -1;
                                 var normalMatchedMainSlot = -1;
                                 var normalMatchedExtSlot = -1;
-                                var anyNormalMainSlot = -1;
-                                var anyNormalExtSlot = -1;
+                                var anyMasterSlot = -1;
+                                var anyNormalSlot = -1;
                                 var anyTicketSlot = -1;
 
                                 for (var s = 12; s < maxSlot; s++) {
@@ -5860,60 +5858,43 @@ rpc.exports = {
                                             if (anyTicketSlot < 0) anyTicketSlot = s;
                                             var isMain = (s < 76);
                                             if (check.isMaster) {
-                                                if (isMain && masterMainSlot < 0) masterMainSlot = s;
-                                                else if (!isMain && masterExtSlot < 0) masterExtSlot = s;
+                                                if (anyMasterSlot < 0) anyMasterSlot = s;
+                                                if (isMasterEligible) {
+                                                    if (isMain && masterMatchedMainSlot < 0) masterMatchedMainSlot = s;
+                                                    else if (!isMain && masterMatchedExtSlot < 0) masterMatchedExtSlot = s;
+                                                }
                                             } else {
-                                                var isNormMatched = (check.level === (dsLevel + 1) || check.level === 0 || (isMasterEligible && check.level >= 7));
+                                                if (anyNormalSlot < 0) anyNormalSlot = s;
+                                                var isNormMatched = (dsLevel >= 0 && (check.level === (dsLevel + 1) || (isMasterEligible && check.level >= 7)));
                                                 if (isNormMatched) {
                                                     if (isMain && normalMatchedMainSlot < 0) normalMatchedMainSlot = s;
                                                     else if (!isMain && normalMatchedExtSlot < 0) normalMatchedExtSlot = s;
                                                 }
-                                                if (isMain && anyNormalMainSlot < 0) anyNormalMainSlot = s;
-                                                else if (!isMain && anyNormalExtSlot < 0) anyNormalExtSlot = s;
                                             }
                                         }
                                     }
                                 }
 
-                                var chosenMasterSlot = (masterMainSlot >= 12) ? masterMainSlot : masterExtSlot;
+                                var chosenMasterMatchedSlot = (masterMatchedMainSlot >= 12) ? masterMatchedMainSlot : masterMatchedExtSlot;
                                 var chosenNormalMatchedSlot = (normalMatchedMainSlot >= 12) ? normalMatchedMainSlot : normalMatchedExtSlot;
-                                var chosenAnyNormalSlot = (anyNormalMainSlot >= 12) ? anyNormalMainSlot : anyNormalExtSlot;
 
-                                // Lựa chọn vé theo ticketPreference ("master", "normal", "auto")
-                                // QUY TẮC MEGAMU: Vé Master vào được tất cả các level có sẵn của Devil Square!
-                                if (tPref === "master") {
-                                    if (chosenMasterSlot >= 12) {
-                                        itemSlot = chosenMasterSlot;
+                                // Lựa chọn vé theo cấp độ phòng Devil Square và ticketPreference:
+                                // QUY TẮC MEGAMU: Phân chia 7 cấp độ phòng nghiêm ngặt.
+                                // Nhân vật cấp thường (DS 1-6) BẮT BUỘC dùng vé thường đúng cấp (+1 đến +6).
+                                // Vé Master chỉ dùng được cho cấp Master (DS 7 / Level 900+).
+                                if (isMasterEligible) {
+                                    if (tPref === "normal" && chosenNormalMatchedSlot >= 12) {
+                                        itemSlot = chosenNormalMatchedSlot;
+                                    } else if (chosenMasterMatchedSlot >= 12) {
+                                        itemSlot = chosenMasterMatchedSlot;
                                         isMasterTicketUsed = true;
                                     } else if (chosenNormalMatchedSlot >= 12) {
                                         itemSlot = chosenNormalMatchedSlot;
-                                    } else if (chosenAnyNormalSlot >= 12) {
-                                        itemSlot = chosenAnyNormalSlot;
-                                    } else if (anyTicketSlot >= 12) {
-                                        itemSlot = anyTicketSlot;
-                                    }
-                                } else if (tPref === "normal") {
-                                    if (chosenNormalMatchedSlot >= 12) {
-                                        itemSlot = chosenNormalMatchedSlot;
-                                    } else if (chosenAnyNormalSlot >= 12) {
-                                        itemSlot = chosenAnyNormalSlot;
-                                    } else if (chosenMasterSlot >= 12) {
-                                        itemSlot = chosenMasterSlot;
-                                        isMasterTicketUsed = true;
-                                    } else if (anyTicketSlot >= 12) {
-                                        itemSlot = anyTicketSlot;
                                     }
                                 } else {
-                                    // "auto": Ưu tiên vé Master (vì vé Master vào được tất cả các level có sẵn), sau đó vé thường
-                                    if (chosenMasterSlot >= 12) {
-                                        itemSlot = chosenMasterSlot;
-                                        isMasterTicketUsed = true;
-                                    } else if (chosenNormalMatchedSlot >= 12) {
+                                    // Nhân vật DS 1..6: Bắt buộc dùng vé thường khớp cấp độ phòng
+                                    if (chosenNormalMatchedSlot >= 12) {
                                         itemSlot = chosenNormalMatchedSlot;
-                                    } else if (chosenAnyNormalSlot >= 12) {
-                                        itemSlot = chosenAnyNormalSlot;
-                                    } else if (anyTicketSlot >= 12) {
-                                        itemSlot = anyTicketSlot;
                                     }
                                 }
                             }
@@ -5923,26 +5904,12 @@ rpc.exports = {
             }
 
             if (itemSlot < 12) {
-                return JSON.stringify({ success: false, error: "no_ticket" });
+                return JSON.stringify({ success: false, error: "no_matching_ticket", dsLevel: dsLevel, targetTicketLevel: dsLevel + 1 });
             }
 
             var charon = getOrCreateCharonPtr();
-            // TỰ ĐỘNG KHỞI TẠO TƯƠNG TÁC NPC CHARON (100% ZERO-MANUAL CLICK):
-            // Bóc tách REA: GameServer bắt buộc phải có active session với NPC Charon (TargetNpc == Charon)
-            // trước khi xử lý packet vào cổng 0x90.
-            // Client thực hiện điều này qua NpcManager.GEBGEGOEFAD (RVA 0x1023B10), thiết lập
-            // LocalPlayer + 0x430 = Charon Body và gửi packet mã hóa C3:30.
-            // TUYỆT ĐỐI KHÔNG gọi nativeDevilNpcClick (RVA 0xF82E70) vì hàm này chạy TableEventEntryLevel
-            // trên client gây lỗi popup "Không có vé đủ level" với nhân vật Master/Slayer!
-            if (charon && !charon.isNull()) {
-                invokeNpcTalk(charon);
-                if (nativeNpcSendTalk !== null) {
-                    try { nativeNpcSendTalk(charon, ptr(0)); } catch (eNST) {}
-                }
-                sendCharonTalkPacket();
-            } else {
-                sendCharonTalkPacket();
-            }
+            // Khởi tạo tương tác NPC Charon qua mạng trước khi gửi packet vào cổng 0x90
+            sendCharonTalkPacket();
 
             if (itemSlot >= 0) {
                 var actualSlot = (itemSlot < 12) ? (itemSlot + 12) : itemSlot;
@@ -5958,18 +5925,9 @@ rpc.exports = {
                     }
                 } catch (eLvl) {}
 
-                // Xác định chính xác cấp độ phòng Devil Square (Bóc tách REA từ TableEventEntryLevel - RVA 0xCEA9B0):
-                // - Cấp phòng chuẩn theo level nhân vật: dsLevel (0..5 tương ứng DS 1..6, hoặc 6 cho DS 7).
-                // - Vé Master vào được tất cả các level có sẵn. Khi dùng vé Master, gửi cả cấp phòng dsLevel
-                //   và cấp phòng 6 (Master) để GameServer luôn chấp nhận vé dù xử lý theo mốc level nhân vật hay theo mốc vé Master.
-                var enterDsLevel = (charLvl >= 400 || dsLevel >= 6) ? 6 : ((dsLevel !== undefined && dsLevel !== null && dsLevel >= 0) ? dsLevel : 0);
+                // Cấp phòng chuẩn xác theo cấp độ nhân vật (TableEventEntryLevel)
+                var enterDsLevel = (dsLevel >= 0 && dsLevel <= 6) ? dsLevel : 0;
                 var levelsToSend = [enterDsLevel];
-                if (isMasterTicketUsed) {
-                    if (levelsToSend.indexOf(dsLevel) === -1) levelsToSend.unshift(dsLevel);
-                    if (levelsToSend.indexOf(6) === -1) levelsToSend.push(6);
-                } else if (charLvl >= 400 && levelsToSend.indexOf(6) === -1) {
-                    levelsToSend.push(6);
-                }
 
                 // Gửi trực tiếp vào NPC và bỏ qua xác nhận (Zero-confirm)
                 for (var li = 0; li < levelsToSend.length; li++) {
@@ -6065,12 +6023,14 @@ rpc.exports = {
 
                                     var isMatched = false;
                                     if (check.isMaster) {
-                                        // QUY TẮC MEGAMU: Vé Master vào được tất cả các level có sẵn của Devil Square
-                                        isMatched = true;
-                                        masterMatchedTickets.push(s);
+                                        // Vé Master trong MEGAMU chỉ dành cho cấp Master (DS 7 / Level 900+)
+                                        if (dsLevel >= 6) {
+                                            isMatched = true;
+                                            masterMatchedTickets.push(s);
+                                        }
                                     } else {
-                                        // Vé thường: Khớp đúng cấp phòng (dsLevel + 1) hoặc level 0 hoặc >= 7
-                                        if (check.level === (dsLevel + 1) || check.level === 0 || check.level >= 7) {
+                                        // Vé thường: Khớp đúng cấp phòng (dsLevel + 1) theo 7 Tier MEGAMU
+                                        if (dsLevel >= 0 && (check.level === (dsLevel + 1) || (dsLevel >= 6 && check.level >= 7))) {
                                             isMatched = true;
                                             normalMatchedTickets.push(s);
                                         }

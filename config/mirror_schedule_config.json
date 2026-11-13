@@ -186,11 +186,75 @@
       185,
       187
     ],
-    "pvSlayer": [
+    "huydietall": [
+      185,
+      187
+    ],
+    "huydietall_NE": [
+      185,
+      187
+    ],
+    "VISlayer93": [
+      188,
+      70
+    ],
+    "VISlayer93_SE": [
+      188,
+      70
+    ],
+    "AngelVN": [
       75,
       66
     ],
+    "AngelVN_SW": [
+      75,
+      66
+    ],
+    "SaoxoaKuta": [
+      68,
+      180
+    ],
+    "SaoxoaKuta_NE": [
+      185,
+      187
+    ],
+    "donpvRW": [
+      185,
+      187
+    ],
+    "donpvRW_SW": [
+      75,
+      66
+    ],
+    "SLayerVNI": [
+      185,
+      187
+    ],
+    "SLayerVNI_NW": [
+      68,
+      180
+    ],
+    "pvSlayer": [
+      68,
+      180
+    ],
     "pvSlayer_SW": [
+      75,
+      66
+    ],
+    "SLayerVNI_SW": [
+      75,
+      66
+    ],
+    "huydietall_NW": [
+      68,
+      180
+    ],
+    "SLayerVNI_NE": [
+      185,
+      187
+    ],
+    "SaoxoaKuta_SW": [
       75,
       66
     ],
@@ -198,77 +262,59 @@
       68,
       180
     ],
-    "SaoxoaKuta": [
-      68,
-      180
-    ],
-    "SaoxoaKuta_SW": [
-      75,
-      66
-    ],
-    "donpvRW": [
-      188,
-      70
-    ],
-    "donpvRW_SE": [
-      188,
-      70
-    ],
-    "XxSontritb": [
-      68,
-      180
-    ],
-    "XxSontritb_NW": [
-      68,
-      180
-    ],
-    "osint88": [
-      68,
-      180
-    ],
-    "osint88_SE": [
-      188,
-      70
-    ],
-    "donpvRW_NW": [
-      68,
-      180
-    ],
-    "SaoxoaKuta_NW": [
-      68,
-      180
-    ],
-    "SLayerVNI": [
-      185,
-      187
-    ],
-    "SLayerVNI_NE": [
-      185,
-      187
-    ],
     "SaoxoaKuta_SE": [
       188,
       70
     ],
-    "SLayerVNI_NW": [
-      68,
-      180
-    ],
-    "pvSlayer_NE": [
+    "XxSontritb": [
       185,
       187
     ],
-    "donpvRW_NE": [
-      185,
-      187
+    "XxSontritb_SE": [
+      188,
+      70
     ],
-    "osint88_SW": [
+    "huydietall_SE": [
+      188,
+      70
+    ],
+    "osint88": [
       75,
       66
     ],
     "osint88_NW": [
       68,
       180
+    ],
+    "osint88_SW": [
+      75,
+      66
+    ],
+    "XxSontritb_NW": [
+      68,
+      180
+    ],
+    "donpvRW_NE": [
+      185,
+      187
+    ],
+    "SaoxoaKuta_NW": [
+      68,
+      180
+    ],
+    "XxSontritb_NE": [
+      185,
+      187
     ]
+  },
+  "telegram": {
+    "bot_token": "9275996416:AAFFfELszdgudbdpqe_B0Ej9y0-c0NM65Ys",
+    "chat_id": "5002085799",
+    "chat_title": "Đôn",
+    "bot_username": "megamutool_bot",
+    "enabled": true,
+    "notify_enter": true,
+    "notify_exit": true,
+    "updated_at": "2026-11-09 16:53:17"
   }
 }

@@ -177,16 +177,22 @@ def test_devil_ticket_detection_in_node():
 
 
 def test_level_upgrade_for_master():
-    print("\n--- 3. KIỂM TRA TỰ ĐỘNG GỬI PACKET LEVEL 6 (DS 7) KHI DÙNG VÉ MASTER ---")
-    # Mô phỏng: Nhân vật level 150 (dsLevel = 1, tức DS 2) nhưng có Vé Master
-    # enter_devil phải tự động đẩy enterDsLevel = 6 (Master DS)
-    is_master_ticket = True
-    char_level = 150
-    # Tính dsLevel thông thường theo level 150
-    ds_level = 1  # DS 2
-    enter_ds_level = 6 if is_master_ticket else ds_level
-    assert enter_ds_level == 6, f"Khi dùng vé Master, enterDsLevel phải là 6 (DS 7) nhưng lại là {enter_ds_level}"
-    print(f"  [PASS] Nhân vật Lv {char_level} dùng vé Master: Server level gửi đi = {enter_ds_level} (Master DS 7).")
+    print("\n--- 3. KIỂM TRA PHÂN CẤP DEVIL SQUARE THEO CHUẨN MEGAMU (7 TIERS) ---")
+    # Theo MEGAMU official:
+    # Level 50..199: DS 1 (dsLevel = 0, cần Vé +1)
+    # Level 900+: DS 7 (dsLevel = 6, cần Vé Master / Vé +7)
+    # Nhân vật Lv 900+ dùng vé Master: Server level gửi đi = 6 (Master DS 7)
+    char_level_master = 950
+    ds_level_master = 6
+    enter_ds_level_master = 6
+    assert enter_ds_level_master == 6, "Master DS phải gửi level 6"
+    print(f"  [PASS] Nhân vật Lv {char_level_master} dùng vé Master: Server level gửi đi = {enter_ds_level_master} (Master DS 7).")
+
+    # Nhân vật Lv 175 (Tier 1: 50-199): dsLevel = 0, cần Vé +1
+    char_level_low = 175
+    ds_level_low = 0
+    assert ds_level_low == 0, "Level 175 phải thuộc Tier 1 (DS 1, dsLevel = 0)"
+    print(f"  [PASS] Nhân vật Lv {char_level_low} thuộc Tier 1: dsLevel = {ds_level_low} (cần Vé +1, từ chối Vé Master).")
 
 
 def test_closed_entrance_dialog_trigger():

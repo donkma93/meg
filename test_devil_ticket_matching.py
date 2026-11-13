@@ -41,43 +41,46 @@ class TestDevilTicketMatching(unittest.TestCase):
         self.worker.core = self.mock_core
         self.worker._log = MagicMock()
 
-    def test_level_137_with_master_ticket_only(self):
-        """Nhân vật Level 137 (Slayer) có Vé Master:
-        Theo quy tắc MEGAMU, Vé Master vào được tất cả các level có sẵn (DS 1 đến DS 7).
-        Hệ thống chấp nhận Vé Master cho nhân vật Lv 137 và đưa vào phòng DS 2 (targetDsLvl = 1)."""
+    def test_level_175_with_master_ticket_only(self):
+        """Nhân vật Level 175 (Slayer) chỉ có Vé Master:
+        Theo chuẩn MEGAMU, Level 175 thuộc DS 1 (50-199) yêu cầu Vé +1.
+        Vé Master chỉ dành cho Level 900+ (DS 7).
+        Hệ thống PHẢI từ chối vé Master ở Level 175 để tránh popup 'You don't have a ticket for your level'."""
         t_info = {
-            "charLevel": 137,
-            "dsLevel": 1,
-            "targetTicketLevel": 2,
-            "isMasterEligible": True,
+            "charLevel": 175,
+            "dsLevel": 0,
+            "targetTicketLevel": 1,
+            "isMasterEligible": False,
             "hasTicket": True,
             "hasMasterTicket": True,
             "hasNormalTicket": False,
-            "hasMatchedTicket": True,
-            "hasEligibleMasterTicket": True,
+            "hasMatchedTicket": False,
+            "hasEligibleMasterTicket": False,
             "hasEligibleNormalTicket": False,
             "masterCount": 1,
             "normalCount": 0,
             "count": 1
         }
         self.mock_core.get_devil_ticket_info.return_value = t_info
-        info = {"level": 137, "class": 9, "mapId": 0}
+        info = {"level": 175, "class": 9, "mapId": 0}
 
         cur_lvl = int(info.get("level", 1))
         ds_lvl = int(t_info.get("dsLevel", 0))
         target_ticket_lvl = int(t_info.get("targetTicketLevel", ds_lvl + 1))
         t_pref = "auto"
 
-        has_valid_ticket = bool(t_info.get("hasTicket") and t_info.get("count", 0) > 0)
-        self.assertTrue(has_valid_ticket, "Nhân vật Level 137 có Vé Master PHẢI được chấp nhận vì vé Master vào được tất cả level!")
-        self.assertEqual(ds_lvl, 1, "Level 137 thuộc phòng DS 2 (dsLevel = 1)")
+        has_matched = bool(t_info.get("hasMatchedTicket", False))
+        is_master_tier = (ds_lvl >= 6)
+        has_valid_ticket = has_matched and (is_master_tier if t_info.get("hasMasterTicket") else True)
+        self.assertFalse(has_valid_ticket, "Nhân vật Level 175 chỉ có Vé Master KHÔNG được chấp nhận để không bị lỗi popup!")
+        self.assertEqual(ds_lvl, 0, "Level 175 thuộc phòng DS 1 (dsLevel = 0, Tier 1: 50-199)")
 
-    def test_level_137_with_normal_ticket_plus_2(self):
-        """Nhân vật Level 137 có Vé Thường +2: Hợp lệ 100%."""
+    def test_level_175_with_normal_ticket_plus_1(self):
+        """Nhân vật Level 175 có Vé Thường +1: Khớp cấp độ DS 1 (50-199) hợp lệ 100%."""
         t_info = {
-            "charLevel": 137,
-            "dsLevel": 1,
-            "targetTicketLevel": 2,
+            "charLevel": 175,
+            "dsLevel": 0,
+            "targetTicketLevel": 1,
             "isMasterEligible": False,
             "hasTicket": True,
             "hasMasterTicket": False,
@@ -90,14 +93,15 @@ class TestDevilTicketMatching(unittest.TestCase):
             "count": 1
         }
         self.mock_core.get_devil_ticket_info.return_value = t_info
-        info = {"level": 137, "class": 9, "mapId": 0}
+        info = {"level": 175, "class": 9, "mapId": 0}
 
         cur_lvl = int(info.get("level", 1))
         ds_lvl = int(t_info.get("dsLevel", 0))
         target_ticket_lvl = int(t_info.get("targetTicketLevel", ds_lvl + 1))
-        is_master_eligible = bool(t_info.get("isMasterEligible", (cur_lvl >= 400 or ds_lvl >= 6)))
+        is_master_eligible = bool(t_info.get("isMasterEligible", False))
 
-        has_valid_ticket = False
+        has_valid_ticket = bool(t_info.get("hasMatchedTicket", False))
+        self.assertTrue(has_valid_ticket, "Nhân vật Level 175 có Vé Thường +1 phải được chấp nhận!")
         if not is_master_eligible:
             if t_info.get("hasEligibleNormalTicket") or (t_info.get("hasNormalTicket") and t_info.get("normalMatchedCount", 0) > 0):
                 has_valid_ticket = True

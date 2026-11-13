@@ -1080,24 +1080,52 @@ class AutoTrainWorker:
 
                             has_valid_ticket = False
                             ticket_desc = ""
-                            if t_pref == "master":
-                                has_valid_ticket = bool(t_info.get("hasMasterTicket") and t_info.get("masterCount", 0) > 0)
-                                ticket_desc = f"Vé Master ({t_info.get('masterCount', 0)} vé)"
-                            elif t_pref == "normal":
-                                has_valid_ticket = bool(t_info.get("hasNormalTicket") and t_info.get("normalCount", 0) > 0)
-                                ticket_desc = f"Vé Thường ({t_info.get('normalCount', 0)} vé)"
-                            else:  # "auto"
-                                has_valid_ticket = bool(t_info.get("hasTicket") and t_info.get("count", 0) > 0)
-                                if t_info.get("hasMasterTicket"):
-                                    ticket_desc = f"Vé Master ({t_info.get('masterCount', 0)} vé)"
+                            no_ticket_reason = ""
+                            char_ds_level = int(t_info.get("dsLevel", 0))
+                            target_ticket_lvl = int(t_info.get("targetTicketLevel", char_ds_level + 1))
+                            has_matched = bool(t_info.get("hasMatchedTicket", False))
+                            has_master = bool(t_info.get("hasMasterTicket", False))
+                            has_normal = bool(t_info.get("hasNormalTicket", False))
+                            is_master_tier = (char_ds_level >= 6)
+
+                            if char_ds_level < 0:
+                                no_ticket_reason = f"Level hiện tại ({level}) chưa đủ mốc tham gia tối thiểu (Level 50)"
+                            elif t_pref == "master":
+                                if is_master_tier and has_master:
+                                    has_valid_ticket = True
+                                    ticket_desc = f"Vé Master ({t_info.get('masterCount', 1)} vé)"
+                                elif has_master and not is_master_tier:
+                                    no_ticket_reason = (
+                                        f"Cấu hình 'Chỉ đi Vé Master', nhưng nhân vật Level {level} "
+                                        f"(thuộc DS {char_ds_level + 1}) chưa đạt cấp Master (Level 900+ / DS 7)"
+                                    )
                                 else:
-                                    ticket_desc = f"Vé Thường ({t_info.get('normalCount', 0)} vé)"
+                                    no_ticket_reason = "Không tìm thấy Vé Master trong hòm đồ"
+                            elif t_pref == "normal":
+                                if has_matched and not is_master_tier:
+                                    has_valid_ticket = True
+                                    ticket_desc = f"Vé Thường +{target_ticket_lvl} ({t_info.get('normalMatchedCount', 1)} vé)"
+                                else:
+                                    no_ticket_reason = f"Không tìm thấy Vé Thường +{target_ticket_lvl} (dành cho Level {level}) trong hòm đồ"
+                            else:  # "auto"
+                                if has_matched:
+                                    has_valid_ticket = True
+                                    if is_master_tier:
+                                        ticket_desc = f"Vé Master ({t_info.get('masterCount', 1)} vé)"
+                                    else:
+                                        ticket_desc = f"Vé Thường +{target_ticket_lvl} ({t_info.get('normalMatchedCount', 1)} vé)"
+                                elif has_master and not is_master_tier:
+                                    no_ticket_reason = (
+                                        f"Nhân vật Level {level} thuộc Devil Square {char_ds_level + 1} (cần Vé +{target_ticket_lvl}), "
+                                        f"trong hòm đồ chỉ có Vé Master (yêu cầu Level 900+). Vé không khớp cấp độ"
+                                    )
+                                else:
+                                    no_ticket_reason = f"Không tìm thấy Vé Devil Square +{target_ticket_lvl} phù hợp với Level {level} trong hòm đồ"
 
                             if not has_valid_ticket:
                                 if self.devil_no_ticket_hour != cur_dt.hour:
                                     self.devil_no_ticket_hour = cur_dt.hour
-                                    type_str = "Vé Master" if t_pref == "master" else ("Vé Thường" if t_pref == "normal" else "Vé Devil Square")
-                                    self._log(f"❌ Khung giờ Devil Square: Không tìm thấy {type_str} trong hòm đồ! Bỏ qua Devil, tiếp tục cắm bãi train.", "WARNING")
+                                    self._log(f"❌ Khung giờ Devil Square: {no_ticket_reason}! Bỏ qua Devil, tiếp tục cắm bãi train.", "WARNING")
                                 if self.preparing_devil or current_map_id in (53, 40):
                                     self.preparing_devil = False
                                     self.current_stage_key = None

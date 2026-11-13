@@ -313,6 +313,30 @@
       "server": 1,
       "enabled": true,
       "source": "registry"
+    },
+    {
+      "username": "hvideo",
+      "nickname": "hvideo",
+      "token": "b16c894cd0f25ad670baa6e95827bb10",
+      "character": "SaoxoaKuta",
+      "characters_list": [
+        "SaoxoaKuta"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
+    },
+    {
+      "username": "osint",
+      "nickname": "osint",
+      "token": "e3efdac7236bc6279ec7917ea9a688db",
+      "character": "osint88",
+      "characters_list": [
+        "osint88"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
     }
   ]
 }
