@@ -38,7 +38,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.9"
+    return "v1.6.0"
 
 def get_github_token() -> str:
     p = subprocess.Popen(
@@ -154,28 +154,21 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Nâng cấp quan trọng trong bản {version}:
-- **Khắc Phục Triệt Để Lỗi Crash Ứng Dụng `tcl86t.dll` (0xc0000005 Access Violation):**
-  - **Chuẩn hóa luồng an toàn (Thread-Safe Dispatching)**: Bọc 100% các lệnh can thiệp widget Tkinter/CustomTkinter (ghi nhật ký Moss, Mirror, RAM, Autologin, cập nhật telemetry tọa độ, cấp độ, badge slot và trạng thái) chuyển tiếp an toàn về Main Thread thông qua `self.after(0, ...)`.
-  - **Khắc phục triệt để rò rỉ bộ nhớ Font Tcl**: Cache các đối tượng CTkFont dùng chung (`font_segoe_11`, `font_segoe_11_bold`, `font_segoe_10_bold`, `font_segoe_12_bold`), chấm dứt việc cấp phát hàng chục ngàn font rò rỉ trong bảng băm của Tcl mỗi giờ.
-  - **Ngăn chặn tràn sự kiện Tooltip (Event Binding De-duplication)**: Tự động tái sử dụng đối tượng `ModernToolTip` sẵn có và chỉ cập nhật văn bản, chấm dứt việc tích tụ hàng ngàn sự kiện chuột thừa trên các nút điều khiển.
-  - **Bộ nhớ đệm chống vẽ lại dư thừa (State Caching)**: Tích hợp cache kiểm tra trạng thái trước khi gọi `.configure()`, giảm hơn 99% tải redraw và tiêu thụ RAM của giao diện.
+- **Nâng Cấp Toàn Diện Hệ Thống Devil Square (Chuẩn 7 Tầng MEGAMU & Vé Master):**
+  - **Phân loại vé chuẩn xác 7 tầng**: Tương thích 100% cơ chế 7 tầng Devil Square của MEGAMU (DS 1 đến DS 7). Tự động phân loại vé thường (+1..+6) và Vé Master (+7/Master Ticket) tương ứng chính xác theo cấp độ và trạng thái Master của nhân vật.
+  - **Triệt tiêu hoàn toàn Popup lỗi cấp độ**: Loại bỏ tận gốc tình trạng nhân vật cấp thấp giữ nhầm vé Master gây popup "You don't have a ticket for your level", đảm bảo quy trình tự động vào sự kiện thông suốt.
+  - **REA Zero-Confirm Devil Entry**: Tự động hook `TableEventEntryLevel` và bypass hộp thoại xác nhận khi vào Devil Square, vào cổng tức thì với độ trễ tối thiểu khi cổng mở.
+  - **Tự động mở Popup trạng thái**: Tự động kích hoạt thông báo "Entrance is currently closed" trực quan khi nhân vật đã sẵn sàng nhưng sự kiện chưa tới giờ.
 
-- **Đột Phá Chức Năng Bán Đồ Rác Moss Tại NPC Silvia Lấy Zen:**
-  - **Giải mã chuẩn giao thức MEGAMU (Reverse-Engineering GameAssembly.dll)**: Giải mã cơ chế mã hóa Headcode XOR 0xCB (`0x32 ^ 0xCB = 0xF9`), tích hợp gói tin wire packet chuẩn MEGAMU 5thEra 5-byte (`[0xC1, 0x05, 0xF9, slot, 0x01]`).
-  - **Tích hợp 4 lớp bán đồ native**: `nativeUserInvSell5` (`UserInventory.KAEFGNMOMFJ` RVA 0x144AB60), `nativeUserInvSell` (RVA 0x144B9A0), `nativeItemStorageSell` (RVA 0x2250560) và wire packet fallback.
-  - Tự động di chuyển tiếp cận NPC Silvia (Elbeland 44, 229), xác thực giao dịch mở shop, tự động bán sạch vũ khí/quần áo rác cấp độ +0..+7 của Moss và xác minh biến động RAM trước khi đóng shop quay về bệ Moss (22, 225).
+- **Tối Ưu Hóa Bộ Nhớ RAM Tự Động (RAM Auto-Trim Optimizer):**
+  - Tích hợp công cụ dọn dẹp và tối ưu bộ nhớ RAM tự động định kỳ (`auto_trim_enabled`, `interval_seconds`), tự động giải phóng bộ nhớ đệm dư thừa của hàng chục client MEGAMU đồng thời.
+  - Tiết kiệm hàng chục gigabyte RAM cho máy chủ/máy trạm treo máy 24/7 mà không ảnh hưởng tới hiệu năng game.
 
-- **Thiết Kế Lại Giao Diện Auto Moss Promax UI/UX Tối Ưu Tương Tác:**
-  - Tái cấu trúc thanh công cụ Toolbar tối giản, gom nhóm các nút điều khiển hàng loạt, thêm Menu Tiện ích Mở rộng (Quick Tools Popup).
-  - Tích hợp Menu Chuột Phải thao tác nhanh cho từng slot (Quay thử 1 lần, Bán Silvia, Về Moss, Mở NPC, Mở khóa kẹt).
-  - Huy hiệu hiển thị trực quan số lượng slot đã chọn (`🎯 Đã chọn: X/Y Slots`).
-
-- **Bảo Vệ Đồ Tuyệt Đối 100%:**
-  - Miễn nhiễm hoàn toàn với các món đồ quý giá: Divine, Đồ Rồng, Cánh, Ngọc, Vé, Set, Socket, Ancient, Excellent, Harmony và đồ có cấp độ $\ge +8$.
-
-- **Kế thừa toàn diện các tính năng của v1.5.8 & v1.5.7:**
-  - Tự động gửi thông báo Telegram cho Double Goer (Mirror of Dimensions).
-  - Tri-Layer Crash Tracer và RAM Optimization định kỳ.
+- **Kế thừa toàn diện các tính năng Promax của v1.5.9:**
+  - Khắc phục triệt để lỗi crash `tcl86t.dll` (0xc0000005) bằng Thread-Safe Dispatching và Font/Tooltip caching.
+  - Đột phá bán đồ rác Moss tại NPC Silvia với wire packet opcode `0xF9` (mã hóa XOR 0xCB).
+  - Giao diện Auto Moss Promax UI/UX, hỗ trợ menu chuột phải và thanh công cụ tiện ích nhanh.
+  - Tích hợp hệ thống thông báo Telegram sự kiện Double Goer và Crash Tracer 3 lớp.
 """
 
     release = create_or_get_release(token, version, title, body)
