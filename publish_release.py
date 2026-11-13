@@ -93,6 +93,20 @@ def create_or_get_release(token: str, tag_name: str, release_title: str, release
         print(f"[OK] Tao Release thanh cong! URL: {data.get('html_url')}")
         return data
 
+def delete_asset(token: str, asset_id: int):
+    headers = {
+        "Authorization": f"token {token}",
+        "User-Agent": "ReleasePublisher/1.0",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    url = f"https://api.github.com/repos/{REPO}/releases/assets/{asset_id}"
+    req = urllib.request.Request(url, headers=headers, method="DELETE")
+    try:
+        with _urlopen_with_retry(req) as resp:
+            print(f"[OK] Da xoa asset cu tren GitHub (ID: {asset_id})")
+    except Exception as e:
+        print(f"[!] Canh bao khi xoa asset {asset_id}: {e}")
+
 def upload_asset(token: str, upload_url_tmpl: str, file_path: Path, asset_display_name: str = None, content_type: str = "application/octet-stream"):
     upload_url = upload_url_tmpl.split("{")[0]
     file_name = asset_display_name or file_path.name
@@ -192,28 +206,33 @@ if __name__ == "__main__":
         exe_file, release_folder = cand2, BASE_DIR / "Release_MEGAMU_Secure"
 
     zip_file = BASE_DIR / f"MEGAMU_Auto_Train_Dashboard_{version}.zip"
-    if release_folder and not zip_file.exists():
+    if zip_file.exists():
+        try:
+            zip_file.unlink()
+        except Exception:
+            pass
+    if release_folder:
         create_release_zip(release_folder, zip_file)
 
+    existing_map = {a["name"]: a["id"] for a in release.get("assets", [])}
+
     if exe_file and exe_file.exists():
-        if "MEGAMU.Auto.Train.Dashboard.exe" not in existing_assets:
-            try:
-                upload_asset(token, upload_url, exe_file, "MEGAMU.Auto.Train.Dashboard.exe", "application/vnd.microsoft.portable-executable")
-            except Exception as e:
-                print(f"[*] Thong bao asset exe: {e}")
-        else:
-            print("[*] MEGAMU.Auto.Train.Dashboard.exe da co san trong release.")
+        if "MEGAMU.Auto.Train.Dashboard.exe" in existing_map:
+            delete_asset(token, existing_map["MEGAMU.Auto.Train.Dashboard.exe"])
+        try:
+            upload_asset(token, upload_url, exe_file, "MEGAMU.Auto.Train.Dashboard.exe", "application/vnd.microsoft.portable-executable")
+        except Exception as e:
+            print(f"[*] Thong bao asset exe: {e}")
     else:
         print(f"[!] Khong tim thay file exe trong Release_MEGAMU hay Release_MEGAMU_Secure")
 
     if zip_file.exists():
-        if zip_file.name not in existing_assets:
-            try:
-                upload_asset(token, upload_url, zip_file, None, "application/zip")
-            except Exception as e:
-                print(f"[*] Thong bao asset zip: {e}")
-        else:
-            print(f"[*] {zip_file.name} da co san trong release.")
+        if zip_file.name in existing_map:
+            delete_asset(token, existing_map[zip_file.name])
+        try:
+            upload_asset(token, upload_url, zip_file, None, "application/zip")
+        except Exception as e:
+            print(f"[*] Thong bao asset zip: {e}")
     else:
         print(f"[!] Khong tim thay {zip_file}")
 

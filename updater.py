@@ -221,12 +221,49 @@ def download_file_with_progress(
 
 def get_current_executable_path() -> Path:
     """Xác định đường dẫn file .exe gốc đang chạy một cách chính xác tuyệt đối."""
-    # 1. Nuitka onefile: Biến môi trường NUITKA_ORIGINAL_ARGV0 lưu đúng đường dẫn file .exe gốc
-    orig_argv0 = os.environ.get("NUITKA_ORIGINAL_ARGV0")
-    if orig_argv0 and os.path.isfile(orig_argv0):
-        return Path(orig_argv0).resolve()
+    import ctypes
+    from ctypes import wintypes
 
-    # 2. Nuitka onefile: Thư mục chứa binary gốc
+    # 1. Nếu đang chạy dưới Nuitka onefile: Lấy đường dẫn file .exe gốc từ parent process bootstrap
+    parent_pid_str = os.environ.get("NUITKA_ONEFILE_PARENT")
+    if parent_pid_str:
+        try:
+            parent_pid = int(parent_pid_str)
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            h_proc = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, parent_pid)
+            if h_proc:
+                try:
+                    buf = ctypes.create_unicode_buffer(1024)
+                    size = wintypes.DWORD(1024)
+                    if ctypes.windll.kernel32.QueryFullProcessImageNameW(h_proc, 0, buf, ctypes.byref(size)):
+                        parent_exe = Path(buf.value).resolve()
+                        if parent_exe.is_file() and parent_exe.suffix.lower() == ".exe" and "temp" not in str(parent_exe).lower():
+                            return parent_exe
+                finally:
+                    ctypes.windll.kernel32.CloseHandle(h_proc)
+        except Exception:
+            pass
+
+    # 2. Sử dụng psutil để tìm process cha nếu process hiện tại đang chạy từ Temp (Nuitka onefile payload)
+    try:
+        import psutil
+        curr_p = psutil.Process(os.getpid())
+        p_parent = curr_p.parent()
+        if p_parent:
+            p_exe = Path(p_parent.exe()).resolve()
+            if p_exe.is_file() and p_exe.suffix.lower() == ".exe" and "temp" not in str(p_exe).lower():
+                return p_exe
+    except Exception:
+        pass
+
+    # 3. Nuitka onefile: Biến môi trường NUITKA_ORIGINAL_ARGV0 lưu đúng đường dẫn file .exe gốc
+    orig_argv0 = os.environ.get("NUITKA_ORIGINAL_ARGV0")
+    if orig_argv0:
+        cand = Path(orig_argv0).resolve()
+        if cand.is_file() and "temp" not in str(cand).lower():
+            return cand
+
+    # 4. Nuitka onefile: Thư mục chứa binary gốc
     onefile_dir = os.environ.get("NUITKA_ONEFILE_DIRECTORY")
     if onefile_dir and os.path.isdir(onefile_dir):
         for name in ("MEGAMU Auto Train Dashboard.exe", "MEGAMU.Auto.Train.Dashboard.exe"):
@@ -234,19 +271,25 @@ def get_current_executable_path() -> Path:
             if cand.is_file():
                 return cand.resolve()
 
-    # 3. Qua sys.argv[0] nếu không nằm trong thư mục Temp
+    # 5. Qua sys.argv[0] nếu không nằm trong thư mục Temp
     if sys.argv and sys.argv[0]:
-        cand = Path(sys.argv[0]).resolve()
-        if cand.is_file() and "temp" not in str(cand).lower():
-            return cand
+        try:
+            cand = Path(sys.argv[0]).resolve()
+            if cand.is_file() and "temp" not in str(cand).lower() and cand.suffix.lower() == ".exe":
+                return cand
+        except Exception:
+            pass
 
-    # 4. Qua sys.executable nếu là file .exe và không nằm trong Temp
+    # 6. Qua sys.executable nếu là file .exe và không nằm trong Temp
     if sys.executable:
-        cand = Path(sys.executable).resolve()
-        if cand.is_file() and "temp" not in str(cand).lower() and cand.name.lower().endswith(".exe"):
-            return cand
+        try:
+            cand = Path(sys.executable).resolve()
+            if cand.is_file() and "temp" not in str(cand).lower() and cand.name.lower().endswith(".exe"):
+                return cand
+        except Exception:
+            pass
 
-    # 5. Fallback qua Release_MEGAMU_Secure hoặc thư mục hiện tại
+    # 7. Fallback qua Release_MEGAMU_Secure hoặc thư mục hiện tại
     base = Path(__file__).resolve().parent
     cand_sec = base / "Release_MEGAMU_Secure" / "MEGAMU Auto Train Dashboard.exe"
     if cand_sec.is_file():
@@ -325,6 +368,9 @@ timeout /t 1 /nobreak >nul
 
 :: Xoa file download tam
 del /f /q "{new_file_path}" >nul 2>&1
+
+:: Chuyen thu muc lam viec ve thu muc chua file exe goc truoc khi khoi dong
+cd /d "{current_exe_path.parent}"
 
 :: Khoi dong lai phien ban moi
 start "" "{current_exe_path}"
