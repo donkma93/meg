@@ -337,6 +337,18 @@
       "server": 1,
       "enabled": true,
       "source": "registry"
+    },
+    {
+      "username": "dtn03",
+      "nickname": "dtn03",
+      "token": "7c689a5198cbd4e55317f569ccd12d23",
+      "character": "huydietall",
+      "characters_list": [
+        "huydietall"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
     }
   ]
 }
