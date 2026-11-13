@@ -1,64 +1,74 @@
 {
   "slots": {
     "1": {
-      "category": 6,
+      "category": 1,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": true,
+      "clean_equipment_trash": true
     },
     "2": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": true,
+      "clean_equipment_trash": true
     },
     "3": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": true,
+      "clean_equipment_trash": true
     },
     "4": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": true,
+      "clean_equipment_trash": true
     },
     "5": {
       "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": true,
+      "clean_equipment_trash": true
     },
     "6": {
       "category": 1,
       "delay_ms": 1000,
       "max_rolls": 0,
-      "auto_clean": true
+      "auto_clean": true,
+      "clean_equipment_trash": true
     },
     "7": {
       "category": 1,
       "delay_ms": 2000,
       "max_rolls": 0,
-      "auto_clean": false
+      "auto_clean": false,
+      "clean_equipment_trash": true
     },
     "8": {
       "category": 2,
       "delay_ms": 2000,
       "max_rolls": 0,
-      "auto_clean": false
+      "auto_clean": false,
+      "clean_equipment_trash": true
     },
     "9": {
       "category": 1,
       "delay_ms": 2000,
       "max_rolls": 0,
-      "auto_clean": false
+      "auto_clean": false,
+      "clean_equipment_trash": true
     },
     "10": {
       "category": 2,
       "delay_ms": 2000,
       "max_rolls": 0,
-      "auto_clean": false
+      "auto_clean": false,
+      "clean_equipment_trash": true
     }
   },
   "schedule": {

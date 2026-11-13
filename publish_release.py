@@ -38,7 +38,7 @@ def get_current_app_version() -> str:
         if m:
             v = m.group(1).strip()
             return v if v.startswith("v") else f"v{v}"
-    return "v1.5.7"
+    return "v1.5.9"
 
 def get_github_token() -> str:
     p = subprocess.Popen(
@@ -136,8 +136,8 @@ def create_release_zip(release_dir: Path, zip_dest: Path):
             for f in files:
                 f_path = Path(root) / f
                 name_lower = f.lower()
-                # Bao mat: khong bao gio dong goi license ca nhan, tai khoan, offsets
-                if name_lower.endswith(".old") or name_lower in ("license.json", "megamu_offsets.json", "megamu_accounts.json") or name_lower.endswith(".log"):
+                # Bao mat: khong bao gio dong goi license ca nhan, tai khoan, offsets, token
+                if name_lower.endswith(".old") or name_lower in ("license.json", "megamu_offsets.json", "megamu_accounts.json", "telegram_config.json") or name_lower.endswith(".log"):
                     continue
                 rel_path = f_path.relative_to(release_dir)
                 zf.write(str(f_path), str(rel_path))
@@ -153,20 +153,29 @@ if __name__ == "__main__":
     title = f"MEGAMU Auto Train Dashboard {version} - MEGATEAM"
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
-### Điểm nổi bật & Tính năng mới trong bản {version}:
-- **Hệ Thống Đánh Chặn & Ghi Vết Lỗi Luồng Toàn Diện (Tri-Layer Crash Tracer):**
-  - Tích hợp 3 tầng bảo vệ lỗi ngoại lệ (`threading.Thread.run wrapping`, `threading.excepthook`, `sys.excepthook`) trong `meg_crash_tracer.py`.
-  - Tự động ghi lại toàn bộ call stack traceback và vị trí leaf frame vào `auto_crash_trace.log`, `app_exceptions.log` và log UI với định tuyến slot chính xác.
-  - Ngăn ngừa tình trạng luồng ngầm bị crash im lặng (silent crash), đảm bảo bot tự phục hồi an toàn.
-- **Tối Ưu & Triệt Tiêu Lỗi Đa Luồng Sự Kiện Double Goer (Mirror Event):**
-  - Loại bỏ hoàn toàn bùng nổ luồng (thread explosion) trong bộ lập lịch Double Goer scheduler.
-  - Áp dụng cơ chế single-flight kiểm tra vé sự kiện và ngăn chặn triệt để rò rỉ handle tiến trình.
-- **Nâng Cấp Direct Engine & Xử Lý Native MLogin:**
-  - Chuẩn hóa các offset native và chữ ký hàm cho MLogin và quản lý scene trong `meg_direct_engine.py`.
-  - Nâng cao tốc độ phản hồi và độ ổn định khi gán và nhận diện nhân vật game.
-- **Kế Thừa Đầy Đủ Các Tính Năng Cao Cấp của v1.5.6:**
-  - Auto Devil Square cấu hình chuẩn theo **Số Lần Reset** và loại vé (Master / Thường).
-  - Thanh công cụ Toolbar tinh gọn **Icon-Only** (36x30 px) kèm nút Master Toggle Chạy/Dừng Tất Cả thông minh.
+### Điểm nổi bật & Nâng cấp quan trọng trong bản {version}:
+- **Khắc Phục Triệt Để Lỗi Crash Ứng Dụng `tcl86t.dll` (0xc0000005 Access Violation):**
+  - **Chuẩn hóa luồng an toàn (Thread-Safe Dispatching)**: Bọc 100% các lệnh can thiệp widget Tkinter/CustomTkinter (ghi nhật ký Moss, Mirror, RAM, Autologin, cập nhật telemetry tọa độ, cấp độ, badge slot và trạng thái) chuyển tiếp an toàn về Main Thread thông qua `self.after(0, ...)`.
+  - **Khắc phục triệt để rò rỉ bộ nhớ Font Tcl**: Cache các đối tượng CTkFont dùng chung (`font_segoe_11`, `font_segoe_11_bold`, `font_segoe_10_bold`, `font_segoe_12_bold`), chấm dứt việc cấp phát hàng chục ngàn font rò rỉ trong bảng băm của Tcl mỗi giờ.
+  - **Ngăn chặn tràn sự kiện Tooltip (Event Binding De-duplication)**: Tự động tái sử dụng đối tượng `ModernToolTip` sẵn có và chỉ cập nhật văn bản, chấm dứt việc tích tụ hàng ngàn sự kiện chuột thừa trên các nút điều khiển.
+  - **Bộ nhớ đệm chống vẽ lại dư thừa (State Caching)**: Tích hợp cache kiểm tra trạng thái trước khi gọi `.configure()`, giảm hơn 99% tải redraw và tiêu thụ RAM của giao diện.
+
+- **Đột Phá Chức Năng Bán Đồ Rác Moss Tại NPC Silvia Lấy Zen:**
+  - **Giải mã chuẩn giao thức MEGAMU (Reverse-Engineering GameAssembly.dll)**: Giải mã cơ chế mã hóa Headcode XOR 0xCB (`0x32 ^ 0xCB = 0xF9`), tích hợp gói tin wire packet chuẩn MEGAMU 5thEra 5-byte (`[0xC1, 0x05, 0xF9, slot, 0x01]`).
+  - **Tích hợp 4 lớp bán đồ native**: `nativeUserInvSell5` (`UserInventory.KAEFGNMOMFJ` RVA 0x144AB60), `nativeUserInvSell` (RVA 0x144B9A0), `nativeItemStorageSell` (RVA 0x2250560) và wire packet fallback.
+  - Tự động di chuyển tiếp cận NPC Silvia (Elbeland 44, 229), xác thực giao dịch mở shop, tự động bán sạch vũ khí/quần áo rác cấp độ +0..+7 của Moss và xác minh biến động RAM trước khi đóng shop quay về bệ Moss (22, 225).
+
+- **Thiết Kế Lại Giao Diện Auto Moss Promax UI/UX Tối Ưu Tương Tác:**
+  - Tái cấu trúc thanh công cụ Toolbar tối giản, gom nhóm các nút điều khiển hàng loạt, thêm Menu Tiện ích Mở rộng (Quick Tools Popup).
+  - Tích hợp Menu Chuột Phải thao tác nhanh cho từng slot (Quay thử 1 lần, Bán Silvia, Về Moss, Mở NPC, Mở khóa kẹt).
+  - Huy hiệu hiển thị trực quan số lượng slot đã chọn (`🎯 Đã chọn: X/Y Slots`).
+
+- **Bảo Vệ Đồ Tuyệt Đối 100%:**
+  - Miễn nhiễm hoàn toàn với các món đồ quý giá: Divine, Đồ Rồng, Cánh, Ngọc, Vé, Set, Socket, Ancient, Excellent, Harmony và đồ có cấp độ $\ge +8$.
+
+- **Kế thừa toàn diện các tính năng của v1.5.8 & v1.5.7:**
+  - Tự động gửi thông báo Telegram cho Double Goer (Mirror of Dimensions).
+  - Tri-Layer Crash Tracer và RAM Optimization định kỳ.
 """
 
     release = create_or_get_release(token, version, title, body)

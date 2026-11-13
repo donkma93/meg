@@ -25,6 +25,7 @@ Desktop.ini
 *_backup.py
 debug_gui.txt
 config/license.json
+config/telegram_config.json
 Release_MEGAMU/
 Release_MEGAMU_Secure/
 native_bin/

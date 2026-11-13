@@ -95,8 +95,9 @@ def run_nuitka_build():
     cmd = [
         sys.executable, "-m", "nuitka",
         "--onefile",
+        "--onefile-no-compression",
         "--assume-yes-for-downloads",
-        "--windows-disable-console",
+        "--windows-console-mode=disable",
         "--windows-uac-admin",
         "--enable-plugin=tk-inter",
         "--enable-plugin=no-qt",
@@ -119,18 +120,19 @@ def run_nuitka_build():
         "--include-module=meg_crash_tracer",
         "--include-module=meg_rea_hunter",
         "--include-module=test_entity_radar",
+        "--include-module=telegram_notifier",
         "--include-raw-dir=native_bin=native_bin",
         "--include-data-file=megamu_dashboard_icon.ico=megamu_dashboard_icon.ico",
         "--include-data-file=megamu_dashboard_logo.png=megamu_dashboard_logo.png",
         "--include-data-file=map_commands.json=map_commands.json",
     ]
 
-    # Nhúng các file cấu hình an toàn vào trong .exe (LOẠI BỎ megamu_offsets.json VÀ license.json cá nhân)
+    # Nhúng các file cấu hình an toàn vào trong .exe (LOẠI BỎ megamu_offsets.json, license.json, telegram_config.json, megamu_accounts.json cá nhân)
     src_config = BASE_DIR / "config"
     if src_config.exists():
         for item in src_config.glob("*.json"):
-            # BẢO MẬT: TUYỆT ĐỐI KHÔNG đóng gói license.json của máy tác giả và megamu_offsets.json
-            if item.name.lower() in ("megamu_offsets.json", "license.json"):
+            # BẢO MẬT: TUYỆT ĐỐI KHÔNG đóng gói license.json, tài khoản hay thông tin bot cá nhân
+            if item.name.lower() in ("megamu_offsets.json", "license.json", "telegram_config.json", "megamu_accounts.json"):
                 continue
             cmd.append(f"--include-data-file=config/{item.name}=config/{item.name}")
         maps_ini = src_config / "maps.ini"

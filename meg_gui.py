@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MEGAMU Auto Train Dashboard - v1.5.7
+MEGAMU Auto Train Dashboard - v1.5.9
 ====================================
 Giao diện hoàn chỉnh và thuật toán chuẩn 100% khớp MEGAMU Auto Train Dashboard gốc:
 - Giao diện 3 tab: 10 Tài khoản | Cấu hình | Nhật ký
@@ -43,6 +43,7 @@ if sys.platform == "win32":
         pass
 
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk, ImageDraw
 import psutil
@@ -91,12 +92,25 @@ except ImportError:
     AccountManager = None
     find_megamu_exe_path = None
 
+try:
+    from telegram_notifier import (
+        TelegramConfig,
+        MirrorTelegramNotifier,
+        send_telegram_raw,
+        test_telegram_connection,
+    )
+except ImportError:
+    TelegramConfig = None
+    MirrorTelegramNotifier = None
+    send_telegram_raw = None
+    test_telegram_connection = None
+
 
 # ==============================================================================
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.5.7"
+APP_VERSION = "v1.5.9"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -287,6 +301,7 @@ UI_SETTINGS_FILE = CONFIG_DIR / "ui_settings.json"
 MAP_COMMANDS_FILE = CONFIG_DIR / "map_commands.json"
 MOSS_CONFIG_FILE = CONFIG_DIR / "moss_slots_config.json"
 MIRROR_CONFIG_FILE = CONFIG_DIR / "mirror_schedule_config.json"
+TELEGRAM_CONFIG_FILE = CONFIG_DIR / "telegram_config.json"
 EVENT_CONFIG_FILE = CONFIG_DIR / "event_slots_config.json"
 CLASS_STAT_PROFILES_FILE = CONFIG_DIR / "class_stat_profiles.json"
 
@@ -723,6 +738,142 @@ class ModernOptionMenu(ctk.CTkFrame):
             super().configure(**kwargs)
 
 # ==============================================================================
+# POPUP ACTION MENU HIỆN ĐẠI ĐỒNG BỘ DARK THEME (MODERN ACTION MENU)
+# ==============================================================================
+class ModernActionMenu:
+    """
+    Menu popup thao tác hiện đại đồng bộ Dark Mode cho CustomTkinter:
+    - Hiển thị popover nổi ngay bên dưới nút bấm hoặc tại tọa độ chỉ định.
+    - Hỗ trợ icon, tiêu đề nhóm, phân cách (separator), màu sắc tuỳ biến cho từng mục.
+    - Tự động đóng khi click ra ngoài hoặc khi chọn một tác vụ.
+    """
+    def __init__(self, master, items: Optional[List[Tuple[str, Optional[Callable], str]]] = None, min_width: int = 240):
+        self.master = master
+        self.items = items or []
+        self.min_width = min_width
+        self.popup = None
+        self._last_close_time = 0.0
+
+    def show(self, anchor_widget=None, x: Optional[int] = None, y: Optional[int] = None):
+        if self.popup and self.popup.winfo_exists():
+            self.close()
+            return
+        if time.time() - self._last_close_time < 0.15:
+            return
+
+        self.close()
+
+        rx, ry, w = 200, 200, self.min_width
+        if anchor_widget and anchor_widget.winfo_exists():
+            try:
+                anchor_widget.update_idletasks()
+                rx = anchor_widget.winfo_rootx()
+                ry = anchor_widget.winfo_rooty() + anchor_widget.winfo_height() + 2
+                w = max(self.min_width, anchor_widget.winfo_width())
+            except Exception:
+                pass
+        elif x is not None and y is not None:
+            rx, ry, w = x, y, self.min_width
+
+        try:
+            screen_w = self.master.winfo_screenwidth()
+            if rx + w > screen_w - 20:
+                rx = max(10, screen_w - w - 20)
+        except Exception:
+            pass
+
+        self.popup = ctk.CTkToplevel(self.master)
+        self.popup.overrideredirect(True)
+        self.popup.attributes("-topmost", True)
+
+        outer = ctk.CTkFrame(
+            self.popup,
+            fg_color="#181c26",
+            border_width=1,
+            border_color="#334155",
+            corner_radius=4
+        )
+        outer.pack(fill="both", expand=True)
+
+        for item in self.items:
+            label = item[0]
+            cmd = item[1] if len(item) > 1 else None
+            col = item[2] if len(item) > 2 and item[2] else "#f1f5f9"
+
+            if label == "---":
+                ctk.CTkFrame(outer, fg_color="#2b3244", height=1).pack(fill="x", padx=6, pady=3)
+                continue
+
+            btn = ctk.CTkButton(
+                outer,
+                text=f"  {label}",
+                anchor="w",
+                height=28,
+                corner_radius=2,
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                fg_color="transparent",
+                hover_color="#222736",
+                text_color=col,
+                command=lambda c=cmd: self._on_item_click(c)
+            )
+            btn.pack(fill="x", padx=3, pady=1)
+
+        outer.update_idletasks()
+        h = outer.winfo_reqheight()
+
+        try:
+            screen_h = self.master.winfo_screenheight()
+            if ry + h > screen_h - 40:
+                if anchor_widget and anchor_widget.winfo_exists():
+                    ry = max(10, anchor_widget.winfo_rooty() - h - 2)
+                else:
+                    ry = max(10, ry - h - 10)
+        except Exception:
+            pass
+
+        self.popup.geometry(f"{w}x{h}+{rx}+{ry}")
+        try:
+            top_win = self.master.winfo_toplevel()
+            self.popup.after(80, lambda: top_win.bind_all("<Button-1>", self._on_global_click, add="+"))
+        except Exception:
+            pass
+
+    def _on_item_click(self, callback: Optional[Callable]):
+        self.close()
+        if callback:
+            try:
+                callback()
+            except Exception as e:
+                print(f"[ModernActionMenu] Callback error: {e}", flush=True)
+
+    def _on_global_click(self, event):
+        if not self.popup or not self.popup.winfo_exists():
+            return
+        try:
+            px = self.popup.winfo_rootx()
+            py = self.popup.winfo_rooty()
+            pw = self.popup.winfo_width()
+            ph = self.popup.winfo_height()
+            if not (px <= event.x_root <= px + pw and py <= event.y_root <= py + ph):
+                self.close()
+        except Exception:
+            self.close()
+
+    def close(self):
+        self._last_close_time = time.time()
+        try:
+            top_win = self.master.winfo_toplevel()
+            top_win.unbind_all("<Button-1>")
+        except Exception:
+            pass
+        if self.popup:
+            try:
+                self.popup.destroy()
+            except Exception:
+                pass
+            self.popup = None
+
+# ==============================================================================
 # HỆ THỐNG TOOLTIP HIỆN ĐẠI (MODERN SLEEK TOOLTIP SYSTEM)
 # ==============================================================================
 class ModernToolTip:
@@ -847,10 +998,23 @@ class ModernToolTip:
 
     def update_text(self, new_text: str):
         self.text = new_text
+        if self.tipwindow:
+            self._hide_tip()
 
 def add_tooltip(widget, text: str, delay_ms: int = 250) -> ModernToolTip:
-    """Gắn tooltip chỉ dẫn hiện đại vào widget."""
-    return ModernToolTip(widget, text, delay_ms=delay_ms)
+    """Gắn tooltip chỉ dẫn hiện đại vào widget. Tự động tái sử dụng nếu đã có để tránh leak event Tcl."""
+    if not widget:
+        return None
+    existing = getattr(widget, "_modern_tooltip", None)
+    if existing and isinstance(existing, ModernToolTip):
+        existing.update_text(text)
+        return existing
+    tip = ModernToolTip(widget, text, delay_ms=delay_ms)
+    try:
+        widget._modern_tooltip = tip
+    except Exception:
+        pass
+    return tip
 
 # ==============================================================================
 # BẢNG DỊCH NGÔN NGỮ (I18N)
@@ -1380,7 +1544,8 @@ class ConfigPersistenceManager:
                                 "category": int(conf.get("category", 0)),
                                 "delay_ms": int(conf.get("delay_ms", 1000)),
                                 "max_rolls": int(conf.get("max_rolls", 0)),
-                                "auto_clean": bool(conf.get("auto_clean", True))
+                                "auto_clean": bool(conf.get("auto_clean", True)),
+                                "clean_equipment_trash": bool(conf.get("clean_equipment_trash", True))
                             }
                         except Exception:
                             pass
@@ -1389,7 +1554,7 @@ class ConfigPersistenceManager:
             return res
 
     @classmethod
-    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0, auto_clean: bool = True):
+    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0, auto_clean: bool = True, clean_equipment_trash: bool = True):
         """Lưu cấu hình Auto Moss của riêng Slot slot_idx."""
         with cls._lock:
             cur = cls.load_moss_configs()
@@ -1397,7 +1562,8 @@ class ConfigPersistenceManager:
                 "category": int(cat),
                 "delay_ms": int(delay_ms),
                 "max_rolls": int(max_rolls),
-                "auto_clean": bool(auto_clean)
+                "auto_clean": bool(auto_clean),
+                "clean_equipment_trash": bool(clean_equipment_trash)
             }
             try:
                 store = {}
@@ -1718,11 +1884,13 @@ class SlotController:
         self.moss_max_junk_level: int = 6
         self.moss_ignore_junk_type: bool = False
         self.moss_auto_clean: bool = True
+        self.moss_clean_equipment_trash: bool = True
         self.moss_rolls_count: int = 0
         self.moss_running: bool = False
         self.moss_worker_thread: Optional[threading.Thread] = None
         self.moss_paused_worker: bool = False
         self.moss_initial_slots: set = set()
+        self.moss_rolled_slots: set = set()
 
         # Cấu hình Double Goer (Mirror) riêng cho Slot này
         self.mirror_enabled: bool = True
@@ -2305,7 +2473,6 @@ class SlotController:
                 if eng and eng.is_ready:
                     try:
                         eng.reset_moss_ui(self.moss_category)
-                        eng.close_moss()
                     except Exception:
                         pass
                 self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
@@ -2321,52 +2488,88 @@ class SlotController:
         def _run_moss_loop():
             consecutive_fails = 0
 
-            # 1. Quét chờ NPC Moss xuất hiện thực tế quanh Elbeland (22, 225) trước khi mở bảng
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🔍 Đang quét tìm NPC Moss thực tế tại Elbeland (22, 225)..."
-            ))
+            # 0. Kiểm tra nếu bảng Moss đã được người dùng mở sẵn thủ công trong game -> Nhận diện ngay lập tức!
+            if eng and (eng.is_moss_open() or eng.is_moss_ready()):
+                c_str = self.app.get_moss_cat_name(self.moss_category)
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cs=c_str: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🎯 Phát hiện bảng Moss ({cs}) ĐÃ MỞ SẴN trên màn hình! Bỏ qua tương tác NPC, bắt đầu quay..."
+                ))
+                try:
+                    eng.reset_moss_ui(self.moss_category)
+                except Exception:
+                    pass
+                npc_ready = True
+            else:
+                # 1. Quét chờ NPC Moss xuất hiện thực tế quanh Elbeland (22, 225) trước khi mở bảng
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🔍 Đang quét tìm NPC Moss thực tế tại Elbeland (22, 225)..."
+                ))
 
-            npc_ready = False
-            wait_ticks = 0
-            while self.moss_running:
-                if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
-                    self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
-                    break
+                npc_ready = False
+                wait_ticks = 0
+                while self.moss_running:
+                    if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
+                        break
 
-                npc_info = eng.find_moss_npc() if eng else None
-                if npc_info and npc_info.get("found"):
-                    # Đã phát hiện NPC Moss xuất hiện -> Tự động click vào NPC để Server mở bảng Moss
-                    interact_res = eng.interact_moss_npc(self.moss_category) if eng else None
-                    if interact_res and interact_res.get("success"):
-                        n_name = interact_res.get("name", "Moss The Gambler")
-                        n_idx = interact_res.get("index", "?")
-                        n_x = interact_res.get("x", 22)
-                        n_y = interact_res.get("y", 225)
+                    # Nếu trong lúc chờ, người chơi mở bảng Moss thủ công trong game
+                    if eng and (eng.is_moss_open() or eng.is_moss_ready()):
                         c_str = self.app.get_moss_cat_name(self.moss_category)
-                        # Chờ Server phản hồi gói C2:30 và hoàn tất nạp danh sách vật phẩm
-                        for _ in range(20):
-                            if eng and eng.is_moss_ready():
-                                break
-                            time.sleep(0.1)
-                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, i=n_idx, x=n_x, y=n_y, cs=c_str: self.app.append_moss_log(
-                            f"[Slot {s:02d} - {c}] 🎯 NPC {n} đã xuất hiện tại ({x},{y}, ID: {i})! Đã click vào NPC mở bảng Moss ({cs}) từ Server. Bắt đầu quay..."
+                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cs=c_str: self.app.append_moss_log(
+                            f"[Slot {s:02d} - {c}] 🎯 Bảng Moss ({cs}) đã được mở! Bắt đầu quay..."
                         ))
                         npc_ready = True
-                        time.sleep(0.3)
                         break
-                    else:
-                        err_msg = interact_res.get("error", "Unknown") if interact_res else "None"
-                        self.app.after(0, lambda s=self.slot_idx, err=err_msg: self.app.append_moss_log(
-                            f"[Slot {s:02d}] ⚠️ Đã phát hiện NPC Moss nhưng click tương tác chưa thành công ({err}), đang thử lại..."
-                        ))
-                else:
-                    wait_ticks += 1
-                    if wait_ticks % 10 == 0:
-                        self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                            f"[Slot {s:02d}] ⏳ NPC Moss chưa xuất hiện. Vẫn đang tiếp tục chờ NPC spawn để click vào..."
-                        ))
 
-                time.sleep(0.5)
+                    npc_info = eng.find_moss_npc() if eng else None
+                    if npc_info and npc_info.get("found"):
+                        # Đã phát hiện NPC Moss xuất hiện -> Tự động click vào NPC để Server mở bảng Moss
+                        interact_res = eng.interact_moss_npc(self.moss_category) if eng else None
+                        if interact_res and interact_res.get("success"):
+                            n_name = interact_res.get("name", "Moss The Gambler")
+                            n_idx = interact_res.get("index", "?")
+                            n_x = interact_res.get("x", 22)
+                            n_y = interact_res.get("y", 225)
+                            c_str = self.app.get_moss_cat_name(self.moss_category)
+                            # Chờ Server phản hồi gói C2:30 và hoàn tất nạp danh sách vật phẩm
+                            for _ in range(20):
+                                if eng and (eng.is_moss_ready() or eng.is_moss_open()):
+                                    break
+                                time.sleep(0.1)
+                            self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, i=n_idx, x=n_x, y=n_y, cs=c_str: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {c}] 🎯 NPC {n} đã xuất hiện tại ({x},{y}, ID: {i})! Đã click vào NPC mở bảng Moss ({cs}) từ Server. Bắt đầu quay..."
+                            ))
+                            npc_ready = True
+                            time.sleep(0.3)
+                            break
+                        else:
+                            err_msg = interact_res.get("error", "Unknown") if interact_res else "None"
+                            self.app.after(0, lambda s=self.slot_idx, err=err_msg: self.app.append_moss_log(
+                                f"[Slot {s:02d}] ⚠️ Đã phát hiện NPC Moss nhưng click tương tác chưa thành công ({err}), đang thử lại..."
+                            ))
+                    else:
+                        # Kiểm tra khoảng cách tới Elbeland (22, 225)
+                        if wait_ticks == 0 and eng:
+                            try:
+                                pos = eng.get_player_info()
+                                if pos:
+                                    cx = pos.get("tileX", pos.get("x", 0))
+                                    cy = pos.get("tileY", pos.get("y", 0))
+                                    if ((cx - 22) ** 2 + (cy - 225) ** 2) ** 0.5 > 15:
+                                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, x=cx, y=cy: self.app.append_moss_log(
+                                            f"[Slot {s:02d} - {c}] 📍 Nhân vật ở xa ({x},{y}), tự động di chuyển về Elbeland (22, 225)..."
+                                        ))
+                                        self._sync_move_to_moss_elbeland(eng)
+                            except Exception:
+                                pass
+
+                        wait_ticks += 1
+                        if wait_ticks % 10 == 0:
+                            self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
+                                f"[Slot {s:02d}] ⏳ NPC Moss chưa xuất hiện. Vẫn đang tiếp tục chờ NPC spawn để click vào..."
+                            ))
+
+                    time.sleep(0.5)
 
             if not self.moss_running or not npc_ready:
                 self.moss_running = False
@@ -2375,11 +2578,20 @@ class SlotController:
 
             # Snapshot các ô đồ đang có sẵn trước khi bắt đầu quay để bảo vệ tuyệt đối
             self.moss_initial_slots = set()
+            self.moss_rolled_slots = set()
             if eng and eng.is_ready:
                 try:
-                    init_inv = eng.get_inventory_summary(category=self.moss_category)
+                    clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
+                    # Nếu clean_equipment_trash bật: dùng category=-1 để các ô rác quần áo/vũ khí không bị lock vào protected_slots
+                    snap_cat = -1 if clean_equip else self.moss_category
+                    init_inv = eng.get_inventory_summary(
+                        category=snap_cat,
+                        max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
+                        clean_equipment_trash=clean_equip
+                    )
                     if init_inv and not init_inv.get("error"):
-                        for item in init_inv.get("keptSlots", []):
+                        all_initial_items = init_inv.get("keptSlots", []) + init_inv.get("junkSlots", [])
+                        for item in all_initial_items:
                             s_num = item.get("slot")
                             if s_num is not None:
                                 self.moss_initial_slots.add(int(s_num))
@@ -2402,16 +2614,22 @@ class SlotController:
                 # 1. Proactive auto-clean: Kiểm tra hòm đồ trước khi quay
                 if self.moss_auto_clean and eng and eng.is_ready:
                     try:
-                        inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
+                        clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
+                        inv = eng.get_inventory_summary(
+                            category=self.moss_category,
+                            max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
+                            clean_equipment_trash=clean_equip
+                        )
                         if inv and not inv.get("error"):
                             free_slots = int(inv.get("free", 64))
                             junk_count = int(inv.get("junkCount", 0))
                             moss_plus = int(inv.get("mossPlusCount", 0))
 
-                            # Nếu còn ít ô trống và có đồ rác thường (+0..+6 thuộc danh mục Moss) -> dọn an toàn
+                            # Nếu còn ít ô trống và có đồ rác thường (+0..+6 thuộc danh mục Moss hoặc quần áo/vũ khí rác) -> dọn an toàn
                             if free_slots < (min_slots_needed + 4) and junk_count > 0:
-                                self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác Moss..."
+                                equip_tag = " (kèm quần áo/vũ khí rác)" if clean_equip else ""
+                                self.app.after(0, lambda s=self.slot_idx, f=free_slots, j=junk_count, eq=equip_tag: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] 🧹 Hòm đồ sắp đầy (còn {f} ô). Tự động dọn {j} món đồ rác Moss{eq}..."
                                 ))
                                 c_res = eng.clean_inventory_junk(
                                     "auto",
@@ -2420,13 +2638,15 @@ class SlotController:
                                     include_extended=True,
                                     max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                                     ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                                    clean_equipment_trash=clean_equip,
                                 )
                                 cleaned = int(c_res.get("cleaned", 0) or 0)
                                 reason = str(c_res.get("reason", "") or "")
                                 dropped_n = int(c_res.get("dropped", 0) or 0)
                                 sold_n = int(c_res.get("sold", 0) or 0)
-                                self.app.after(0, lambda s=self.slot_idx, c=cleaned, d=dropped_n, sl=sold_n, r=reason: self.app.append_moss_log(
-                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss (vứt {d}, bán {sl}, kết quả: {r}). "
+                                equip_log = " (+ quần áo, vũ khí rác)" if clean_equip else ""
+                                self.app.after(0, lambda s=self.slot_idx, c=cleaned, d=dropped_n, sl=sold_n, r=reason, eq=equip_log: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss{eq} (vứt {d}, bán {sl}, kết quả: {r}). "
                                     f"Bảo vệ: Divine/Rồng/Exc/Socket/Set/Đồ >= +7/Ngọc."
                                 ))
                                 if cleaned == 0 and reason in ("drop_blocked", "merchant_closed", "server_rejected", "send_failed"):
@@ -2466,6 +2686,20 @@ class SlotController:
                     except Exception:
                         pass
 
+                # Kiểm tra Zen thực tế từ RAM trước khi bấm quay (chỉ áp dụng cho nhóm quay bằng Zen 0 -> 5)
+                zen_before = -1
+                if eng and eng.is_ready:
+                    try:
+                        zen_before = eng.get_player_zen()
+                    except Exception:
+                        zen_before = -1
+
+                if self.moss_category < 6 and zen_before >= 0 and zen_before < 1_000_000:
+                    self.app.after(0, lambda s=self.slot_idx, z=zen_before: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {self.char_name}] ❌ Không đủ Zen để quay Moss! Hiện có: {z:,} Zen (Cần tối thiểu 1.000.000 Zen). Dừng quay an toàn."
+                    ))
+                    break
+
                 # Chụp lại trạng thái hòm đồ trước khi quay để kiểm tra item trúng thưởng
                 inv_before = None
                 if eng and eng.is_ready:
@@ -2476,46 +2710,82 @@ class SlotController:
 
                 ok = eng.roll_moss(self.moss_category) if eng else False
                 if ok:
-                    # Chờ ngắn để Server trả kết quả packet vật phẩm về hòm đồ
-                    time.sleep(0.35)
-
-                    # So sánh hòm đồ để tìm món đồ mới quay được (cả kept và junk)
-                    new_item_found = False
+                    # Multi-channel Polling: Lắng nghe 3 tín hiệu độc lập từ Server trong tối đa 2.0s (bù độ trễ mạng VN - Brazil ~300ms)
+                    # Kênh 1: Zen bị trừ (zen_before - zen_now >= 500.000, đối với danh mục Zen)
+                    # Kênh 2: Món đồ mới xuất hiện trong hòm đồ (inv_after vs inv_before)
+                    # Kênh 3: RewardStorage nhận được item (hasReward == True)
+                    roll_verified = False
                     new_item_desc = ""
-                    if eng and eng.is_ready and inv_before:
-                        try:
-                            inv_after = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
-                            if inv_after and not inv_after.get("error"):
-                                b_kept = {item.get("slot"): item for item in inv_before.get("keptSlots", [])}
-                                a_kept = {item.get("slot"): item for item in inv_after.get("keptSlots", [])}
-                                b_junk = {item.get("slot"): item for item in inv_before.get("junkSlots", [])}
-                                a_junk = {item.get("slot"): item for item in inv_after.get("junkSlots", [])}
 
-                                for s_idx, itm in a_kept.items():
-                                    if s_idx not in b_kept:
-                                        new_item_found = True
-                                        it_name = itm.get("name", "Vật phẩm")
-                                        it_lvl = itm.get("level", 0)
-                                        is_sp = itm.get("isSpecial", False)
-                                        is_exc = itm.get("exc", 0) > 0
-                                        is_anc = itm.get("anc", 0) > 0
-                                        is_luck = itm.get("luck", 0) > 0
-                                        tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else ("🍀 MAY MẮN!" if is_luck else f"+{it_lvl}")))
-                                        new_item_desc = f" -> 🎁 Trúng: {it_name} ({tag})"
-                                        break
+                    poll_start = time.time()
+                    while time.time() - poll_start < 1.5:
+                        time.sleep(0.15)
+                        if not self.moss_running:
+                            break
 
-                                if not new_item_found:
-                                    for s_idx, itm in a_junk.items():
-                                        if s_idx not in b_junk:
-                                            new_item_found = True
+                        # Kênh 1: Kiểm tra Zen trừ (chỉ áp dụng cho danh mục Zen 0 -> 5)
+                        if self.moss_category < 6 and zen_before > 0:
+                            try:
+                                zen_now = eng.get_player_zen()
+                                if zen_now >= 0 and (zen_before - zen_now) >= 500_000:
+                                    roll_verified = True
+                            except Exception:
+                                pass
+
+                        # Kênh 2: Kiểm tra hòm đồ
+                        if eng and eng.is_ready and inv_before:
+                            try:
+                                inv_after = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
+                                if inv_after and not inv_after.get("error"):
+                                    b_kept = {item.get("slot"): item for item in inv_before.get("keptSlots", [])}
+                                    a_kept = {item.get("slot"): item for item in inv_after.get("keptSlots", [])}
+                                    b_junk = {item.get("slot"): item for item in inv_before.get("junkSlots", [])}
+                                    a_junk = {item.get("slot"): item for item in inv_after.get("junkSlots", [])}
+
+                                    # Ghi nhận toàn bộ ô vật phẩm mới xuất hiện từ lượt quay này vào moss_rolled_slots
+                                    b_all_s = set(b_kept.keys()) | set(b_junk.keys())
+                                    a_all_s = set(a_kept.keys()) | set(a_junk.keys())
+                                    for ns in (a_all_s - b_all_s):
+                                        if ns not in self.moss_initial_slots:
+                                            self.moss_rolled_slots.add(ns)
+
+                                    for s_idx, itm in a_kept.items():
+                                        if s_idx not in b_kept:
+                                            roll_verified = True
                                             it_name = itm.get("name", "Vật phẩm")
                                             it_lvl = itm.get("level", 0)
-                                            new_item_desc = f" -> 🗑️ Nhận: {it_name} (+{it_lvl})"
+                                            is_sp = itm.get("isSpecial", False)
+                                            is_exc = itm.get("exc", 0) > 0
+                                            is_anc = itm.get("anc", 0) > 0
+                                            is_luck = itm.get("luck", 0) > 0
+                                            tag = "⭐ DIVINE / RỒNG!" if is_sp else ("💎 HOÀN HẢO!" if is_exc else ("👑 ĐỒ THẦN!" if is_anc else ("🍀 MAY MẮN!" if is_luck else f"+{it_lvl}")))
+                                            new_item_desc = f" -> 🎁 Trúng: {it_name} ({tag})"
                                             break
-                        except Exception:
-                            pass
 
-                    if new_item_found:
+                                    if not new_item_desc:
+                                        for s_idx, itm in a_junk.items():
+                                            if s_idx not in b_junk:
+                                                roll_verified = True
+                                                it_name = itm.get("name", "Vật phẩm")
+                                                it_lvl = itm.get("level", 0)
+                                                new_item_desc = f" -> 🗑️ Nhận: {it_name} (+{it_lvl})"
+                                                break
+                            except Exception:
+                                pass
+
+                        # Kênh 3: Kiểm tra RewardStorage qua get_moss_roll_status
+                        if not roll_verified:
+                            try:
+                                st = eng.get_moss_roll_status()
+                                if st.get("hasReward") or st.get("itemCount", 0) > 0:
+                                    roll_verified = True
+                            except Exception:
+                                pass
+
+                        if roll_verified:
+                            break
+
+                    if roll_verified:
                         consecutive_fails = 0
                         self.moss_rolls_count += 1
                         r_num = self.moss_rolls_count
@@ -2526,7 +2796,6 @@ class SlotController:
                             self.app.append_moss_log(f"[Slot {s:02d} - {self.char_name}] 🎰 Đã quay #{r}: {c_str}{desc}")
                         self.app.after(0, _update_ui)
                     else:
-                        # Server KHÔNG gửi item về (Hòm đồ đầy không đủ khối trống, hoặc hết Zen)
                         consecutive_fails += 1
                         # Giải phóng LoadingImage ngay lập tức trên game client
                         try:
@@ -2538,6 +2807,7 @@ class SlotController:
                         # Thử dọn rác an toàn nếu được bật (auto: vứt -> bán -> xác minh)
                         if self.moss_auto_clean and eng and eng.is_ready:
                             try:
+                                clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
                                 c_res = eng.clean_inventory_junk(
                                     "auto",
                                     protected_slots=list(getattr(self, "moss_initial_slots", None) or []),
@@ -2545,11 +2815,13 @@ class SlotController:
                                     include_extended=True,
                                     max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                                     ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                                    clean_equipment_trash=clean_equip,
                                 )
                                 cleaned_items = int(c_res.get("cleaned", 0) or 0)
                                 if cleaned_items > 0:
-                                    self.app.after(0, lambda s=self.slot_idx, c=cleaned_items: self.app.append_moss_log(
-                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss khi bị đầy (an toàn). Thử quay tiếp..."
+                                    equip_log = " (kèm quần áo/vũ khí rác)" if clean_equip else ""
+                                    self.app.after(0, lambda s=self.slot_idx, c=cleaned_items, eq=equip_log: self.app.append_moss_log(
+                                        f"[Slot {s:02d} - {self.char_name}] 🗑️ Đã dọn {c} món rác Moss{eq} khi bị đầy (an toàn). Thử quay tiếp..."
                                     ))
                                     time.sleep(0.3)
                                     consecutive_fails = 0
@@ -2563,14 +2835,30 @@ class SlotController:
                             except Exception:
                                 pass
 
-                        if consecutive_fails >= 2:
-                            self.app.after(0, lambda s=self.slot_idx, c=cat, req=min_slots_needed: self.app.append_moss_log(
-                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Server không trả vật phẩm (Hòm đồ đầy không đủ khối {req} ô cho {self.app.get_moss_cat_name(c)} hoặc hết Zen). Tự động dừng quay và đóng bảng Moss an toàn!"
+                        # Chẩn đoán chính xác nguyên nhân thay vì đoán mò
+                        actual_zen = -1
+                        if eng and eng.is_ready:
+                            try:
+                                actual_zen = eng.get_player_zen()
+                            except Exception:
+                                actual_zen = -1
+
+                        if self.moss_category < 6 and actual_zen >= 0 and actual_zen < 1_000_000:
+                            self.app.after(0, lambda s=self.slot_idx, z=actual_zen: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] ❌ Hết Zen (Hiện có: {z:,} Zen, cần tối thiểu 1.000.000 Zen). Tự động dừng quay!"
+                            ))
+                            break
+
+                        if consecutive_fails >= 4:
+                            self.app.after(0, lambda s=self.slot_idx, c=cat, z=actual_zen: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Server không trả vật phẩm sau {consecutive_fails} lần thử. "
+                                f"Hòm đồ không có đủ khối trống 4x4 (16 ô liền kề) theo cơ chế client CheckFreeBlock(4,4) "
+                                f"(Zen còn: {z:,} Zen). Tự động dừng quay an toàn!"
                             ))
                             break
                         else:
-                            self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Lượt quay chưa nhận được vật phẩm (đang kiểm tra lại hòm đồ và giải phóng giao diện)..."
+                            self.app.after(0, lambda s=self.slot_idx, cf=consecutive_fails: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {self.char_name}] ⚠️ Lượt quay chưa nhận được vật phẩm (Lần thử {cf}/4, đang kiểm tra lại hòm đồ và giải phóng giao diện)..."
                             ))
                             time.sleep(0.5)
                 else:
@@ -2597,8 +2885,8 @@ class SlotController:
                     except Exception:
                         pass
 
-                    if consecutive_fails >= 3:
-                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công 3 lần liên tiếp (Hòm đầy không còn rác, không đủ Zen, hoặc nhân vật chưa đứng gần NPC Moss)."))
+                    if consecutive_fails >= 4:
+                        self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công 4 lần liên tiếp (Hòm đầy không còn rác, không đủ Zen, hoặc nhân vật chưa đứng gần NPC Moss)."))
                         time.sleep(1.0)
                     else:
                         self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Gửi packet quay không thành công (Hòm đầy, không đủ Zen, hoặc phiên NPC bị ngắt)."))
@@ -2619,7 +2907,6 @@ class SlotController:
             if eng and eng.is_ready:
                 try:
                     eng.reset_moss_ui(self.moss_category)
-                    eng.close_moss()
                 except Exception:
                     pass
             self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
@@ -2714,6 +3001,37 @@ class SlotController:
             ))
             return False
 
+    def _sync_move_to_moss_elbeland(self, eng) -> bool:
+        """Đồng bộ di chuyển tới Elbeland (22, 225) nếu nhân vật đang ở xa NPC Moss."""
+        try:
+            # 1. Tạm dừng Auto Train nếu đang chạy
+            if self.worker or self.auto_requested:
+                self.moss_paused_worker = True
+                self.stop_auto("Tạm dừng Auto Train tham gia sự kiện Moss Merchant", trigger_by="EVENT")
+                time.sleep(0.3)
+
+            # 2. Tắt MuHelper trước khi chuyển map nếu đang chạy (MEGAMU cấm warp khi Helper đang đánh)
+            if eng.is_helper_active(force_refresh=True):
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] ⚔️ Tạm tắt MuHelper để chuyển map về Elbeland..."
+                ))
+                eng.stop_helper()
+                time.sleep(0.3)
+
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland..."
+            ))
+            eng.send_chat("/move Elbeland")
+            time.sleep(2.0)
+            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                f"[Slot {s:02d} - {c}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."
+            ))
+            eng.start_auto_move(22, 225, helper=False)
+            time.sleep(3.5)
+            return True
+        except Exception:
+            return False
+
     def roll_moss_once(self) -> bool:
         """Quay thử 1 lần cho riêng slot này (Yêu cầu phải có NPC Moss xuất hiện)."""
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
@@ -2725,31 +3043,51 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
-        # Kiểm tra xem NPC Moss có xuất hiện không
-        npc_info = eng.find_moss_npc()
-        if not npc_info or not npc_info.get("found"):
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225)! Không thể quay thử.")
-            return False
-
-        # Nếu chưa mở hoặc chưa nạp danh sách từ Server, kích hoạt tương tác NPC trước
+        # 0. Kiểm tra nếu chưa mở bảng Moss thì tìm NPC mở bảng
         if not eng.is_moss_open():
+            npc_info = eng.find_moss_npc()
+            if not npc_info or not npc_info.get("found"):
+                pos = eng.get_player_info()
+                if pos:
+                    cx = pos.get("tileX", pos.get("x", 0))
+                    cy = pos.get("tileY", pos.get("y", 0))
+                    if ((cx - 22) ** 2 + (cy - 225) ** 2) ** 0.5 > 15:
+                        self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Nhân vật ở xa ({cx},{cy}), tự động di chuyển về Elbeland (22, 225)...")
+                        self._sync_move_to_moss_elbeland(eng)
+                        time.sleep(1.0)
+                        npc_info = eng.find_moss_npc()
+
+            if not npc_info or not npc_info.get("found"):
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225)! Không thể quay thử.")
+                return False
+
             try:
                 eng.interact_moss_npc(self.moss_category)
-                for _ in range(10):
+                for _ in range(12):
                     time.sleep(0.1)
                     if eng.is_moss_open():
                         break
             except Exception:
                 pass
+
+        # Kiểm tra Zen trước khi quay
+        try:
+            cur_zen = eng.get_player_zen()
+            if cur_zen >= 0 and cur_zen < 1_000_000:
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không đủ Zen để quay Moss! Hiện có: {cur_zen:,} Zen (Cần tối thiểu 1.000.000 Zen).")
+                return False
+        except Exception:
+            pass
+
         ok = eng.roll_moss(self.moss_category)
         if ok:
             self.moss_rolls_count += 1
             self.app.update_moss_slot_rolls(self.slot_idx, self.moss_rolls_count)
             c_str = self.app.get_moss_cat_name(self.moss_category)
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎲 Quay 1 lần thành công: {c_str} (Lượt #{self.moss_rolls_count})")
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎲 Đã gửi lệnh quay 1 lần: {c_str} (Lượt #{self.moss_rolls_count})")
             return True
         else:
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Quay 1 lần thất bại.")
+            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Gửi lệnh quay 1 lần thất bại.")
             return False
 
     def open_moss_npc(self) -> bool:
@@ -2763,8 +3101,31 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
+        # 0. Nếu bảng Moss đã mở sẵn trong game -> nhận diện ngay và sẵn sàng!
+        if eng.is_moss_open():
+            c_str = self.app.get_moss_cat_name(self.moss_category)
+            self.app.append_moss_log(
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Bảng Moss ({c_str}) đã mở sẵn trên màn hình game, sẵn sàng quay!"
+            )
+            return True
+
         # 1. Quét tìm NPC Moss thực tế xuất hiện quanh Elbeland (22, 225)
         npc_info = eng.find_moss_npc()
+        if not npc_info or not npc_info.get("found"):
+            # Kiểm tra khoảng cách tới Elbeland (22, 225)
+            pos = eng.get_player_info()
+            if pos:
+                cur_x = pos.get("tileX", pos.get("x", 0))
+                cur_y = pos.get("tileY", pos.get("y", 0))
+                dist = ((cur_x - 22) ** 2 + (cur_y - 225) ** 2) ** 0.5
+                if dist > 15:
+                    self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Nhân vật ở xa ({cur_x}, {cur_y}), tự động di chuyển về Elbeland (22, 225)..."
+                    )
+                    self._sync_move_to_moss_elbeland(eng)
+                    time.sleep(1.0)
+                    npc_info = eng.find_moss_npc()
+
         if not npc_info or not npc_info.get("found"):
             self.app.append_moss_log(
                 f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225). Phải có NPC Moss xuất hiện mới mở bảng!"
@@ -2783,7 +3144,7 @@ class SlotController:
             ready = False
             for _ in range(15):
                 time.sleep(0.1)
-                if eng.is_moss_ready():
+                if eng.is_moss_ready() or eng.is_moss_open():
                     ready = True
                     break
             if ready:
@@ -2888,6 +3249,7 @@ class SlotController:
 
                 # 2. Thực hiện ném đồ rác tại chỗ (category=-1 nghĩa là dọn sạch mọi đồ rác thường +0..+6 trong hòm đồ)
                 # (bảo vệ tuyệt đối đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)
+                clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
                 c_res = eng.clean_inventory_junk(
                     str(method),
                     protected_slots=[] if force_clean else list(getattr(self, "moss_initial_slots", None) or []),
@@ -2895,6 +3257,7 @@ class SlotController:
                     include_extended=True,
                     max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                     ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                    clean_equipment_trash=clean_equip,
                 )
                 cleaned = int(c_res.get("cleaned", 0)) if isinstance(c_res, dict) else 0
                 total_junk = int(c_res.get("total", c_res.get("totalJunk", 0)) or 0) if isinstance(c_res, dict) else 0
@@ -2914,6 +3277,7 @@ class SlotController:
                         include_extended=True,
                         max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                         ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                        clean_equipment_trash=clean_equip,
                     )
                     if isinstance(sell_res, dict) and int(sell_res.get("cleaned", 0) or 0) > 0:
                         c_res = sell_res
@@ -2979,11 +3343,13 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
         try:
+            clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
             res = eng.analyze_junk_inventory(
                 category=-1,
                 max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
                 protected_slots=[],
                 ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                clean_equipment_trash=clean_equip,
             )
         except Exception as e:
             self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ❌ Lỗi phân tích hòm đồ: {e}")
@@ -3026,9 +3392,10 @@ class SlotController:
 
     def sell_moss_items_at_merchant(self, eng=None) -> bool:
         """
-        Tự động di chuyển ra NPC Rhea (29, 235 Elbeland) bán đồ Moss +5..+7 khi thùng đồ bị đầy,
+        Tự động di chuyển ra NPC Silvia (44, 229 Elbeland) bán đồ Moss khi thùng đồ bị đầy,
         sau đó quay lại bệ NPC Moss (22, 225) và mở lại bảng tiếp tục quay.
-        Bảo vệ tuyệt đối: Đồ Divine, Đồ Rồng, Hoàn Hảo, Socket, Set Thần, Ngọc/Vé sự kiện/Cánh/Sách phép, Đồ >= +8.
+        CHỈ BÁN: Đồ rác do Moss vừa quay ra (thuộc moss_rolled_slots và không nằm trong moss_initial_slots).
+        BẢO VỆ TUYỆT ĐỐI: Đồ ban đầu trong rương, Đồ Divine, Đồ Rồng, Hoàn Hảo, Socket, Set Thần, Ngọc/Vé/Cánh/Sách, Đồ >= +8.
         """
         if not eng:
             if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
@@ -3047,16 +3414,16 @@ class SlotController:
                 time.sleep(0.2)
 
             # Điểm đích trước mặt thương nhân Silvia: ô (44, 229) Elbeland
-            target_rhea_x, target_rhea_y = 44, 229
+            target_silvia_x, target_silvia_y = 44, 229
 
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Silvia ({target_rhea_x}, {target_rhea_y}) để dọn bán đồ rác..."
+                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Silvia ({target_silvia_x}, {target_silvia_y}) để dọn bán đồ rác Moss..."
             ))
 
-            # BƯỚC 1: Di chuyển tới Rhea (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
-            reached_rhea = False
+            # BƯỚC 1: Di chuyển tới Silvia (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
+            reached_silvia = False
             for attempt in range(2):
-                eng.start_auto_move(target_rhea_x, target_rhea_y, helper=False)
+                eng.start_auto_move(target_silvia_x, target_silvia_y, helper=False)
                 start_t = time.time()
                 while time.time() - start_t < 12.0:
                     time.sleep(0.4)
@@ -3069,13 +3436,13 @@ class SlotController:
                         px = p_info.get("x", 0) or p_info.get("tileX", 0)
                         py = p_info.get("y", 0) or p_info.get("tileY", 0)
                         if px > 0 and py > 0:
-                            # Nếu đã đứng trong bán kính 3 ô tính từ Rhea (29, 235)
-                            dist = max(abs(px - target_rhea_x), abs(py - target_rhea_y))
+                            # Đứng trong bán kính <= 3 ô tính từ Silvia (44, 229)
+                            dist = max(abs(px - target_silvia_x), abs(py - target_silvia_y))
                             if dist <= 3:
-                                reached_rhea = True
+                                reached_silvia = True
                                 break
 
-                if reached_rhea:
+                if reached_silvia:
                     break
                 else:
                     self.app.after(0, lambda s=self.slot_idx, c=self.char_name, a=attempt+1: self.app.append_moss_log(
@@ -3090,97 +3457,114 @@ class SlotController:
             px = p_info.get("x", 0) if p_info else 0
             py = p_info.get("y", 0) if p_info else 0
 
-            # BƯỚC 2: Tìm và tương tác với NPC Rhea
+            # BƯỚC 2: Tìm và tương tác với NPC Silvia
             npc_found = eng.find_merchant_npc()
-            npc_name = "Merchant Rhea"
+            npc_name = "Merchant Silvia"
             if npc_found and npc_found.get("found"):
-                npc_name = npc_found.get("name", "Merchant Rhea")
+                npc_name = npc_found.get("name", "Merchant Silvia")
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=npc_name, nx=npc_found.get('x'), ny=npc_found.get('y'): self.app.append_moss_log(
                     f"[Slot {s:02d} - {c}] 🎯 Đã tiếp cận NPC {n} tại ({nx}, {ny}). Đang mở giao dịch bán đồ..."
                 ))
             else:
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 🤝 Đang mở đối thoại với NPC Rhea tại ({px}, {py})..."
+                    f"[Slot {s:02d} - {c}] 🤝 Đang mở đối thoại với NPC Silvia tại ({px}, {py})..."
                 ))
 
-            # Gọi native tương tác đối thoại với NPC
-            interact_res = eng.interact_merchant_npc()
-            # Chờ Server phản hồi gói tin mở giao dịch Shop
-            time.sleep(1.2)
-            if isinstance(interact_res, dict) and not interact_res.get("success", False):
-                err_name = interact_res.get("error", "UNKNOWN")
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, err=err_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] ⚠️ Không thể kết nối đối thoại với NPC ({err}). Hủy lượt bán này."
+            # Gọi tương tác NPC và poll kiểm tra is_merchant_open()
+            shop_opened = False
+            for open_attempt in range(3):
+                eng.interact_merchant_npc()
+                poll_start = time.time()
+                while time.time() - poll_start < 2.5:
+                    if eng.is_merchant_open():
+                        shop_opened = True
+                        break
+                    time.sleep(0.15)
+                if shop_opened:
+                    break
+                time.sleep(0.3)
+
+            if not shop_opened:
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] ⚠️ Cửa sổ Shop {npc_name} chưa mở sau 3 lần thử. Hủy bán để bảo đảm an toàn, quay lại bệ Moss."
                 ))
                 eng.close_merchant_npc()
+                eng.unlock_character_and_inventory()
+                self._move_back_to_moss(eng)
                 return False
 
-            # BƯỚC 3: Gửi lệnh bán các món đồ rác thường (+0..+7, bảo vệ +8+, Divine, Rồng, Exc, Anc, Sock, Ngọc)
-            s_res = eng.sell_moss_plus_items()
+            # Đợi 0.4s để GameServer và Client đồng bộ hoàn toàn trạng thái phiên giao dịch Shop
+            time.sleep(0.4)
+
+            # BƯỚC 3: Lọc danh sách ô được phép bán (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)
+            clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
+            effective_cat = -1 if clean_equip else self.moss_category
+            is_manual = getattr(self, "_manual_selling", False)
+
+            # Nếu là bán thủ công (bấm nút Toolbar / chuột phải) HOẶC chưa có moss_rolled_slots:
+            allowed_slots = [] if is_manual else list(self.moss_rolled_slots - self.moss_initial_slots)
+            if not allowed_slots:
+                # Quét trực tiếp danh sách junkSlots thực tế trong hòm đồ
+                try:
+                    inv_sum = eng.get_inventory_summary(category=effective_cat, max_junk_level=7, clean_equipment_trash=clean_equip)
+                    if inv_sum and not inv_sum.get("error"):
+                        cand_items = inv_sum.get("junkSlots", []) + inv_sum.get("mossPlusSlots", [])
+                        allowed_slots = [
+                            it.get("slot") for it in cand_items
+                            if it.get("slot") is not None and (is_manual or it.get("slot") not in self.moss_initial_slots)
+                        ]
+                except Exception:
+                    allowed_slots = []
+
+            # Gửi lệnh bán các món đồ rác Moss (+0..+7, bảo vệ +8+, Divine, Rồng, Exc, Anc, Sock, Ngọc)
+            s_res = eng.sell_moss_plus_items(
+                max_junk_level=7,
+                ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                allowed_slots=allowed_slots,
+                category=effective_cat,
+                clean_equipment_trash=clean_equip
+            )
             sold_count = s_res.get("sold", 0) if isinstance(s_res, dict) else 0
             sold_items = s_res.get("items", []) if isinstance(s_res, dict) else []
 
             if sold_count > 0:
+                # Loại bỏ các slot đã bán khỏi moss_rolled_slots
+                for it in sold_items:
+                    s_sold = it.get("slot")
+                    if s_sold in self.moss_rolled_slots:
+                        self.moss_rolled_slots.discard(s_sold)
+
                 summary_names = [f"{it.get('name', 'Item')}+{it.get('level', 0)}" for it in sold_items[:6]]
                 sum_text = ", ".join(summary_names)
                 if len(sold_items) > 6:
                     sum_text += f" ... (+{len(sold_items)-6} món khác)"
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cnt=sold_count, st=sum_text: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ rác ({st})!"
+                    f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ rác Moss ({st})!"
                 ))
             else:
                 err_code = s_res.get("error") if isinstance(s_res, dict) else None
                 cand_cnt = s_res.get("candidates", 0) if isinstance(s_res, dict) else 0
-                if err_code == "server_not_confirm":
+                if err_code == "merchant_not_open":
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] ⚠️ Shop thương nhân chưa mở sẵn sàng. Sẽ thử lại ở lượt sau."
+                    ))
+                elif err_code == "server_not_confirm":
                     self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cc=cand_cnt: self.app.append_moss_log(
-                        f"[Slot {s:02d} - {c}] ⚠️ Phát hiện {cc} món đồ rác nhưng Server chưa phản hồi giao dịch bán đồ (Shop Rhea chưa sẵn sàng). Sẽ thử lại ở lượt sau."
+                        f"[Slot {s:02d} - {c}] ⚠️ Phát hiện {cc} món đồ rác nhưng Server chưa phản hồi giao dịch bán đồ. Sẽ thử lại ở lượt sau."
                     ))
                 else:
                     self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                        f"[Slot {s:02d} - {c}] ℹ️ Không phát hiện món đồ rác nào cần bán (hoặc đã dọn sạch)."
+                        f"[Slot {s:02d} - {c}] ℹ️ Không phát hiện món đồ rác Moss nào cần bán (hoặc đã dọn sạch)."
                     ))
             time.sleep(0.4)
 
-            # Đóng phiên giao dịch Shop tại Rhea (gửi C1:31 và dọn WindowHandler)
+            # Đóng phiên giao dịch Shop tại Silvia (gửi C1:31 và dọn WindowHandler)
             eng.close_merchant_npc()
             eng.unlock_character_and_inventory()
             time.sleep(0.4)
 
             # BƯỚC 4: Di chuyển quay lại bệ NPC Moss (22, 225)
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Đang quay trở lại bệ NPC Moss (22, 225)..."
-            ))
-
-            reached_moss = False
-            for attempt2 in range(2):
-                eng.start_auto_move(22, 225, helper=False)
-                start_t2 = time.time()
-                while time.time() - start_t2 < 12.0:
-                    time.sleep(0.4)
-                    if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
-                        eng.stop_auto_move()
-                        return False
-
-                    p_info = eng.get_player_info()
-                    if p_info:
-                        px = p_info.get("x", 0) or p_info.get("tileX", 0)
-                        py = p_info.get("y", 0) or p_info.get("tileY", 0)
-                        if px > 0 and py > 0 and max(abs(px - 22), abs(py - 225)) <= 3:
-                            reached_moss = True
-                            break
-
-                if reached_moss:
-                    break
-
-            eng.stop_auto_move()
-            time.sleep(0.6)
-
-            # BƯỚC 5: Tương tác lại với NPC Moss để khôi phục phiên quay thưởng
-            eng.interact_moss_npc(self.moss_category)
-            time.sleep(0.5)
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🎰 Đã kết nối lại NPC Moss (22, 225). Tiếp tục quay thưởng!"
-            ))
+            self._move_back_to_moss(eng)
             return True
         except Exception as e:
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name, err=str(e): self.app.append_moss_log(
@@ -3194,7 +3578,7 @@ class SlotController:
                 pass
 
     def sell_moss_inventory(self):
-        """Kích hoạt thủ công tiến trình đi bán đồ Moss +5..+7 tại NPC Leah trên luồng riêng."""
+        """Kích hoạt thủ công tiến trình đi bán đồ Moss +5..+7 tại NPC Silvia trên luồng riêng."""
         self._manual_selling = True
         def _run():
             try:
@@ -3202,6 +3586,53 @@ class SlotController:
             finally:
                 self._manual_selling = False
         threading.Thread(target=_run, daemon=True).start()
+
+    def _move_back_to_moss(self, eng) -> bool:
+        """Di chuyển quay trở lại tọa độ NPC Moss (22, 225) và mở lại bảng quay."""
+        if not eng or not eng.is_ready:
+            return False
+
+        self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+            f"[Slot {s:02d} - {c}] 🚶 Đang quay trở lại bệ NPC Moss (22, 225)..."
+        ))
+
+        reached_moss = False
+        for attempt in range(2):
+            eng.start_auto_move(22, 225, helper=False)
+            start_t = time.time()
+            while time.time() - start_t < 12.0:
+                time.sleep(0.4)
+                if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
+                    eng.stop_auto_move()
+                    return False
+
+                p_info = eng.get_player_info()
+                if p_info:
+                    px = p_info.get("x", 0) or p_info.get("tileX", 0)
+                    py = p_info.get("y", 0) or p_info.get("tileY", 0)
+                    if px > 0 and py > 0 and max(abs(px - 22), abs(py - 225)) <= 3:
+                        reached_moss = True
+                        break
+
+            if reached_moss:
+                break
+
+        eng.stop_auto_move()
+        time.sleep(0.6)
+
+        # Tương tác lại với NPC Moss để khôi phục phiên quay thưởng
+        if getattr(self, "moss_running", True):
+            try:
+                eng.interact_moss_npc(self.moss_category)
+                time.sleep(0.8)
+                eng.reset_moss_ui(self.moss_category)
+                time.sleep(0.3)
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🎰 Đã kết nối lại NPC Moss (22, 225). Tiếp tục chu trình quay thưởng!"
+                ))
+            except Exception:
+                pass
+        return reached_moss
 
     def move_to_moss_elbeland(self) -> bool:
         """Tự động chuyển map Elbeland và di chuyển tới tọa độ NPC Moss Merchant (22, 225)."""
@@ -4526,6 +4957,13 @@ class DashboardApp(ctk.CTk):
             if w_type in ctk.ThemeManager.theme and "corner_radius" in ctk.ThemeManager.theme[w_type]:
                 ctk.ThemeManager.theme[w_type]["corner_radius"] = 0
 
+        # Caching Font dùng chung tránh tạo mới đối tượng CTkFont liên tục gây rò rỉ bộ nhớ Tcl/Tk (Crash tcl86t.dll)
+        self.font_segoe_10 = ctk.CTkFont(family="Segoe UI", size=10)
+        self.font_segoe_10_bold = ctk.CTkFont(family="Segoe UI", size=10, weight="bold")
+        self.font_segoe_11 = ctk.CTkFont(family="Segoe UI", size=11)
+        self.font_segoe_11_bold = ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+        self.font_segoe_12_bold = ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
+
         # Debounce co giãn cửa sổ / Zoom in / Zoom out để tránh tính toán dồn dập
         self._resize_timer = None
         self._is_resizing = False
@@ -4565,6 +5003,7 @@ class DashboardApp(ctk.CTk):
             ctrl.moss_delay_ms = int(c_data.get("delay_ms", 1000))
             ctrl.moss_max_rolls = int(c_data.get("max_rolls", 0))
             ctrl.moss_auto_clean = bool(c_data.get("auto_clean", True))
+            ctrl.moss_clean_equipment_trash = bool(c_data.get("clean_equipment_trash", True))
             ctrl.mirror_enabled = (i in mirror_sel) if (mirror_sel is not None) else True
             ctrl.moss_enabled = (i in moss_sel) if (moss_sel is not None) else True
             self.controllers.append(ctrl)
@@ -4594,6 +5033,10 @@ class DashboardApp(ctk.CTk):
         self.account_mgr = AccountManager() if AccountManager else None
         self.autologin_ui_rows: List[Dict[str, Any]] = []
         self.autologin_delay_var = ctk.StringVar(value="3.0")
+
+        # Quản lý Telegram Notifier (Đặc biệt cho sự kiện Double Goer / Mirror)
+        self.telegram_config = TelegramConfig() if TelegramConfig else None
+        self.mirror_telegram_notifier = MirrorTelegramNotifier(self.telegram_config) if (MirrorTelegramNotifier and self.telegram_config) else None
 
         # Xây dựng giao diện hoàn chỉnh
         self.build_ui()
@@ -7825,8 +8268,18 @@ class DashboardApp(ctk.CTk):
         self.after(0, _done)
 
     def _safe_append_textbox(self, widget, text: str, max_lines: int = 1000, trim_lines: int = 150):
-        """Chèn log an toàn vào Textbox và tự động cắt tỉa các dòng cũ để chống phình to RAM."""
+        """Chèn log an toàn đa luồng vào Textbox và tự động cắt tỉa các dòng cũ để chống phình to RAM."""
+        if not getattr(self, "running", True):
+            return
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self._safe_append_textbox(widget, text, max_lines, trim_lines))
+            except Exception:
+                pass
+            return
         try:
+            if not widget or not widget.winfo_exists():
+                return
             t_str = time.strftime("%H:%M:%S")
             widget.insert("end", f"[{t_str}] {text}\n")
             line_count = int(widget.index("end-1c").split(".")[0])
@@ -8045,14 +8498,14 @@ class DashboardApp(ctk.CTk):
         inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
         inner_tb.pack(fill="x", padx=10, pady=6)
 
-        # Hàng 1 Toolbar: Chọn tài khoản + Gán nhanh danh mục + Nút chính
+        # Hàng 1 Toolbar: Chọn tài khoản + Điều khiển tổng (Start / Stop All)
         tb_row1 = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        tb_row1.pack(fill="x", pady=(0, 4))
+        tb_row1.pack(fill="x", pady=(0, 6))
 
         btn_sel_all = ctk.CTkButton(
             tb_row1,
             text="✅ Chọn tất cả",
-            width=90,
+            width=95,
             height=28,
             corner_radius=0,
             fg_color="#1e293b",
@@ -8079,21 +8532,21 @@ class DashboardApp(ctk.CTk):
 
         self.lbl_moss_count_badge = ctk.CTkLabel(
             tb_row1,
-            text="Quay Moss: 0/0",
+            text="🎯 Đã chọn: 0/0 Slots",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#f59e0b"
         )
         self.lbl_moss_count_badge.pack(side="left", padx=(0, 15))
 
-        # Phải Hàng 1: Nút BẮT ĐẦU QUAY + DỪNG QUAY
+        # Phải Hàng 1: Nút BẮT ĐẦU QUAY + DỪNG QUAY (Nổi bật, Promax)
         tb_row1_r = ctk.CTkFrame(tb_row1, fg_color="transparent")
         tb_row1_r.pack(side="right")
 
         self.btn_moss_stop_all = ctk.CTkButton(
             tb_row1_r,
-            text="⏹️ DỪNG QUAY",
-            width=100,
-            height=28,
+            text="⏹️ DỪNG TẤT CẢ",
+            width=110,
+            height=30,
             corner_radius=0,
             fg_color="#dc2626",
             hover_color="#b91c1c",
@@ -8101,13 +8554,13 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.stop_all_moss_auto
         )
-        self.btn_moss_stop_all.pack(side="right", padx=(6, 0))
+        self.btn_moss_stop_all.pack(side="right", padx=(8, 0))
 
         self.btn_moss_start_all = ctk.CTkButton(
             tb_row1_r,
-            text="▶️ BẮT ĐẦU QUAY (ĐÃ CHỌN)",
-            width=190,
-            height=28,
+            text="▶️ BẮT ĐẦU QUAY TỰ ĐỘNG",
+            width=200,
+            height=30,
             corner_radius=0,
             fg_color="#059669",
             hover_color="#047857",
@@ -8117,42 +8570,27 @@ class DashboardApp(ctk.CTk):
         )
         self.btn_moss_start_all.pack(side="right")
 
-        # Hàng 2 Toolbar: Gán danh mục + Delay + Dọn rác
+        # Hàng 2 Toolbar: Thiết lập cấu hình hàng loạt + Tùy chọn dọn rác + Tiện ích nâng cao
         tb_row2 = ctk.CTkFrame(inner_tb, fg_color="transparent")
         tb_row2.pack(fill="x")
 
+        # Cụm 1: Thiết lập cấu hình hàng loạt (1-Click Apply)
         ctk.CTkLabel(
             tb_row2,
-            text="Gán nhanh:",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text="Cấu hình:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#94a3b8"
-        ).pack(side="left", padx=(0, 4))
+        ).pack(side="left", padx=(0, 6))
 
         self.batch_moss_cat_combo = ModernOptionMenu(
             tb_row2,
             values=[name for name, _ in self.MOSS_CAT_OPTIONS],
-            width=180,
-            height=26,
+            width=210,
+            height=28,
             font=ctk.CTkFont(family="Segoe UI", size=11)
         )
         self.batch_moss_cat_combo.set(self.MOSS_CAT_OPTIONS[0][0])
-        self.batch_moss_cat_combo.pack(side="left", padx=(0, 4))
-
-        btn_apply_cat = ctk.CTkButton(
-            tb_row2,
-            text="📋 Áp dụng",
-            width=70,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#475569",
-            text_color="#f1f5f9",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.apply_batch_moss_category
-        )
-        btn_apply_cat.pack(side="left", padx=(0, 10))
+        self.batch_moss_cat_combo.pack(side="left", padx=(0, 8))
 
         ctk.CTkLabel(
             tb_row2,
@@ -8164,20 +8602,70 @@ class DashboardApp(ctk.CTk):
         self.batch_moss_delay_entry = ctk.CTkEntry(
             tb_row2,
             width=55,
-            height=26,
+            height=28,
             font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color="#181c26",
             border_color="#2b3244",
             text_color="#f8fafc"
         )
         self.batch_moss_delay_entry.insert(0, "1000")
-        self.batch_moss_delay_entry.pack(side="left", padx=(0, 4))
+        self.batch_moss_delay_entry.pack(side="left", padx=(0, 6))
 
-        btn_apply_delay = ctk.CTkButton(
+        btn_apply_all = ctk.CTkButton(
             tb_row2,
-            text="⏱ Đặt delay",
-            width=75,
-            height=26,
+            text="⚡ Áp dụng tất cả",
+            width=105,
+            height=28,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#38bdf8",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.apply_batch_moss_settings
+        )
+        btn_apply_all.pack(side="left", padx=(0, 14))
+
+        # Phân cách thanh mảnh
+        ctk.CTkFrame(tb_row2, fg_color="#202430", width=1, height=20).pack(side="left", padx=(0, 14))
+
+        # Cụm 2: Tùy chọn tự dọn rác thông minh
+        self.batch_moss_clean_cb = ctk.CTkCheckBox(
+            tb_row2,
+            text="🧹 Tự dọn rác khi đầy",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f87171",
+            fg_color="#ef4444",
+            hover_color="#dc2626",
+            command=self.on_toggle_global_moss_clean
+        )
+        self.batch_moss_clean_cb.select()
+        self.batch_moss_clean_cb.pack(side="left", padx=(0, 8))
+
+        self.cb_clean_equipment_trash = ctk.CTkCheckBox(
+            tb_row2,
+            text="👕 Kèm đồ rác (+0..+6)",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8",
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            command=self.on_toggle_clean_equipment_trash
+        )
+        self.cb_clean_equipment_trash.select()
+        self.cb_clean_equipment_trash.pack(side="left", padx=(0, 14))
+
+        # Biến ẩn tương thích cho cb_ignore_junk_type
+        self.cb_ignore_junk_type = None
+
+        # Cụm 3: Phím tắt Silvia + Ném rác + Nút Tiện ích mở rộng (Bên phải)
+        tb_row2_r = ctk.CTkFrame(tb_row2, fg_color="transparent")
+        tb_row2_r.pack(side="right")
+
+        self.btn_moss_more_tools = ctk.CTkButton(
+            tb_row2_r,
+            text="🛠️ Tiện ích mở rộng ▾",
+            height=28,
             corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
@@ -8185,137 +8673,42 @@ class DashboardApp(ctk.CTk):
             border_color="#475569",
             text_color="#cbd5e1",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.apply_batch_moss_delay
+            command=self.show_moss_batch_tools_menu
         )
-        btn_apply_delay.pack(side="left", padx=(0, 10))
+        self.btn_moss_more_tools.pack(side="right", padx=(6, 0))
+        add_tooltip(self.btn_moss_more_tools, "🛠️ Bấm để mở menu tiện ích mở rộng: Di chuyển Elbeland, Mở NPC, Mở khóa kẹt...")
 
-        self.batch_moss_clean_cb = ctk.CTkCheckBox(
-            tb_row2,
-            text="🧹 Tự dọn rác",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#f87171",
-            fg_color="#ef4444",
-            hover_color="#dc2626",
-            command=self.on_toggle_global_moss_clean
-        )
-        self.batch_moss_clean_cb.select()
-        self.batch_moss_clean_cb.pack(side="left", padx=(0, 10))
-
-        btn_clean_all = ctk.CTkButton(
-            tb_row2,
+        btn_clean_quick = ctk.CTkButton(
+            tb_row2_r,
             text="🗑️ Ném Tại Chỗ",
-            height=26,
+            height=28,
             corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
             border_color="#ef4444",
             text_color="#f87171",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.clean_all_moss_inventories
         )
-        btn_clean_all.pack(side="left", padx=(0, 6))
+        btn_clean_quick.pack(side="right", padx=(6, 0))
+        add_tooltip(btn_clean_quick, "🗑️ Ném sạch đồ rác tại chỗ trên các tài khoản đã chọn")
 
-        self.btn_analyze_junk = ctk.CTkButton(
-            tb_row2,
-            text="🔍 Phân Tích Rác",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#a78bfa",
-            text_color="#c4b5fd",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.analyze_all_moss_inventories
-        )
-        self.btn_analyze_junk.pack(side="left", padx=(0, 6))
-
-        self.btn_junk_dialog = ctk.CTkButton(
-            tb_row2,
-            text="🧹 Dọn Rác",
-            height=26,
-            corner_radius=0,
-            fg_color="#7f1d1d",
-            hover_color="#991b1b",
-            border_width=1,
-            border_color="#ef4444",
-            text_color="#fecaca",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.open_junk_disposal_dialog
-        )
-        self.btn_junk_dialog.pack(side="left", padx=(0, 6))
-
-        self.cb_ignore_junk_type = ctk.CTkCheckBox(
-            tb_row2,
-            text="⚠️ Bỏ lọc tên/loại",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#fbbf24",
-            fg_color="#f59e0b",
-            hover_color="#d97706",
-            command=self.on_toggle_ignore_junk_type
-        )
-        self.cb_ignore_junk_type.pack(side="left", padx=(0, 6))
-
-        btn_sell_all = ctk.CTkButton(
-            tb_row2,
-            text="💰 Bán Silvia",
-            height=26,
+        btn_sell_silvia_quick = ctk.CTkButton(
+            tb_row2_r,
+            text="💰 Bán Silvia ngay",
+            height=28,
             corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
             border_color="#10b981",
             text_color="#34d399",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.sell_all_moss_inventories
         )
-        btn_sell_all.pack(side="left", padx=(0, 6))
-
-        btn_move_all = ctk.CTkButton(
-            tb_row2,
-            text="🚶 Về NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#38bdf8",
-            text_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.move_all_to_moss_elbeland
-        )
-        btn_move_all.pack(side="left", padx=(0, 6))
-
-        btn_open_all = ctk.CTkButton(
-            tb_row2,
-            text="🚪 Mở NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#f59e0b",
-            text_color="#fbbf24",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.open_all_moss_npc
-        )
-        btn_open_all.pack(side="left", padx=(0, 6))
-
-        btn_close_all = ctk.CTkButton(
-            tb_row2,
-            text="🚪 Đóng NPC",
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#64748b",
-            text_color="#cbd5e1",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self.close_all_moss_dialogs
-        )
-        btn_close_all.pack(side="left")
+        btn_sell_silvia_quick.pack(side="right")
+        add_tooltip(btn_sell_silvia_quick, "💰 Chạy tới NPC Silvia bán đồ rác lấy Zen trên các tài khoản đã chọn")
 
         # 3. BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
         table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
@@ -8326,14 +8719,13 @@ class DashboardApp(ctk.CTk):
         tbl_h.pack(fill="x", padx=10, pady=(6, 2))
 
         headers = [
-            ("Quay Moss", 95, "w"),
-            ("Nº", 35, "w"),
-            ("Tài khoản / PID", 175, "w"),
-            ("Vật Phẩm Quay (Config)", 185, "w"),
-            ("Delay", 70, "center"),
-            ("Đã Quay", 70, "center"),
-            ("Trạng Thái", 115, "center"),
-            ("Thao Tác", 220, "center"),
+            ("Slot", 90, "w"),
+            ("Tài khoản / Nhân vật", 185, "w"),
+            ("Vật Phẩm Quay (Cấu hình)", 195, "w"),
+            ("Delay", 75, "center"),
+            ("Đã Quay", 85, "center"),
+            ("Trạng Thái", 110, "center"),
+            ("Thao Tác", 115, "center"),
         ]
         for title, w, anc in headers:
             ctk.CTkLabel(
@@ -8399,16 +8791,16 @@ class DashboardApp(ctk.CTk):
         ctrl = self.controllers[i - 1]
         is_en = getattr(ctrl, "moss_enabled", True)
         row_bg = "#141722" if is_en else "#0f1118"
-        row_frame = ctk.CTkFrame(self.moss_scroll_frame, fg_color=row_bg, height=40, corner_radius=0)
+        row_frame = ctk.CTkFrame(self.moss_scroll_frame, fg_color=row_bg, height=38, corner_radius=0)
         row_frame.pack(fill="x", padx=2, pady=2)
 
-        # Cột 1: Checkbox Quay Moss
+        # Cột 1: Checkbox Slot (Kèm mã Slot)
         cb_enabled = ctk.CTkCheckBox(
             row_frame,
-            text="Quay Moss",
-            width=90,
+            text=f"Slot {i:02d}",
+            width=85,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f59e0b",
+            text_color="#f59e0b" if is_en else "#64748b",
             fg_color="#d97706",
             hover_color="#b45309",
             command=lambda s=i: self.on_moss_slot_enabled_toggled(s)
@@ -8419,19 +8811,11 @@ class DashboardApp(ctk.CTk):
             cb_enabled.deselect()
         cb_enabled.pack(side="left", padx=(8, 4))
 
-        # Cột 2: No.
-        no_lbl = ctk.CTkLabel(
-            row_frame,
-            text=f"{i:02d}",
-            width=35,
-            anchor="w",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94a3b8" if is_en else "#475569"
-        )
-        no_lbl.pack(side="left", padx=2)
+        # Dummy label cho no_lbl (đảm bảo 100% tương thích ngược nếu có hàm truy cập)
+        no_lbl = ctk.CTkLabel(row_frame, text="", width=0)
 
-        # Cột 3: Nhân vật / PID
-        char_disp = f"{ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "Chưa gán"
+        # Cột 2: Nhân vật / PID
+        char_disp = f"● {ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "⚪ Chưa kết nối"
         char_color = "#f8fafc" if (ctrl.assigned_pid and is_en) else "#64748b"
         char_lbl = ctk.CTkLabel(
             row_frame,
@@ -8443,7 +8827,7 @@ class DashboardApp(ctk.CTk):
         )
         char_lbl.pack(side="left", padx=4)
 
-        # Cột 4: Vật phẩm quay (Config)
+        # Cột 3: Vật phẩm quay (Config)
         cat_var = ctk.StringVar(value=self.get_moss_cat_name(ctrl.moss_category))
         cat_combo = ModernOptionMenu(
             row_frame,
@@ -8456,10 +8840,12 @@ class DashboardApp(ctk.CTk):
         )
         cat_combo.pack(side="left", padx=4)
 
-        # Cột 5: Delay (ms)
+        # Cột 4: Delay (ms)
+        delay_f = ctk.CTkFrame(row_frame, fg_color="transparent", width=75)
+        delay_f.pack(side="left", padx=2)
         delay_entry = ctk.CTkEntry(
-            row_frame,
-            width=65,
+            delay_f,
+            width=50,
             height=26,
             font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color="#181c26",
@@ -8467,50 +8853,51 @@ class DashboardApp(ctk.CTk):
             text_color="#f8fafc"
         )
         delay_entry.insert(0, str(ctrl.moss_delay_ms))
-        delay_entry.pack(side="left", padx=4)
+        delay_entry.pack(side="left")
         delay_entry.bind("<FocusOut>", lambda e, s=i: self.on_moss_slot_delay_changed(s))
         delay_entry.bind("<Return>", lambda e, s=i: self.on_moss_slot_delay_changed(s))
+        ctk.CTkLabel(delay_f, text="ms", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=10)).pack(side="left", padx=(2, 0))
 
-        # Cột 6: Đã quay
+        # Cột 5: Đã quay
         rolls_lbl = ctk.CTkLabel(
             row_frame,
-            text=f"{ctrl.moss_rolls_count} Lượt",
-            width=75,
+            text=f"🎰 {ctrl.moss_rolls_count} lượt",
+            width=80,
             anchor="center",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#10b981" if is_en else "#475569"
+            text_color="#10b981" if is_en and ctrl.moss_rolls_count > 0 else "#64748b"
         )
         rolls_lbl.pack(side="left", padx=4)
 
-        # Cột 7: Trạng thái
+        # Cột 6: Trạng thái
         if not is_en:
             st_text = "⛔ Bỏ qua"
             st_color = "#64748b"
         elif ctrl.assigned_pid:
-            st_text = "Chờ"
-            st_color = "#94a3b8"
+            st_text = "🟢 Sẵn sàng"
+            st_color = "#10b981"
         else:
-            st_text = "Chưa gán"
+            st_text = "⚪ Chưa gán"
             st_color = "#64748b"
 
         status_lbl = ctk.CTkLabel(
             row_frame,
             text=st_text,
-            width=120,
+            width=105,
             anchor="center",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color=st_color
         )
         status_lbl.pack(side="left", padx=4)
 
-        # Cột 8: Thao tác (4 nút: Auto, Mở, 1 Lần, Ném tại chỗ)
-        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=220)
+        # Cột 7: Thao tác (Tối giản: 1 Nút Chạy/Dừng chính + 1 Nút Menu tiện ích [⋯])
+        action_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=110)
         action_box.pack(side="left", padx=4)
 
         btn_toggle = ctk.CTkButton(
             action_box,
-            text="▶️ Auto",
-            width=54,
+            text="▶️ Bắt đầu",
+            width=72,
             height=26,
             corner_radius=0,
             fg_color="#059669",
@@ -8519,73 +8906,27 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             command=lambda s=i: self.toggle_moss_slot_auto(s)
         )
-        btn_toggle.pack(side="left", padx=(0, 3))
+        btn_toggle.pack(side="left", padx=(0, 4))
 
-        btn_open = ctk.CTkButton(
+        btn_more = ctk.CTkButton(
             action_box,
-            text="🚪 Mở",
-            width=44,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#f59e0b",
-            text_color="#fbbf24",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: ctrl.open_moss_npc()
-        )
-        btn_open.pack(side="left", padx=(0, 3))
-
-        btn_once = ctk.CTkButton(
-            action_box,
-            text="🎲 1 Lần",
-            width=50,
+            text="⋯",
+            width=28,
             height=26,
             corner_radius=0,
             fg_color="#1e293b",
             hover_color="#334155",
             border_width=1,
             border_color="#475569",
-            text_color="#e2e8f0",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: ctrl.roll_moss_once()
+            text_color="#cbd5e1",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            command=lambda s=i: self._show_moss_row_menu(s)
         )
-        btn_once.pack(side="left", padx=(0, 3))
+        btn_more.pack(side="left")
+        add_tooltip(btn_more, "⋯ Menu thao tác nâng cao (Quay thử, Mở bảng, Bán Silvia, Về Moss...)")
 
-        btn_drop = ctk.CTkButton(
-            action_box,
-            text="🗑️ Ném",
-            width=48,
-            height=26,
-            corner_radius=0,
-            fg_color="#1e293b",
-            hover_color="#334155",
-            border_width=1,
-            border_color="#ef4444",
-            text_color="#f87171",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            command=lambda s=i: ctrl.clean_moss_inventory(run_in_thread=True)
-        )
-        btn_drop.pack(side="left")
-
-        def _show_moss_ctx(event, s_idx):
-            try:
-                ctrl_item = self.controllers[s_idx - 1]
-                m_menu = tk.Menu(self, tearoff=0, bg="#181c26", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
-                m_menu.add_command(label=f"🗑️ Ném đồ rác tại chỗ (Slot {s_idx:02d})", command=lambda: ctrl_item.clean_moss_inventory(run_in_thread=True))
-                m_menu.add_command(label=f"💰 Bán đồ rác tại NPC Silvia (Slot {s_idx:02d})", command=lambda: ctrl_item.sell_moss_inventory())
-                m_menu.add_separator()
-                m_menu.add_command(label="🚪 Mở bảng Moss NPC", command=lambda: ctrl_item.open_moss_npc())
-                m_menu.add_command(label="🚪 Đóng bảng Moss NPC", command=lambda: ctrl_item.close_moss_dialog())
-                m_menu.add_command(label="🔓 Mở khóa kẹt thùng đồ & Moss", command=lambda: ctrl_item.unlock_and_close_inventory())
-                m_menu.add_command(label="🚶 Chạy về NPC Moss (22, 225)", command=lambda: ctrl_item.move_to_moss_elbeland())
-                m_menu.tk_popup(event.x_root, event.y_root)
-            except Exception:
-                pass
-
-        for _mw in (row_frame, no_lbl, char_lbl, rolls_lbl, status_lbl):
-            _mw.bind("<Button-3>", lambda e, s=i: _show_moss_ctx(e, s))
+        for _mw in (row_frame, char_lbl, rolls_lbl, status_lbl):
+            _mw.bind("<Button-3>", lambda e, s=i: self._show_moss_row_menu(s, event=e))
 
         # Lưu UI cache
         self.moss_ui_elements[i] = {
@@ -8599,10 +8940,91 @@ class DashboardApp(ctk.CTk):
             "rolls_lbl": rolls_lbl,
             "status_lbl": status_lbl,
             "btn_toggle": btn_toggle,
-            "btn_open": btn_open,
-            "btn_once": btn_once,
-            "btn_drop": btn_drop,
+            "btn_more": btn_more,
+            "btn_open": None,
+            "btn_once": None,
+            "btn_drop": None,
         }
+
+    def _show_moss_row_menu(self, s_idx: int, widget=None, event=None):
+        """Hiển thị menu thao tác nhanh cho từng Slot Moss."""
+        try:
+            ctrl_item = self.controllers[s_idx - 1]
+            items = [
+                (f"🎲 Quay thử 1 lần (Slot {s_idx:02d})", lambda: ctrl_item.roll_moss_once(), "#fbbf24"),
+                ("🚪 Mở bảng Moss NPC", lambda: ctrl_item.open_moss_npc(), "#38bdf8"),
+                ("🚪 Đóng bảng Moss NPC", lambda: ctrl_item.close_moss_dialog(), "#94a3b8"),
+                ("---", None, ""),
+                ("💰 Đi bán đồ rác tại NPC Silvia", lambda: ctrl_item.sell_moss_inventory(), "#34d399"),
+                ("🗑️ Ném đồ rác tại chỗ ngay", lambda: ctrl_item.clean_moss_inventory(run_in_thread=True), "#f87171"),
+                ("---", None, ""),
+                ("🚶 Chạy về NPC Moss (Elbeland 22, 225)", lambda: ctrl_item.move_to_moss_elbeland(), "#38bdf8"),
+                ("🔓 Mở khóa kẹt thùng đồ & Moss", lambda: ctrl_item.unlock_and_close_inventory(), "#fbbf24"),
+            ]
+            menu = ModernActionMenu(self, items=items, min_width=250)
+            if event:
+                menu.show(x=event.x_root, y=event.y_root)
+            else:
+                el = self.moss_ui_elements.get(s_idx)
+                b = el.get("btn_more") if el else widget
+                menu.show(anchor_widget=b)
+        except Exception as e:
+            self.append_moss_log(f"⚠️ Lỗi mở menu slot: {e}")
+
+    def show_moss_batch_tools_menu(self):
+        """Hiển thị menu popup tiện ích mở rộng cho Moss Merchant."""
+        try:
+            ign_cur = getattr(self, "_moss_ignore_junk_type_val", False)
+            ign_lbl = "✅ Bỏ qua lọc tên/loại rác (Đang BẬT)" if ign_cur else "⬜ Bỏ qua lọc tên/loại rác (Đang TẮT)"
+            items = [
+                ("💰 Bán đồ rác tại NPC Silvia ngay (Tất cả)", self.sell_all_moss_inventories, "#34d399"),
+                ("🗑️ Ném đồ rác tại chỗ ngay (Tất cả)", self.clean_all_moss_inventories, "#f87171"),
+                ("🔍 Phân tích rác hòm đồ các tài khoản", self.analyze_all_moss_inventories, "#38bdf8"),
+                ("🧹 Hộp thoại dọn rác nâng cao...", self.open_junk_disposal_dialog, "#cbd5e1"),
+                ("---", None, ""),
+                ("🚶 Di chuyển tất cả về NPC Moss (Elbeland 22, 225)", self.move_all_to_moss_elbeland, "#38bdf8"),
+                ("🚪 Mở bảng NPC Moss (Tất cả)", self.open_all_moss_npc, "#f1f5f9"),
+                ("🚪 Đóng bảng NPC Moss (Tất cả)", self.close_all_moss_dialogs, "#94a3b8"),
+                ("🔓 Mở khóa kẹt thùng đồ & nhân vật (Tất cả)", self.unlock_all_moss_inventories, "#fbbf24"),
+                ("---", None, ""),
+                (ign_lbl, self._toggle_ignore_junk_type_from_menu, "#f59e0b" if ign_cur else "#94a3b8"),
+            ]
+            if not hasattr(self, "_moss_batch_action_menu") or not self._moss_batch_action_menu:
+                self._moss_batch_action_menu = ModernActionMenu(self, items=items, min_width=310)
+            else:
+                self._moss_batch_action_menu.items = items
+
+            btn = getattr(self, "btn_moss_more_tools", None)
+            self._moss_batch_action_menu.show(anchor_widget=btn)
+        except Exception as e:
+            self.append_moss_log(f"⚠️ Lỗi mở menu tiện ích: {e}")
+
+    def apply_batch_moss_settings(self):
+        """Gán cả Danh mục vật phẩm VÀ Delay cho các Slot đã chọn trong 1 lần click."""
+        self.apply_batch_moss_category()
+        self.apply_batch_moss_delay()
+
+    def unlock_all_moss_inventories(self):
+        """Mở khóa kẹt thùng đồ và giao diện Moss cho tất cả các Slot."""
+        def _exec():
+            cnt = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "moss_enabled", True):
+                    continue
+                ctrl.unlock_and_close_inventory()
+                cnt += 1
+            self.append_moss_log(f"🔓 Đã mở khóa kẹt thùng đồ & Moss cho {cnt} Slot đã chọn.")
+        threading.Thread(target=_exec, daemon=True).start()
+
+    def _toggle_ignore_junk_type_from_menu(self):
+        """Bật/tắt bỏ lọc tên/loại từ menu tiện ích."""
+        cur = getattr(self, "_moss_ignore_junk_type_val", False)
+        new_val = not cur
+        self._moss_ignore_junk_type_val = new_val
+        for ctrl in self.controllers:
+            ctrl.moss_ignore_junk_type = new_val
+        st = "ĐÃ BẬT (vứt/bán mọi đồ thường <= max level)" if new_val else "ĐÃ TẮT (chỉ dọn đồ theo danh mục Moss)"
+        self.append_moss_log(f"⚠️ Chế độ Bỏ lọc tên/loại rác: {st}.")
 
     def on_moss_slot_enabled_toggled(self, slot_idx: int):
         """Xử lý khi người dùng bật/tắt checkbox tham gia Moss của từng slot."""
@@ -8645,13 +9067,22 @@ class DashboardApp(ctk.CTk):
 
     def update_moss_selected_badge(self):
         """Cập nhật nhãn số lượng tài khoản đã chọn quay Moss trên Toolbar."""
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, self.update_moss_selected_badge)
+            except Exception:
+                pass
+            return
         if hasattr(self, "lbl_moss_count_badge") and self.lbl_moss_count_badge:
             total = len(self.controllers)
             sel = sum(1 for c in self.controllers if getattr(c, "moss_enabled", True))
-            self.lbl_moss_count_badge.configure(
-                text=f"Quay Moss: {sel}/{total}",
-                text_color="#f59e0b" if sel > 0 else "#64748b"
-            )
+            cache_key = (sel, total)
+            if getattr(self, "_last_moss_badge_cache", None) != cache_key:
+                self._last_moss_badge_cache = cache_key
+                self.lbl_moss_count_badge.configure(
+                    text=f"🎯 Đã chọn: {sel}/{total} Slots",
+                    text_color="#f59e0b" if sel > 0 else "#64748b"
+                )
 
     def update_moss_row_visuals(self, slot_idx: int):
         """Cập nhật màu sắc và trạng thái trực quan khi bật/tắt checkbox slot Moss."""
@@ -8663,19 +9094,19 @@ class DashboardApp(ctk.CTk):
         if is_en:
             if el.get("row_frame"):
                 el["row_frame"].configure(fg_color="#141722")
-            if el.get("no_lbl"):
-                el["no_lbl"].configure(text_color="#94a3b8")
+            if el.get("cb_enabled"):
+                el["cb_enabled"].configure(text_color="#f59e0b")
             if el.get("char_lbl"):
                 el["char_lbl"].configure(text_color="#f8fafc" if ctrl.assigned_pid else "#64748b")
             if el.get("status_lbl"):
                 cur_text = el["status_lbl"].cget("text")
                 if "Bỏ qua" in cur_text:
-                    el["status_lbl"].configure(text="Chờ" if ctrl.assigned_pid else "Chưa gán", text_color="#94a3b8" if ctrl.assigned_pid else "#64748b")
+                    el["status_lbl"].configure(text="🟢 Sẵn sàng" if ctrl.assigned_pid else "⚪ Chưa gán", text_color="#10b981" if ctrl.assigned_pid else "#64748b")
         else:
             if el.get("row_frame"):
                 el["row_frame"].configure(fg_color="#0f1118")
-            if el.get("no_lbl"):
-                el["no_lbl"].configure(text_color="#475569")
+            if el.get("cb_enabled"):
+                el["cb_enabled"].configure(text_color="#64748b")
             if el.get("char_lbl"):
                 el["char_lbl"].configure(text_color="#475569")
             if el.get("status_lbl"):
@@ -8706,9 +9137,26 @@ class DashboardApp(ctk.CTk):
         is_clean = bool(self.batch_moss_clean_cb.get()) if hasattr(self, "batch_moss_clean_cb") else True
         for i, ctrl in enumerate(self.controllers, 1):
             ctrl.moss_auto_clean = is_clean
-            ConfigPersistenceManager.save_moss_config(i, ctrl.moss_category, ctrl.moss_delay_ms, ctrl.moss_max_rolls, is_clean)
+            ConfigPersistenceManager.save_moss_config(
+                i, ctrl.moss_category, ctrl.moss_delay_ms, ctrl.moss_max_rolls, is_clean,
+                getattr(ctrl, "moss_clean_equipment_trash", True)
+            )
         status_txt = "BẬT" if is_clean else "TẮT"
         self.append_moss_log(f"🧹 Đã {status_txt} tính năng Tự Động Dọn Rác cho tất cả các Slot!")
+
+    def on_toggle_clean_equipment_trash(self):
+        """Bật / Tắt việc vứt các món đồ rác của quần áo (sec 7..11) và vũ khí (sec 0..6) ngoài đồ Moss."""
+        val = bool(self.cb_clean_equipment_trash.get()) if hasattr(self, "cb_clean_equipment_trash") else True
+        for i, ctrl in enumerate(self.controllers, 1):
+            ctrl.moss_clean_equipment_trash = val
+            ConfigPersistenceManager.save_moss_config(
+                i, ctrl.moss_category, ctrl.moss_delay_ms, ctrl.moss_max_rolls, ctrl.moss_auto_clean, val
+            )
+        status_txt = "BẬT" if val else "TẮT"
+        if val:
+            self.append_moss_log("👕 Đã BẬT 'Vứt quần áo & vũ khí rác': Bot sẽ tự động vứt cả quần áo rác và vũ khí rác thường (+0..+6 không tính năng).")
+        else:
+            self.append_moss_log("ℹ️ Đã TẮT 'Vứt quần áo & vũ khí rác': Bot chỉ vứt các vật phẩm thuộc danh mục Moss đang quay.")
 
     def on_toggle_ignore_junk_type(self):
         """Bật/tắt việc bỏ qua bộ lọc theo TÊN/LOẠI item khi dọn rác.
@@ -8777,6 +9225,7 @@ class DashboardApp(ctk.CTk):
                         max_junk_level=int(getattr(ctrl, "moss_max_junk_level", 6) or 6),
                         protected_slots=[],
                         ignore_type_heuristics=bool(getattr(ctrl, "moss_ignore_junk_type", False)),
+                        clean_equipment_trash=bool(getattr(ctrl, "moss_clean_equipment_trash", True)),
                     )
                     reports.append((ctrl, res))
                 except Exception as e:
@@ -8809,6 +9258,8 @@ class DashboardApp(ctk.CTk):
 
         total_junk = 0
         total_held = 0
+        total_clothes = 0
+        total_weapons = 0
         lines = []
         for ctrl, res in reports:
             if not isinstance(res, dict) or not res.get("ok"):
@@ -8819,9 +9270,22 @@ class DashboardApp(ctk.CTk):
             held = [s for s in (res.get("slots") or []) if s.get("status") == "protected"]
             total_junk += len(junk)
             total_held += len(held)
+            clothes_cnt = sum(1 for it in junk if 7 <= (it.get("section") or -1) <= 11)
+            weapons_cnt = sum(1 for it in junk if 0 <= (it.get("section") or -1) <= 6)
+            total_clothes += clothes_cnt
+            total_weapons += weapons_cnt
+            breakdown_parts = []
+            if clothes_cnt > 0:
+                breakdown_parts.append(f"quần áo: {clothes_cnt}")
+            if weapons_cnt > 0:
+                breakdown_parts.append(f"vũ khí: {weapons_cnt}")
+            other_cnt = len(junk) - clothes_cnt - weapons_cnt
+            if other_cnt > 0:
+                breakdown_parts.append(f"khác: {other_cnt}")
+            breakdown_str = f" ({', '.join(breakdown_parts)})" if breakdown_parts else ""
             lines.append(
                 f"[Slot {ctrl.slot_idx:02d} - {ctrl.char_name}] {res.get('occupied', 0)} món | "
-                f"dọn được {len(junk)} | giữ {len(held)} | ({coord.get('x', '?')},{coord.get('y', '?')}) | "
+                f"dọn được {len(junk)}{breakdown_str} | giữ {len(held)} | ({coord.get('x', '?')},{coord.get('y', '?')}) | "
                 f"Merchant {'MỞ' if res.get('merchantOpen') else 'ĐÓNG'}"
             )
             for k, v in sorted((res.get("byReason") or {}).items(), key=lambda kv: -kv[1]):
@@ -8846,9 +9310,10 @@ class DashboardApp(ctk.CTk):
             variable=mode_var, width=220, font=ctk.CTkFont(family="Segoe UI", size=11)
         ).pack(side="left")
 
+        summary_breakdown = f" (gồm {total_clothes} quần áo, {total_weapons} vũ khí)" if (total_clothes > 0 or total_weapons > 0) else ""
         ctk.CTkLabel(
             dlg,
-            text=f"Tổng: dọn được {total_junk} món · giữ {total_held} món. "
+            text=f"Tổng: dọn được {total_junk} món{summary_breakdown} · giữ {total_held} món. "
                  f"Slot 0-11 (trang bị) và đồ Exc/Set/Socket/Harmony/Ngọc luôn được bảo vệ.",
             font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8"
         ).pack(pady=(6, 0))
@@ -8899,6 +9364,7 @@ class DashboardApp(ctk.CTk):
                         include_extended=True,
                         max_junk_level=int(getattr(ctrl, "moss_max_junk_level", 6) or 6),
                         ignore_type_heuristics=bool(getattr(ctrl, "moss_ignore_junk_type", False)),
+                        clean_equipment_trash=bool(getattr(ctrl, "moss_clean_equipment_trash", True)),
                     )
                     cleaned = int((out or {}).get("cleaned", 0) or 0)
                     total += cleaned
@@ -9000,6 +9466,12 @@ class DashboardApp(ctk.CTk):
         threading.Thread(target=_unlocker, daemon=True).start()
 
     def update_moss_slot_ui_state(self, slot_idx: int, is_running: bool):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_moss_slot_ui_state(slot_idx, is_running))
+            except Exception:
+                pass
+            return
         el = self.moss_ui_elements.get(slot_idx)
         if not el:
             return
@@ -9012,36 +9484,67 @@ class DashboardApp(ctk.CTk):
             if is_running:
                 el["btn_toggle"].configure(text="⏹️ Dừng", fg_color="#dc2626", hover_color="#b91c1c")
             else:
-                el["btn_toggle"].configure(text="▶️ Auto", fg_color="#059669", hover_color="#047857")
+                el["btn_toggle"].configure(text="▶️ Bắt đầu", fg_color="#059669", hover_color="#047857")
         if el.get("status_lbl"):
             if is_running:
-                el["status_lbl"].configure(text="Đang quay...", text_color="#10b981")
+                el["status_lbl"].configure(text="⚡ Đang quay...", text_color="#10b981")
             else:
-                el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa gán", text_color="#94a3b8")
+                el["status_lbl"].configure(
+                    text="🟢 Sẵn sàng" if (ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid)) else "⚪ Chưa kết nối",
+                    text_color="#10b981" if (ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid)) else "#64748b"
+                )
 
     def update_moss_slot_rolls(self, slot_idx: int, count: int):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_moss_slot_rolls(slot_idx, count))
+            except Exception:
+                pass
+            return
         el = self.moss_ui_elements.get(slot_idx)
         if el and el.get("rolls_lbl"):
-            el["rolls_lbl"].configure(text=f"{count} Lượt")
+            cache_key = f"{count}"
+            if el.get("_last_rolls_cache") != cache_key:
+                el["_last_rolls_cache"] = cache_key
+                el["rolls_lbl"].configure(text=f"{count} Lượt")
 
     def update_moss_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int]):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_moss_slot_telemetry(slot_idx, name, pid))
+            except Exception:
+                pass
+            return
         el = self.moss_ui_elements.get(slot_idx)
         if not el or not el.get("char_lbl"):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
         is_en = getattr(ctrl, "moss_enabled", True) if ctrl else True
-        if pid:
-            disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
-            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_en else "normal"))
+        is_running = getattr(ctrl, "moss_running", False) if ctrl else False
+        pid_alive = bool(pid and psutil.pid_exists(pid))
+
+        cache_key = (name, pid if pid_alive else None, is_en, is_running)
+        if el.get("_last_telemetry_cache") == cache_key:
+            return
+        el["_last_telemetry_cache"] = cache_key
+
+        target_font = getattr(self, "font_segoe_11_bold", None) if is_en else getattr(self, "font_segoe_11", None)
+        norm_font = getattr(self, "font_segoe_11", None)
+
+        if pid_alive:
+            disp = f"● {name} ({pid})" if name and name != "---" else f"● MEGAMU ({pid})"
+            el["char_lbl"].configure(text=disp, text_color="#38bdf8" if is_en else "#64748b", font=target_font)
             if el.get("status_lbl"):
                 if not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua", text_color="#64748b")
-                elif not ctrl.moss_running:
-                    el["status_lbl"].configure(text="Chờ", text_color="#94a3b8")
+                elif is_running:
+                    el["status_lbl"].configure(text="⚡ Đang quay...", text_color="#10b981")
+                else:
+                    el["status_lbl"].configure(text="🟢 Sẵn sàng", text_color="#10b981")
         else:
-            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            el["char_lbl"].configure(text="⚪ Chưa kết nối", text_color="#64748b", font=norm_font)
             if el.get("status_lbl"):
-                el["status_lbl"].configure(text="⛔ Bỏ qua" if not is_en else "Chưa gán", text_color="#64748b")
+                el["status_lbl"].configure(text="⛔ Bỏ qua" if not is_en else "⚪ Chưa kết nối", text_color="#64748b")
 
     def toggle_moss_slot_auto(self, slot_idx: int):
         ctrl = self.controllers[slot_idx - 1]
@@ -9377,7 +9880,34 @@ class DashboardApp(ctk.CTk):
             hover_color="#6d28d9",
             command=self.on_toggle_mirror_auto_schedule
         )
-        self.cb_mirror_auto_prep_before.pack(side="left")
+        self.cb_mirror_auto_prep_before.pack(side="left", padx=(0, 15))
+
+        self.cb_mirror_telegram_notify = ctk.CTkCheckBox(
+            row2_h,
+            text="📱 Báo Telegram",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8",
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            command=self.on_toggle_mirror_telegram_notify
+        )
+        self.cb_mirror_telegram_notify.pack(side="left", padx=(0, 8))
+
+        self.btn_mirror_telegram_settings = ctk.CTkButton(
+            row2_h,
+            text="⚙️ Cài đặt Bot",
+            width=85,
+            height=24,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#0284c7",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=self.open_mirror_telegram_settings_dialog
+        )
+        self.btn_mirror_telegram_settings.pack(side="left")
 
         # Nạp cấu hình lịch trình từ file
         try:
@@ -9404,6 +9934,15 @@ class DashboardApp(ctk.CTk):
         except Exception:
             self.cb_mirror_auto_schedule.select()
             self.cb_mirror_auto_prep_before.select()
+
+        # Nạp trạng thái checkbox Telegram
+        try:
+            if hasattr(self, "telegram_config") and self.telegram_config and self.telegram_config.enabled:
+                self.cb_mirror_telegram_notify.select()
+            else:
+                self.cb_mirror_telegram_notify.deselect()
+        except Exception:
+            pass
 
         # 2. ACTION TOOLBAR (2 hàng gọn gàng, tinh giản)
         toolbar_card = ctk.CTkFrame(self.panel_mirror, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
@@ -9929,13 +10468,22 @@ class DashboardApp(ctk.CTk):
 
     def update_mirror_selected_badge(self):
         """Cập nhật nhãn số lượng tài khoản đã chọn đi Mirror trên Toolbar."""
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, self.update_mirror_selected_badge)
+            except Exception:
+                pass
+            return
         if hasattr(self, "lbl_mirror_count_badge") and self.lbl_mirror_count_badge:
             total = len(self.controllers)
             sel = sum(1 for c in self.controllers if getattr(c, "mirror_enabled", True))
-            self.lbl_mirror_count_badge.configure(
-                text=f"Đi Mirror: {sel}/{total}",
-                text_color="#2dd4bf" if sel > 0 else "#64748b"
-            )
+            cache_key = (sel, total)
+            if getattr(self, "_last_mirror_badge_cache", None) != cache_key:
+                self._last_mirror_badge_cache = cache_key
+                self.lbl_mirror_count_badge.configure(
+                    text=f"Đi Mirror: {sel}/{total}",
+                    text_color="#2dd4bf" if sel > 0 else "#64748b"
+                )
 
     def update_mirror_row_visuals(self, slot_idx: int):
         """Cập nhật màu sắc và trạng thái trực quan khi bật/tắt checkbox slot."""
@@ -10032,6 +10580,12 @@ class DashboardApp(ctk.CTk):
                 self.refresh_mirror_slot_ticket_display(i)
 
     def update_mirror_slot_ui_state(self, slot_idx: int, is_running: bool):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_ui_state(slot_idx, is_running))
+            except Exception:
+                pass
+            return
         el = self.mirror_ui_elements.get(slot_idx)
         if not el:
             return
@@ -10049,6 +10603,12 @@ class DashboardApp(ctk.CTk):
                 el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa kết nối", text_color="#94a3b8")
 
     def update_mirror_slot_status(self, slot_idx: int, text: str, text_color: str = "#94a3b8"):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_status(slot_idx, text, text_color))
+            except Exception:
+                pass
+            return
         el = self.mirror_ui_elements.get(slot_idx)
         if el and el.get("status_lbl"):
             ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
@@ -10058,14 +10618,32 @@ class DashboardApp(ctk.CTk):
                 el["status_lbl"].configure(text=text, text_color=text_color)
 
     def update_mirror_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int], coords: str = ""):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_telemetry(slot_idx, name, pid, coords))
+            except Exception:
+                pass
+            return
         el = self.mirror_ui_elements.get(slot_idx)
         if not el or not el.get("char_lbl"):
             return
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
         is_en = getattr(ctrl, "mirror_enabled", True) if ctrl else True
-        if pid:
+        is_sniping = getattr(ctrl, "mirror_sniping", False) if ctrl else False
+        is_running = getattr(ctrl, "mirror_running", False) if ctrl else False
+        pid_alive = bool(pid and psutil.pid_exists(pid))
+
+        cache_key = (name, pid if pid_alive else None, coords, is_en, is_sniping, is_running)
+        if el.get("_last_telemetry_cache") == cache_key:
+            return
+        el["_last_telemetry_cache"] = cache_key
+
+        target_font = getattr(self, "font_segoe_11_bold", None) if is_en else getattr(self, "font_segoe_11", None)
+        norm_font = getattr(self, "font_segoe_11", None)
+
+        if pid_alive:
             disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
-            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_en else "normal"))
+            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=target_font)
             if el.get("status_lbl"):
                 if not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
@@ -10074,7 +10652,7 @@ class DashboardApp(ctk.CTk):
                     if cur_st in ("Chưa kết nối", "Chưa gán", "⛔ Bỏ qua (Không đi)"):
                         el["status_lbl"].configure(text="Sẵn sàng", text_color="#10b981")
         else:
-            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=ctk.CTkFont(family="Segoe UI", size=11))
+            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=norm_font)
             if el.get("status_lbl"):
                 el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)" if not is_en else "Chưa kết nối", text_color="#64748b")
             if el.get("ticket_lbl"):
@@ -10455,6 +11033,363 @@ class DashboardApp(ctk.CTk):
             self.after(0, lambda: self.append_mirror_log(f"✅ Hoàn tất đưa {cnt} tài khoản về Event Map chuẩn bị sự kiện!"))
         threading.Thread(target=_prep, daemon=True).start()
 
+    def on_toggle_mirror_telegram_notify(self):
+        """Bật/Tắt nhanh thông báo Telegram cho sự kiện Mirror từ checkbox giao diện (Chỉ cần Bot Token)."""
+        if not hasattr(self, "cb_mirror_telegram_notify"):
+            return
+        val = bool(self.cb_mirror_telegram_notify.get())
+        if not hasattr(self, "telegram_config") or not self.telegram_config:
+            return
+
+        if val:
+            if not self.telegram_config.bot_token:
+                self.cb_mirror_telegram_notify.deselect()
+                self.append_mirror_log("⚠️ Chưa cài đặt Bot Token Telegram! Mở hộp thoại cài đặt...")
+                self.open_mirror_telegram_settings_dialog()
+                return
+            self.telegram_config.save(enabled=True)
+            self.append_mirror_log("📱 [Telegram] Đã BẬT thông báo Telegram cho sự kiện Double Goer (Mirror).")
+        else:
+            self.telegram_config.save(enabled=False)
+            self.append_mirror_log("⏸️ [Telegram] Đã TẮT thông báo Telegram cho sự kiện Double Goer (Mirror).")
+
+    def open_mirror_telegram_settings_dialog(self):
+        """Hộp thoại cấu hình Telegram Bot cho sự kiện Double Goer (Mirror) - Chỉ cần nhập Bot Token."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("Cài Đặt Telegram Bot - Thông Báo Mirror")
+        dlg.geometry("530x480")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        try:
+            dlg.update_idletasks()
+            w, h = 530, 480
+            x = self.winfo_x() + (self.winfo_width() - w) // 2
+            y = self.winfo_y() + (self.winfo_height() - h) // 2
+            dlg.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        # Header
+        h_frame = ctk.CTkFrame(dlg, fg_color="#141722", corner_radius=0)
+        h_frame.pack(fill="x", padx=12, pady=(12, 6))
+
+        ctk.CTkLabel(
+            h_frame,
+            text="📱 CẤU HÌNH BOT TELEGRAM (CHỈ CẦN BOT TOKEN)",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#38bdf8"
+        ).pack(anchor="w", padx=12, pady=(8, 2))
+
+        ctk.CTkLabel(
+            h_frame,
+            text="Tự động nhận diện cuộc trò chuyện và báo cáo khi nhân vật vào qua cổng / thoát ra",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8"
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        # Hướng dẫn nhanh cực kỳ đơn giản
+        guide_frame = ctk.CTkFrame(dlg, fg_color="#0f172a", corner_radius=0, border_width=1, border_color="#1e293b")
+        guide_frame.pack(fill="x", padx=12, pady=(0, 6))
+
+        guide_txt = (
+            "💡 HƯỚNG DẪN 2 BƯỚC ĐƠN GIẢN:\n"
+            "1. Nhắn @BotFather trên Telegram -> gõ /newbot để tạo bot và copy Bot Token.\n"
+            "2. Mở bot của bạn trên Telegram và bấm 'START' (hoặc gửi 1 tin nhắn bất kỳ cho bot).\n"
+            "👉 Chỉ cần dán Bot Token vào ô dưới -> Hệ thống sẽ TỰ ĐỘNG kết nối tới bạn!"
+        )
+        ctk.CTkLabel(
+            guide_frame,
+            text=guide_txt,
+            justify="left",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#cbd5e1"
+        ).pack(anchor="w", padx=10, pady=8)
+
+        # Form nhập duy nhất: Bot Token
+        form_frame = ctk.CTkFrame(dlg, fg_color="#141722", corner_radius=0, border_width=1, border_color="#1e293b")
+        form_frame.pack(fill="x", padx=12, pady=(0, 6))
+
+        ctk.CTkLabel(
+            form_frame,
+            text="Bot Token:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f1f5f9"
+        ).grid(row=0, column=0, sticky="w", padx=10, pady=10)
+
+        cur_token = self.telegram_config.bot_token if hasattr(self, "telegram_config") and self.telegram_config else ""
+        token_entry = ctk.CTkEntry(
+            form_frame,
+            width=390,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            placeholder_text="Dán Bot Token (Ví dụ: 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ)"
+        )
+        token_entry.grid(row=0, column=1, sticky="w", padx=10, pady=10)
+        if cur_token:
+            token_entry.insert(0, cur_token)
+
+        # Khung trạng thái tự động nhận diện
+        detect_frame = ctk.CTkFrame(dlg, fg_color="#0f172a", corner_radius=0, border_width=1, border_color="#1e293b")
+        detect_frame.pack(fill="x", padx=12, pady=(0, 6))
+
+        cur_bot_user = self.telegram_config.bot_username if hasattr(self, "telegram_config") and self.telegram_config else ""
+        cur_chat_title = self.telegram_config.chat_title if hasattr(self, "telegram_config") and self.telegram_config else ""
+        cur_chat_id = self.telegram_config.chat_id if hasattr(self, "telegram_config") and self.telegram_config else ""
+
+        bot_disp = f"🤖 Bot: @{cur_bot_user}" if cur_bot_user else "🤖 Bot: Chưa xác định"
+        lbl_bot_status = ctk.CTkLabel(
+            detect_frame,
+            text=bot_disp,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#38bdf8"
+        )
+        lbl_bot_status.pack(anchor="w", padx=10, pady=(6, 2))
+
+        if cur_chat_title:
+            chat_disp = f"👤 Nhận thông báo tại: {cur_chat_title} (ID: {cur_chat_id})"
+            chat_color = "#10b981"
+        elif cur_chat_id:
+            chat_disp = f"👤 Nhận thông báo tại ID: {cur_chat_id}"
+            chat_color = "#10b981"
+        else:
+            chat_disp = "👤 Người nhận: Tự động phát hiện khi bạn bấm START trên Telegram"
+            chat_color = "#94a3b8"
+
+        lbl_chat_status = ctk.CTkLabel(
+            detect_frame,
+            text=chat_disp,
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=chat_color
+        )
+        lbl_chat_status.pack(anchor="w", padx=10, pady=(0, 6))
+
+        # Tuỳ chọn Checkbox
+        opt_frame = ctk.CTkFrame(dlg, fg_color="transparent")
+        opt_frame.pack(fill="x", padx=12, pady=(0, 4))
+
+        cur_en = self.telegram_config.enabled if hasattr(self, "telegram_config") and self.telegram_config else False
+        cb_enable = ctk.CTkCheckBox(
+            opt_frame,
+            text="Bật gửi thông báo Telegram cho Mirror",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#38bdf8",
+            fg_color="#0284c7"
+        )
+        cb_enable.pack(anchor="w", pady=(0, 3))
+        if cur_en:
+            cb_enable.select()
+        else:
+            cb_enable.deselect()
+
+        cur_in = self.telegram_config.notify_enter if hasattr(self, "telegram_config") and self.telegram_config else True
+        cb_notify_enter = ctk.CTkCheckBox(
+            opt_frame,
+            text="Báo khi nhân vật vào qua cổng: 'Nhân vật A, B, C đã vào qua cổng'",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#a7f3d0",
+            fg_color="#059669"
+        )
+        cb_notify_enter.pack(anchor="w", pady=(0, 3))
+        if cur_in:
+            cb_notify_enter.select()
+        else:
+            cb_notify_enter.deselect()
+
+        cur_out = self.telegram_config.notify_exit if hasattr(self, "telegram_config") and self.telegram_config else True
+        cb_notify_exit = ctk.CTkCheckBox(
+            opt_frame,
+            text="Báo khi nhân vật thoát ra: 'Nhân vật A, B, C đã thoát ra'",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#fde68a",
+            fg_color="#d97706"
+        )
+        cb_notify_exit.pack(anchor="w", pady=(0, 3))
+        if cur_out:
+            cb_notify_exit.select()
+        else:
+            cb_notify_exit.deselect()
+
+        # Status label kết quả kiểm tra
+        status_lbl = ctk.CTkLabel(
+            dlg,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#94a3b8"
+        )
+        status_lbl.pack(pady=(2, 6))
+
+        # Bottom Buttons
+        btn_frame = ctk.CTkFrame(dlg, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=12, pady=(4, 10))
+
+        # Bộ nhớ tạm chat_id vừa phát hiện
+        detected_context = {
+            "chat_id": cur_chat_id,
+            "chat_title": cur_chat_title,
+            "bot_username": cur_bot_user
+        }
+
+        def _do_test():
+            tok = token_entry.get().strip()
+            if not tok:
+                status_lbl.configure(text="⚠️ Vui lòng dán Bot Token trước khi kiểm tra!", text_color="#f59e0b")
+                return
+
+            status_lbl.configure(text="⏳ Đang tự động nhận diện bot và gửi tin nhắn thử nghiệm...", text_color="#38bdf8")
+
+            def _bg_test():
+                if test_telegram_connection:
+                    # Luôn ưu tiên quét getUpdates mới nhất để lấy Chat ID thật của người vừa bấm START
+                    ok, res, c_data = test_telegram_connection(tok, force_detect=True)
+                else:
+                    ok, res, c_data = False, "Chưa nạp module telegram_notifier", None
+
+                def _ui_update():
+                    if c_data:
+                        b_u = c_data.get("bot_username", "")
+                        if b_u:
+                            detected_context["bot_username"] = b_u
+                            lbl_bot_status.configure(text=f"🤖 Bot: @{b_u}")
+                        c_id = c_data.get("chat_id")
+                        if c_id:
+                            detected_context["chat_id"] = str(c_id)
+                            c_tit = c_data.get("title", str(c_id))
+                            detected_context["chat_title"] = c_tit
+                            lbl_chat_status.configure(
+                                text=f"👤 Nhận thông báo tại: {c_tit} (ID: {c_id})",
+                                text_color="#10b981"
+                            )
+                            # Tự động cập nhật vào config
+                            if hasattr(self, "telegram_config") and self.telegram_config:
+                                self.telegram_config.save(
+                                    bot_token=tok,
+                                    chat_id=str(c_id),
+                                    chat_title=c_tit,
+                                    bot_username=b_u
+                                )
+
+                    if ok:
+                        status_lbl.configure(text=res, text_color="#10b981")
+                        self.append_mirror_log("📱 [Telegram Test] Kết nối thành công!")
+                    else:
+                        status_lbl.configure(text=res, text_color="#ef4444")
+                        self.append_mirror_log(f"⚠️ [Telegram Test] {res}")
+                dlg.after(0, _ui_update)
+
+            threading.Thread(target=_bg_test, daemon=True).start()
+
+        def _do_save():
+            tok = token_entry.get().strip()
+            en = bool(cb_enable.get())
+            n_in = bool(cb_notify_enter.get())
+            n_out = bool(cb_notify_exit.get())
+
+            if en and not tok:
+                status_lbl.configure(text="⚠️ Cần nhập Bot Token nếu muốn bật thông báo!", text_color="#f59e0b")
+                return
+
+            if hasattr(self, "telegram_config") and self.telegram_config:
+                self.telegram_config.save(
+                    bot_token=tok,
+                    chat_id=detected_context.get("chat_id", ""),
+                    chat_title=detected_context.get("chat_title", ""),
+                    bot_username=detected_context.get("bot_username", ""),
+                    enabled=en,
+                    notify_enter=n_in,
+                    notify_exit=n_out
+                )
+
+            if hasattr(self, "cb_mirror_telegram_notify"):
+                if en:
+                    self.cb_mirror_telegram_notify.select()
+                else:
+                    self.cb_mirror_telegram_notify.deselect()
+
+            st_text = "BẬT" if en else "TẮT"
+            self.append_mirror_log(f"📱 [Cấu Hình Telegram] Đã lưu Bot Token. Trạng thái: {st_text} | Báo vào: {n_in} | Báo ra: {n_out}")
+            dlg.destroy()
+
+        btn_test = ctk.CTkButton(
+            btn_frame,
+            text="🧪 Nhận Diện & Test",
+            width=140,
+            height=30,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            border_width=1,
+            border_color="#38bdf8",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_do_test
+        )
+        btn_test.pack(side="left")
+
+        btn_cancel = ctk.CTkButton(
+            btn_frame,
+            text="Đóng",
+            width=80,
+            height=30,
+            corner_radius=0,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=dlg.destroy
+        )
+        btn_cancel.pack(side="right", padx=(8, 0))
+
+        btn_save = ctk.CTkButton(
+            btn_frame,
+            text="💾 Lưu Cài Đặt",
+            width=110,
+            height=30,
+            corner_radius=0,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            text_color="#ffffff",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_do_save
+        )
+        btn_save.pack(side="right")
+
+    def _monitor_mirror_telemetry_for_telegram(self):
+        """Theo dõi liên tục sự kiện bước vào và thoát ra khỏi Mirror của tất cả các tài khoản."""
+        if not hasattr(self, "mirror_telegram_notifier") or not self.mirror_telegram_notifier:
+            return
+        if not self.mirror_telegram_notifier.is_enabled():
+            return
+
+        for ctrl in self.controllers:
+            if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+                self.mirror_telegram_notifier.record_character_state(
+                    char_name=ctrl.char_name or f"Slot {ctrl.slot_idx:02d}",
+                    slot_idx=ctrl.slot_idx,
+                    is_connected=False,
+                    is_in_mirror=False
+                )
+                continue
+
+            try:
+                eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
+                is_in = False
+                if eng:
+                    is_in = bool(eng.is_mirror_event_map())
+                c_name = ctrl.char_name or f"Slot {ctrl.slot_idx:02d}"
+                self.mirror_telegram_notifier.record_character_state(
+                    char_name=c_name,
+                    slot_idx=ctrl.slot_idx,
+                    is_connected=True,
+                    is_in_mirror=is_in
+                )
+            except Exception:
+                pass
+
+        self.mirror_telegram_notifier.check_and_flush(
+            log_callback=lambda msg: self.after(0, lambda m=msg: self.append_mirror_log(m))
+        )
+
     def _periodic_mirror_scheduler(self):
         """Vòng lặp tính toán đếm ngược và tự động kích hoạt sự kiện Mirror.
         - Mỗi 2 tiếng một lần: 00:15, 02:15, 04:15, ..., 22:15.
@@ -10638,6 +11573,10 @@ class DashboardApp(ctk.CTk):
                                     c.run_mirror_in_dungeon_lifecycle()
                         except Exception:
                             pass
+
+            # 7. Tự động theo dõi nhân vật vào/ra cổng Mirror để gửi thông báo Telegram
+            if hasattr(self, "_monitor_mirror_telemetry_for_telegram"):
+                self._monitor_mirror_telemetry_for_telegram()
 
         except Exception as e:
             log_thread_exception(
@@ -12926,6 +13865,10 @@ class DashboardApp(ctk.CTk):
         def _apply():
             try:
                 any_running = any(c.worker and c.worker.running for c in self.controllers) or any(c.auto_requested for c in self.controllers)
+                if getattr(self, "_last_master_run_state", None) == any_running:
+                    return
+                self._last_master_run_state = any_running
+
                 if any_running:
                     # Đang có ít nhất 1 tài khoản chạy -> Hiển thị icon Dừng (Màu đỏ nổi bật)
                     self.btn_master_run.configure(
@@ -13230,12 +14173,23 @@ class DashboardApp(ctk.CTk):
 
     def update_header_stats(self):
         """Cập nhật các số liệu thống kê trên thanh tiêu đề và chân trang."""
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, self.update_header_stats)
+            except Exception:
+                pass
+            return
         num_games = len(self.detected_games)
         num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
         num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
         num_slots = len(self.controllers)
 
         lic_str = license_client.get_license_display_text() if license_client else CURRENT_LICENSE
+        cache_key = (num_games, num_conn, num_auto, num_slots, lic_str)
+        if getattr(self, "_last_header_stats_cache", None) == cache_key:
+            return
+        self._last_header_stats_cache = cache_key
+
         stat_text = tr(
             "header_stats",
             games=num_games,

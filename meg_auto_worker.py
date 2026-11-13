@@ -318,6 +318,12 @@ class AutoTrainWorker:
         self.current_resets = int(self.config.get("resets", 0))
         self.last_devil_ineligible_log_hour = -1
 
+        # Tự động dọn rác thùng đồ khi cắm bãi
+        self.auto_clean_junk = bool(self.config.get("auto_clean_junk", False))
+        self.clean_equipment_trash = bool(self.config.get("clean_equipment_trash", True))
+        self.last_junk_clean_time = 0.0
+        self.junk_clean_interval = max(30.0, float(self.config.get("junk_clean_interval", 60.0)))
+
         # Xử lý Hồi sinh / Reset Level
         self.respawn_until = 0.0
         self.respawn_armed = False
@@ -453,6 +459,12 @@ class AutoTrainWorker:
                 self.config["custom_class"] = new_config["custom_class"]
             if "min_add_points" in new_config:
                 self.config["min_add_points"] = int(new_config["min_add_points"])
+            if "auto_clean_junk" in new_config:
+                self.auto_clean_junk = bool(new_config["auto_clean_junk"])
+            if "clean_equipment_trash" in new_config:
+                self.clean_equipment_trash = bool(new_config["clean_equipment_trash"])
+            if "junk_clean_interval" in new_config:
+                self.junk_clean_interval = max(30.0, float(new_config["junk_clean_interval"]))
 
             new_stages = new_config.get("stages", [])
             if not new_stages:
@@ -1359,6 +1371,23 @@ class AutoTrainWorker:
                         if stage.get("auto_attack", True):
                             self._ensure_helper(target_x=tx, target_y=ty, force_restart=False)
                         self.next_helper_check = now + self.helper_recheck_interval
+
+                    # Tự động dọn rác thùng đồ định kỳ khi đang cắm bãi (nếu bật)
+                    if self.auto_clean_junk and (now - self.last_junk_clean_time) >= self.junk_clean_interval:
+                        self.last_junk_clean_time = now
+                        try:
+                            max_lvl = int(self.config.get("max_junk_level", 4))
+                            c_res = self.core.clean_inventory_junk(
+                                method="drop",
+                                category=-1,
+                                max_junk_level=max_lvl,
+                                clean_equipment_trash=self.clean_equipment_trash
+                            )
+                            cleaned = int(c_res.get("cleaned", 0) or 0) if isinstance(c_res, dict) else 0
+                            if cleaned > 0:
+                                self._log(f"🧹 Đã tự động vứt {cleaned} món đồ rác (quần áo/vũ khí thường +{max_lvl}) trên bãi train.", "INFO")
+                        except Exception:
+                            pass
 
                     self.last_dist = dist
                     self.last_px = px

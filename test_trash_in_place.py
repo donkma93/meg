@@ -97,24 +97,19 @@ class TestTrashInPlace(unittest.TestCase):
             ctrl1.sell_moss_inventory.assert_called_once()
 
     def test_code_structure_has_both_trash_and_sell_buttons(self):
-        """Kiểm tra mã nguồn có đủ nút ném đồ tại chỗ và bán đồ Silvia cả trên hàng slot lẫn thanh công cụ."""
+        """Kiểm tra mã nguồn có đủ chức năng ném đồ tại chỗ và bán đồ Silvia cả trên hàng slot (context menu) lẫn thanh công cụ (tiện ích)."""
         with open("meg_gui.py", "r", encoding="utf-8") as f:
             code = f.read()
 
-        # Kiểm tra nút per-slot
-        self.assertIn('btn_drop = ctk.CTkButton', code)
-        self.assertIn('text="🗑️ Ném"', code)
-        self.assertIn('"btn_drop": btn_drop', code)
+        # Kiểm tra tính năng ném đồ và bán đồ trong per-slot context menu (_show_moss_row_menu)
+        self.assertIn('🗑️ Ném đồ rác tại chỗ ngay', code)
+        self.assertIn('💰 Đi bán đồ rác tại NPC Silvia', code)
 
-        # Kiểm tra nút toolbar
-        self.assertIn('text="🗑️ Ném Tại Chỗ"', code)
-        self.assertIn('text="💰 Bán Silvia"', code)
-        self.assertIn('command=self.clean_all_moss_inventories', code)
-        self.assertIn('command=self.sell_all_moss_inventories', code)
-
-        # Kiểm tra context menu
-        self.assertIn('🗑️ Ném đồ rác tại chỗ (Slot này)', code)
-        self.assertIn('💰 Bán đồ rác tại NPC Silvia', code)
+        # Kiểm tra nút toolbar & menu tiện ích
+        self.assertIn('💰 Bán Silvia ngay', code)
+        self.assertIn('clean_all_moss_inventories', code)
+        self.assertIn('sell_all_moss_inventories', code)
+        self.assertIn('show_moss_batch_tools_menu', code)
 
     def test_offsets_safe_from_native_crash(self):
         """Kiểm tra inv_trash_item, inv_drop_item, inv_sell_item được đặt 0x0 để vô hiệu hóa gọi native crash."""
