@@ -1,7 +1,7 @@
 {
   "slots": {
     "1": {
-      "category": 1,
+      "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": true,
@@ -36,29 +36,29 @@
       "clean_equipment_trash": true
     },
     "6": {
-      "category": 1,
+      "category": 2,
       "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": true,
       "clean_equipment_trash": true
     },
     "7": {
-      "category": 1,
-      "delay_ms": 2000,
+      "category": 2,
+      "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "8": {
       "category": 2,
-      "delay_ms": 2000,
+      "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "9": {
-      "category": 1,
-      "delay_ms": 2000,
+      "category": 2,
+      "delay_ms": 1000,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
@@ -81,5 +81,14 @@
       "18:15"
     ]
   },
-  "selected_slots": []
+  "selected_slots": [
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9
+  ]
 }

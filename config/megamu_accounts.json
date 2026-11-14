@@ -349,6 +349,18 @@
       "server": 1,
       "enabled": true,
       "source": "registry"
+    },
+    {
+      "username": "don_pv",
+      "nickname": "donpv",
+      "token": "70900ab02e0a1b6e6c1c8cb205bd020d",
+      "character": "thuynguyen",
+      "characters_list": [
+        "thuynguyen"
+      ],
+      "server": 1,
+      "enabled": true,
+      "source": "registry"
     }
   ]
 }

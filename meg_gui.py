@@ -116,14 +116,9 @@ MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
 
 def app_dir() -> Path:
-    # 0. Nếu updater có hàm xác định file .exe gốc chính xác
-    try:
-        from updater import get_current_executable_path
-        exe_p = get_current_executable_path()
-        if exe_p and exe_p.is_file() and "temp" not in str(exe_p).lower():
-            return exe_p.parent
-    except Exception:
-        pass
+    # 1. Nếu chạy trực tiếp từ mã nguồn Python (.py), luôn dùng thư mục chứa script
+    if not getattr(sys, "frozen", False) and "__compiled__" not in globals():
+        return Path(__file__).resolve().parent
     # 1. Nuitka compiled binary: __compiled__.containing_dir trỏ chính xác vào thư mục chứa file .exe gốc
     try:
         compiled_info = globals().get("__compiled__") or getattr(sys.modules.get("__main__"), "__compiled__", None)

@@ -219,6 +219,27 @@ def download_file_with_progress(
                 pass
         return False
 
+def is_valid_app_executable(p: Optional[Path]) -> bool:
+    """Kiểm tra đường dẫn có phải là file .exe hợp lệ của chương trình (không phải tiến trình hệ thống hay file tạm)."""
+    if not p:
+        return False
+    try:
+        p = Path(p).resolve()
+        if not p.is_file():
+            return False
+        name_l = p.name.lower()
+        if not name_l.endswith(".exe"):
+            return False
+        # Loại trừ tuyệt đối các tiến trình hệ thống hoặc công cụ chạy nền
+        system_tools = ("python", "powershell", "explorer", "cmd.exe", "conhost", "taskkill", "git", "bash", "sh.exe")
+        if any(tool in name_l for tool in system_tools):
+            return False
+        if "temp" in str(p).lower():
+            return False
+        return True
+    except Exception:
+        return False
+
 def get_current_executable_path() -> Path:
     """Xác định đường dẫn file .exe gốc đang chạy một cách chính xác tuyệt đối."""
     import ctypes
@@ -237,7 +258,7 @@ def get_current_executable_path() -> Path:
                     size = wintypes.DWORD(1024)
                     if ctypes.windll.kernel32.QueryFullProcessImageNameW(h_proc, 0, buf, ctypes.byref(size)):
                         parent_exe = Path(buf.value).resolve()
-                        if parent_exe.is_file() and parent_exe.suffix.lower() == ".exe" and "temp" not in str(parent_exe).lower():
+                        if is_valid_app_executable(parent_exe):
                             return parent_exe
                 finally:
                     ctypes.windll.kernel32.CloseHandle(h_proc)
@@ -251,7 +272,7 @@ def get_current_executable_path() -> Path:
         p_parent = curr_p.parent()
         if p_parent:
             p_exe = Path(p_parent.exe()).resolve()
-            if p_exe.is_file() and p_exe.suffix.lower() == ".exe" and "temp" not in str(p_exe).lower():
+            if is_valid_app_executable(p_exe):
                 return p_exe
     except Exception:
         pass
@@ -260,7 +281,7 @@ def get_current_executable_path() -> Path:
     orig_argv0 = os.environ.get("NUITKA_ORIGINAL_ARGV0")
     if orig_argv0:
         cand = Path(orig_argv0).resolve()
-        if cand.is_file() and "temp" not in str(cand).lower():
+        if is_valid_app_executable(cand):
             return cand
 
     # 4. Nuitka onefile: Thư mục chứa binary gốc
@@ -268,14 +289,14 @@ def get_current_executable_path() -> Path:
     if onefile_dir and os.path.isdir(onefile_dir):
         for name in ("MEGAMU Auto Train Dashboard.exe", "MEGAMU.Auto.Train.Dashboard.exe"):
             cand = Path(onefile_dir) / name
-            if cand.is_file():
+            if is_valid_app_executable(cand):
                 return cand.resolve()
 
     # 5. Qua sys.argv[0] nếu không nằm trong thư mục Temp
     if sys.argv and sys.argv[0]:
         try:
             cand = Path(sys.argv[0]).resolve()
-            if cand.is_file() and "temp" not in str(cand).lower() and cand.suffix.lower() == ".exe":
+            if is_valid_app_executable(cand):
                 return cand
         except Exception:
             pass
@@ -284,20 +305,20 @@ def get_current_executable_path() -> Path:
     if sys.executable:
         try:
             cand = Path(sys.executable).resolve()
-            if cand.is_file() and "temp" not in str(cand).lower() and cand.name.lower().endswith(".exe"):
+            if is_valid_app_executable(cand):
                 return cand
         except Exception:
             pass
 
-    # 7. Fallback qua Release_MEGAMU_Secure hoặc thư mục hiện tại
+    # 7. Fallback: Tìm file MEGAMU Auto Train Dashboard.exe trong thư mục hiện tại hoặc Release_MEGAMU_Secure
     base = Path(__file__).resolve().parent
-    cand_sec = base / "Release_MEGAMU_Secure" / "MEGAMU Auto Train Dashboard.exe"
-    if cand_sec.is_file():
-        return cand_sec.resolve()
-
     cand_local = base / "MEGAMU Auto Train Dashboard.exe"
     if cand_local.is_file():
         return cand_local.resolve()
+
+    cand_sec = base / "Release_MEGAMU_Secure" / "MEGAMU Auto Train Dashboard.exe"
+    if cand_sec.is_file():
+        return cand_sec.resolve()
 
     return Path(sys.executable).resolve()
 
