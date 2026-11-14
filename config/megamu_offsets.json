@@ -12,6 +12,8 @@
     "mlogin_ui_type_info": "0x55286D0",
     "mlogin_submit": "0x1C27DE0",
     "mlogin_token_login": "0x1C28D20",
+    "input_field_set_text": "0x46C8EB0",
+    "unity_event_invoke": "0x45E5B00",
     "set_auto_login": "0xEBF7C0",
     "move_to": "0xB893E0",
     "start_auto_move": "0xB9A9C0",
@@ -138,6 +140,9 @@
     "get_scene_handler": "0x1078500",
     "mlogin_set_state": "0x1C33070",
     "unit_select_character": "0x111C0F0",
+    "unit_entry_character": "0x11203D0",
+    "connect_server_select": "0x11F2A50",
+    "get_helper_ui": "0x107EF80",
     "set_target_framerate": "0x458B5A0",
     "get_target_framerate": "0x458B550"
 }

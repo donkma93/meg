@@ -487,6 +487,15 @@ class UiIconFactory:
             d.polygon(poly, fill=color)
             inner_r = int(r * 0.42)
             d.ellipse([cx - inner_r, cy - inner_r, cx + inner_r, cy + inner_r], fill="#181c26")
+        elif name in ("grid", "layout", "windows"):
+            pad_g = int(cw * 0.16)
+            gap = max(2, int(0.08 * cw))
+            bw = (cw - 2 * pad_g - gap) // 2
+            bh = (ch - 2 * pad_g - gap) // 2
+            d.rounded_rectangle([pad_g, pad_g, pad_g + bw, pad_g + bh], radius=max(1, int(1.5 * scale)), fill=color)
+            d.rounded_rectangle([pad_g + bw + gap, pad_g, pad_g + 2 * bw + gap, pad_g + bh], radius=max(1, int(1.5 * scale)), fill=color)
+            d.rounded_rectangle([pad_g, pad_g + bh + gap, pad_g + bw, pad_g + 2 * bh + gap], radius=max(1, int(1.5 * scale)), fill=color)
+            d.rounded_rectangle([pad_g + bw + gap, pad_g + bh + gap, pad_g + 2 * bw + gap, pad_g + 2 * bh + gap], radius=max(1, int(1.5 * scale)), fill=color)
 
         res_img = im.resize(size, Image.Resampling.LANCZOS)
         ctk_img = ctk.CTkImage(light_image=res_img, dark_image=res_img, size=size)
@@ -1352,6 +1361,306 @@ def enumerate_megamu_processes() -> Dict[int, str]:
     return pid_to_title
 
 # ==============================================================================
+# QUẢN LÝ SẮP XẾP & CHIA LƯỚI CỬA SỔ (MEGAMU WINDOW ARRANGER & GRID TILING)
+# ==============================================================================
+from ctypes import wintypes
+
+RECT = wintypes.RECT
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+try:
+    user32.SetWindowPos.argtypes = [
+        wintypes.HWND,
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT
+    ]
+    user32.SetWindowPos.restype = wintypes.BOOL
+    user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    user32.BringWindowToTop.restype = wintypes.BOOL
+except Exception:
+    pass
+
+class MEGAMUWindowManager:
+    """
+    Quản lý tự động sắp xếp và chia lưới (Window Arrangement / Tiling)
+    cho tất cả các cửa sổ game MEGAMU theo độ phân giải màn hình và tỷ lệ tùy biến.
+    """
+    @staticmethod
+    def get_monitors() -> List[Dict[str, Any]]:
+        """Lấy danh sách tất cả các màn hình hiển thị trên hệ thống (kèm diện tích làm việc trừ Taskbar)."""
+        monitors = []
+        try:
+            MONITORENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+            def mon_cb(hmon, hdc, lprect, lparam):
+                mi = MONITORINFO()
+                mi.cbSize = ctypes.sizeof(MONITORINFO)
+                if user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+                    rw = mi.rcWork
+                    monitors.append({
+                        "handle": hmon,
+                        "work": (rw.left, rw.top, rw.right - rw.left, rw.bottom - rw.top),
+                        "is_primary": bool(mi.dwFlags & 1)
+                    })
+                return True
+            user32.EnumDisplayMonitors(0, 0, MONITORENUMPROC(mon_cb), 0)
+        except Exception:
+            pass
+
+        if not monitors:
+            rect = wintypes.RECT()
+            user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0)
+            w = rect.right - rect.left
+            h = rect.bottom - rect.top
+            if w <= 0 or h <= 0:
+                w = user32.GetSystemMetrics(0) or 1920
+                h = user32.GetSystemMetrics(1) or 1080
+            monitors.append({
+                "handle": 0,
+                "work": (rect.left, rect.top, w, h),
+                "is_primary": True
+            })
+
+        monitors.sort(key=lambda m: 0 if m.get("is_primary") else 1)
+        for idx, m in enumerate(monitors):
+            w, h = m["work"][2], m["work"][3]
+            m["index"] = idx
+            m["name"] = f"Màn hình {idx + 1}" + (" (Chính)" if m.get("is_primary") else "") + f" - {w}x{h}"
+        return monitors
+
+    @staticmethod
+    def get_active_game_windows(controllers=None) -> List[Dict[str, Any]]:
+        """Lấy tất cả các cửa sổ game MEGAMU đang mở và ánh xạ theo thứ tự Slot 1..N."""
+        megamu_pids = set()
+        for p in psutil.process_iter(['pid', 'name']):
+            try:
+                if p.info['name'] and p.info['name'].lower() == 'megamu.exe':
+                    megamu_pids.add(p.info['pid'])
+            except Exception:
+                pass
+
+        pid_to_slot = {}
+        if controllers:
+            for ctrl in controllers:
+                pid = getattr(ctrl, "assigned_pid", None)
+                if pid and pid > 0:
+                    try:
+                        if psutil.pid_exists(pid):
+                            megamu_pids.add(pid)
+                    except Exception:
+                        pass
+                    pid_to_slot[pid] = {
+                        "slot_idx": getattr(ctrl, "slot_idx", 999),
+                        "char_name": getattr(ctrl, "char_name", "") or ""
+                    }
+
+        pid_best_window = {}
+
+        def enum_cb(hwnd, lparam):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+
+                lp_pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(lp_pid))
+                p_val = lp_pid.value
+
+                class_buf = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, class_buf, 256)
+                c_name = class_buf.value.lower()
+
+                title_buf = ctypes.create_unicode_buffer(512)
+                user32.GetWindowTextW(hwnd, title_buf, 512)
+                title = title_buf.value
+                t_lower = title.lower()
+
+                is_target_pid = (p_val in megamu_pids)
+                is_unity = (c_name == "unitywndclass")
+                is_megamu_title = ("megamu" in t_lower and "dashboard" not in t_lower and "launcher" not in t_lower)
+
+                if (is_target_pid and (is_unity or is_megamu_title or not megamu_pids)) or (is_unity and is_megamu_title):
+                    rect = wintypes.RECT()
+                    w, h = 800, 600
+                    try:
+                        user32.GetClientRect(hwnd, ctypes.byref(rect))
+                        w = rect.right - rect.left
+                        h = rect.bottom - rect.top
+                    except Exception:
+                        pass
+
+                    if w < 100 and h < 100 and not (hasattr(user32, "IsIconic") and user32.IsIconic(hwnd)):
+                        return True
+
+                    score = (10000000 if is_unity else 0) + (w * h)
+                    if p_val not in pid_best_window or score > pid_best_window[p_val]["score"]:
+                        pid_best_window[p_val] = {
+                            "score": score,
+                            "hwnd": hwnd,
+                            "pid": p_val,
+                            "title": title,
+                            "rect": (w, h)
+                        }
+            except Exception:
+                pass
+            return True
+
+        try:
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+            cb = WNDENUMPROC(enum_cb)
+            user32.EnumWindows(cb, 0)
+        except Exception:
+            pass
+
+        windows = []
+        for p_val, item in pid_best_window.items():
+            slot_info = pid_to_slot.get(p_val, {})
+            s_idx = slot_info.get("slot_idx", 9000 + len(windows))
+            c_name = slot_info.get("char_name", "") or character_name_from_window_title(item["title"])
+            windows.append({
+                "hwnd": item["hwnd"],
+                "pid": p_val,
+                "title": item["title"],
+                "slot_idx": s_idx,
+                "char_name": c_name,
+                "rect": item["rect"]
+            })
+
+        windows.sort(key=lambda item: (item["slot_idx"], item["pid"]))
+        return windows
+
+    @classmethod
+    def calculate_grid(cls, n_windows: int, layout: str = "auto", custom_cols: int = 2, custom_rows: int = 2) -> Tuple[int, int]:
+        """Tính toán số cột (Cols) và số hàng (Rows) từ layout và số lượng cửa sổ."""
+        layout_norm = str(layout).lower().strip()
+        if "auto" in layout_norm or "tự động" in layout_norm or "tu dong" in layout_norm:
+            if n_windows <= 1:
+                return (1, 1)
+            elif n_windows == 2:
+                return (2, 1)
+            elif n_windows <= 4:
+                return (2, 2)
+            elif n_windows <= 6:
+                return (3, 2)
+            elif n_windows <= 8:
+                return (4, 2)
+            elif n_windows == 9:
+                return (3, 3)
+            elif n_windows <= 12:
+                return (4, 3)
+            elif n_windows <= 16:
+                return (4, 4)
+            else:
+                c = math.ceil(math.sqrt(n_windows))
+                r = math.ceil(n_windows / c)
+                return (c, r)
+
+        presets = {
+            "2x2": (2, 2),
+            "3x2": (3, 2),
+            "3x3": (3, 3),
+            "4x2": (4, 2),
+            "4x3": (4, 3),
+            "5x2": (5, 2),
+            "2x1": (2, 1),
+            "1x2": (1, 2),
+            "1x1": (1, 1),
+        }
+        for k, v in presets.items():
+            if k in layout_norm:
+                return v
+
+        cols = max(1, min(12, int(custom_cols or 2)))
+        rows = max(1, min(12, int(custom_rows or 2)))
+        return (cols, rows)
+
+    @classmethod
+    def arrange_windows(
+        cls,
+        layout: str = "auto",
+        custom_cols: int = 2,
+        custom_rows: int = 2,
+        monitor_idx: int = 0,
+        margin: int = 0,
+        controllers=None
+    ) -> Dict[str, Any]:
+        """Thực thi sắp xếp tất cả cửa sổ game MEGAMU theo lưới chuẩn."""
+        windows = cls.get_active_game_windows(controllers=controllers)
+        if not windows:
+            return {
+                "ok": False,
+                "count": 0,
+                "msg": "Không tìm thấy cửa sổ MEGAMU nào đang mở để sắp xếp!"
+            }
+
+        monitors = cls.get_monitors()
+        m_idx = max(0, min(len(monitors) - 1, int(monitor_idx or 0)))
+        mon = monitors[m_idx]
+        work_x, work_y, work_w, work_h = mon["work"]
+
+        n_wins = len(windows)
+        cols, rows = cls.calculate_grid(n_wins, layout=layout, custom_cols=custom_cols, custom_rows=custom_rows)
+
+        margin = max(0, min(30, int(margin or 0)))
+        total_margin_x = margin * (cols - 1)
+        total_margin_y = margin * (rows - 1)
+        cell_w = max(200, (work_w - total_margin_x) // cols)
+        cell_h = max(150, (work_h - total_margin_y) // rows)
+
+        arranged_count = 0
+        SW_RESTORE = 9
+        SWP_NOZORDER = 0x0004
+        SWP_SHOWWINDOW = 0x0040
+        SWP_FRAMECHANGED = 0x0020
+        flags = SWP_NOZORDER | SWP_SHOWWINDOW | SWP_FRAMECHANGED
+
+        for idx, win in enumerate(windows):
+            hwnd = win["hwnd"]
+            c = idx % cols
+            r = (idx // cols) % rows
+            cycle = (idx // (cols * rows))
+            offset_x = cycle * 24
+            offset_y = cycle * 24
+
+            x = work_x + c * (cell_w + margin) + offset_x
+            y = work_y + r * (cell_h + margin) + offset_y
+
+            if cycle == 0:
+                w = cell_w if c < cols - 1 else max(100, work_x + work_w - x)
+                h = cell_h if r < rows - 1 else max(100, work_y + work_h - y)
+            else:
+                w = cell_w
+                h = cell_h
+
+            try:
+                # Nếu cửa sổ đang bị thu nhỏ (minimized/iconic), khôi phục trước khi resize
+                if hasattr(user32, "IsIconic") and user32.IsIconic(hwnd):
+                    user32.ShowWindow(hwnd, SW_RESTORE)
+                user32.SetWindowPos(hwnd, 0, int(x), int(y), int(w), int(h), flags)
+                user32.BringWindowToTop(hwnd)
+                arranged_count += 1
+            except Exception:
+                pass
+
+        return {
+            "ok": True,
+            "count": arranged_count,
+            "grid": f"{cols}x{rows}",
+            "cell_size": (cell_w, cell_h),
+            "monitor": mon["name"],
+            "msg": f"Đã sắp xếp {arranged_count} cửa sổ MEGAMU theo lưới {cols}x{rows} (Ô: {cell_w}x{cell_h}px) trên {mon['name']} thành công!"
+        }
+
+# ==============================================================================
 # QUẢN LÝ CẤU HÌNH TRỰC TIẾP TỪ FILE (ZERO-RAM LOSS PERSISTENCE)
 # ==============================================================================
 class ConfigPersistenceManager:
@@ -1855,6 +2164,45 @@ class ConfigPersistenceManager:
             except Exception:
                 pass
 
+    @classmethod
+    def load_window_arrangement_config(cls) -> Dict[str, Any]:
+        """Đọc cấu hình sắp xếp lưới màn hình từ ui_settings.json."""
+        with cls._lock:
+            default_cfg = {
+                "layout": "2x2",
+                "custom_cols": 2,
+                "custom_rows": 2,
+                "monitor_idx": 0,
+                "margin": 0
+            }
+            try:
+                if UI_SETTINGS_FILE.exists():
+                    data = json.loads(UI_SETTINGS_FILE.read_text(encoding="utf-8"))
+                    cfg = data.get("window_arrangement", {})
+                    if isinstance(cfg, dict):
+                        default_cfg.update(cfg)
+            except Exception:
+                pass
+            return default_cfg
+
+    @classmethod
+    def save_window_arrangement_config(cls, cfg: Dict[str, Any]):
+        """Lưu cấu hình sắp xếp lưới màn hình vào ui_settings.json."""
+        with cls._lock:
+            try:
+                data = {}
+                if UI_SETTINGS_FILE.exists():
+                    try:
+                        data = json.loads(UI_SETTINGS_FILE.read_text(encoding="utf-8"))
+                    except Exception:
+                        data = {}
+                data["window_arrangement"] = cfg
+                tmp = UI_SETTINGS_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(UI_SETTINGS_FILE)
+            except Exception:
+                pass
+
 
 # ==============================================================================
 # CONTROLLER QUẢN LÝ TỪNG DÒNG TÀI KHOẢN (SLOT CONTROLLER)
@@ -1964,7 +2312,7 @@ class SlotController:
             )
             self.set_status(tr("running", n=self.profile_index))
 
-    def attach_pid(self, pid: int) -> bool:
+    def attach_pid(self, pid: int, auto_attach: bool = True) -> bool:
         """Kết nối tới Game PID."""
         if not pid or not psutil.pid_exists(pid):
             self.app.log_message(f"[Slot {self.slot_idx:02d}] Tiến trình MEGAMU (PID {pid}) không tồn tại hoặc đã đóng!", "WARNING")
@@ -2008,16 +2356,23 @@ class SlotController:
 
         if MegDirectEngine:
             self.engine = MegDirectEngine.get_engine(pid)
-            if not self.engine.is_ready:
-                ok = self.engine.attach()
-                if ok:
-                    self.set_status(tr("connected_status"))
-                    self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối thành công MEGAMU (PID {pid}).", "SUCCESS")
-                else:
-                    self.set_status(tr("connected_status"))
-                    self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối MEGAMU (PID {pid}) qua chế độ RAM telemetry.", "INFO")
-            else:
+            if auto_attach and not self.engine.is_ready:
+                def _bg_attach():
+                    try:
+                        ok = self.engine.attach()
+                        if ok:
+                            self.set_status(tr("connected_status"))
+                            self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối thành công MEGAMU (PID {pid}).", "SUCCESS")
+                        else:
+                            self.set_status(tr("connected_status"))
+                            self.app.log_message(f"[Slot {self.slot_idx:02d}] Kết nối MEGAMU (PID {pid}) qua chế độ RAM telemetry.", "INFO")
+                    except Exception:
+                        pass
+                threading.Thread(target=_bg_attach, daemon=True).start()
+            elif self.engine.is_ready:
                 self.set_status(tr("connected_status"))
+            else:
+                self.set_status("⏳ Khởi tạo...")
         else:
             self.set_status(tr("connected_status"))
         return True
@@ -4971,6 +5326,7 @@ class DashboardApp(ctk.CTk):
         self._resize_timer = None
         self._is_resizing = False
         self.bind("<Configure>", self._on_window_configure)
+        self.bind("<F8>", lambda e: self.on_click_arrange_windows())
 
         # Đặt App ID cho Windows để hiển thị icon DAuto trên Taskbar thay vì icon Python
         try:
@@ -5382,14 +5738,14 @@ class DashboardApp(ctk.CTk):
             tab_left,
             image=UiIconFactory.get("key", color="#94a3b8", size=(14, 14)),
             compound="left",
-            text=" 🚀 Auto Login",
+            text=" Auto Login",
             height=30,
             corner_radius=0,
             hover=False,
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("autologin")
         )
-        # self.tab_autologin_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
+        self.tab_autologin_btn.pack(side="left", padx=(0, 6))
 
         tab_right = ctk.CTkFrame(tab_bar_inner, fg_color="transparent")
         tab_right.pack(side="right", fill="y")
@@ -5577,7 +5933,66 @@ class DashboardApp(ctk.CTk):
             command=lambda: self.switch_tab("autologin"),
             **icon_btn_style
         )
-        # self.btn_quick_autologin.pack(side="left", padx=(6, 0)) # Tạm ẩn
+        self.btn_quick_autologin.pack(side="left", padx=(6, 0))
+
+        # Phân tách nhóm 3: Sắp xếp màn hình / Layout Grid
+        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=18).pack(side="left", padx=(8, 8))
+
+        self.window_arr_cfg = ConfigPersistenceManager.load_window_arrangement_config()
+        cur_layout = self.window_arr_cfg.get("layout", "2x2")
+        preset_map = {
+            "auto": "📐 Lưới: Tự động (Auto)",
+            "2x2": "📐 Lưới: 2x2 (4 Màn)",
+            "3x2": "📐 Lưới: 3x2 (6 Màn)",
+            "3x3": "📐 Lưới: 3x3 (9 Màn)",
+            "4x2": "📐 Lưới: 4x2 (8 Màn)",
+            "2x1": "📐 Lưới: 2x1 (2 Cột)",
+            "1x2": "📐 Lưới: 1x2 (2 Hàng)",
+            "4x3": "📐 Lưới: 4x3 (12 Màn)",
+            "custom": "⚙️ Tùy biến NxM..."
+        }
+        init_val = preset_map.get(cur_layout, "📐 Lưới: 2x2 (4 Màn)")
+        self.combo_arrange_var = ctk.StringVar(value=init_val)
+
+        self.combo_arrange_preset = ModernOptionMenu(
+            t_left,
+            values=[
+                "📐 Lưới: Tự động (Auto)",
+                "📐 Lưới: 2x2 (4 Màn)",
+                "📐 Lưới: 3x2 (6 Màn)",
+                "📐 Lưới: 3x3 (9 Màn)",
+                "📐 Lưới: 4x2 (8 Màn)",
+                "📐 Lưới: 2x1 (2 Cột)",
+                "📐 Lưới: 1x2 (2 Hàng)",
+                "📐 Lưới: 4x3 (12 Màn)",
+                "⚙️ Tùy biến NxM..."
+            ],
+            variable=self.combo_arrange_var,
+            width=150,
+            height=30,
+            command=self._on_arrange_preset_selected,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold")
+        )
+        self.combo_arrange_preset.pack(side="left", padx=(0, 4))
+        add_tooltip(
+            self.combo_arrange_preset,
+            "📐 Chọn kiểu bố cục lưới sắp xếp cửa sổ MEGAMU.\n"
+            "Chọn 'Tùy biến NxM...' để thiết lập số hàng/cột và màn hình hiển thị."
+        )
+
+        self.btn_arrange_windows = ctk.CTkButton(
+            t_left,
+            image=UiIconFactory.get("grid", color="#38bdf8", size=(16, 16)),
+            command=self.on_click_arrange_windows,
+            **icon_btn_style
+        )
+        self.btn_arrange_windows.configure(border_color="#0284c7", hover_color="#0369a1")
+        self.btn_arrange_windows.pack(side="left")
+        add_tooltip(
+            self.btn_arrange_windows,
+            "📐 Sắp Xếp Màn Hình Game (Arrange Windows - Phím tắt F8)\n"
+            "Tự động dàn trải và chia lưới tất cả các cửa sổ MEGAMU đang mở theo tỷ lệ màn hình ngay lập tức."
+        )
 
         # Nhóm bên phải: Nút Master Chạy/Dừng Tất Cả gộp 1 nút thông minh (Toggle)
         t_right = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
@@ -7744,12 +8159,14 @@ class DashboardApp(ctk.CTk):
         if has_mirror:
             self.tab_mirror_btn.pack(side="left", padx=(0, 6))
 
-        # if has_train:
-        #     self.tab_autologin_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
+        if has_train:
+            self.tab_autologin_btn.pack(side="left", padx=(0, 6))
 
         # Kiểm tra xem tab hiện tại có bị ẩn không, nếu có thì tự động đổi tab
         cur_tab = getattr(self, "active_tab", "accounts")
-        if cur_tab in ("ram", "autologin"):
+        if cur_tab in ("ram",):
+            self.switch_tab("accounts")
+        elif cur_tab == "autologin" and not has_train:
             self.switch_tab("accounts")
         elif cur_tab in ("accounts", "profiles") and not has_train:
             if has_moss:
@@ -10577,8 +10994,6 @@ class DashboardApp(ctk.CTk):
         threading.Thread(target=_bg_check, daemon=True).start()
 
     def refresh_all_mirror_tickets_display(self):
-        """Tự động quét và cập nhật hiển thị vé cho toàn bộ các tài khoản đang kết nối."""
-        for i, ctrl in enumerate(self.controllers, 1):
             if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid) and getattr(ctrl, "mirror_enabled", True):
                 self.refresh_mirror_slot_ticket_display(i)
 
@@ -11679,6 +12094,73 @@ class DashboardApp(ctk.CTk):
         )
         self.btn_autologin_all.pack(side="left", padx=(0, 6))
 
+        # MENU CHỌN LƯỚI BỐ CỤC TRỰC TIẾP TẠI TAB AUTO LOGIN
+        self.combo_autologin_arrange = ModernOptionMenu(
+            left_tb,
+            values=[
+                "⚡ Tự động (Auto)",
+                "🔲 Lưới 2x2 (4 Màn)",
+                "▦ Lưới 3x2 (6 Màn)",
+                "▦ Lưới 3x3 (9 Màn)",
+                "▦ Lưới 4x2 (8 Màn)",
+                "▥ Dọc 2x1 (2 Màn)",
+                "▤ Ngang 1x2 (2 Màn)",
+                "▦ Lưới 4x3 (12 Màn)",
+                "⚙️ Tùy biến NxM..."
+            ],
+            variable=self.combo_arrange_var,
+            width=165,
+            height=30,
+            command=self._on_arrange_preset_selected,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
+        )
+        self.combo_autologin_arrange.pack(side="left", padx=(0, 4))
+        add_tooltip(
+            self.combo_autologin_arrange,
+            "📐 Chọn kiểu bố cục lưới sắp xếp cửa sổ MEGAMU.\n"
+            "Chọn 'Tùy biến NxM...' để mở hộp thoại cấu hình chi tiết (số cột, hàng, khoảng cách viền, chọn màn hình)."
+        )
+
+        self.btn_autologin_arrange = ctk.CTkButton(
+            left_tb,
+            image=UiIconFactory.get("grid", color="#38bdf8", size=(13, 13)),
+            compound="left",
+            text="📐 SẮP XẾP",
+            width=92,
+            height=30,
+            corner_radius=0,
+            fg_color="#0c4a6e",
+            hover_color="#075985",
+            border_width=1,
+            border_color="#0284c7",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.on_click_arrange_windows
+        )
+        self.btn_autologin_arrange.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            self.btn_autologin_arrange,
+            "📐 Sắp Xếp Màn Hình Game (Arrange Windows - Phím tắt F8)\n"
+            "Tự động chia lưới tất cả các cửa sổ game MEGAMU theo tỷ lệ màn hình ngay lập tức."
+        )
+
+        self.cb_autologin_auto_arrange = ctk.CTkCheckBox(
+            left_tb,
+            text="📐 Tự chia lưới khi mở",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#38bdf8",
+            corner_radius=0,
+            border_width=1,
+            border_color="#0284c7",
+            fg_color="#0284c7",
+            hover_color="#0369a1"
+        )
+        self.cb_autologin_auto_arrange.select()
+        self.cb_autologin_auto_arrange.pack(side="left", padx=(0, 8))
+        add_tooltip(
+            self.cb_autologin_auto_arrange,
+            "Tự động sắp xếp các cửa sổ MEGAMU vào lưới ngay sau khi mở đồng loạt."
+        )
+
         ctk.CTkButton(
             left_tb,
             image=UiIconFactory.get("refresh", color="#38bdf8", size=(12, 12)),
@@ -11701,12 +12183,27 @@ class DashboardApp(ctk.CTk):
             text="➕ Thêm Tài Khoản",
             height=30,
             corner_radius=0,
-            fg_color="#0f172a",
-            hover_color="#1e293b",
+            fg_color="#064e3b",
+            hover_color="#047857",
             border_width=1,
-            border_color="#22c55e",
+            border_color="#10b981",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             command=self.open_add_account_dialog
+        ).pack(side="left", padx=(0, 6))
+
+        ctk.CTkButton(
+            left_tb,
+            image=UiIconFactory.get("trash", color="#f87171", size=(12, 12)),
+            compound="left",
+            text="🗑️ Xóa Đã Chọn",
+            height=30,
+            corner_radius=0,
+            fg_color="#450a0a",
+            hover_color="#991b1b",
+            border_width=1,
+            border_color="#ef4444",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.delete_selected_accounts_ui
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
@@ -11912,15 +12409,24 @@ class DashboardApp(ctk.CTk):
 
             # 6. Slot Target Combobox
             slot_opts = ["Tự động"] + [f"Slot #{c.slot_idx:02d}" for c in self.controllers]
-            def_slot = f"Slot #{idx+1:02d}" if (idx < len(self.controllers)) else "Tự động"
+            cur_pref = acc.get("preferred_slot")
+            if cur_pref and 1 <= cur_pref <= len(self.controllers):
+                def_slot = f"Slot #{cur_pref:02d}"
+            elif idx < len(self.controllers):
+                def_slot = f"Slot #{idx+1:02d}"
+            else:
+                def_slot = "Tự động"
             slot_var = ctk.StringVar(value=def_slot)
+            def _make_slot_cmd(a_ref):
+                return lambda val: self._on_acc_slot_change(a_ref, val)
             slot_combo = ModernOptionMenu(
                 row,
                 values=slot_opts,
                 variable=slot_var,
                 width=115,
                 height=28,
-                font=ctk.CTkFont(family="Segoe UI", size=11)
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                command=_make_slot_cmd(acc)
             )
             slot_combo.pack(side="left", padx=4)
 
@@ -11933,7 +12439,7 @@ class DashboardApp(ctk.CTk):
             btn_launch = ctk.CTkButton(
                 act_box,
                 text="🚀 Mở & Login",
-                width=90,
+                width=88,
                 height=26,
                 corner_radius=0,
                 fg_color="#6366f1",
@@ -11947,8 +12453,8 @@ class DashboardApp(ctk.CTk):
                 return lambda: self.send_login_to_slot_ui(a_ref, s_ref.get())
             btn_send = ctk.CTkButton(
                 act_box,
-                text="⚡ Gửi Login",
-                width=80,
+                text="⚡ Gửi",
+                width=48,
                 height=26,
                 corner_radius=0,
                 fg_color="#0f172a",
@@ -11965,13 +12471,13 @@ class DashboardApp(ctk.CTk):
                 return lambda: self.open_edit_account_dialog(a_ref)
             btn_edit = ctk.CTkButton(
                 act_box,
-                text="✏️",
-                width=30,
+                text="✏️ Sửa",
+                width=52,
                 height=26,
                 corner_radius=0,
-                fg_color="#1e2433",
+                fg_color="#0369a1",
                 hover_color="#0284c7",
-                font=ctk.CTkFont(family="Segoe UI", size=11),
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 command=_make_edit_cmd(acc)
             )
             btn_edit.pack(side="left", padx=(0, 4))
@@ -11980,16 +12486,39 @@ class DashboardApp(ctk.CTk):
                 return lambda: self.delete_account_ui(u_str)
             btn_del = ctk.CTkButton(
                 act_box,
-                text="🗑️",
-                width=30,
+                text="🗑️ Xóa",
+                width=52,
                 height=26,
                 corner_radius=0,
-                fg_color="#1e2433",
-                hover_color="#ef4444",
-                font=ctk.CTkFont(family="Segoe UI", size=11),
+                fg_color="#7f1d1d",
+                hover_color="#dc2626",
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 command=_make_del_cmd(u_name)
             )
             btn_del.pack(side="left")
+
+            # Gắn Context Menu chuột phải trên toàn bộ dòng
+            def _show_context_menu(event, a_ref=acc, s_ref=slot_var, u_str=u_name):
+                try:
+                    menu = tk.Menu(self, tearoff=0, bg="#1e2433", fg="#f8fafc", activebackground="#6366f1", activeforeground="#ffffff", font=("Segoe UI", 10))
+                    menu.add_command(label=f"🚀 Mở & Login ({u_str})", command=lambda: self.launch_single_account_ui(a_ref, s_ref.get()))
+                    menu.add_command(label=f"⚡ Gửi Login vào {s_ref.get()}", command=lambda: self.send_login_to_slot_ui(a_ref, s_ref.get()))
+                    menu.add_separator()
+                    menu.add_command(label=f"✏️ Sửa tài khoản '{u_str}'...", command=lambda: self.open_edit_account_dialog(a_ref))
+                    menu.add_command(label=f"🗑️ Xóa tài khoản '{u_str}'", command=lambda: self.delete_account_ui(u_str))
+                    menu.add_separator()
+                    def _copy_u():
+                        self.clipboard_clear()
+                        self.clipboard_append(u_str)
+                        self.append_autologin_log(f"📋 Đã sao chép: {u_str}")
+                    menu.add_command(label=f"📋 Sao chép tên tài khoản", command=_copy_u)
+                    menu.tk_popup(event.x_root, event.y_root)
+                except Exception:
+                    pass
+
+            row.bind("<Button-3>", _show_context_menu)
+            stt_lbl.bind("<Button-3>", _show_context_menu)
+            u_lbl.bind("<Button-3>", _show_context_menu)
 
             self.autologin_ui_rows.append({
                 "acc": acc,
@@ -12020,6 +12549,17 @@ class DashboardApp(ctk.CTk):
         except Exception:
             pass
 
+    def _on_acc_slot_change(self, acc: Dict[str, Any], slot_text: str):
+        if slot_text.startswith("Slot #"):
+            try:
+                acc["preferred_slot"] = int(slot_text.replace("Slot #", "").strip())
+            except Exception:
+                pass
+        else:
+            acc.pop("preferred_slot", None)
+        if self.account_mgr:
+            self.account_mgr.save_accounts()
+
     def toggle_all_accounts_ui(self):
         """Bật/tắt tất cả tài khoản."""
         if not self.account_mgr or not self.account_mgr.accounts:
@@ -12039,6 +12579,396 @@ class DashboardApp(ctk.CTk):
         self.append_autologin_log(f"🔄 {msg}")
         self.log_message(msg, "SUCCESS" if cnt > 0 else "INFO")
 
+    def _on_arrange_preset_selected(self, val: str):
+        """Xử lý khi người dùng chọn một mục trong dropdown sắp xếp cửa sổ."""
+        val_str = str(val)
+        if "Tùy biến" in val_str or "custom" in val_str:
+            self.open_window_arrangement_dialog()
+            return
+
+        layout_code = "auto"
+        for k in ["2x2", "3x2", "3x3", "4x2", "2x1", "1x2", "4x3", "5x2"]:
+            if k in val_str:
+                layout_code = k
+                break
+
+        cfg = ConfigPersistenceManager.load_window_arrangement_config()
+        cfg["layout"] = layout_code
+        ConfigPersistenceManager.save_window_arrangement_config(cfg)
+        self.execute_window_arrangement(layout=layout_code)
+
+    def on_click_arrange_windows(self):
+        """Bấm nút Sắp Xếp Cửa Sổ (hoặc phím tắt F8)."""
+        val_str = str(getattr(self, "combo_arrange_var", ctk.StringVar()).get())
+        if "Tùy biến" in val_str:
+            self.open_window_arrangement_dialog()
+            return
+
+        layout_code = "auto"
+        for k in ["2x2", "3x2", "3x3", "4x2", "2x1", "1x2", "4x3", "5x2"]:
+            if k in val_str:
+                layout_code = k
+                break
+
+        self.execute_window_arrangement(layout=layout_code)
+
+    def execute_window_arrangement(
+        self,
+        layout: Optional[str] = None,
+        custom_cols: Optional[int] = None,
+        custom_rows: Optional[int] = None,
+        monitor_idx: Optional[int] = None,
+        margin: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Thực thi sắp xếp tất cả cửa sổ MEGAMU theo cấu hình và cập nhật nhật ký."""
+        cfg = ConfigPersistenceManager.load_window_arrangement_config()
+        if layout is not None:
+            cfg["layout"] = layout
+        if custom_cols is not None:
+            cfg["custom_cols"] = int(custom_cols)
+        if custom_rows is not None:
+            cfg["custom_rows"] = int(custom_rows)
+        if monitor_idx is not None:
+            cfg["monitor_idx"] = int(monitor_idx)
+        if margin is not None:
+            cfg["margin"] = int(margin)
+        ConfigPersistenceManager.save_window_arrangement_config(cfg)
+
+        res = MEGAMUWindowManager.arrange_windows(
+            layout=cfg.get("layout", "auto"),
+            custom_cols=cfg.get("custom_cols", 2),
+            custom_rows=cfg.get("custom_rows", 2),
+            monitor_idx=cfg.get("monitor_idx", 0),
+            margin=cfg.get("margin", 0),
+            controllers=self.controllers
+        )
+
+        msg = res.get("msg", "")
+        if res.get("ok"):
+            self.log_message(f"📐 {msg}", "SUCCESS")
+            if hasattr(self, "autologin_status_lbl"):
+                self.autologin_status_lbl.configure(text=f"Lưới {res.get('grid', '')} OK", text_color="#22c55e")
+        else:
+            self.log_message(f"⚠️ {msg}", "WARNING")
+            if hasattr(self, "autologin_status_lbl"):
+                self.autologin_status_lbl.configure(text=msg[:25], text_color="#f59e0b")
+        return res
+
+    def open_window_arrangement_dialog(self):
+        """Hộp thoại tùy biến sắp xếp và chia lưới màn hình game MEGAMU theo tỷ lệ."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("📐 Tùy Biến Sắp Xếp Màn Hình - MEGAMU Window Arranger")
+        dlg.geometry("520x560")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        try:
+            dlg.update_idletasks()
+            x = self.winfo_x() + (self.winfo_width() - 520) // 2
+            y = self.winfo_y() + (self.winfo_height() - 560) // 2
+            dlg.geometry(f"520x560+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        cfg = ConfigPersistenceManager.load_window_arrangement_config()
+        cur_layout = cfg.get("layout", "2x2")
+        cur_cols = int(cfg.get("custom_cols", 2))
+        cur_rows = int(cfg.get("custom_rows", 2))
+        cur_mon_idx = int(cfg.get("monitor_idx", 0))
+        cur_margin = int(cfg.get("margin", 0))
+
+        monitors = MEGAMUWindowManager.get_monitors()
+        if cur_mon_idx >= len(monitors):
+            cur_mon_idx = 0
+
+        # Header Title
+        h_frame = ctk.CTkFrame(dlg, fg_color="transparent")
+        h_frame.pack(fill="x", padx=20, pady=(16, 10))
+
+        ctk.CTkLabel(
+            h_frame,
+            text="📐 TÙY BIẾN SẮP XẾP CỬA SỔ GAME (WINDOW ARRANGER)",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#38bdf8"
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            h_frame,
+            text="Chia lưới tự động hoặc tùy biến số cột/hàng theo tỷ lệ màn hình và số lượng tài khoản",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8"
+        ).pack(anchor="w", pady=(2, 0))
+
+        content_frame = ctk.CTkFrame(dlg, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
+        content_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+
+        # 1. Chọn Màn hình hiển thị
+        sec1 = ctk.CTkFrame(content_frame, fg_color="transparent")
+        sec1.pack(fill="x", padx=16, pady=(12, 6))
+
+        ctk.CTkLabel(
+            sec1,
+            text="1. Màn hình hiển thị (Monitor):",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f8fafc"
+        ).pack(anchor="w", pady=(0, 4))
+
+        mon_names = [m["name"] for m in monitors]
+        mon_var = ctk.StringVar(value=mon_names[cur_mon_idx] if mon_names else "Màn hình 1")
+
+        mon_combo = ModernOptionMenu(
+            sec1,
+            values=mon_names,
+            variable=mon_var,
+            width=450,
+            height=30,
+            command=lambda v: _update_live_preview(),
+            font=ctk.CTkFont(family="Segoe UI", size=11)
+        )
+        mon_combo.pack(fill="x")
+
+        # 2. Preset Bố cục Lưới
+        sec2 = ctk.CTkFrame(content_frame, fg_color="transparent")
+        sec2.pack(fill="x", padx=16, pady=(8, 6))
+
+        ctk.CTkLabel(
+            sec2,
+            text="2. Bố cục lưới nhanh (Preset Grids):",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f8fafc"
+        ).pack(anchor="w", pady=(0, 6))
+
+        preset_box = ctk.CTkFrame(sec2, fg_color="transparent")
+        preset_box.pack(fill="x")
+
+        var_cols = ctk.StringVar(value=str(cur_cols))
+        var_rows = ctk.StringVar(value=str(cur_rows))
+        var_layout_mode = ctk.StringVar(value=cur_layout)
+
+        preset_btns = [
+            ("Tự động", "auto", 0, 0),
+            ("2x2 (4 Màn)", "2x2", 2, 2),
+            ("3x2 (6 Màn)", "3x2", 3, 2),
+            ("3x3 (9 Màn)", "3x3", 3, 3),
+            ("4x2 (8 Màn)", "4x2", 4, 2),
+            ("2x1 (2 Cột)", "2x1", 2, 1),
+            ("1x2 (2 Hàng)", "1x2", 1, 2),
+            ("4x3 (12 Màn)", "4x3", 4, 3),
+        ]
+
+        btn_widgets = []
+        def _apply_preset(name, code, c, r):
+            var_layout_mode.set(code)
+            if c > 0 and r > 0:
+                var_cols.set(str(c))
+                var_rows.set(str(r))
+            for b, b_code in btn_widgets:
+                if b_code == code:
+                    b.configure(fg_color="#0284c7", border_color="#38bdf8", text_color="#ffffff")
+                else:
+                    b.configure(fg_color="#1e2433", border_color="#2b3244", text_color="#cbd5e1")
+            _update_live_preview()
+
+        row1_f = ctk.CTkFrame(preset_box, fg_color="transparent")
+        row1_f.pack(fill="x", pady=(0, 4))
+        row2_f = ctk.CTkFrame(preset_box, fg_color="transparent")
+        row2_f.pack(fill="x")
+
+        for idx, (label, code, c, r) in enumerate(preset_btns):
+            parent_f = row1_f if idx < 4 else row2_f
+            is_active = (code == cur_layout)
+            b = ctk.CTkButton(
+                parent_f,
+                text=label,
+                height=28,
+                corner_radius=0,
+                fg_color="#0284c7" if is_active else "#1e2433",
+                hover_color="#0369a1",
+                border_width=1,
+                border_color="#38bdf8" if is_active else "#2b3244",
+                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                text_color="#ffffff" if is_active else "#cbd5e1",
+                command=lambda l=label, cd=code, col=c, rw=r: _apply_preset(l, cd, col, rw)
+            )
+            b.pack(side="left", expand=True, fill="x", padx=2)
+            btn_widgets.append((b, code))
+
+        # 3. Tùy chỉnh Cột & Hàng & Viền
+        sec3 = ctk.CTkFrame(content_frame, fg_color="transparent")
+        sec3.pack(fill="x", padx=16, pady=(10, 6))
+
+        ctk.CTkLabel(
+            sec3,
+            text="3. Tùy chỉnh số lượng (NxM Grid):",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#f8fafc"
+        ).pack(anchor="w", pady=(0, 4))
+
+        custom_row = ctk.CTkFrame(sec3, fg_color="transparent")
+        custom_row.pack(fill="x")
+
+        ctk.CTkLabel(custom_row, text="Số Cột:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=(0, 4))
+        entry_cols = ctk.CTkEntry(custom_row, textvariable=var_cols, width=50, height=28, corner_radius=0, justify="center", font=ctk.CTkFont(family="Segoe UI", size=11))
+        entry_cols.pack(side="left", padx=(0, 16))
+
+        ctk.CTkLabel(custom_row, text="Số Hàng:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=(0, 4))
+        entry_rows = ctk.CTkEntry(custom_row, textvariable=var_rows, width=50, height=28, corner_radius=0, justify="center", font=ctk.CTkFont(family="Segoe UI", size=11))
+        entry_rows.pack(side="left", padx=(0, 16))
+
+        ctk.CTkLabel(custom_row, text="Khoảng cách:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#94a3b8").pack(side="left", padx=(0, 4))
+        margin_var = ctk.StringVar(value=f"{cur_margin} px")
+        margin_combo = ModernOptionMenu(
+            custom_row,
+            values=["0 px", "2 px", "4 px", "6 px"],
+            variable=margin_var,
+            width=80,
+            height=28,
+            command=lambda v: _update_live_preview(),
+            font=ctk.CTkFont(family="Segoe UI", size=10)
+        )
+        margin_combo.pack(side="left")
+
+        # 4. Live Preview Information Card
+        card_preview = ctk.CTkFrame(content_frame, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430")
+        card_preview.pack(fill="x", padx=16, pady=(10, 10))
+
+        lbl_preview_wins = ctk.CTkLabel(
+            card_preview,
+            text="🎮 Cửa sổ MEGAMU đang mở: ...",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#38bdf8"
+        )
+        lbl_preview_wins.pack(anchor="w", padx=12, pady=(8, 2))
+
+        lbl_preview_calc = ctk.CTkLabel(
+            card_preview,
+            text="📐 Kích thước mỗi ô: ...",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#4ade80"
+        )
+        lbl_preview_calc.pack(anchor="w", padx=12, pady=(0, 2))
+
+        lbl_preview_mon = ctk.CTkLabel(
+            card_preview,
+            text="📺 Vùng hiển thị (Trừ Taskbar): ...",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8"
+        )
+        lbl_preview_mon.pack(anchor="w", padx=12, pady=(0, 8))
+
+        def _get_cur_mon_idx():
+            val = mon_var.get()
+            for idx, m in enumerate(monitors):
+                if m["name"] == val:
+                    return idx
+            return 0
+
+        def _get_cur_margin():
+            try:
+                return int(margin_var.get().replace("px", "").strip())
+            except Exception:
+                return 0
+
+        def _update_live_preview():
+            m_idx = _get_cur_mon_idx()
+            mon = monitors[m_idx] if m_idx < len(monitors) else monitors[0]
+            wx, wy, ww, wh = mon["work"]
+
+            try:
+                c = max(1, min(12, int(var_cols.get() or 2)))
+                r = max(1, min(12, int(var_rows.get() or 2)))
+            except Exception:
+                c, r = 2, 2
+
+            layout_code = var_layout_mode.get()
+            active_wins = MEGAMUWindowManager.get_active_game_windows(controllers=self.controllers)
+            n_wins = len(active_wins)
+
+            if layout_code == "auto":
+                c, r = MEGAMUWindowManager.calculate_grid(n_wins, layout="auto")
+
+            mg = _get_cur_margin()
+            total_mg_x = mg * (c - 1)
+            total_mg_y = mg * (r - 1)
+            cw = max(100, (ww - total_mg_x) // c)
+            ch = max(100, (wh - total_mg_y) // r)
+            aspect = cw / max(1, ch)
+
+            lbl_preview_wins.configure(
+                text=f"🎮 Phát hiện {n_wins} cửa sổ MEGAMU đang mở • Lưới {c} cột x {r} hàng ({c * r} ô chứa)"
+            )
+            lbl_preview_calc.configure(
+                text=f"📐 Kích thước mỗi ô: {cw} x {ch} px • Tỷ lệ {aspect:.2f}:1 ({'16:9 Chuẩn' if 1.7 <= aspect <= 1.85 else 'Tùy biến'})"
+            )
+            lbl_preview_mon.configure(
+                text=f"📺 Vùng làm việc: {ww} x {wh} px (Tọa độ gốc: X={wx}, Y={wy})"
+            )
+
+        _update_live_preview()
+
+        # Action Buttons
+        btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
+        btn_box.pack(fill="x", padx=20, pady=(4, 16))
+
+        def _on_apply_click():
+            m_idx = _get_cur_mon_idx()
+            mg = _get_cur_margin()
+            try:
+                c = max(1, min(12, int(var_cols.get() or 2)))
+                r = max(1, min(12, int(var_rows.get() or 2)))
+            except Exception:
+                c, r = 2, 2
+
+            layout_code = var_layout_mode.get()
+            preset_map = {
+                "auto": "📐 Lưới: Tự động (Auto)",
+                "2x2": "📐 Lưới: 2x2 (4 Màn)",
+                "3x2": "📐 Lưới: 3x2 (6 Màn)",
+                "3x3": "📐 Lưới: 3x3 (9 Màn)",
+                "4x2": "📐 Lưới: 4x2 (8 Màn)",
+                "2x1": "📐 Lưới: 2x1 (2 Cột)",
+                "1x2": "📐 Lưới: 1x2 (2 Hàng)",
+                "4x3": "📐 Lưới: 4x3 (12 Màn)",
+            }
+            if hasattr(self, "combo_arrange_var"):
+                self.combo_arrange_var.set(preset_map.get(layout_code, "⚙️ Tùy biến NxM..."))
+
+            res = self.execute_window_arrangement(
+                layout=layout_code,
+                custom_cols=c,
+                custom_rows=r,
+                monitor_idx=m_idx,
+                margin=mg
+            )
+            _update_live_preview()
+
+        btn_apply = ctk.CTkButton(
+            btn_box,
+            image=UiIconFactory.get("grid", color="#ffffff", size=(14, 14)),
+            compound="left",
+            text="📐 ÁP DỤNG SẮP XẾP NGAY",
+            height=34,
+            corner_radius=0,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            command=_on_apply_click
+        )
+        btn_apply.pack(side="left", expand=True, fill="x", padx=(0, 6))
+
+        ctk.CTkButton(
+            btn_box,
+            text="Đóng",
+            width=80,
+            height=34,
+            corner_radius=0,
+            fg_color="#1e2433",
+            hover_color="#2b3244",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=dlg.destroy
+        ).pack(side="right")
+
     def choose_exe_path_dialog(self):
         """Chọn đường dẫn tệp MEGAMU.exe."""
         from tkinter import filedialog
@@ -12053,112 +12983,404 @@ class DashboardApp(ctk.CTk):
             self.append_autologin_log(f"📁 Đã cập nhật đường dẫn MEGAMU.exe: {path}")
 
     def open_add_account_dialog(self):
-        """Hộp thoại thêm tài khoản MEGAMU mới."""
+        """Hộp thoại thêm tài khoản MEGAMU mới với đầy đủ tính năng cấu hình."""
         dlg = ctk.CTkToplevel(self)
         dlg.title("Thêm Tài Khoản MEGAMU")
-        dlg.geometry("400x330")
+        dlg.geometry("440x410")
         dlg.resizable(False, False)
         dlg.transient(self)
         dlg.grab_set()
 
-        ctk.CTkLabel(dlg, text="➕ THÊM TÀI KHOẢN MỚI", font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), text_color="#c084fc").pack(pady=(14, 10))
+        try:
+            dlg.update_idletasks()
+            x = self.winfo_x() + (self.winfo_width() - 440) // 2
+            y = self.winfo_y() + (self.winfo_height() - 410) // 2
+            dlg.geometry(f"440x410+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        ctk.CTkLabel(
+            dlg,
+            text="➕ THÊM TÀI KHOẢN MỚI",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color="#c084fc"
+        ).pack(pady=(14, 10))
 
         f = ctk.CTkFrame(dlg, fg_color="transparent")
-        f.pack(fill="x", padx=20, pady=4)
+        f.pack(fill="x", padx=24, pady=4)
 
-        ctk.CTkLabel(f, text="Tên tài khoản:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=0, column=0, sticky="w", pady=6)
-        u_ent = ctk.CTkEntry(f, width=210, font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Ví dụ: myaccount")
+        # 1. Username
+        ctk.CTkLabel(f, text="Tên tài khoản (*):", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")).grid(row=0, column=0, sticky="w", pady=6)
+        u_ent = ctk.CTkEntry(f, width=220, font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Ví dụ: myaccount")
         u_ent.grid(row=0, column=1, sticky="e", pady=6)
         u_ent.focus_set()
 
+        # 2. Password with Show/Hide toggle
         ctk.CTkLabel(f, text="Mật khẩu:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=1, column=0, sticky="w", pady=6)
-        p_ent = ctk.CTkEntry(f, width=210, show="*", font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Mật khẩu đăng nhập")
-        p_ent.grid(row=1, column=1, sticky="e", pady=6)
+        pwd_f = ctk.CTkFrame(f, fg_color="transparent")
+        pwd_f.grid(row=1, column=1, sticky="e", pady=6)
 
+        p_ent = ctk.CTkEntry(pwd_f, width=180, show="*", font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Mật khẩu đăng nhập")
+        p_ent.pack(side="left", padx=(0, 4))
+
+        pwd_visible = [False]
+        def _toggle_pwd():
+            pwd_visible[0] = not pwd_visible[0]
+            if pwd_visible[0]:
+                p_ent.configure(show="")
+                btn_eye.configure(text="🔒", text_color="#38bdf8")
+            else:
+                p_ent.configure(show="*")
+                btn_eye.configure(text="👁️", text_color="#94a3b8")
+
+        btn_eye = ctk.CTkButton(
+            pwd_f,
+            text="👁️",
+            width=36,
+            height=28,
+            corner_radius=0,
+            fg_color="#1e2433",
+            hover_color="#2b3244",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            command=_toggle_pwd
+        )
+        btn_eye.pack(side="left")
+
+        # 3. Character
         ctk.CTkLabel(f, text="Tên nhân vật:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=2, column=0, sticky="w", pady=6)
-        c_ent = ctk.CTkEntry(f, width=210, font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Tên nhân vật muốn chọn")
+        c_ent = ctk.CTkEntry(f, width=220, font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Để trống nếu chọn mặc định")
         c_ent.grid(row=2, column=1, sticky="e", pady=6)
 
-        ctk.CTkLabel(f, text="Server:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=3, column=0, sticky="w", pady=6)
-        s_combo = ModernOptionMenu(f, values=[f"Server {s}" for s in range(1, 9)], width=210, font=ctk.CTkFont(family="Segoe UI", size=11))
+        # 4. Server (Mặc định Server 1 - Public/Free server)
+        ctk.CTkLabel(f, text="Chọn Server:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=3, column=0, sticky="w", pady=6)
+        s_combo = ModernOptionMenu(f, values=[f"Server {s}" for s in range(1, 9)], width=220, font=ctk.CTkFont(family="Segoe UI", size=11))
+        s_combo.set("Server 1")
         s_combo.grid(row=3, column=1, sticky="e", pady=6)
+
+        # 5. Slot Target
+        ctk.CTkLabel(f, text="Gán vào Slot:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=4, column=0, sticky="w", pady=6)
+        slot_opts = ["Tự động"] + [f"Slot #{c.slot_idx:02d}" for c in self.controllers]
+        slot_combo = ModernOptionMenu(f, values=slot_opts, width=220, font=ctk.CTkFont(family="Segoe UI", size=11))
+        slot_combo.set("Tự động")
+        slot_combo.grid(row=4, column=1, sticky="e", pady=6)
+
+        # Validation message
+        err_lbl = ctk.CTkLabel(dlg, text="", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#ef4444")
+        err_lbl.pack(pady=(2, 0))
 
         def _save():
             u = u_ent.get().strip()
             p = p_ent.get().strip()
             c = c_ent.get().strip()
-            s = int(s_combo.get().replace("Server ", "").strip())
+            s_str = s_combo.get().replace("Server ", "").strip()
+            try:
+                s = int(s_str)
+            except Exception:
+                s = 1
+
             if not u:
+                err_lbl.configure(text="⚠️ Vui lòng nhập tên tài khoản!")
+                u_ent.focus_set()
                 return
+
+            sl_val = slot_combo.get()
+            pref_slot = None
+            if sl_val.startswith("Slot #"):
+                try:
+                    pref_slot = int(sl_val.replace("Slot #", "").strip())
+                except Exception:
+                    pass
+
             if self.account_mgr:
-                self.account_mgr.add_account(username=u, password=p, character=c, server=s)
+                self.account_mgr.add_account(username=u, password=p, character=c, server=s, slot=pref_slot)
+
             self.refresh_autologin_table()
-            pwd_info = " (Đã lưu mật khẩu)" if p else ""
-            self.append_autologin_log(f"➕ Đã thêm tài khoản '{u}'{pwd_info} (Nhân vật '{c}', Server {s})")
+            pwd_info = " (🔑 Đã lưu mật khẩu)" if p else ""
+            slot_info = f", Gán vào Slot #{pref_slot:02d}" if pref_slot else ""
+            self.append_autologin_log(f"➕ Đã thêm tài khoản '{u}'{pwd_info} (Nhân vật '{c or 'Mặc định'}', Server {s}{slot_info})")
             dlg.destroy()
 
         btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
-        btn_box.pack(pady=(16, 0))
-        ctk.CTkButton(btn_box, text="Lưu", width=95, fg_color="#7c3aed", hover_color="#6d28d9", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), command=_save).pack(side="left", padx=6)
-        ctk.CTkButton(btn_box, text="Hủy", width=95, fg_color="#334155", hover_color="#475569", font=ctk.CTkFont(family="Segoe UI", size=11), command=dlg.destroy).pack(side="left", padx=6)
+        btn_box.pack(pady=(12, 10))
+        ctk.CTkButton(
+            btn_box,
+            text="💾 Lưu Tài Khoản",
+            width=130,
+            height=30,
+            fg_color="#059669",
+            hover_color="#047857",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_save
+        ).pack(side="left", padx=6)
+        ctk.CTkButton(
+            btn_box,
+            text="Hủy",
+            width=85,
+            height=30,
+            fg_color="#334155",
+            hover_color="#475569",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=dlg.destroy
+        ).pack(side="left", padx=6)
 
     def open_edit_account_dialog(self, acc: Dict[str, Any]):
-        """Hộp thoại chỉnh sửa thông tin tài khoản MEGAMU (Mật khẩu, Nhân vật, Server)."""
+        """Hộp thoại chỉnh sửa thông tin tài khoản MEGAMU (Tên đăng nhập, Mật khẩu, Nhân vật, Server, Slot)."""
+        from tkinter import messagebox
+        orig_user = acc.get("username", "")
         dlg = ctk.CTkToplevel(self)
-        u_name = acc.get("username", "")
-        dlg.title(f"Sửa Tài Khoản: {u_name}")
-        dlg.geometry("400x330")
+        dlg.title(f"Sửa Tài Khoản: {orig_user}")
+        dlg.geometry("450x430")
         dlg.resizable(False, False)
         dlg.transient(self)
         dlg.grab_set()
 
-        ctk.CTkLabel(dlg, text=f"✏️ CẬP NHẬT TÀI KHOẢN: {u_name}", font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"), text_color="#38bdf8").pack(pady=(14, 10))
+        try:
+            dlg.update_idletasks()
+            x = self.winfo_x() + (self.winfo_width() - 450) // 2
+            y = self.winfo_y() + (self.winfo_height() - 430) // 2
+            dlg.geometry(f"450x430+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        ctk.CTkLabel(
+            dlg,
+            text=f"✏️ CẬP NHẬT TÀI KHOẢN: {orig_user}",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#38bdf8"
+        ).pack(pady=(14, 10))
 
         f = ctk.CTkFrame(dlg, fg_color="transparent")
-        f.pack(fill="x", padx=20, pady=4)
+        f.pack(fill="x", padx=24, pady=4)
 
-        ctk.CTkLabel(f, text="Tên tài khoản:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=0, column=0, sticky="w", pady=6)
-        u_lbl = ctk.CTkLabel(f, text=u_name, font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#f8fafc")
-        u_lbl.grid(row=0, column=1, sticky="w", padx=6, pady=6)
+        # 1. Username (Cho phép sửa / đổi tên tài khoản)
+        ctk.CTkLabel(f, text="Tên tài khoản (*):", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")).grid(row=0, column=0, sticky="w", pady=6)
+        u_ent = ctk.CTkEntry(f, width=220, font=ctk.CTkFont(family="Segoe UI", size=11))
+        u_ent.grid(row=0, column=1, sticky="e", pady=6)
+        u_ent.insert(0, orig_user)
 
+        # 2. Password with Show/Hide toggle
         ctk.CTkLabel(f, text="Mật khẩu:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=1, column=0, sticky="w", pady=6)
-        p_ent = ctk.CTkEntry(f, width=210, show="*", font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Nhập mật khẩu")
-        p_ent.grid(row=1, column=1, sticky="e", pady=6)
-        if acc.get("password"):
-            p_ent.insert(0, acc["password"])
+        pwd_f = ctk.CTkFrame(f, fg_color="transparent")
+        pwd_f.grid(row=1, column=1, sticky="e", pady=6)
 
+        p_ent = ctk.CTkEntry(pwd_f, width=180, show="*", font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Mật khẩu đăng nhập")
+        p_ent.pack(side="left", padx=(0, 4))
+        cur_pwd = acc.get("password", "")
+        if cur_pwd:
+            p_ent.insert(0, cur_pwd)
+
+        pwd_visible = [False]
+        def _toggle_pwd():
+            pwd_visible[0] = not pwd_visible[0]
+            if pwd_visible[0]:
+                p_ent.configure(show="")
+                btn_eye.configure(text="🔒", text_color="#38bdf8")
+            else:
+                p_ent.configure(show="*")
+                btn_eye.configure(text="👁️", text_color="#94a3b8")
+
+        btn_eye = ctk.CTkButton(
+            pwd_f,
+            text="👁️",
+            width=36,
+            height=28,
+            corner_radius=0,
+            fg_color="#1e2433",
+            hover_color="#2b3244",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            command=_toggle_pwd
+        )
+        btn_eye.pack(side="left")
+
+        # 3. Character with quick select helper if characters_list exists
         ctk.CTkLabel(f, text="Tên nhân vật:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=2, column=0, sticky="w", pady=6)
-        c_ent = ctk.CTkEntry(f, width=210, font=ctk.CTkFont(family="Segoe UI", size=11))
-        c_ent.grid(row=2, column=1, sticky="e", pady=6)
+        c_box = ctk.CTkFrame(f, fg_color="transparent")
+        c_box.grid(row=2, column=1, sticky="e", pady=6)
+
+        chars_available = acc.get("characters_list", [])
+        c_width = 140 if chars_available else 220
+        c_ent = ctk.CTkEntry(c_box, width=c_width, font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Tên nhân vật")
+        c_ent.pack(side="left", padx=(0, 4) if chars_available else 0)
         c_ent.insert(0, acc.get("character", ""))
 
-        ctk.CTkLabel(f, text="Server:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=3, column=0, sticky="w", pady=6)
+        if chars_available:
+            def _on_quick_char(val):
+                c_ent.delete(0, "end")
+                c_ent.insert(0, val)
+            char_quick_combo = ModernOptionMenu(
+                c_box,
+                values=chars_available,
+                width=76,
+                font=ctk.CTkFont(family="Segoe UI", size=10),
+                command=_on_quick_char
+            )
+            char_quick_combo.pack(side="left")
+
+        # 4. Server
+        ctk.CTkLabel(f, text="Chọn Server:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=3, column=0, sticky="w", pady=6)
         cur_s = int(acc.get("server", 1))
-        s_combo = ModernOptionMenu(f, values=[f"Server {s}" for s in range(1, 9)], width=210, font=ctk.CTkFont(family="Segoe UI", size=11))
+        s_combo = ModernOptionMenu(f, values=[f"Server {s}" for s in range(1, 9)], width=220, font=ctk.CTkFont(family="Segoe UI", size=11))
         s_combo.set(f"Server {cur_s}")
         s_combo.grid(row=3, column=1, sticky="e", pady=6)
 
+        # 5. Slot Target
+        ctk.CTkLabel(f, text="Gán vào Slot:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=4, column=0, sticky="w", pady=6)
+        slot_opts = ["Tự động"] + [f"Slot #{c.slot_idx:02d}" for c in self.controllers]
+        cur_slot = acc.get("preferred_slot")
+        def_slot_str = f"Slot #{cur_slot:02d}" if (cur_slot and cur_slot <= len(self.controllers)) else "Tự động"
+        slot_combo = ModernOptionMenu(f, values=slot_opts, width=220, font=ctk.CTkFont(family="Segoe UI", size=11))
+        slot_combo.set(def_slot_str)
+        slot_combo.grid(row=4, column=1, sticky="e", pady=6)
+
+        # Validation message
+        err_lbl = ctk.CTkLabel(dlg, text="", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#ef4444")
+        err_lbl.pack(pady=(2, 0))
+
         def _save_edit():
+            new_u = u_ent.get().strip()
             p = p_ent.get().strip()
             c = c_ent.get().strip()
-            s = int(s_combo.get().replace("Server ", "").strip())
+            s_str = s_combo.get().replace("Server ", "").strip()
+            try:
+                s = int(s_str)
+            except Exception:
+                s = 1
+
+            if not new_u:
+                err_lbl.configure(text="⚠️ Tên tài khoản không được để trống!")
+                u_ent.focus_set()
+                return
+
+            sl_val = slot_combo.get()
+            pref_slot = 0
+            if sl_val.startswith("Slot #"):
+                try:
+                    pref_slot = int(sl_val.replace("Slot #", "").strip())
+                except Exception:
+                    pref_slot = 0
+
             if self.account_mgr:
-                self.account_mgr.update_account(username=u_name, password=p, character=c, server=s)
+                self.account_mgr.update_account(
+                    username=orig_user,
+                    password=p,
+                    character=c,
+                    server=s,
+                    new_username=new_u,
+                    slot=pref_slot
+                )
+
             self.refresh_autologin_table()
-            self.append_autologin_log(f"✏️ Đã cập nhật tài khoản '{u_name}' (Nhân vật '{c}', Server {s})")
+            self.append_autologin_log(f"✏️ Đã cập nhật tài khoản '{new_u}' (Nhân vật '{c}', Server {s})")
             dlg.destroy()
 
+        def _delete_from_edit():
+            if messagebox.askyesno(
+                "Xác nhận xóa tài khoản",
+                f"Bạn có chắc chắn muốn xóa vĩnh viễn tài khoản '{orig_user}' khỏi danh sách?",
+                parent=dlg
+            ):
+                if self.account_mgr:
+                    self.account_mgr.remove_account(orig_user)
+                self.refresh_autologin_table()
+                self.append_autologin_log(f"🗑️ Đã xóa tài khoản '{orig_user}'")
+                dlg.destroy()
+
         btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
-        btn_box.pack(pady=(16, 0))
-        ctk.CTkButton(btn_box, text="Lưu Thay Đổi", width=110, fg_color="#0284c7", hover_color="#0369a1", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), command=_save_edit).pack(side="left", padx=6)
-        ctk.CTkButton(btn_box, text="Đóng", width=80, fg_color="#334155", hover_color="#475569", font=ctk.CTkFont(family="Segoe UI", size=11), command=dlg.destroy).pack(side="left", padx=6)
+        btn_box.pack(pady=(12, 10))
+
+        ctk.CTkButton(
+            btn_box,
+            text="💾 Lưu Thay Đổi",
+            width=115,
+            height=30,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_save_edit
+        ).pack(side="left", padx=4)
+
+        ctk.CTkButton(
+            btn_box,
+            text="🗑️ Xóa Tài Khoản",
+            width=115,
+            height=30,
+            fg_color="#7f1d1d",
+            hover_color="#dc2626",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=_delete_from_edit
+        ).pack(side="left", padx=4)
+
+        ctk.CTkButton(
+            btn_box,
+            text="Đóng",
+            width=75,
+            height=30,
+            fg_color="#334155",
+            hover_color="#475569",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            command=dlg.destroy
+        ).pack(side="left", padx=4)
 
     def delete_account_ui(self, username: str):
-        """Xóa tài khoản khỏi danh sách."""
+        """Xóa tài khoản khỏi danh sách với hộp thoại xác nhận an toàn."""
+        from tkinter import messagebox
+        if not username:
+            return
+        if not messagebox.askyesno(
+            "Xác nhận xóa tài khoản",
+            f"Bạn có chắc chắn muốn xóa tài khoản '{username}' khỏi hệ thống Auto Login không?\n\n(Thao tác này chỉ gỡ khỏi ứng dụng quản lý, không ảnh hưởng tài khoản trên MEGAMU)",
+            parent=self
+        ):
+            return
+
         if self.account_mgr:
-            self.account_mgr.remove_account(username)
+            ok = self.account_mgr.remove_account(username)
+            if ok:
+                self.refresh_autologin_table()
+                self.append_autologin_log(f"🗑️ Đã xóa tài khoản '{username}'")
+                self.log_message(f"Đã xóa tài khoản '{username}'", "INFO")
+
+    def delete_selected_accounts_ui(self):
+        """Xóa hàng loạt các tài khoản đang được tích chọn."""
+        from tkinter import messagebox
+        if not self.account_mgr:
+            return
+
+        selected_users = []
+        for row_item in getattr(self, "autologin_ui_rows", []):
+            cb_var = row_item.get("cb_var")
+            acc = row_item.get("acc")
+            if cb_var and cb_var.get() and acc:
+                u = acc.get("username", "")
+                if u and u not in selected_users:
+                    selected_users.append(u)
+
+        if not selected_users:
+            messagebox.showinfo(
+                "Thông báo",
+                "Chưa có tài khoản nào được chọn!\nVui lòng tích dấu [✓] vào ô vuông đầu dòng của các tài khoản bạn muốn xóa.",
+                parent=self
+            )
+            return
+
+        preview_str = ", ".join(selected_users[:5])
+        if len(selected_users) > 5:
+            preview_str += f"... (+{len(selected_users) - 5} TK khác)"
+
+        if not messagebox.askyesno(
+            "Xác nhận xóa hàng loạt",
+            f"Bạn có chắc chắn muốn xóa {len(selected_users)} tài khoản đã chọn?\n\nDanh sách: {preview_str}\n\n(Thao tác này chỉ gỡ tài khoản khỏi danh sách Auto Login, không xóa dữ liệu trên game)",
+            parent=self
+        ):
+            return
+
+        cnt = self.account_mgr.remove_accounts_batch(selected_users)
         self.refresh_autologin_table()
-        self.append_autologin_log(f"🗑️ Đã xóa tài khoản '{username}'")
+        msg = f"🗑️ Đã xóa hàng loạt {cnt} tài khoản khỏi danh sách."
+        self.append_autologin_log(msg)
+        self.log_message(msg, "INFO")
 
     def _find_or_allocate_slot(self, slot_choice: str) -> Optional[int]:
         """Xác định hoặc cấp phát Slot cho tài khoản."""
@@ -12176,30 +13398,52 @@ class DashboardApp(ctk.CTk):
 
         # Nếu tất cả slot đều đang dùng, tự động thêm slot mới nếu chưa vượt MAX_SLOTS
         if len(self.controllers) < MAX_SLOTS:
-            self.add_new_slot()
+            if threading.current_thread() is not threading.main_thread():
+                ev = threading.Event()
+                self.after(0, lambda: (self.add_new_slot(), ev.set()))
+                ev.wait(timeout=2.0)
+            else:
+                self.add_new_slot()
             return self.controllers[-1].slot_idx
 
         return None
 
     def launch_single_account_ui(self, acc: Dict[str, Any], slot_choice: str = "Tự động"):
-        """Khởi chạy và AutoLogin cho 1 tài khoản đơn lẻ trên background thread."""
+        """Khởi chạy và AutoLogin cho 1 tài khoản đơn lẻ trên background thread (non-blocking)."""
         u = acc.get("username", "")
         c = acc.get("character", "")
         s = acc.get("server", 1)
 
         def _worker():
-            self.autologin_status_lbl.configure(text=f"Đang mở {u}...", text_color="#f59e0b")
+            self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Đang mở {u}...", text_color="#f59e0b"))
             self.append_autologin_log(f"🚀 [Account: {u}] Bắt đầu mở MEGAMU.exe...")
 
             target_slot = self._find_or_allocate_slot(slot_choice)
-            pid = self.account_mgr.launch_single_account(acc, on_log=self.append_autologin_log)
-            if pid:
-                if target_slot and 1 <= target_slot <= len(self.controllers):
-                    ctrl = self.controllers[target_slot - 1]
-                    self.after(0, lambda: self._bind_pid_to_slot_ui(ctrl, pid, c or u))
-                self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Đã login {u} (PID {pid})", text_color="#22c55e"))
-            else:
+            if not target_slot or not (1 <= target_slot <= len(self.controllers)):
+                self.append_autologin_log(f"❌ [Account: {u}] Không thể cấp phát Slot!")
+                return
+
+            ctrl = self.controllers[target_slot - 1]
+
+            # 1. Spawn tiến trình MEGAMU.exe ngay lập tức
+            pid = self.account_mgr.spawn_client()
+            if not pid:
+                self.append_autologin_log(f"❌ [Account: {u}] Không thể khởi chạy MEGAMU.exe!")
                 self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Lỗi mở {u}!", text_color="#ef4444"))
+                return
+
+            # 2. Gán PID vào Slot UI ngay lập tức để người dùng thấy slot được chiếm chỗ và kích hoạt tức thì!
+            self.after(0, lambda: self._bind_pid_to_slot_ui(ctrl, pid, c or u))
+            ctrl.set_status("🔑 Đang đăng nhập...")
+            self.append_autologin_log(f"   → Đã tạo tiến trình PID {pid} -> Gán vào Slot #{ctrl.slot_idx:02d}. Đang kết nối engine...")
+
+            # 3. Chạy login_existing_pid trên thread này
+            ok = self.account_mgr.login_existing_pid(pid, acc, on_log=self.append_autologin_log)
+            if ok:
+                self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Đã login {u} (PID {pid})", text_color="#22c55e"))
+                self.after(0, lambda: self.refresh_autologin_table())
+            else:
+                self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Hoàn tất mở {u} (PID {pid})", text_color="#38bdf8"))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -12241,7 +13485,7 @@ class DashboardApp(ctk.CTk):
         threading.Thread(target=_worker, daemon=True).start()
 
     def batch_launch_all_accounts(self):
-        """Khởi chạy đồng loạt tất cả tài khoản đang bật theo chế độ Batching giãn cách."""
+        """Khởi chạy ĐỒNG THỜI nhiều luồng login tất cả tài khoản đang bật (Parallel Multi-process)."""
         if not self.account_mgr:
             return
         enabled = self.account_mgr.get_enabled_accounts()
@@ -12250,37 +13494,82 @@ class DashboardApp(ctk.CTk):
             return
 
         try:
-            delay_sec = max(1.0, float(self.autologin_delay_var.get() or 3.0))
+            delay_sec = max(0.2, float(self.autologin_delay_var.get() or 0.5))
         except Exception:
-            delay_sec = 3.0
+            delay_sec = 0.5
 
-        def _batch_worker():
-            self.btn_autologin_all.configure(state="disabled")
-            self.append_autologin_log(f"🌟 BẮT ĐẦU MỞ ĐỒNG LOẠT {len(enabled)} TÀI KHOẢN (Giãn cách {delay_sec}s)...")
+        self.btn_autologin_all.configure(state="disabled")
 
+        def _batch_orchestrator():
+            self.append_autologin_log(f"🌟 BẮT ĐẦU MỞ ĐỒNG LOẠT {len(enabled)} TÀI KHOẢN (Multi-threading song song)...")
+
+            # 1. GIAI ĐOẠN 1: Cấp phát Slot và Spawn ngay lập tức tất cả các tiến trình MEGAMU
+            spawned_jobs = []
             for idx, acc in enumerate(enabled):
                 u = acc.get("username", "")
                 c = acc.get("character", "")
-                self.after(0, lambda u_name=u, i=idx: self.autologin_status_lbl.configure(
-                    text=f"Đang mở [{i+1}/{len(enabled)}] {u_name}...", text_color="#f59e0b"
-                ))
+                pref_slot = acc.get("preferred_slot")
+                slot_arg = str(pref_slot) if (pref_slot and pref_slot > 0) else "Tự động"
 
-                # Tìm slot tương ứng
-                target_slot = self._find_or_allocate_slot("Tự động")
-                pid = self.account_mgr.launch_single_account(acc, on_log=self.append_autologin_log)
-                if pid and target_slot and 1 <= target_slot <= len(self.controllers):
-                    ctrl = self.controllers[target_slot - 1]
-                    self.after(0, lambda c_ref=ctrl, p=pid, ch=c or u: self._bind_pid_to_slot_ui(c_ref, p, ch))
+                target_slot = self._find_or_allocate_slot(slot_arg)
+                if not target_slot or not (1 <= target_slot <= len(self.controllers)):
+                    self.append_autologin_log(f"⚠️ [Account: {u}] Không còn slot trống!")
+                    continue
 
+                ctrl = self.controllers[target_slot - 1]
+
+                # Spawn tiến trình MEGAMU.exe tức thì
+                pid = self.account_mgr.spawn_client()
+                if not pid:
+                    self.append_autologin_log(f"❌ [Account: {u}] Lỗi không thể spawn MEGAMU.exe!")
+                    continue
+
+                # Gán ngay PID vào Slot trên giao diện Dashboard để người dùng thấy tất cả các slot bật lên cùng lúc!
+                self.after(0, lambda c_ref=ctrl, p=pid, ch=c or u: self._bind_pid_to_slot_ui(c_ref, p, ch))
+                ctrl.set_status("⏳ Khởi động...")
+
+                self.append_autologin_log(f"🚀 [{idx+1}/{len(enabled)}] Đã mở cửa sổ MEGAMU (PID {pid}) -> Gán Slot #{ctrl.slot_idx:02d} ({u})")
+                spawned_jobs.append((ctrl.slot_idx, ctrl, pid, acc))
+
+                # Giãn cách nhẹ (0.3s - 0.5s) giữa các lần gọi Popen để tránh kẹt CPU/Disk IO
                 if idx < len(enabled) - 1:
-                    self.append_autologin_log(f"⏳ Chờ {delay_sec}s trước khi mở tài khoản kế tiếp...")
                     time.sleep(delay_sec)
 
-            self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Hoàn tất {len(enabled)} tài khoản!", text_color="#22c55e"))
-            self.after(0, lambda: self.btn_autologin_all.configure(state="normal"))
-            self.append_autologin_log(f"🎉 HOÀN TẤT BATCHING AUTO LOGIN CHO TOÀN BỘ {len(enabled)} TÀI KHOẢN!")
+            self.after(0, lambda: self.autologin_status_lbl.configure(
+                text=f"Đã mở {len(spawned_jobs)} cửa sổ! Đang login song song...", text_color="#38bdf8"
+            ))
 
-        threading.Thread(target=_batch_worker, daemon=True).start()
+            if hasattr(self, "cb_autologin_auto_arrange") and self.cb_autologin_auto_arrange.get() == 1:
+                def _auto_arrange_flow():
+                    # Đợi 1.8s để hệ điều hành Windows tạo HWND cho các cửa sổ vừa spawn
+                    time.sleep(1.8)
+                    self.after(0, lambda: self.execute_window_arrangement())
+                    # Sắp xếp lại sau 4.5s để đảm bảo khi cửa sổ hoàn tất load game vẫn giữ đúng vị trí lưới
+                    time.sleep(3.5)
+                    self.after(0, lambda: self.execute_window_arrangement())
+                threading.Thread(target=_auto_arrange_flow, daemon=True).start()
+
+            # 2. GIAI ĐOẠN 2: Chạy đồng thời các luồng AutoLogin song song cho từng PID độc lập
+            login_threads = []
+            for slot_idx, ctrl, pid, acc in spawned_jobs:
+                def _worker(s_idx=slot_idx, c_ref=ctrl, p_id=pid, a_data=acc):
+                    u_name = a_data.get("username", "")
+                    c_ref.set_status("🔑 Đang đăng nhập...")
+                    self.account_mgr.login_existing_pid(p_id, a_data, on_log=self.append_autologin_log)
+
+                    # Cập nhật lại UI sau khi đã vào game
+                    c_name = a_data.get("character") or u_name
+                    self.after(0, lambda: self.refresh_autologin_table())
+                    self.after(0, lambda: self.update_slot_ui_telemetry(s_idx, c_name, c_ref.level, c_ref.coords))
+
+                t = threading.Thread(target=_worker, daemon=True)
+                login_threads.append(t)
+                t.start()
+
+            self.after(0, lambda: self.btn_autologin_all.configure(state="normal"))
+            self.append_autologin_log(f"⚡ Đã kích hoạt {len(login_threads)} luồng đăng nhập song song thành công!")
+
+        threading.Thread(target=_batch_orchestrator, daemon=True).start()
 
     def append_autologin_log(self, text: str):
         if hasattr(self, "autologin_log_txt"):

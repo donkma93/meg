@@ -11,6 +11,7 @@ import time
 import psutil
 import winreg
 import subprocess
+import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 
@@ -98,6 +99,7 @@ class AccountManager:
 
     def __init__(self):
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
         self.accounts: List[Dict[str, Any]] = []
         self.exe_path = find_megamu_exe_path() or ""
         self.spot_config: Dict[str, Any] = dict(DEFAULT_SPOT_CONFIG)
@@ -126,12 +128,13 @@ class AccountManager:
     def save_accounts(self):
         """Lưu toàn bộ danh sách tài khoản ra file JSON."""
         try:
-            with open(ACCOUNTS_CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump({
-                    "exe_path": self.exe_path,
-                    "spot_config": self.spot_config,
-                    "accounts": self.accounts
-                }, f, ensure_ascii=False, indent=2)
+            with self._lock:
+                with open(ACCOUNTS_CONFIG_FILE, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "exe_path": self.exe_path,
+                        "spot_config": self.spot_config,
+                        "accounts": self.accounts
+                    }, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"[AccountManager] Lỗi lưu config: {e}")
 
@@ -157,7 +160,7 @@ class AccountManager:
         self.save_accounts()
         return added
 
-    def add_account(self, username: str, password: str = "", character: str = "", server: int = 1) -> bool:
+    def add_account(self, username: str, password: str = "", character: str = "", server: int = 3, slot: Optional[int] = None) -> bool:
         """Thêm tài khoản mới không giới hạn (hỗ trợ lưu mật khẩu tự động)."""
         username = username.strip()
         if not username:
@@ -169,6 +172,8 @@ class AccountManager:
                 a["character"] = character
                 a["server"] = server
                 a["enabled"] = True
+                if slot is not None and slot > 0:
+                    a["preferred_slot"] = slot
                 self.save_accounts()
                 return True
         acc_data = {
@@ -182,6 +187,8 @@ class AccountManager:
         }
         if password:
             acc_data["password"] = password
+        if slot is not None and slot > 0:
+            acc_data["preferred_slot"] = slot
         self.accounts.append(acc_data)
         self.save_accounts()
         return True
@@ -195,19 +202,38 @@ class AccountManager:
             return True
         return False
 
+    def remove_accounts_batch(self, usernames: List[str]) -> int:
+        """Xóa hàng loạt tài khoản theo danh sách username."""
+        u_set = {u.strip().lower() for u in usernames if u and u.strip()}
+        if not u_set:
+            return 0
+        initial_len = len(self.accounts)
+        self.accounts = [a for a in self.accounts if a.get("username", "").strip().lower() not in u_set]
+        removed_cnt = initial_len - len(self.accounts)
+        if removed_cnt > 0:
+            self.save_accounts()
+        return removed_cnt
+
     def update_account(
         self,
         username: str,
         password: Optional[str] = None,
         character: Optional[str] = None,
         server: Optional[int] = None,
+        new_username: Optional[str] = None,
+        slot: Optional[int] = None,
         spot_map: Optional[str] = None,
         spot_x: Optional[int] = None,
         spot_y: Optional[int] = None
     ) -> bool:
-        """Cập nhật mật khẩu, nhân vật, server hoặc tọa độ bãi train riêng của một tài khoản."""
+        """Cập nhật mật khẩu, tên tài khoản mới, nhân vật, server hoặc tọa độ bãi train riêng của một tài khoản."""
         for a in self.accounts:
             if a["username"].lower() == username.lower():
+                if new_username and new_username.strip():
+                    new_u = new_username.strip()
+                    a["username"] = new_u
+                    if a.get("nickname") == username or not a.get("nickname"):
+                        a["nickname"] = new_u
                 if password is not None:
                     if password == "":
                         a.pop("password", None)
@@ -219,6 +245,11 @@ class AccountManager:
                         a.setdefault("characters_list", []).append(character)
                 if server is not None:
                     a["server"] = int(server)
+                if slot is not None:
+                    if slot > 0:
+                        a["preferred_slot"] = slot
+                    else:
+                        a.pop("preferred_slot", None)
                 if spot_map is not None:
                     if not spot_map.strip():
                         a.pop("spot_map", None)
@@ -360,114 +391,51 @@ class AccountManager:
             a["enabled"] = (a["username"].lower() in target_usernames)
         self.save_accounts()
 
+    def spawn_client(self) -> Optional[int]:
+        """Khởi chạy ngay 1 client MEGAMU.exe và trả về PID tức thì (non-blocking)."""
+        exe = self.exe_path or find_megamu_exe_path()
+        if not exe or not os.path.isfile(exe):
+            print(f"[AccountManager] ❌ Không tìm thấy tệp MEGAMU.exe tại '{exe}'!")
+            return None
+        try:
+            work_dir = os.path.dirname(exe)
+            proc = subprocess.Popen([exe], cwd=work_dir)
+            return proc.pid
+        except Exception as ex:
+            print(f"[AccountManager] ❌ Lỗi khởi chạy tiến trình MEGAMU.exe: {ex}")
+            return None
+
     def launch_single_account(self, acc: Dict[str, Any], on_log: Optional[Callable[[str], None]] = None) -> Optional[int]:
         """
         Khởi chạy 1 client MEGAMU và tự động đăng nhập vào tài khoản + nhân vật đã chỉ định.
         Returns: PID của tiến trình MEGAMU mới tạo hoặc None nếu thất bại.
         """
         username = acc.get("username", "")
-        password = acc.get("password", "")
-        token = acc.get("token", "")
-        character = acc.get("character", "")
-        server = acc.get("server", 1)
-
         def _log(msg: str):
             if on_log:
                 on_log(msg)
             else:
                 print(msg)
 
-        exe = self.exe_path or find_megamu_exe_path()
-        if not exe or not os.path.isfile(exe):
-            _log(f"❌ Không tìm thấy tệp MEGAMU.exe tại '{exe}'! Vui lòng kiểm tra lại đường dẫn cài đặt.")
-            return None
-
         _log(f"🚀 [Account: {username}] Đang khởi chạy MEGAMU.exe...")
-        try:
-            parent_dir = os.path.dirname(exe)
-            if os.path.basename(parent_dir).lower() == "bin":
-                work_dir = os.path.dirname(parent_dir)
-            else:
-                work_dir = parent_dir
-            proc = subprocess.Popen([exe], cwd=work_dir)
-            pid = proc.pid
-            _log(f"   → Đã tạo tiến trình PID {pid}. Đang chờ Game khởi động và nạp GameAssembly.dll (chờ 3.5s)...")
-        except Exception as ex:
-            _log(f"❌ Lỗi khởi chạy tiến trình: {ex}")
+        pid = self.spawn_client()
+        if not pid:
+            _log(f"❌ [Account: {username}] Không thể khởi chạy tiến trình MEGAMU.exe!")
             return None
 
-        # Chờ 3.5s để DirectX Window và GameAssembly hoàn tất nạp DllMain và khởi tạo màn hình ban đầu
-        time.sleep(3.5)
-
-        # Gắn DirectEngine và kích hoạt AutoLogin native trên Unity Main Thread
-        try:
-            from meg_direct_engine import MegDirectEngine
-            eng = MegDirectEngine.get_engine(pid)
-            if not eng:
-                _log(f"⚠️ [PID {pid}] Không tạo được Direct Engine!")
-                return pid
-
-            attached = False
-            for _ in range(8):
-                if not psutil.pid_exists(pid):
-                    _log(f"❌ [PID {pid}] Tiến trình game đã bị đóng!")
-                    return None
-                if eng.attach():
-                    attached = True
-                    break
-                time.sleep(1.0)
-
-            if not attached:
-                _log(f"⚠️ [PID {pid}] Game chưa sẵn sàng để attach Frida. Đăng nhập thủ công hoặc thử lại sau.")
-                return pid
-
-            has_pwd = bool(password)
-            has_tok = bool(token)
-            if has_pwd:
-                auth_tag = " (Đăng nhập Form & Mật khẩu)"
-            elif has_tok:
-                auth_tag = " (Đăng nhập Token Registry)"
-            else:
-                auth_tag = " (Chưa có mật khẩu / token)"
-            _log(f"🔑 [PID {pid}] Đã gắn Hook thành công! Đang kích hoạt AutoLogin{auth_tag} (Server: {server}, Acc: '{username}', NV: '{character}')...")
-            eng.auto_login(server=server, account=username, character=character, password=password, token=token)
-
-            _log(f"⏳ [PID {pid}] Đang chờ game nạp màn hình MLoginUI trên Main Thread (tối đa 30s)...")
-            start_wait = time.time()
-            submitted = False
-            while time.time() - start_wait < 30.0:
-                if not psutil.pid_exists(pid):
-                    _log(f"❌ [PID {pid}] Tiến trình game đã bị đóng!")
-                    return None
-                status = eng.get_autologin_status()
-                if status.get("submitted") or status.get("done"):
-                    submitted = True
-                    stage = status.get("stage", "")
-                    if stage == "submitted_password":
-                        _log(f"✅ [PID {pid} - {username}] ĐÃ ĐIỀN FORM VÀ SUBMIT MẬT KHẨU THÀNH CÔNG trên Main Thread! Game đang vào nhân vật '{character}'...")
-                    elif stage == "submitted_token":
-                        _log(f"✅ [PID {pid} - {username}] ĐÃ ĐĂNG NHẬP BẰNG TOKEN REGISTRY THÀNH CÔNG trên Main Thread! Game đang vào nhân vật '{character}'...")
-                    elif stage == "in_game_world":
-                        _log(f"✅ [PID {pid} - {username}] ĐÃ VÀO THẾ GIỚI GAME THÀNH CÔNG! (Nhân vật '{character}')")
-                    elif stage == "in_character_lobby":
-                        _log(f"✅ [PID {pid} - {username}] ĐÃ VÀO MÀN HÌNH CHỌN NHÂN VẬT THÀNH CÔNG!")
-                    elif stage == "need_credentials":
-                        _log(f"⚠️ [PID {pid} - {username}] Tài khoản chưa có Mật khẩu và chưa có Token lưu trong Registry! Vui lòng nhập mật khẩu vào bảng tài khoản.")
-                        break
-                    else:
-                        _log(f"✅ [PID {pid} - {username}] AutoLogin đã kích hoạt thành công trên Main Thread!")
-                    break
-                time.sleep(0.5)
-
-            if not submitted:
-                _log(f"⚠️ [PID {pid} - {username}] Hết 30s chờ MLoginUI. Lệnh đăng nhập vẫn được giữ trong hàng đợi Main Thread.")
-            return pid
-        except Exception as eE:
-            _log(f"⚠️ [PID {pid}] Lỗi khi gọi AutoLogin: {eE}")
-            return pid
+        _log(f"   → Đã tạo tiến trình PID {pid}. Bắt đầu kết nối engine và auto-login...")
+        self.login_existing_pid(pid, acc, on_log=on_log)
+        return pid
 
     def login_existing_pid(self, pid: int, acc: Dict[str, Any], on_log: Optional[Callable[[str], None]] = None) -> bool:
-        """Gửi lệnh AutoLogin native vào một tiến trình MEGAMU đang chạy."""
+        """
+        Thực hiện toàn bộ quy trình AutoLogin native trên Unity Main Thread cho một PID MEGAMU:
+        - Đợi GameAssembly.dll nạp và attach Frida
+        - Gửi lệnh auto_login với credentials (password hoặc token)
+        - Đọc danh sách nhân vật (Lobby Scene 3), đồng bộ vào config
+        - Tự động click vào thẳng nhân vật mục tiêu
+        - Theo dõi cho đến khi vào hẳn thế giới game (Scene 4)
+        """
         username = acc.get("username", "")
         password = acc.get("password", "")
         token = acc.get("token", "")
@@ -484,34 +452,112 @@ class AccountManager:
             _log(f"❌ Tiến trình PID {pid} không tồn tại!")
             return False
 
+        # Chờ GameAssembly.dll và Unity hoàn tất khởi tạo ban đầu để tránh lỗi Boehm GC:
+        # "Fatal error in GC: Collecting from unknown thread"
+        _log(f"⏳ [PID {pid} - {username}] Đang đợi game nạp hoàn tất GameAssembly.dll & Boehm GC runtime...")
+        start_init = time.time()
+        time.sleep(4.0)
+        while time.time() - start_init < 15.0:
+            if not psutil.pid_exists(pid):
+                _log(f"❌ [PID {pid}] Tiến trình game đã bị đóng!")
+                return False
+            try:
+                p_proc = psutil.Process(pid)
+                maps = [m.path.lower() for m in p_proc.memory_maps()]
+                if any("gameassembly.dll" in m for m in maps):
+                    break
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+        time.sleep(0.8)
+
         try:
             from meg_direct_engine import MegDirectEngine
             eng = MegDirectEngine.get_engine(pid)
-            if not eng.is_ready:
-                if not eng.attach():
-                    _log(f"⚠️ [PID {pid}] Không thể kết nối Frida engine!")
+            if not eng:
+                _log(f"⚠️ [PID {pid}] Không tạo được Direct Engine!")
+                return False
+
+            attached = False
+            for _ in range(10):
+                if not psutil.pid_exists(pid):
+                    _log(f"❌ [PID {pid}] Tiến trình game đã bị đóng!")
                     return False
+                if eng.attach():
+                    attached = True
+                    break
+                time.sleep(0.8)
+
+            if not attached:
+                _log(f"⚠️ [PID {pid}] Game chưa sẵn sàng để attach Frida. Vui lòng thử lại sau.")
+                return False
+
+            has_pwd = bool(password)
+            has_tok = bool(token)
+            if has_pwd:
+                auth_tag = " (Đăng nhập Form & Mật khẩu)"
+            elif has_tok:
+                auth_tag = " (Đăng nhập Token Registry)"
+            else:
+                auth_tag = " (Chưa có mật khẩu / token)"
+            _log(f"🔑 [PID {pid}] Đã gắn Hook thành công! Đang kích hoạt AutoLogin{auth_tag} (Server: {server}, Acc: '{username}', NV: '{character}')...")
             eng.auto_login(server=server, account=username, character=character, password=password, token=token)
 
-            # Chờ Main Thread submit trong tối đa 4 giây
+            _log(f"⏳ [PID {pid}] Đang chờ game nạp màn hình MLoginUI trên Main Thread (tối đa 40s)...")
             start_wait = time.time()
-            while time.time() - start_wait < 4.0:
+            submitted = False
+            last_logged_stage = None
+            chars_synced = False
+            while time.time() - start_wait < 40.0:
+                if not psutil.pid_exists(pid):
+                    _log(f"❌ [PID {pid}] Tiến trình game đã bị đóng!")
+                    return False
                 status = eng.get_autologin_status()
-                if status.get("submitted") or status.get("done"):
-                    stage = status.get("stage", "")
-                    if stage == "submitted_password":
-                        _log(f"✅ [PID {pid} - {username}] ĐÃ ĐIỀN FORM VÀ SUBMIT MẬT KHẨU THÀNH CÔNG trên Main Thread! (Server {server}, Nhân vật '{character}')")
-                    elif stage == "submitted_token":
-                        _log(f"✅ [PID {pid} - {username}] ĐÃ ĐĂNG NHẬP BẰNG TOKEN THÀNH CÔNG trên Main Thread! (Server {server}, Nhân vật '{character}')")
-                    else:
-                        _log(f"✅ [PID {pid} - {username}] Đã kích hoạt AutoLogin thành công!")
-                    return True
-                time.sleep(0.2)
+                stage = status.get("stage", "")
 
-            _log(f"✅ [PID {pid} - {username}] Đã đưa lệnh AutoLogin vào hàng đợi Main Thread (Server {server}, Nhân vật '{character}')")
-            return True
-        except Exception as ex:
-            _log(f"❌ [PID {pid}] Lỗi AutoLogin: {ex}")
+                # Đọc danh sách nhân vật ngay khi game tải xong Lobby (Scene 3)
+                chars = eng.get_autologin_characters()
+                if chars and not chars_synced:
+                    chars_synced = True
+                    char_names = [c["name"] for c in chars if c.get("name")]
+                    if char_names:
+                        acc["characters_list"] = char_names
+                        if not acc.get("character") or acc.get("character") not in char_names:
+                            acc["character"] = char_names[0]
+                        self.save_accounts()
+                        _log(f"📋 [PID {pid} - {username}] Đã nhận diện {len(char_names)} nhân vật từ Game: [{', '.join(char_names)}]. Tự động chọn và vào thẳng nhân vật '{acc['character']}'...")
+
+                if status.get("submitted") or status.get("done"):
+                    submitted = True
+                    if stage != last_logged_stage:
+                        last_logged_stage = stage
+                        if stage == "submitted_password":
+                            _log(f"✅ [PID {pid} - {username}] ĐÃ ĐIỀN FORM VÀ SUBMIT MẬT KHẨU THÀNH CÔNG trên Main Thread! Game đang chuyển màn hình...")
+                        elif stage == "connecting_server":
+                            _log(f"🌐 [PID {pid} - {username}] Đang kết nối vào Server {status.get('server', server)}...")
+                        elif stage == "submitted_token":
+                            _log(f"✅ [PID {pid} - {username}] ĐÃ ĐĂNG NHẬP BẰNG TOKEN REGISTRY THÀNH CÔNG trên Main Thread! Game đang vào nhân vật...")
+                        elif stage == "waiting_character_list":
+                            _log(f"⏳ [PID {pid} - {username}] Đã vào Lobby, đang đợi GameServer tải danh sách nhân vật...")
+                        elif stage == "selected_character":
+                            sel_char = status.get("character", character or acc.get("character"))
+                            _log(f"⚡ [PID {pid} - {username}] ĐÃ GỬI LỆNH VÀO THẲNG NHÂN VẬT: '{sel_char}' (Slot {status.get('slot', 0)})...")
+                        elif stage == "in_game_world":
+                            in_world_char = status.get("character", character or acc.get("character"))
+                            _log(f"🎉 [PID {pid} - {username}] ĐÃ VÀO THẾ GIỚI GAME THÀNH CÔNG! (Nhân vật '{in_world_char}')")
+                            return True
+                        elif stage == "need_credentials":
+                            _log(f"⚠️ [PID {pid} - {username}] Tài khoản chưa có Mật khẩu và chưa có Token lưu trong Registry! Vui lòng nhập mật khẩu vào bảng tài khoản.")
+                            break
+
+                if status.get("done") or stage in ["in_game_world", "need_credentials"]:
+                    break
+                time.sleep(0.3)
+
+            return submitted
+        except Exception as eE:
+            _log(f"⚠️ [PID {pid}] Lỗi khi gọi AutoLogin: {eE}")
             return False
 
     def launch_all_enabled(
