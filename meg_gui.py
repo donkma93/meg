@@ -10594,7 +10594,8 @@ class DashboardApp(ctk.CTk):
         inner_tb.pack(fill="x", padx=10, pady=6)
 
         # Hàng 1 Toolbar: Chọn tài khoản + Cấu hình tốc độ + Nút CƯỚP CỔNG & DỪNG
-        tb_row1 = ctk.CTkFrame(inner_tb, fg_color="transparent")
+        _parent_tb = inner_tb if "inner_tb" in locals() else toolbar_card
+        tb_row1 = ctk.CTkFrame(_parent_tb, fg_color="transparent")
         tb_row1.pack(fill="x", pady=(0, 4))
 
         btn_sel_all = ctk.CTkButton(
