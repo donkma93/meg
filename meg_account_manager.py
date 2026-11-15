@@ -160,11 +160,20 @@ class AccountManager:
         self.save_accounts()
         return added
 
-    def add_account(self, username: str, password: str = "", character: str = "", server: int = 3, slot: Optional[int] = None) -> bool:
-        """Thêm tài khoản mới không giới hạn (hỗ trợ lưu mật khẩu tự động)."""
+    def add_account(
+        self,
+        username: str,
+        password: str = "",
+        character: str = "",
+        server: int = 3,
+        slot: Optional[int] = None,
+        category: str = "Chung"
+    ) -> bool:
+        """Thêm tài khoản mới không giới hạn (hỗ trợ lưu mật khẩu và phân loại tài khoản)."""
         username = username.strip()
         if not username:
             return False
+        cat_clean = category.strip() if category else "Chung"
         for a in self.accounts:
             if a["username"].lower() == username.lower():
                 if password:
@@ -172,6 +181,7 @@ class AccountManager:
                 a["character"] = character
                 a["server"] = server
                 a["enabled"] = True
+                a["category"] = cat_clean
                 if slot is not None and slot > 0:
                     a["preferred_slot"] = slot
                 self.save_accounts()
@@ -183,7 +193,8 @@ class AccountManager:
             "characters_list": [character] if character else [],
             "server": server,
             "enabled": True,
-            "source": "manual"
+            "source": "manual",
+            "category": cat_clean
         }
         if password:
             acc_data["password"] = password
@@ -224,9 +235,10 @@ class AccountManager:
         slot: Optional[int] = None,
         spot_map: Optional[str] = None,
         spot_x: Optional[int] = None,
-        spot_y: Optional[int] = None
+        spot_y: Optional[int] = None,
+        category: Optional[str] = None
     ) -> bool:
-        """Cập nhật mật khẩu, tên tài khoản mới, nhân vật, server hoặc tọa độ bãi train riêng của một tài khoản."""
+        """Cập nhật mật khẩu, tên tài khoản mới, nhân vật, server, slot, tọa độ hoặc phân loại mục đích của tài khoản."""
         for a in self.accounts:
             if a["username"].lower() == username.lower():
                 if new_username and new_username.strip():
@@ -250,6 +262,8 @@ class AccountManager:
                         a["preferred_slot"] = slot
                     else:
                         a.pop("preferred_slot", None)
+                if category is not None:
+                    a["category"] = category.strip() or "Chung"
                 if spot_map is not None:
                     if not spot_map.strip():
                         a.pop("spot_map", None)
@@ -269,10 +283,61 @@ class AccountManager:
                 return True
         return False
 
-    def toggle_all(self, enabled: bool):
-        """Bật hoặc tắt toàn bộ tài khoản trong danh sách."""
+    def get_categories(self) -> List[str]:
+        """Lấy danh sách các nhóm phân loại tài khoản hiện có kèm các nhóm mặc định."""
+        defaults = ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp", "Săn Boss"]
+        cats = set(defaults)
         for a in self.accounts:
-            a["enabled"] = enabled
+            c = (a.get("category") or "Chung").strip()
+            if c:
+                cats.add(c)
+        # Sắp xếp có thứ tự ưu tiên
+        ordered = ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp", "Săn Boss"]
+        extras = sorted([c for c in cats if c not in ordered])
+        return ordered + extras
+
+    def get_category_counts(self) -> Dict[str, int]:
+        """Thống kê số lượng tài khoản theo từng phân loại (kèm tổng số)."""
+        counts = {"Tất cả": len(self.accounts)}
+        for c in self.get_categories():
+            counts[c] = 0
+        for a in self.accounts:
+            c = (a.get("category") or "Chung").strip()
+            counts[c] = counts.get(c, 0) + 1
+        return counts
+
+    def get_accounts_by_category(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lấy danh sách tài khoản theo nhóm phân loại chỉ định."""
+        if not category or category in ("Tất cả", "All", "*"):
+            return self.accounts
+        c_low = category.strip().lower()
+        return [a for a in self.accounts if (a.get("category") or "Chung").strip().lower() == c_low]
+
+    def set_account_category(self, username: str, category: str) -> bool:
+        """Đổi nhóm phân loại cho một tài khoản cụ thể."""
+        return self.update_account(username, category=category)
+
+    def batch_set_category(self, usernames: List[str], category: str) -> int:
+        """Đổi nhóm phân loại hàng loạt cho nhiều tài khoản."""
+        u_set = {u.strip().lower() for u in usernames if u and u.strip()}
+        if not u_set:
+            return 0
+        cat_clean = category.strip() or "Chung"
+        cnt = 0
+        for a in self.accounts:
+            if a.get("username", "").strip().lower() in u_set:
+                a["category"] = cat_clean
+                cnt += 1
+        if cnt > 0:
+            self.save_accounts()
+        return cnt
+
+    def toggle_all(self, enabled: bool, category: Optional[str] = None):
+        """Bật hoặc tắt toàn bộ tài khoản (hoặc chỉ trong một phân loại cụ thể)."""
+        c_low = category.strip().lower() if (category and category not in ("Tất cả", "All", "*")) else None
+        for a in self.accounts:
+            if c_low is None or (a.get("category") or "Chung").strip().lower() == c_low:
+                a["enabled"] = enabled
         self.save_accounts()
 
     def set_exe_path(self, path: str):
@@ -281,9 +346,12 @@ class AccountManager:
             self.exe_path = path
             self.save_accounts()
 
-    def get_enabled_accounts(self) -> List[Dict[str, Any]]:
-        """Lấy tất cả các tài khoản đang được kích hoạt."""
-        return [a for a in self.accounts if a.get("enabled", True)]
+    def get_enabled_accounts(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lấy tất cả các tài khoản đang được kích hoạt (hỗ trợ lọc theo phân loại)."""
+        c_low = category.strip().lower() if (category and category not in ("Tất cả", "All", "*")) else None
+        if c_low is None:
+            return [a for a in self.accounts if a.get("enabled", True)]
+        return [a for a in self.accounts if a.get("enabled", True) and (a.get("category") or "Chung").strip().lower() == c_low]
 
     def import_from_txt(self, text_or_path: str) -> int:
         """

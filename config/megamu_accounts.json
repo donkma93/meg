@@ -26,7 +26,9 @@
       "source": "manual",
       "password": "Nammothai3",
       "preferred_slot": 1,
-      "token": "55042c43f0b9a13adab1bcd59ba322ba"
+      "token": "873bc6ddb671deca8465602045dcc7fd",
+      "category": "Chỉ Moss",
+      "last_pid": 28204
     },
     {
       "username": "anhdontb1",
@@ -41,7 +43,8 @@
       "enabled": true,
       "source": "manual",
       "password": "Nammothai3",
-      "token": "af0022eb4351a37c9eb10a158ef7e977"
+      "token": "af0022eb4351a37c9eb10a158ef7e977",
+      "category": "Chỉ Mirror"
     },
     {
       "username": "dtn01",
@@ -71,7 +74,7 @@
     {
       "username": "dtn2026",
       "nickname": "dtn2026",
-      "token": "c43d0f6659e381ba68f2ef8e7645883a",
+      "token": "3c42799ad5a3699cb7bf0329471cd6a1",
       "character": "dtn199x",
       "characters_list": [
         "dtn199x"

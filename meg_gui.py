@@ -1660,6 +1660,99 @@ class MEGAMUWindowManager:
             "msg": f"Đã sắp xếp {arranged_count} cửa sổ MEGAMU theo lưới {cols}x{rows} (Ô: {cell_w}x{cell_h}px) trên {mon['name']} thành công!"
         }
 
+    @staticmethod
+    def close_game_window(pid: int, hwnd: Optional[int] = None, force: bool = True, timeout: float = 0.5) -> bool:
+        """
+        Đóng cửa sổ game MEGAMU theo PID và HWND một cách an toàn và dứt điểm:
+        1. Gửi thông điệp WM_CLOSE (0x0010) qua Win32 API để game lưu dữ liệu và thoát hợp lệ.
+        2. Chờ timeout (mặc định 0.5s).
+        3. Nếu tiến trình vẫn chưa thoát, gọi psutil terminate/kill để giải phóng RAM triệt để.
+        """
+        if not pid or not psutil.pid_exists(pid):
+            return True
+
+        if not hwnd:
+            found_hwnds = []
+            def _find_hwnd(h, lp):
+                try:
+                    lp_p = wintypes.DWORD()
+                    user32.GetWindowThreadProcessId(h, ctypes.byref(lp_p))
+                    if lp_p.value == pid:
+                        found_hwnds.append(h)
+                except Exception:
+                    pass
+                return True
+            try:
+                cb = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)(_find_hwnd)
+                user32.EnumWindows(cb, 0)
+            except Exception:
+                pass
+            hwnd = found_hwnds[0] if found_hwnds else None
+
+        if hwnd:
+            try:
+                WM_CLOSE = 0x0010
+                user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+            except Exception:
+                pass
+
+        try:
+            p = psutil.Process(pid)
+            try:
+                p.wait(timeout=timeout)
+                return True
+            except psutil.TimeoutExpired:
+                if force:
+                    try:
+                        p.terminate()
+                        p.wait(timeout=0.3)
+                    except Exception:
+                        pass
+                    if psutil.pid_exists(pid):
+                        try:
+                            p.kill()
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+        return not psutil.pid_exists(pid)
+
+    @classmethod
+    def close_all_game_windows(cls, pids: Optional[List[int]] = None, controllers=None) -> int:
+        """
+        Đóng toàn bộ hoặc một danh sách cụ thể các cửa sổ MEGAMU.
+        Trả về số lượng tiến trình game đã đóng thành công.
+        """
+        target_pids = set()
+        if pids:
+            for p in pids:
+                if p and psutil.pid_exists(p):
+                    target_pids.add(p)
+        else:
+            for p in psutil.process_iter(['pid', 'name']):
+                try:
+                    p_name = p.info.get('name')
+                    if p_name and p_name.lower() == 'megamu.exe':
+                        target_pids.add(p.info['pid'])
+                except Exception:
+                    pass
+            if controllers:
+                for c in controllers:
+                    pid = getattr(c, "assigned_pid", None)
+                    if pid and psutil.pid_exists(pid):
+                        target_pids.add(pid)
+
+        closed_count = 0
+        for pid in list(target_pids):
+            try:
+                if cls.close_game_window(pid, force=True):
+                    closed_count += 1
+            except Exception:
+                pass
+
+        return closed_count
+
 # ==============================================================================
 # QUẢN LÝ CẤU HÌNH TRỰC TIẾP TỪ FILE (ZERO-RAM LOSS PERSISTENCE)
 # ==============================================================================
@@ -5994,6 +6087,20 @@ class DashboardApp(ctk.CTk):
             "Tự động dàn trải và chia lưới tất cả các cửa sổ MEGAMU đang mở theo tỷ lệ màn hình ngay lập tức."
         )
 
+        self.btn_close_all_games = ctk.CTkButton(
+            t_left,
+            image=UiIconFactory.get("stop", color="#f87171", size=(16, 16)),
+            command=self.on_click_close_games_ui,
+            **icon_btn_style
+        )
+        self.btn_close_all_games.configure(border_color="#ef4444", hover_color="#7f1d1d")
+        self.btn_close_all_games.pack(side="left", padx=(4, 0))
+        add_tooltip(
+            self.btn_close_all_games,
+            "🛑 Đóng Tất Cả Game MEGAMU (Close All Game Clients)\n"
+            "Đóng an toàn và nhanh chóng toàn bộ các cửa sổ game MEGAMU đang mở trên máy tính."
+        )
+
         # Nhóm bên phải: Nút Master Chạy/Dừng Tất Cả gộp 1 nút thông minh (Toggle)
         t_right = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
         t_right.pack(side="right")
@@ -6361,6 +6468,12 @@ class DashboardApp(ctk.CTk):
                 menu.add_command(label="💰 Bán đồ rác tại NPC Silvia", command=lambda s=s: self.controllers[s - 1].sell_moss_inventory())
                 menu.add_command(label="💎 Tự động Gom Ngọc slot này", command=lambda s=s: threading.Thread(target=self.controllers[s - 1].auto_stack_jewels, daemon=True).start())
                 menu.add_separator()
+                pid_s = getattr(ctrl_s, "assigned_pid", None)
+                if pid_s and psutil.pid_exists(pid_s):
+                    menu.add_command(
+                        label=f"🛑 Đóng Game Client MEGAMU (PID {pid_s})",
+                        command=lambda s=s: self.close_slot_game_client(s)
+                    )
                 menu.add_command(label="❌ Ngắt kết nối", command=lambda: self.controllers[s - 1].detach())
                 menu.tk_popup(event.x_root, event.y_root)
             except Exception:
@@ -12094,6 +12207,28 @@ class DashboardApp(ctk.CTk):
         )
         self.btn_autologin_all.pack(side="left", padx=(0, 6))
 
+        self.btn_autologin_close = ctk.CTkButton(
+            left_tb,
+            image=UiIconFactory.get("stop", color="#f87171", size=(12, 12)),
+            compound="left",
+            text="🛑 ĐÓNG GAME",
+            height=30,
+            corner_radius=0,
+            fg_color="#450a0a",
+            hover_color="#7f1d1d",
+            border_width=1,
+            border_color="#ef4444",
+            text_color="#fca5a5",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.on_click_close_games_ui
+        )
+        self.btn_autologin_close.pack(side="left", padx=(0, 6))
+        add_tooltip(
+            self.btn_autologin_close,
+            "🛑 Đóng cửa sổ game MEGAMU đang mở.\n"
+            "Nếu đang lọc danh mục (ví dụ 'Chỉ Moss'), ứng dụng sẽ hỏi bạn muốn đóng riêng các cửa sổ thuộc nhóm này hay đóng toàn bộ game."
+        )
+
         # MENU CHỌN LƯỚI BỐ CỤC TRỰC TIẾP TẠI TAB AUTO LOGIN
         self.combo_autologin_arrange = ModernOptionMenu(
             left_tb,
@@ -12252,6 +12387,54 @@ class DashboardApp(ctk.CTk):
         )
         self.autologin_status_lbl.pack(side="left")
 
+        # THANH PHÂN LOẠI MỤC ĐÍCH TÀI KHOẢN (CATEGORY TABS & SEARCH)
+        self.autologin_cat_bar = ctk.CTkFrame(self.panel_autologin, fg_color="#10141f", corner_radius=0, border_width=1, border_color="#1c2233", height=38)
+        self.autologin_cat_bar.pack(fill="x", padx=14, pady=(0, 6))
+        self.autologin_cat_bar.pack_propagate(False)
+
+        cat_inner = ctk.CTkFrame(self.autologin_cat_bar, fg_color="transparent")
+        cat_inner.pack(fill="both", expand=True, padx=6, pady=4)
+
+        ctk.CTkLabel(
+            cat_inner,
+            text="🏷️ Mục đích:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#c084fc"
+        ).pack(side="left", padx=(4, 8))
+
+        self.autologin_cat_tabs_frame = ctk.CTkFrame(cat_inner, fg_color="transparent")
+        self.autologin_cat_tabs_frame.pack(side="left", fill="y")
+
+        self.current_autologin_category = "Tất cả"
+        self.autologin_cat_buttons = {}
+
+        # Search box bên phải thanh category
+        search_box = ctk.CTkFrame(cat_inner, fg_color="transparent")
+        search_box.pack(side="right", fill="y", padx=(8, 2))
+
+        ctk.CTkLabel(
+            search_box,
+            text="🔍",
+            font=ctk.CTkFont(size=11),
+            text_color="#94a3b8"
+        ).pack(side="left", padx=(0, 2))
+
+        self.autologin_search_var = ctk.StringVar()
+        self.autologin_search_entry = ctk.CTkEntry(
+            search_box,
+            textvariable=self.autologin_search_var,
+            placeholder_text="Tìm theo tên/nhân vật...",
+            width=165,
+            height=26,
+            corner_radius=0,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color="#151924",
+            border_color="#2b3244",
+            text_color="#f8fafc"
+        )
+        self.autologin_search_entry.pack(side="left")
+        self.autologin_search_var.trace_add("write", lambda *args: self.refresh_autologin_table())
+
         # BODY CONTAINER (TABLE + RUNTIME LOG)
         body_box = ctk.CTkFrame(self.panel_autologin, fg_color="transparent")
         body_box.pack(fill="both", expand=True, padx=14, pady=(0, 8))
@@ -12265,8 +12448,9 @@ class DashboardApp(ctk.CTk):
         tbl_hdr.pack_propagate(False)
 
         ctk.CTkLabel(tbl_hdr, text="BẬT", width=42, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(6, 2))
-        ctk.CTkLabel(tbl_hdr, text="STT", width=40, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
+        ctk.CTkLabel(tbl_hdr, text="STT", width=38, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
         ctk.CTkLabel(tbl_hdr, text="TÀI KHOẢN", width=125, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
+        ctk.CTkLabel(tbl_hdr, text="PHÂN LOẠI", width=115, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
         ctk.CTkLabel(tbl_hdr, text="NHÂN VẬT LOGIN", width=135, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
         ctk.CTkLabel(tbl_hdr, text="SERVER", width=95, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
         ctk.CTkLabel(tbl_hdr, text="GÁN VÀO SLOT", width=115, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
@@ -12312,6 +12496,8 @@ class DashboardApp(ctk.CTk):
         )
         self.autologin_log_txt.pack(fill="both", expand=True, padx=4, pady=4)
 
+        self.current_autologin_category = "Tất cả"
+        self.refresh_autologin_category_tabs()
         self.refresh_autologin_table()
         self._autologin_table_initialized = True
 
@@ -12335,7 +12521,40 @@ class DashboardApp(ctk.CTk):
             empty_lbl.pack(pady=40)
             return
 
-        for idx, acc in enumerate(self.account_mgr.accounts):
+        cur_cat = getattr(self, "current_autologin_category", "Tất cả")
+        search_q = ""
+        if hasattr(self, "autologin_search_var"):
+            try:
+                search_q = str(self.autologin_search_var.get() or "").strip().lower()
+            except Exception:
+                search_q = ""
+
+        displayed_accounts = []
+        for a in self.account_mgr.accounts:
+            a_cat = (a.get("category") or "Chung").strip()
+            if cur_cat != "Tất cả" and a_cat.lower() != cur_cat.lower():
+                continue
+            if search_q:
+                u_str = a.get("username", "").lower()
+                c_str = a.get("character", "").lower()
+                clist_str = " ".join(a.get("characters_list", [])).lower()
+                if search_q not in u_str and search_q not in c_str and search_q not in clist_str:
+                    continue
+            displayed_accounts.append(a)
+
+        if not displayed_accounts:
+            msg = f"Không tìm thấy tài khoản nào trong nhóm '{cur_cat}'." if cur_cat != "Tất cả" else "Không tìm thấy tài khoản nào khớp với từ khóa tìm kiếm."
+            empty_lbl = ctk.CTkLabel(
+                self.autologin_scroll,
+                text=f"{msg}\n(Bấm tab '🌐 Tất cả' hoặc nhấn '➕ Thêm Tài Khoản' để bổ sung)",
+                font=ctk.CTkFont(family="Segoe UI", size=12),
+                text_color="#64748b",
+                justify="center"
+            )
+            empty_lbl.pack(pady=40)
+            return
+
+        for idx, acc in enumerate(displayed_accounts):
             row = ctk.CTkFrame(self.autologin_scroll, fg_color="#151924", height=42, corner_radius=0, border_width=1, border_color="#1f2535")
             row.pack(fill="x", pady=2)
             row.pack_propagate(False)
@@ -12367,7 +12586,33 @@ class DashboardApp(ctk.CTk):
             u_lbl = ctk.CTkLabel(row, text=u_title, width=125, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#38bdf8" if has_pwd else "#f1f5f9")
             u_lbl.pack(side="left", padx=4)
 
-            # 4. Character Combobox
+            # 4. Phân loại mục đích (Category Combobox)
+            cat_list = self.account_mgr.get_categories() if self.account_mgr else ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp"]
+            a_cat = acc.get("category") or "Chung"
+            if a_cat not in cat_list:
+                cat_list = [a_cat] + [x for x in cat_list if x != a_cat]
+            if "➕ Đặt tên khác..." not in cat_list:
+                cat_list = cat_list + ["➕ Đặt tên khác..."]
+            cat_var = ctk.StringVar(value=a_cat)
+            def _make_cat_change(a_ref):
+                def _handler(val):
+                    if "Đặt tên khác" in val:
+                        self.prompt_change_account_category(a_ref)
+                    else:
+                        self._on_acc_cat_change(a_ref, val)
+                return _handler
+            cat_combo = ModernOptionMenu(
+                row,
+                values=cat_list,
+                variable=cat_var,
+                width=115,
+                height=28,
+                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                command=_make_cat_change(acc)
+            )
+            cat_combo.pack(side="left", padx=4)
+
+            # 5. Character Combobox
             c_list = acc.get("characters_list", [])
             cur_char = acc.get("character", "")
             if cur_char and cur_char not in c_list:
@@ -12391,7 +12636,7 @@ class DashboardApp(ctk.CTk):
             )
             char_combo.pack(side="left", padx=4)
 
-            # 5. Server Combobox
+            # 6. Server Combobox
             srv_val = int(acc.get("server", 1))
             srv_var = ctk.StringVar(value=f"Server {srv_val}")
             def _make_srv_cmd(a_ref):
@@ -12407,7 +12652,7 @@ class DashboardApp(ctk.CTk):
             )
             srv_combo.pack(side="left", padx=4)
 
-            # 6. Slot Target Combobox
+            # 7. Slot Target Combobox
             slot_opts = ["Tự động"] + [f"Slot #{c.slot_idx:02d}" for c in self.controllers]
             cur_pref = acc.get("preferred_slot")
             if cur_pref and 1 <= cur_pref <= len(self.controllers):
@@ -12430,7 +12675,7 @@ class DashboardApp(ctk.CTk):
             )
             slot_combo.pack(side="left", padx=4)
 
-            # 7. Actions: Launch, Send Login, Delete
+            # 8. Actions: Launch, Send Login, Close, Edit, Delete
             act_box = ctk.CTkFrame(row, fg_color="transparent")
             act_box.pack(side="left", fill="x", expand=True, padx=6)
 
@@ -12466,6 +12711,25 @@ class DashboardApp(ctk.CTk):
                 command=_make_send_cmd(acc, slot_var)
             )
             btn_send.pack(side="left", padx=(0, 4))
+
+            def _make_close_cmd(a_ref):
+                return lambda: self.close_single_account_game(a_ref)
+            btn_close = ctk.CTkButton(
+                act_box,
+                text="🛑 Đóng",
+                width=52,
+                height=26,
+                corner_radius=0,
+                fg_color="#450a0a",
+                hover_color="#7f1d1d",
+                border_width=1,
+                border_color="#ef4444",
+                text_color="#fca5a5",
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                command=_make_close_cmd(acc)
+            )
+            btn_close.pack(side="left", padx=(0, 4))
+            add_tooltip(btn_close, f"🛑 Đóng cửa sổ game MEGAMU của tài khoản {u_name}")
 
             def _make_edit_cmd(a_ref):
                 return lambda: self.open_edit_account_dialog(a_ref)
@@ -12503,7 +12767,18 @@ class DashboardApp(ctk.CTk):
                     menu = tk.Menu(self, tearoff=0, bg="#1e2433", fg="#f8fafc", activebackground="#6366f1", activeforeground="#ffffff", font=("Segoe UI", 10))
                     menu.add_command(label=f"🚀 Mở & Login ({u_str})", command=lambda: self.launch_single_account_ui(a_ref, s_ref.get()))
                     menu.add_command(label=f"⚡ Gửi Login vào {s_ref.get()}", command=lambda: self.send_login_to_slot_ui(a_ref, s_ref.get()))
+                    menu.add_command(label=f"🛑 Đóng Game Client ({u_str})", command=lambda: self.close_single_account_game(a_ref))
                     menu.add_separator()
+
+                    menu_cat = tk.Menu(menu, tearoff=0, bg="#1e2433", fg="#f8fafc", activebackground="#0284c7", activeforeground="#ffffff", font=("Segoe UI", 10))
+                    for c_opt in ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp", "Săn Boss"]:
+                        menu_cat.add_command(label=c_opt, command=lambda c=c_opt: self._on_acc_cat_change(a_ref, c))
+                    menu_cat.add_separator()
+                    menu_cat.add_command(label="➕ Đặt tên loại khác...", command=lambda: self.prompt_change_account_category(a_ref))
+                    cur_a_cat = a_ref.get("category", "Chung")
+                    menu.add_cascade(label=f"🏷️ Phân loại mục đích ({cur_a_cat})", menu=menu_cat)
+                    menu.add_separator()
+
                     menu.add_command(label=f"✏️ Sửa tài khoản '{u_str}'...", command=lambda: self.open_edit_account_dialog(a_ref))
                     menu.add_command(label=f"🗑️ Xóa tài khoản '{u_str}'", command=lambda: self.delete_account_ui(u_str))
                     menu.add_separator()
@@ -12560,13 +12835,119 @@ class DashboardApp(ctk.CTk):
         if self.account_mgr:
             self.account_mgr.save_accounts()
 
+    def _on_acc_cat_change(self, acc: Dict[str, Any], new_cat: str):
+        c_clean = (new_cat or "Chung").strip()
+        acc["category"] = c_clean
+        if self.account_mgr:
+            self.account_mgr.save_accounts()
+        self.refresh_autologin_category_tabs()
+        self.refresh_autologin_table()
+
+    def refresh_autologin_category_tabs(self):
+        """Vẽ lại các nút bấm bộ lọc nhóm mục đích tài khoản."""
+        if not hasattr(self, "autologin_cat_tabs_frame"):
+            return
+        for w in self.autologin_cat_tabs_frame.winfo_children():
+            w.destroy()
+        self.autologin_cat_buttons.clear()
+
+        counts = self.account_mgr.get_category_counts() if self.account_mgr else {"Tất cả": 0}
+        categories = ["Tất cả"] + (self.account_mgr.get_categories() if self.account_mgr else ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp"])
+
+        icons = {
+            "Tất cả": "🌐",
+            "Chung": "🌟",
+            "Chỉ Moss": "🌿",
+            "Chỉ Mirror": "🪞",
+            "Cày cấp": "⚔️",
+            "Săn Boss": "👑"
+        }
+
+        for cat in categories:
+            cnt = counts.get(cat, 0)
+            icon = icons.get(cat, "📁")
+            txt = f"{icon} {cat} ({cnt})" if cat != "Tất cả" else f"{icon} Tất cả ({cnt})"
+            is_active = (cat.lower() == self.current_autologin_category.lower())
+
+            btn = ctk.CTkButton(
+                self.autologin_cat_tabs_frame,
+                text=txt,
+                height=26,
+                corner_radius=0,
+                fg_color="#6366f1" if is_active else "#181d2a",
+                hover_color="#4f46e5" if is_active else "#22293a",
+                border_width=1,
+                border_color="#818cf8" if is_active else "#2b344a",
+                text_color="#ffffff" if is_active else "#94a3b8",
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_active else "normal"),
+                command=lambda c=cat: self.select_autologin_category(c)
+            )
+            btn.pack(side="left", padx=2)
+            self.autologin_cat_buttons[cat] = btn
+
+        btn_add_cat = ctk.CTkButton(
+            self.autologin_cat_tabs_frame,
+            text="➕ Thêm nhóm...",
+            height=26,
+            corner_radius=0,
+            fg_color="#0f172a",
+            hover_color="#1e293b",
+            border_width=1,
+            border_color="#38bdf8",
+            text_color="#38bdf8",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            command=self.prompt_add_new_category
+        )
+        btn_add_cat.pack(side="left", padx=(4, 2))
+
+    def select_autologin_category(self, cat: str):
+        """Chuyển đổi nhóm hiển thị tài khoản."""
+        self.current_autologin_category = cat
+        self.refresh_autologin_category_tabs()
+        self.refresh_autologin_table()
+        if hasattr(self, "btn_autologin_all"):
+            cur_cat = self.current_autologin_category
+            if cur_cat != "Tất cả":
+                self.btn_autologin_all.configure(text=f"🚀 MỞ & LOGIN {cur_cat.upper()}")
+            else:
+                self.btn_autologin_all.configure(text="🚀 MỞ & LOGIN TẤT CẢ")
+
+    def prompt_add_new_category(self):
+        """Hộp thoại tạo thêm nhóm phân loại mới."""
+        dialog = ctk.CTkInputDialog(
+            text="Nhập tên nhóm tài khoản mới (Ví dụ: Train VIP, Săn Kundun, Clone Shop...):",
+            title="Thêm nhóm phân loại tài khoản"
+        )
+        new_cat = dialog.get_input()
+        if new_cat and new_cat.strip():
+            cat_name = new_cat.strip()
+            self.select_autologin_category(cat_name)
+            self.append_autologin_log(f"🏷️ Đã thêm nhóm mới: '{cat_name}'. Bạn có thể gán tài khoản vào nhóm này qua cột PHÂN LOẠI!")
+
+    def prompt_change_account_category(self, acc: Dict[str, Any]):
+        """Hộp thoại đặt tên nhóm tùy chỉnh cho 1 tài khoản."""
+        u = acc.get("username", "")
+        old_cat = acc.get("category", "Chung")
+        dialog = ctk.CTkInputDialog(
+            text=f"Nhập tên nhóm phân loại cho tài khoản '{u}':",
+            title="Đổi phân loại tài khoản"
+        )
+        new_cat = dialog.get_input()
+        if new_cat and new_cat.strip():
+            self._on_acc_cat_change(acc, new_cat.strip())
+            self.append_autologin_log(f"🏷️ Đã chuyển tài khoản '{u}' từ '{old_cat}' sang '{new_cat.strip()}'.")
+
     def toggle_all_accounts_ui(self):
-        """Bật/tắt tất cả tài khoản."""
+        """Bật/tắt tất cả tài khoản trong phân loại hiện tại."""
         if not self.account_mgr or not self.account_mgr.accounts:
             return
-        all_enabled = all(a.get("enabled", True) for a in self.account_mgr.accounts)
+        cur_cat = getattr(self, "current_autologin_category", "Tất cả")
+        target_accs = self.account_mgr.get_accounts_by_category(cur_cat)
+        if not target_accs:
+            return
+        all_enabled = all(a.get("enabled", True) for a in target_accs)
         new_val = not all_enabled
-        self.account_mgr.toggle_all(new_val)
+        self.account_mgr.toggle_all(new_val, category=cur_cat)
         self.refresh_autologin_table()
 
     def import_accounts_from_registry_ui(self):
@@ -12969,6 +13350,245 @@ class DashboardApp(ctk.CTk):
             command=dlg.destroy
         ).pack(side="right")
 
+    def find_account_running_pid(self, acc: Dict[str, Any]) -> Optional[int]:
+        """Tìm PID của cửa sổ MEGAMU đang chạy ứng với tài khoản/nhân vật này."""
+        u = (acc.get("username") or "").strip()
+        c = (acc.get("character") or "").strip()
+        last_pid = acc.get("last_pid")
+        if last_pid and psutil.pid_exists(last_pid):
+            return last_pid
+
+        pref_slot = acc.get("preferred_slot")
+        if pref_slot and 1 <= pref_slot <= len(self.controllers):
+            c_ctrl = self.controllers[pref_slot - 1]
+            if c_ctrl.assigned_pid and psutil.pid_exists(c_ctrl.assigned_pid):
+                return c_ctrl.assigned_pid
+
+        for ctrl in self.controllers:
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if c and ctrl.char_name and c.lower() == ctrl.char_name.lower():
+                    return ctrl.assigned_pid
+
+        wins = MEGAMUWindowManager.get_active_game_windows(controllers=self.controllers)
+        for w in wins:
+            w_cname = w.get("char_name", "")
+            w_title = w.get("title", "")
+            if c and w_cname and c.lower() == w_cname.lower():
+                return w["pid"]
+            if u and u.lower() in w_title.lower():
+                return w["pid"]
+
+        return None
+
+    def close_single_account_game(self, acc: Dict[str, Any]):
+        """Đóng cửa sổ game MEGAMU của một tài khoản cụ thể."""
+        u = acc.get("username", "")
+        pid = self.find_account_running_pid(acc)
+        if not pid or not psutil.pid_exists(pid):
+            messagebox.showinfo(
+                "Thông báo",
+                f"Tài khoản '{u}' hiện không có cửa sổ game MEGAMU nào đang chạy (hoặc đã đóng trước đó)."
+            )
+            return
+
+        cname = acc.get("character", "") or u
+        if not messagebox.askyesno(
+            "Xác nhận đóng game",
+            f"Bạn có chắc muốn đóng cửa sổ game MEGAMU của tài khoản '{u}' (Nhân vật: {cname}, PID: {pid})?"
+        ):
+            return
+
+        self.append_autologin_log(f"🛑 Đang đóng game cho tài khoản {u} (PID {pid})...")
+        ok = MEGAMUWindowManager.close_game_window(pid, force=True)
+
+        for ctrl in self.controllers:
+            if ctrl.assigned_pid == pid:
+                ctrl.detach()
+                el = self.slot_ui_elements.get(ctrl.slot_idx)
+                if el and el.get("proc_var"):
+                    el["proc_var"].set("--")
+
+        acc["last_pid"] = None
+        self.refresh_games()
+        self.refresh_autologin_table()
+        self.update_header_stats()
+        self.append_autologin_log(f"✅ Đã đóng game của tài khoản {u} (PID {pid}) thành công!")
+        self.log_message(f"Đã đóng game client MEGAMU PID {pid} ({u}).", "SUCCESS")
+
+    def close_slot_game_client(self, slot_idx: int):
+        """Đóng game client MEGAMU được gán cho Slot này."""
+        if not (1 <= slot_idx <= len(self.controllers)):
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        pid = ctrl.assigned_pid
+        char_name = ctrl.char_name
+
+        if not pid or not psutil.pid_exists(pid):
+            self.log_message(f"[Slot {slot_idx:02d}] Không có tiến trình MEGAMU nào đang mở để đóng.", "INFO")
+            ctrl.detach()
+            el = self.slot_ui_elements.get(slot_idx)
+            if el and el.get("proc_var"):
+                el["proc_var"].set("--")
+            self.refresh_games()
+            self.refresh_autologin_table()
+            return
+
+        if not messagebox.askyesno(
+            "Xác nhận đóng game",
+            f"Bạn có chắc muốn đóng game client MEGAMU của Slot #{slot_idx:02d} (Nhân vật: {char_name}, PID: {pid})?"
+        ):
+            return
+
+        self.log_message(f"[Slot {slot_idx:02d}] Đang đóng game MEGAMU (PID {pid} - {char_name})...", "WARNING")
+        MEGAMUWindowManager.close_game_window(pid, force=True)
+        ctrl.detach()
+        el = self.slot_ui_elements.get(slot_idx)
+        if el and el.get("proc_var"):
+            el["proc_var"].set("--")
+        self.refresh_games()
+        self.refresh_autologin_table()
+        self.update_header_stats()
+        self.log_message(f"[Slot {slot_idx:02d}] Đã đóng thành công game MEGAMU (PID {pid}).", "SUCCESS")
+        self.append_autologin_log(f"🛑 [Slot #{slot_idx:02d}] Đã đóng cửa sổ game MEGAMU (PID {pid}).")
+
+    def on_click_close_games_ui(self):
+        """Xử lý khi người dùng nhấn nút Đóng Game trên Toolbar."""
+        all_megamu_pids = set()
+        for p in psutil.process_iter(['pid', 'name']):
+            try:
+                if p.info['name'] and p.info['name'].lower() == 'megamu.exe':
+                    all_megamu_pids.add(p.info['pid'])
+            except Exception:
+                pass
+        for c in self.controllers:
+            if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                all_megamu_pids.add(c.assigned_pid)
+
+        total_games = len(all_megamu_pids)
+        if total_games == 0:
+            messagebox.showinfo("Thông báo", "Hiện tại không có cửa sổ game MEGAMU nào đang mở!")
+            return
+
+        cur_cat = getattr(self, "current_autologin_category", "Tất cả")
+        cat_pids = set()
+        if cur_cat != "Tất cả" and self.account_mgr:
+            cat_accs = self.account_mgr.get_accounts_by_category(cur_cat)
+            for a in cat_accs:
+                p = self.find_account_running_pid(a)
+                if p and psutil.pid_exists(p):
+                    cat_pids.add(p)
+
+        if cur_cat != "Tất cả" and len(cat_pids) > 0 and len(cat_pids) < total_games:
+            dlg = ctk.CTkToplevel(self)
+            dlg.title("🛑 Tùy chọn đóng game MEGAMU")
+            dlg.geometry("460x220")
+            dlg.resizable(False, False)
+            dlg.transient(self)
+            dlg.grab_set()
+
+            try:
+                dlg.update_idletasks()
+                px = self.winfo_x() + (self.winfo_width() - 460) // 2
+                py = self.winfo_y() + (self.winfo_height() - 220) // 2
+                dlg.geometry(f"+{max(0, px)}+{max(0, py)}")
+            except Exception:
+                pass
+
+            ctk.CTkLabel(
+                dlg,
+                text="🛑 ĐÓNG CỬA SỔ GAME MEGAMU",
+                font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+                text_color="#f87171"
+            ).pack(pady=(16, 6))
+
+            ctk.CTkLabel(
+                dlg,
+                text=f"Đang có {total_games} cửa sổ MEGAMU đang chạy.\nBạn đang chọn xem nhóm '{cur_cat}' ({len(cat_pids)} cửa sổ đang mở).\nBạn muốn thực hiện thao tác nào?",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color="#cbd5e1",
+                justify="center"
+            ).pack(pady=(0, 14))
+
+            btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
+            btn_box.pack(fill="x", padx=24)
+
+            def _close_category_only():
+                dlg.destroy()
+                self._execute_batch_close_pids(list(cat_pids), f"Nhóm '{cur_cat}' ({len(cat_pids)} game)")
+
+            def _close_all():
+                dlg.destroy()
+                self._execute_batch_close_pids(list(all_megamu_pids), f"Toàn bộ ({total_games} game)")
+
+            ctk.CTkButton(
+                btn_box,
+                text=f"Chỉ đóng nhóm '{cur_cat}' ({len(cat_pids)} cửa sổ)",
+                height=34,
+                corner_radius=0,
+                fg_color="#0c4a6e",
+                hover_color="#075985",
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                command=_close_category_only
+            ).pack(fill="x", pady=3)
+
+            ctk.CTkButton(
+                btn_box,
+                text=f"🛑 Đóng TOÀN BỘ ({total_games}) cửa sổ game",
+                height=34,
+                corner_radius=0,
+                fg_color="#7f1d1d",
+                hover_color="#991b1b",
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                command=_close_all
+            ).pack(fill="x", pady=3)
+
+            ctk.CTkButton(
+                btn_box,
+                text="Hủy bỏ",
+                height=26,
+                corner_radius=0,
+                fg_color="#1e2433",
+                hover_color="#334155",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                command=dlg.destroy
+            ).pack(fill="x", pady=(3, 0))
+            return
+
+        if not messagebox.askyesno(
+            "Xác nhận đóng game",
+            f"Bạn có chắc chắn muốn đóng toàn bộ {total_games} cửa sổ game MEGAMU đang mở trên máy tính không?"
+        ):
+            return
+
+        self._execute_batch_close_pids(list(all_megamu_pids), f"Toàn bộ ({total_games} game)")
+
+    def _execute_batch_close_pids(self, pids: List[int], desc: str = "Tất cả"):
+        """Thực thi đóng danh sách PID trên background thread để giao diện luôn mượt mà."""
+        def _worker():
+            self.append_autologin_log(f"🛑 Bắt đầu đóng {desc}...")
+            self.log_message(f"Bắt đầu đóng {desc}...", "WARNING")
+            closed_cnt = 0
+            for p in pids:
+                try:
+                    if MEGAMUWindowManager.close_game_window(p, force=True):
+                        closed_cnt += 1
+                        for ctrl in self.controllers:
+                            if ctrl.assigned_pid == p:
+                                ctrl.detach()
+                                el = self.slot_ui_elements.get(ctrl.slot_idx)
+                                if el and el.get("proc_var"):
+                                    self.after(0, lambda el=el: el["proc_var"].set("--"))
+                except Exception:
+                    pass
+
+            self.after(0, lambda: self.refresh_games())
+            self.after(0, lambda: self.refresh_autologin_table())
+            self.after(0, lambda: self.update_header_stats())
+            self.append_autologin_log(f"✅ Đã đóng thành công {closed_cnt}/{len(pids)} cửa sổ MEGAMU.")
+            self.log_message(f"Đã đóng thành công {closed_cnt}/{len(pids)} cửa sổ MEGAMU.", "SUCCESS")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def choose_exe_path_dialog(self):
         """Chọn đường dẫn tệp MEGAMU.exe."""
         from tkinter import filedialog
@@ -12986,7 +13606,7 @@ class DashboardApp(ctk.CTk):
         """Hộp thoại thêm tài khoản MEGAMU mới với đầy đủ tính năng cấu hình."""
         dlg = ctk.CTkToplevel(self)
         dlg.title("Thêm Tài Khoản MEGAMU")
-        dlg.geometry("440x410")
+        dlg.geometry("440x450")
         dlg.resizable(False, False)
         dlg.transient(self)
         dlg.grab_set()
@@ -12994,8 +13614,8 @@ class DashboardApp(ctk.CTk):
         try:
             dlg.update_idletasks()
             x = self.winfo_x() + (self.winfo_width() - 440) // 2
-            y = self.winfo_y() + (self.winfo_height() - 410) // 2
-            dlg.geometry(f"440x410+{max(0, x)}+{max(0, y)}")
+            y = self.winfo_y() + (self.winfo_height() - 450) // 2
+            dlg.geometry(f"440x450+{max(0, x)}+{max(0, y)}")
         except Exception:
             pass
 
@@ -13065,6 +13685,16 @@ class DashboardApp(ctk.CTk):
         slot_combo.set("Tự động")
         slot_combo.grid(row=4, column=1, sticky="e", pady=6)
 
+        # 6. Category (Phân loại mục đích)
+        ctk.CTkLabel(f, text="Phân loại:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=5, column=0, sticky="w", pady=6)
+        cat_choices = self.account_mgr.get_categories() if self.account_mgr else ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp"]
+        cur_def_cat = getattr(self, "current_autologin_category", "Chung")
+        if cur_def_cat == "Tất cả" or cur_def_cat not in cat_choices:
+            cur_def_cat = "Chung"
+        cat_combo_dlg = ModernOptionMenu(f, values=cat_choices, width=220, font=ctk.CTkFont(family="Segoe UI", size=11))
+        cat_combo_dlg.set(cur_def_cat)
+        cat_combo_dlg.grid(row=5, column=1, sticky="e", pady=6)
+
         # Validation message
         err_lbl = ctk.CTkLabel(dlg, text="", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#ef4444")
         err_lbl.pack(pady=(2, 0))
@@ -13092,13 +13722,15 @@ class DashboardApp(ctk.CTk):
                 except Exception:
                     pass
 
+            cat_choice = cat_combo_dlg.get().strip() or "Chung"
             if self.account_mgr:
-                self.account_mgr.add_account(username=u, password=p, character=c, server=s, slot=pref_slot)
+                self.account_mgr.add_account(username=u, password=p, character=c, server=s, slot=pref_slot, category=cat_choice)
 
+            self.refresh_autologin_category_tabs()
             self.refresh_autologin_table()
             pwd_info = " (🔑 Đã lưu mật khẩu)" if p else ""
             slot_info = f", Gán vào Slot #{pref_slot:02d}" if pref_slot else ""
-            self.append_autologin_log(f"➕ Đã thêm tài khoản '{u}'{pwd_info} (Nhân vật '{c or 'Mặc định'}', Server {s}{slot_info})")
+            self.append_autologin_log(f"➕ Đã thêm tài khoản '{u}'{pwd_info} [Nhóm: {cat_choice}] (Nhân vật '{c or 'Mặc định'}', Server {s}{slot_info})")
             dlg.destroy()
 
         btn_box = ctk.CTkFrame(dlg, fg_color="transparent")
@@ -13130,7 +13762,7 @@ class DashboardApp(ctk.CTk):
         orig_user = acc.get("username", "")
         dlg = ctk.CTkToplevel(self)
         dlg.title(f"Sửa Tài Khoản: {orig_user}")
-        dlg.geometry("450x430")
+        dlg.geometry("450x470")
         dlg.resizable(False, False)
         dlg.transient(self)
         dlg.grab_set()
@@ -13138,8 +13770,8 @@ class DashboardApp(ctk.CTk):
         try:
             dlg.update_idletasks()
             x = self.winfo_x() + (self.winfo_width() - 450) // 2
-            y = self.winfo_y() + (self.winfo_height() - 430) // 2
-            dlg.geometry(f"450x430+{max(0, x)}+{max(0, y)}")
+            y = self.winfo_y() + (self.winfo_height() - 470) // 2
+            dlg.geometry(f"450x470+{max(0, x)}+{max(0, y)}")
         except Exception:
             pass
 
@@ -13234,6 +13866,16 @@ class DashboardApp(ctk.CTk):
         slot_combo.set(def_slot_str)
         slot_combo.grid(row=4, column=1, sticky="e", pady=6)
 
+        # 6. Category (Phân loại mục đích)
+        ctk.CTkLabel(f, text="Phân loại:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=5, column=0, sticky="w", pady=6)
+        cat_choices = self.account_mgr.get_categories() if self.account_mgr else ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp"]
+        cur_cat_val = acc.get("category") or "Chung"
+        if cur_cat_val not in cat_choices:
+            cat_choices = [cur_cat_val] + cat_choices
+        cat_combo_dlg = ModernOptionMenu(f, values=cat_choices, width=220, font=ctk.CTkFont(family="Segoe UI", size=11))
+        cat_combo_dlg.set(cur_cat_val)
+        cat_combo_dlg.grid(row=5, column=1, sticky="e", pady=6)
+
         # Validation message
         err_lbl = ctk.CTkLabel(dlg, text="", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#ef4444")
         err_lbl.pack(pady=(2, 0))
@@ -13261,6 +13903,7 @@ class DashboardApp(ctk.CTk):
                 except Exception:
                     pref_slot = 0
 
+            cat_choice = cat_combo_dlg.get().strip() or "Chung"
             if self.account_mgr:
                 self.account_mgr.update_account(
                     username=orig_user,
@@ -13268,11 +13911,13 @@ class DashboardApp(ctk.CTk):
                     character=c,
                     server=s,
                     new_username=new_u,
-                    slot=pref_slot
+                    slot=pref_slot,
+                    category=cat_choice
                 )
 
+            self.refresh_autologin_category_tabs()
             self.refresh_autologin_table()
-            self.append_autologin_log(f"✏️ Đã cập nhật tài khoản '{new_u}' (Nhân vật '{c}', Server {s})")
+            self.append_autologin_log(f"✏️ Đã cập nhật tài khoản '{new_u}' [Nhóm: {cat_choice}] (Nhân vật '{c}', Server {s})")
             dlg.destroy()
 
         def _delete_from_edit():
@@ -13432,6 +14077,8 @@ class DashboardApp(ctk.CTk):
                 self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Lỗi mở {u}!", text_color="#ef4444"))
                 return
 
+            acc["last_pid"] = pid
+
             # 2. Gán PID vào Slot UI ngay lập tức để người dùng thấy slot được chiếm chỗ và kích hoạt tức thì!
             self.after(0, lambda: self._bind_pid_to_slot_ui(ctrl, pid, c or u))
             ctrl.set_status("🔑 Đang đăng nhập...")
@@ -13488,9 +14135,11 @@ class DashboardApp(ctk.CTk):
         """Khởi chạy ĐỒNG THỜI nhiều luồng login tất cả tài khoản đang bật (Parallel Multi-process)."""
         if not self.account_mgr:
             return
-        enabled = self.account_mgr.get_enabled_accounts()
+        cur_cat = getattr(self, "current_autologin_category", "Tất cả")
+        enabled = self.account_mgr.get_enabled_accounts(category=cur_cat)
         if not enabled:
-            self.append_autologin_log("⚠️ Không có tài khoản nào được tích chọn để mở!")
+            cat_str = f" trong nhóm '{cur_cat}'" if cur_cat != "Tất cả" else ""
+            self.append_autologin_log(f"⚠️ Không có tài khoản nào được tích chọn để mở{cat_str}!")
             return
 
         try:
@@ -13501,7 +14150,8 @@ class DashboardApp(ctk.CTk):
         self.btn_autologin_all.configure(state="disabled")
 
         def _batch_orchestrator():
-            self.append_autologin_log(f"🌟 BẮT ĐẦU MỞ ĐỒNG LOẠT {len(enabled)} TÀI KHOẢN (Multi-threading song song)...")
+            cat_tag = f" [Nhóm: {cur_cat}]" if cur_cat != "Tất cả" else ""
+            self.append_autologin_log(f"🌟 BẮT ĐẦU MỞ ĐỒNG LOẠT {len(enabled)} TÀI KHOẢN{cat_tag} (Multi-threading song song)...")
 
             # 1. GIAI ĐOẠN 1: Cấp phát Slot và Spawn ngay lập tức tất cả các tiến trình MEGAMU
             spawned_jobs = []
@@ -13523,6 +14173,8 @@ class DashboardApp(ctk.CTk):
                 if not pid:
                     self.append_autologin_log(f"❌ [Account: {u}] Lỗi không thể spawn MEGAMU.exe!")
                     continue
+
+                acc["last_pid"] = pid
 
                 # Gán ngay PID vào Slot trên giao diện Dashboard để người dùng thấy tất cả các slot bật lên cùng lúc!
                 self.after(0, lambda c_ref=ctrl, p=pid, ch=c or u: self._bind_pid_to_slot_ui(c_ref, p, ch))
