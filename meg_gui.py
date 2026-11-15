@@ -10696,20 +10696,19 @@ class DashboardApp(ctk.CTk):
             self.update_mirror_row_visuals(ctrl.slot_idx)
         self.update_mirror_selected_badge()
         self.on_toggle_mirror_auto_schedule()
-        self.append_mirror_log("✅ Đã chọn TẤT CẢ tài khoản tham gia Double Goer (Mirror).")
+        self.append_mirror_log("✅ Đã chọn TẤT CẢ tài khoản tham gia Auto Mirror.")
 
     def deselect_all_mirror_slots(self):
-        """Bỏ chọn toàn bộ tài khoản đi Mirror."""
+        """Bỏ chọn toàn bộ tài khoản tham gia Mirror."""
         for ctrl in self.controllers:
             ctrl.mirror_enabled = False
-            ctrl.stop_mirror_activity()
             el = self.mirror_ui_elements.get(ctrl.slot_idx)
             if el and el.get("cb_enabled"):
                 el["cb_enabled"].deselect()
             self.update_mirror_row_visuals(ctrl.slot_idx)
         self.update_mirror_selected_badge()
         self.on_toggle_mirror_auto_schedule()
-        self.append_mirror_log("⬜ Đã BỎ CHỌN toàn bộ tài khoản đi Mirror (Đã dừng toàn bộ di chuyển Mirror).")
+        self.append_mirror_log("⬜ Đã BỎ CHỌN toàn bộ tài khoản tham gia Auto Mirror.")
 
     def update_mirror_selected_badge(self):
         """Cập nhật nhãn số lượng tài khoản đã chọn đi Mirror trên Toolbar."""
