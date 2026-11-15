@@ -1361,11 +1361,20 @@ def server_from_window_title(title: str) -> Optional[int]:
     return None
 
 def enumerate_megamu_processes() -> Dict[int, str]:
-    """Tìm tất cả tiến trình MEGAMU.exe và lấy tiêu đề cửa sổ / tên nhân vật."""
+    """Tìm tất cả tiến trình MEGAMU.exe thực sự đang chạy (bỏ qua tiến trình treo/ghost)."""
     pids = set()
-    for p in psutil.process_iter(['pid', 'name']):
+    for p in psutil.process_iter(['pid', 'name', 'status']):
         try:
             if p.info['name'] and p.info['name'].lower() == 'megamu.exe':
+                if p.info.get('status') in (getattr(psutil, 'STATUS_ZOMBIE', 'zombie'), getattr(psutil, 'STATUS_DEAD', 'dead')):
+                    continue
+                try:
+                    # Bỏ qua tiến trình MEGAMU bị treo khởi động / không có bộ nhớ thực tế (< 15MB)
+                    mem = p.memory_info().rss
+                    if mem < 15 * 1024 * 1024:
+                        continue
+                except Exception:
+                    pass
                 pids.add(p.info['pid'])
         except Exception:
             pass
@@ -5582,12 +5591,8 @@ class DashboardApp(ctk.CTk):
         self.log_message(f"Khởi động thành công {APP_NAME} {APP_VERSION} - Hệ thống sẵn sàng!", "INFO")
         self.log_message(f"Đã nạp {len(self.controllers)} tài khoản/slots hoạt động mặc định.", "INFO")
 
-        # Tự động quét và nhận diện các game MEGAMU đang mở sẵn (nhân vật cũ / đứng sẵn)
-        try:
-            self.refresh_games()
-            self.auto_attach_standing_games()
-        except Exception:
-            pass
+        # Tự động quét và nhận diện các game MEGAMU đang mở sẵn sau khi giao diện đã hiển thị (Non-blocking)
+        self.after(100, self._async_initial_scan_and_attach)
 
         # Trạng thái cập nhật bắt buộc (Mandatory Auto Update)
         self.is_update_mandatory: bool = False
@@ -15854,6 +15859,16 @@ class DashboardApp(ctk.CTk):
         self.update_header_stats()
         self.log_message(f"Đã làm mới: Phát hiện {len(self.detected_games)} cửa sổ MEGAMU.exe.", "INFO")
 
+    def _async_initial_scan_and_attach(self):
+        """Khởi động quét và nhận diện game ở background thread để UI luôn xuất hiện ngay lập tức 0ms."""
+        def _worker():
+            try:
+                self.refresh_games()
+                self.auto_attach_standing_games()
+            except Exception:
+                pass
+        threading.Thread(target=_worker, daemon=True, name="InitScanWorker").start()
+
     def auto_attach_standing_games(self):
         """Tự động kết nối và nhận diện tất cả các cửa sổ MEGAMU đang mở sẵn (nhân vật cũ / đứng sẵn),
         cập nhật ngay Server, Tên nhân vật, Level và Tọa độ lên Slot UI."""
@@ -15886,13 +15901,16 @@ class DashboardApp(ctk.CTk):
                                 assigned_pids.add(p)
                                 break
 
-        # 2. Với các game MEGAMU còn lại chưa gán: tự động gán vào slot trống tiếp theo
+        # 2. Với các game MEGAMU còn lại chưa gán: tự động gán vào slot trống tiếp theo (chỉ gán game có cửa sổ)
         avail_pids = [p for p in self.detected_games if p not in assigned_pids]
         avail_pids.sort()
         empty_ctrls = [c for c in self.controllers if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid)]
         for p in avail_pids:
             if not empty_ctrls:
                 break
+            p_title = self.detected_games.get(p, "")
+            if not p_title:
+                continue
             ctrl = empty_ctrls.pop(0)
             ctrl.attach_pid(p)
             assigned_pids.add(p)

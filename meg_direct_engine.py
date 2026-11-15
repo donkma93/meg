@@ -7662,9 +7662,8 @@ class MegDirectEngine:
         self.offsets = dict(DEFAULT_OFFSETS)
         self._load_offsets_file()
 
-        # Connect
+        # Connect non-blocking (kết nối Frida sẽ được thực hiện bất đồng bộ khi cần)
         self._claim_mutex()
-        self._attach()
 
     def register_telemetry_callback(self, cb: Callable[[Dict[str, Any]], None]):
         """Đăng ký callback nhận dữ liệu telemetry RAM thời gian thực (150ms)."""
@@ -8004,6 +8003,13 @@ class MegDirectEngine:
             if not p.is_running() or p.status() in (getattr(psutil, "STATUS_ZOMBIE", "zombie"), getattr(psutil, "STATUS_DEAD", "dead")):
                 self.is_ready = False
                 return False
+            # Bỏ qua nếu process không có bộ nhớ thực tế (< 15MB) tránh treo khi attach process lỗi
+            try:
+                if p.memory_info().rss < 15 * 1024 * 1024:
+                    self.is_ready = False
+                    return False
+            except Exception:
+                pass
         except Exception:
             self.is_ready = False
             return False
