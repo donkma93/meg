@@ -238,11 +238,17 @@ def get_bridge_version() -> int:
     bridge = _get_native_bridge()
     return bridge.Bridge_GetVersion() if bridge else 0
 
+_cached_hwid: Optional[str] = None
+
 def get_machine_hwid() -> str:
     """
     Tạo HWID định danh duy nhất cho máy tính Windows.
-    BẮT BUỘC gọi C++ Native Bridge qua Win32 Crypto API & MachineGuid.
+    BẮT BUỘC gọi C++ Native Bridge qua Win32 Crypto API & MachineGuid (có cache RAM).
     """
+    global _cached_hwid
+    if _cached_hwid and not _cached_hwid.startswith("THIẾU_"):
+        return _cached_hwid
+
     bridge = _get_native_bridge()
     if bridge:
         try:
@@ -250,6 +256,7 @@ def get_machine_hwid() -> str:
             if bridge.Bridge_GetHwid(buf, 64) == 1:
                 hwid = buf.value.decode("utf-8").strip()
                 if hwid:
+                    _cached_hwid = hwid
                     return hwid
         except Exception:
             pass
@@ -258,10 +265,11 @@ def get_machine_hwid() -> str:
 
 _license_lock = threading.Lock()
 _cached_license_data: Dict[str, Any] = {}
+_cached_license_mtime: float = 0.0
 
 def load_license_data() -> Dict[str, Any]:
-    """Đọc dữ liệu bản quyền đã lưu từ file config/license.json (Thread-safe có fallback cache)."""
-    global _cached_license_data
+    """Đọc dữ liệu bản quyền đã lưu từ file config/license.json (Thread-safe có fallback cache & mtime check)."""
+    global _cached_license_data, _cached_license_mtime
     with _license_lock:
         if not LICENSE_FILE.exists():
             _cached_license_data = {
@@ -270,7 +278,16 @@ def load_license_data() -> Dict[str, Any]:
                 "status": "unregistered",
                 "modules": []
             }
+            _cached_license_mtime = 0.0
             return _cached_license_data
+
+        try:
+            cur_mtime = LICENSE_FILE.stat().st_mtime
+            if _cached_license_data and _cached_license_mtime == cur_mtime:
+                return _cached_license_data
+        except Exception:
+            cur_mtime = 0.0
+
         for _ in range(3):
             try:
                 content = LICENSE_FILE.read_text(encoding="utf-8")
@@ -278,6 +295,7 @@ def load_license_data() -> Dict[str, Any]:
                     data = json.loads(content)
                     if isinstance(data, dict) and data.get("license_key"):
                         _cached_license_data = data
+                        _cached_license_mtime = cur_mtime
                         return data
             except Exception:
                 time.sleep(0.02)
@@ -285,7 +303,7 @@ def load_license_data() -> Dict[str, Any]:
 
 def save_license_data(data: Dict[str, Any]):
     """Lưu dữ liệu bản quyền vào config/license.json một cách an toàn (Atomic write)."""
-    global _cached_license_data
+    global _cached_license_data, _cached_license_mtime
     with _license_lock:
         _cached_license_data = data
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -294,10 +312,15 @@ def save_license_data(data: Dict[str, Any]):
             temp_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
             if temp_file.exists():
                 os.replace(str(temp_file), str(LICENSE_FILE))
+            if LICENSE_FILE.exists():
+                _cached_license_mtime = LICENSE_FILE.stat().st_mtime
         except Exception:
             try:
                 LICENSE_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                if LICENSE_FILE.exists():
+                    _cached_license_mtime = LICENSE_FILE.stat().st_mtime
             except Exception:
+                pass
                 pass
 
 LOCAL_SERVER_URL = "http://127.0.0.1:8000"
@@ -596,14 +619,24 @@ def deactivate_license() -> bool:
             pass
         return True
 
+_last_valid_check_time: float = 0.0
+_last_valid_result: bool = False
+
 def is_license_valid() -> bool:
     """
     Kiểm tra xem bản quyền hiện tại có hợp lệ hay không.
-    Hỗ trợ Chế độ Ngoại tuyến (Offline Grace Period):
-    - File DLL meg_license_bridge.dll bắt buộc phải tồn tại.
-    - Miễn là ngày hết hạn (expires_at) vẫn còn hạn và chữ ký số HMAC-SHA256 khớp với máy,
-      hệ thống đảm bảo chạy liên tục 24/7 mà không bị ngắt khi mất kết nối mạng.
+    Hỗ trợ Chế độ Ngoại tuyến (Offline Grace Period) và cache 2s chống giật lag.
     """
+    global _last_valid_check_time, _last_valid_result
+    now_ts = time.time()
+    if (now_ts - _last_valid_check_time) < 2.0:
+        return _last_valid_result
+
+    _last_valid_check_time = now_ts
+    _last_valid_result = _do_check_license_valid()
+    return _last_valid_result
+
+def _do_check_license_valid() -> bool:
     if not is_native_bridge_active():
         return False
 

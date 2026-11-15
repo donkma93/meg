@@ -2638,6 +2638,9 @@ class SlotController:
         self.char_name = "---"
         self.level = "---"
         self.coords = "--,--"
+        self.server_name = "---"
+        self.server_num = None
+        self._last_synced_telemetry = None
         self.set_status(tr("idle"))
         if MegDirectEngine and old_pid:
             MegDirectEngine.release_engine(old_pid)
@@ -2817,6 +2820,10 @@ class SlotController:
                 self.char_name = "---"
                 self.level = "---"
                 self.coords = "--,--"
+                self.server_name = "---"
+                self.server_num = None
+                self._last_synced_telemetry = None
+                self.app.update_slot_ui_telemetry(self.slot_idx, "---", "---", "--,--", points=0, class_code="", server="---")
                 if MegDirectEngine:
                     MegDirectEngine.release_engine(p_closed)
                 self.engine = None
@@ -2849,44 +2856,52 @@ class SlotController:
                 pass
 
         # Lấy tên nhân vật và server từ window title hoặc ProcessMemoryReader / Engine
-        title = self.app.detected_games.get(self.assigned_pid, "")
-        if not title:
-            try:
-                from meg_navigator import WindowHelper
-                for p, _, t, _, _ in WindowHelper.get_unity_windows():
-                    if p == self.assigned_pid and t:
-                        title = t
-                        self.app.detected_games[p] = t
-                        break
-            except Exception:
-                pass
-        t_name = character_name_from_window_title(title)
-        if not t_name:
-            try:
-                from meg_navigator import ProcessMemoryReader
-                t_name = ProcessMemoryReader.read_character_name(self.assigned_pid) or ""
-            except Exception:
-                pass
+        # Tối ưu hóa chống giật: Chỉ quét sâu khi chưa có tên hoặc chưa có server
+        need_name = (self.char_name == "---" or not self.char_name)
+        need_server = (self.server_name == "---" or not self.server_name or not self.server_num)
 
-        if t_name and (self.char_name == "---" or not self.char_name):
-            self.char_name = t_name
+        t_name = ""
+        if need_name or need_server:
+            title = self.app.detected_games.get(self.assigned_pid, "")
+            if not title:
+                try:
+                    from meg_navigator import WindowHelper
+                    for p, _, t, _, _ in WindowHelper.get_unity_windows():
+                        if p == self.assigned_pid and t:
+                            title = t
+                            self.app.detected_games[p] = t
+                            break
+                except Exception:
+                    pass
 
-        t_srv = server_from_window_title(title)
-        if not t_srv and self.engine and hasattr(self.engine, "get_server_code"):
-            try:
-                t_srv = self.engine.get_server_code() or None
-            except Exception:
-                pass
-        if not t_srv:
-            try:
-                from meg_navigator import ProcessMemoryReader
-                if hasattr(ProcessMemoryReader, "read_character_server"):
-                    t_srv = ProcessMemoryReader.read_character_server(self.assigned_pid)
-            except Exception:
-                pass
-        if t_srv:
-            self.server_num = t_srv
-            self.server_name = f"Sv{t_srv}"
+            if need_name:
+                t_name = character_name_from_window_title(title)
+                if not t_name:
+                    try:
+                        from meg_navigator import ProcessMemoryReader
+                        t_name = ProcessMemoryReader.read_character_name(self.assigned_pid) or ""
+                    except Exception:
+                        pass
+                if t_name:
+                    self.char_name = t_name
+
+            if need_server:
+                t_srv = server_from_window_title(title)
+                if not t_srv and self.engine and hasattr(self.engine, "get_server_code"):
+                    try:
+                        t_srv = self.engine.get_server_code() or None
+                    except Exception:
+                        pass
+                if not t_srv:
+                    try:
+                        from meg_navigator import ProcessMemoryReader
+                        if hasattr(ProcessMemoryReader, "read_character_server"):
+                            t_srv = ProcessMemoryReader.read_character_server(self.assigned_pid)
+                    except Exception:
+                        pass
+                if t_srv:
+                    self.server_num = t_srv
+                    self.server_name = f"Sv{t_srv}"
 
         if p_info:
             p_name = p_info.get("name", "")
@@ -2949,10 +2964,41 @@ class SlotController:
                         self.current_resets = r_val
                 except Exception:
                     pass
+            else:
+                self._reset_check_tick = getattr(self, "_reset_check_tick", 0) + 1
+                if getattr(self, "current_resets", 0) <= 0 and self._reset_check_tick % 20 == 0:
+                    try:
+                        from meg_navigator import ProcessMemoryReader
+                        if hasattr(ProcessMemoryReader, "read_character_resets"):
+                            rs_cnt = ProcessMemoryReader.read_character_resets(self.assigned_pid) or 0
+                            if rs_cnt > 0:
+                                self.current_resets = rs_cnt
+                    except Exception:
+                        pass
 
-            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code, server=self.server_name)
-        elif self.char_name != "---" or self.level != "---":
-            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code, server=self.server_name)
+        # Chống lag UI (State Diffing / Cache): Chỉ cập nhật GUI khi dữ liệu thực sự thay đổi!
+        telemetry_tuple = (
+            self.char_name,
+            self.level,
+            self.coords,
+            self.points,
+            self.master_points,
+            self.class_code,
+            self.server_name,
+            getattr(self, "current_resets", 0)
+        )
+        if telemetry_tuple != getattr(self, "_last_synced_telemetry", None):
+            self._last_synced_telemetry = telemetry_tuple
+            self.app.update_slot_ui_telemetry(
+                self.slot_idx,
+                self.char_name,
+                self.level,
+                self.coords,
+                points=self.points,
+                class_code=self.class_code,
+                server=self.server_name,
+                resets=getattr(self, "current_resets", 0)
+            )
 
     def start_moss(self) -> bool:
         """Kích hoạt Auto Quay Moss cho riêng slot này theo cấu hình đã cài đặt."""
@@ -5609,7 +5655,7 @@ class DashboardApp(ctk.CTk):
         self._last_mirror_stop_key = None
         self.after(500, self._periodic_game_scan)
         self.after(800, self._periodic_telemetry)
-        self.after(1000, self._periodic_license_monitor)
+        self.after(2000, self._periodic_license_monitor)
         self.after(1000, self._periodic_moss_scheduler)
         self.after(1000, self._periodic_mirror_scheduler)
         self.after(1200, self._check_initial_license)
@@ -8293,9 +8339,14 @@ class DashboardApp(ctk.CTk):
             except Exception:
                 slot_tag = "ALL"
 
-        self.logs_data.append((t_str, slot_tag, f"[{level}] {msg}"))
+        entry = (t_str, slot_tag, f"[{level}] {msg}")
+        self.logs_data.append(entry)
         if len(self.logs_data) > 1500:
             self.logs_data.pop(0)
+
+        if not hasattr(self, "_pending_log_entries"):
+            self._pending_log_entries = []
+        self._pending_log_entries.append(entry)
 
         # Trì hoãn và gom nhóm việc render lên GUI Main Thread (Debounce 100ms)
         # TUYỆT ĐỐI không gọi widget Tkinter trực tiếp từ luồng nền worker
@@ -8308,7 +8359,35 @@ class DashboardApp(ctk.CTk):
 
     def _async_render_logs(self):
         self._render_logs_scheduled = False
-        self.render_logs()
+        if not hasattr(self, "log_textbox") or not self.log_textbox:
+            self._pending_log_entries = []
+            return
+        try:
+            if not self.log_textbox.winfo_exists():
+                self._pending_log_entries = []
+                return
+            selected_filter = self.log_filter_var.get() if hasattr(self, "log_filter_var") else tr("all")
+
+            pending = getattr(self, "_pending_log_entries", [])
+            self._pending_log_entries = []
+            if not pending:
+                return
+
+            new_lines = []
+            for t_str, s_tag, content in pending:
+                if selected_filter == tr("all") or selected_filter == s_tag:
+                    new_lines.append(f"[{t_str}] {content}")
+
+            if new_lines:
+                self.log_textbox.configure(state="normal")
+                self.log_textbox.insert("end", "\n".join(new_lines) + "\n")
+                line_count = int(self.log_textbox.index("end-1c").split(".")[0])
+                if line_count > 1500:
+                    self.log_textbox.delete("1.0", f"{line_count - 1200}.0")
+                self.log_textbox.see("end")
+                self.log_textbox.configure(state="disabled")
+        except Exception:
+            pass
 
     def render_logs(self):
         if not hasattr(self, "log_textbox") or not self.log_textbox:
@@ -11217,6 +11296,7 @@ class DashboardApp(ctk.CTk):
         threading.Thread(target=_bg_check, daemon=True).start()
 
     def refresh_all_mirror_tickets_display(self):
+        for i, ctrl in enumerate(self.controllers, 1):
             if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid) and getattr(ctrl, "mirror_enabled", True):
                 self.refresh_mirror_slot_ticket_display(i)
 
@@ -12120,17 +12200,18 @@ class DashboardApp(ctk.CTk):
                 m_rem = remain_open_sec // 60
                 s_rem = remain_open_sec % 60
 
-                if hasattr(self, "lbl_mirror_next_event"):
-                    self.lbl_mirror_next_event.configure(text=f"Đợt này: {current_event_hour:02d}:10 - {current_event_hour:02d}:15")
+                if getattr(self, "active_tab", "") == "mirror":
+                    if hasattr(self, "lbl_mirror_next_event"):
+                        self.lbl_mirror_next_event.configure(text=f"Đợt này: {current_event_hour:02d}:10 - {current_event_hour:02d}:15")
 
-                if hasattr(self, "lbl_mirror_countdown"):
-                    self.lbl_mirror_countdown.configure(
-                        text=f"⚡ CỔNG ĐANG MỞ: {m_rem:02d}:{s_rem:02d} (Bắt đầu lúc :{15:02d})",
-                        text_color="#eab308"
-                    )
+                    if hasattr(self, "lbl_mirror_countdown"):
+                        self.lbl_mirror_countdown.configure(
+                            text=f"⚡ CỔNG ĐANG MỞ: {m_rem:02d}:{s_rem:02d} (Bắt đầu lúc :{15:02d})",
+                            text_color="#eab308"
+                        )
 
-                if hasattr(self, "lbl_mirror_sched_status"):
-                    self.lbl_mirror_sched_status.configure(text="⚡ ĐÃ CƯỚP CỔNG (CHỜ ĐỢT SAU)", text_color="#eab308")
+                    if hasattr(self, "lbl_mirror_sched_status"):
+                        self.lbl_mirror_sched_status.configure(text="⚡ ĐÃ CƯỚP CỔNG (CHỜ ĐỢT SAU)", text_color="#eab308")
 
                 # Nếu người dùng mới bật app hoặc mới tích chọn ngay trong khung :10-:15 (chưa chạy pre-fire trước 5s của đợt này),
                 # cũng chỉ kích hoạt đúng 1 lần duy nhất cho đợt này rồi khóa lại tới sự kiện tiếp theo!
@@ -12148,27 +12229,29 @@ class DashboardApp(ctk.CTk):
                 mins_left = (diff_to_open % 3600) // 60
                 secs_left = diff_to_open % 60
 
-                if hasattr(self, "lbl_mirror_next_event"):
-                    self.lbl_mirror_next_event.configure(
-                        text=f"Mở cổng: {next_gate_open.strftime('%H:%M')} (Bắt đầu: {next_event_start.strftime('%H:%M')})"
-                    )
+                if getattr(self, "active_tab", "") == "mirror":
+                    if hasattr(self, "lbl_mirror_next_event"):
+                        self.lbl_mirror_next_event.configure(
+                            text=f"Mở cổng: {next_gate_open.strftime('%H:%M')} (Bắt đầu: {next_event_start.strftime('%H:%M')})"
+                        )
 
-                if hasattr(self, "lbl_mirror_countdown"):
-                    if hours_left > 0:
-                        cnt_str = f"⏳ Mở cổng sau: {hours_left:02d}:{mins_left:02d}:{secs_left:02d}"
-                    else:
-                        cnt_str = f"⏳ Mở cổng sau: {mins_left:02d}:{secs_left:02d}"
-                    self.lbl_mirror_countdown.configure(text=cnt_str, text_color="#a855f7")
+                    if hasattr(self, "lbl_mirror_countdown"):
+                        if hours_left > 0:
+                            cnt_str = f"⏳ Mở cổng sau: {hours_left:02d}:{mins_left:02d}:{secs_left:02d}"
+                        else:
+                            cnt_str = f"⏳ Mở cổng sau: {mins_left:02d}:{secs_left:02d}"
+                        self.lbl_mirror_countdown.configure(text=cnt_str, text_color="#a855f7")
 
                 # Giai đoạn chuẩn bị (kích hoạt từ phút :08, tức là trước giờ mở cổng 120s = 2 phút):
                 if diff_to_open <= 120:
-                    if hasattr(self, "lbl_mirror_sched_status"):
-                        if diff_to_open <= 2:
-                            self.lbl_mirror_sched_status.configure(text="⚡ PRE-FIRE TURBO", text_color="#f59e0b")
-                        else:
-                            self.lbl_mirror_sched_status.configure(text="🏃 ĐANG CHUẨN BỊ", text_color="#38bdf8")
-                    if hasattr(self, "lbl_mirror_countdown"):
-                        self.lbl_mirror_countdown.configure(text_color="#38bdf8")
+                    if getattr(self, "active_tab", "") == "mirror":
+                        if hasattr(self, "lbl_mirror_sched_status"):
+                            if diff_to_open <= 2:
+                                self.lbl_mirror_sched_status.configure(text="⚡ PRE-FIRE TURBO", text_color="#f59e0b")
+                            else:
+                                self.lbl_mirror_sched_status.configure(text="🏃 ĐANG CHUẨN BỊ", text_color="#38bdf8")
+                        if hasattr(self, "lbl_mirror_countdown"):
+                            self.lbl_mirror_countdown.configure(text_color="#38bdf8")
 
                     prep_key = next_gate_open.strftime("%Y%m%d_%H%M_prep")
                     if getattr(self, "_last_mirror_prep_key", None) != prep_key:
@@ -12179,11 +12262,12 @@ class DashboardApp(ctk.CTk):
                             )
                             self.prepare_all_mirror_event()
                 else:
-                    if hasattr(self, "lbl_mirror_sched_status"):
-                        if is_auto:
-                            self.lbl_mirror_sched_status.configure(text=f"🟢 Chờ mở cổng ({next_gate_open.strftime('%H:%M')})", text_color="#10b981")
-                        else:
-                            self.lbl_mirror_sched_status.configure(text="⏸️ Tắt tự động", text_color="#94a3b8")
+                    if getattr(self, "active_tab", "") == "mirror":
+                        if hasattr(self, "lbl_mirror_sched_status"):
+                            if is_auto:
+                                self.lbl_mirror_sched_status.configure(text=f"🟢 Chờ mở cổng ({next_gate_open.strftime('%H:%M')})", text_color="#10b981")
+                            else:
+                                self.lbl_mirror_sched_status.configure(text="⏸️ Tắt tự động", text_color="#94a3b8")
                     # Nếu đã qua khung mở cổng (:10-:15) mà tài khoản không vào được map Double Goer, tự động khôi phục AutoTrain
                     for ctrl in self.controllers:
                         if getattr(ctrl, 'resume_auto_train_after_mirror', False) and not getattr(ctrl, '_mirror_dungeon_running', False) and not getattr(ctrl, 'mirror_sniping', False):
@@ -12194,9 +12278,10 @@ class DashboardApp(ctk.CTk):
                             except Exception:
                                 pass
 
-            # 5. Tự động thăm dò vé định kỳ mỗi 4 giây để UI luôn cập nhật mới nhất
+            # 5. Tự động thăm dò vé định kỳ: chỉ khi tab Mirror đang mở hoặc sắp mở cổng (trước 5 phút)
             self._mirror_poll_tick = getattr(self, "_mirror_poll_tick", 0) + 1
-            if self._mirror_poll_tick % 4 == 0:
+            is_near_mirror_gate = is_in_gate_open_window or (not is_in_gate_open_window and diff_to_open <= 300)
+            if (getattr(self, "active_tab", "") == "mirror" or is_near_mirror_gate) and self._mirror_poll_tick % 4 == 0:
                 self.refresh_all_mirror_tickets_display()
 
             # 6. Tự động kiểm tra chu trình Double Goer (Đợi Safe Zone -> Phút 16 ra bãi -> Săn 3 Box)
@@ -15729,12 +15814,18 @@ class DashboardApp(ctk.CTk):
             _apply()
             self.update_master_run_button()
 
-    def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str, points: Optional[int] = None, class_code: Optional[str] = None, server: Optional[str] = None):
+    def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str, points: Optional[int] = None, class_code: Optional[str] = None, server: Optional[str] = None, resets: Optional[int] = None):
         def _apply():
             el = self.slot_ui_elements.get(slot_idx)
             if not el:
                 return
             ctrl = self.controllers[slot_idx - 1]
+
+            cache_key = (name, lvl, coords, points, class_code, server, resets)
+            if el.get("_last_ui_telemetry_cache") == cache_key:
+                return
+            el["_last_ui_telemetry_cache"] = cache_key
+
             c_tag = f"[{class_code}] " if (class_code and class_code.strip()) else (f"[{ctrl.class_code}] " if ctrl.class_code else "")
             srv_disp = server or ctrl.server_name or ""
             if el.get("srv_lbl") and srv_disp and srv_disp != "---":
@@ -15754,16 +15845,7 @@ class DashboardApp(ctk.CTk):
                 except Exception:
                     lvl_num = 0
                 if lvl_num > 0:
-                    rs_cnt = getattr(ctrl, "current_resets", 0)
-                    if rs_cnt <= 0 and ctrl.assigned_pid:
-                        try:
-                            from meg_navigator import ProcessMemoryReader
-                            if hasattr(ProcessMemoryReader, "read_character_resets"):
-                                rs_cnt = ProcessMemoryReader.read_character_resets(ctrl.assigned_pid) or 0
-                        except Exception:
-                            rs_cnt = 0
-                    if rs_cnt > 0:
-                        ctrl.current_resets = rs_cnt
+                    rs_cnt = resets if resets is not None else getattr(ctrl, "current_resets", 0)
                     if el.get("lvl_lbl"):
                         rr_suffix = f" ({rs_cnt}rr)" if rs_cnt > 0 else ""
                         if lvl_num >= 400:
@@ -16275,7 +16357,7 @@ class DashboardApp(ctk.CTk):
         if not self.running:
             return
         if getattr(self, "_game_scan_active", False):
-            self.after(2500, self._periodic_game_scan)
+            self.after(5000, self._periodic_game_scan)
             return
 
         self._game_scan_active = True
@@ -16283,8 +16365,9 @@ class DashboardApp(ctk.CTk):
             try:
                 games = enumerate_megamu_processes()
                 def _apply():
-                    self.detected_games = games
-                    self.update_header_stats()
+                    if games != getattr(self, "detected_games", None):
+                        self.detected_games = games
+                        self.update_header_stats()
                 if self.running:
                     self.after(0, _apply)
             except Exception:
@@ -16292,7 +16375,7 @@ class DashboardApp(ctk.CTk):
             finally:
                 self._game_scan_active = False
                 if self.running:
-                    self.after(2500, self._periodic_game_scan)
+                    self.after(5000, self._periodic_game_scan)
 
         threading.Thread(target=_scan_worker, daemon=True, name="GameScanWorker").start()
 
@@ -16363,7 +16446,7 @@ class DashboardApp(ctk.CTk):
                     self.update_header_stats()
         except Exception:
             pass
-        self.after(1000, self._periodic_license_monitor)
+        self.after(2000, self._periodic_license_monitor)
 
     def update_header_stats(self):
         """Cập nhật các số liệu thống kê trên thanh tiêu đề và chân trang."""
