@@ -1155,10 +1155,12 @@ try {
 } catch (eGTF) {}
 
 var nativeGetGS = null;
+var nativeGetGSConnection = null;
 try {
     var gsOff = off('__GET_GS_CONNECTION__');
     if (!gsOff.isNull()) {
         nativeGetGS = new NativeFunction(baseAddr.add(gsOff), 'pointer', ['pointer']);
+        nativeGetGSConnection = new NativeFunction(baseAddr.add(gsOff), 'pointer', []);
     }
 } catch (eGS) {}
 
@@ -3485,10 +3487,11 @@ try {
                                             send({ type: "log", msg: "Phát hiện hộp thoại thông báo game (Quyền phòng / Thông báo). Đã tự động nhấn OK." });
                                         }
                                     }
-                                    // Nếu vừa bị từ chối quyền vào phòng (No access): tự động hạ về Server 1 (Free / Public) và cho phép kết nối lại!
-                                    if (pal.server && pal.server !== 1) {
-                                        send({ type: "log", msg: "Tài khoản không có quyền vào Server " + pal.server + ". Đang tự động chuyển hướng kết nối sang Server 1 (Public Free)..." });
-                                        pal.server = 1;
+                                    // Nếu xuất hiện hộp thoại bị từ chối vào phòng do Server 1 là VIP / SpeedPass:
+                                    // Tự động chuyển hướng sang Server 3 (Phòng chơi miễn phí / Public) và thử lại!
+                                    if (pal.server === 1) {
+                                        send({ type: "log", msg: "Server 1 là phòng VIP / Giới hạn quyền truy cập. Đang tự động chuyển hướng kết nối sang Server 3 (Public Free)..." });
+                                        pal.server = 3;
                                         pal.serverConnected = false;
                                         try {
                                             if (nativeMLoginSetState !== null) {
@@ -3520,11 +3523,15 @@ try {
                         return;
                     }
 
-                    // Nếu game ở trạng thái ServerList (State 3): Tự động chọn server mục tiêu (mặc định Server 1 cho mọi tài khoản)
+                    // Nếu game ở trạng thái ServerList (State 3): Tự động chọn server mục tiêu người dùng yêu cầu
                     if (currState === 3 && !pal.serverConnected) {
                         pal.serverConnected = true;
-                        var targetSrv = (pal.server && parseInt(pal.server) >= 1) ? parseInt(pal.server) : 1;
+                        var targetSrv = (pal.server && parseInt(pal.server) >= 1) ? parseInt(pal.server) : 3;
                         try {
+                            // Gọi đúng thứ tự chuẩn của client game MEGAMU: SetState(1) sang Loading trước, rồi gửi ConnectServerSelect
+                            if (nativeMLoginSetState !== null) {
+                                nativeMLoginSetState(mLoginInst, 1);
+                            }
                             if (nativeConnectServerSelect !== null) {
                                 nativeConnectServerSelect(targetSrv);
                             } else if (nativeGetCSConnection !== null && nativeCSConnect !== null) {
@@ -3532,9 +3539,6 @@ try {
                                 if (!cs.isNull()) {
                                     nativeCSConnect(cs, targetSrv);
                                 }
-                            }
-                            if (nativeMLoginSetState !== null) {
-                                nativeMLoginSetState(mLoginInst, 1);
                             }
                         } catch (eSrv) {}
                         autoLoginLastStatus = { done: false, submitted: true, stage: "connecting_server", server: targetSrv, account: pal.account };
@@ -3641,7 +3645,7 @@ try {
                                 try {
                                     var cs = nativeGetCSConnection();
                                     if (!cs.isNull()) {
-                                        var targetSrv = (pal.server && parseInt(pal.server) >= 1) ? parseInt(pal.server) : 1;
+                                        var targetSrv = (pal.server && parseInt(pal.server) >= 1) ? parseInt(pal.server) : 3;
                                         nativeCSConnect(cs, targetSrv);
                                     }
                                 } catch (eCS) {}
@@ -7425,7 +7429,7 @@ rpc.exports = {
     autoLogin: function(server, account, character, password, token) {
         try {
             ensureThreadAttached();
-            var s = parseInt(server || 1);
+            var s = parseInt(server || 3);
             var acc = account ? String(account) : "";
             var chr = character ? String(character) : "";
             var pwd = (password !== undefined && password !== null) ? String(password) : "";
@@ -7459,6 +7463,27 @@ rpc.exports = {
 
     get_auto_login_status: function() {
         return JSON.stringify(autoLoginLastStatus);
+    },
+
+    getServerCode: function() {
+        try {
+            ensureThreadAttached();
+            if (nativeGetGSConnection !== null) {
+                var gs = nativeGetGSConnection();
+                if (!gs.isNull()) {
+                    var sCode = gs.add(0xAC).readS32();
+                    if (sCode > 0) return sCode;
+                }
+            }
+            if (nativeGetCSConnection !== null) {
+                var cs = nativeGetCSConnection();
+                if (!cs.isNull()) {
+                    var csCode = cs.add(0xA8).readS32();
+                    if (csCode > 0) return csCode;
+                }
+            }
+        } catch (e) {}
+        return 0;
     },
 
     getSceneState: function() {
@@ -9691,7 +9716,7 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi sell_inventory_slot: {e}")
         return False
 
-    def auto_login(self, server: int = 1, account: str = "", character: str = "", password: str = "", token: str = "") -> Dict[str, Any]:
+    def auto_login(self, server: int = 3, account: str = "", character: str = "", password: str = "", token: str = "") -> Dict[str, Any]:
         """Gửi lệnh AutoLogin native vào GameAssembly.dll, hỗ trợ QuickSwitch, token registry và submit mật khẩu trực tiếp."""
         if self.is_ready:
             try:
@@ -9702,6 +9727,17 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi auto_login: {e}")
                 return {"ok": False, "err": str(e)}
         return {"ok": False, "err": "not_ready"}
+
+    def get_server_code(self) -> int:
+        """Đọc Server Code thực tế mà game MEGAMU đang kết nối từ bộ nhớ RAM (GSConnection/CSConnection)."""
+        if self.is_ready:
+            try:
+                res = self._call("getServerCode")
+                if res:
+                    return int(res)
+            except Exception:
+                pass
+        return 0
 
     def get_scene_state(self) -> dict:
         """Lấy trạng thái SceneHandler hiện tại (type: 2=Login, 3=Lobby, 4=Playing, worldReady: bool, worldIndex: int)."""

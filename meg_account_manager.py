@@ -85,7 +85,7 @@ def read_accounts_from_registry() -> List[Dict[str, Any]]:
                         "token": item.get("Token", ""),
                         "character": default_char,
                         "characters_list": chars,
-                        "server": 1,
+                        "server": 3,
                         "enabled": True,
                         "source": "registry"
                     })
@@ -508,7 +508,7 @@ class AccountManager:
         password = acc.get("password", "")
         token = acc.get("token", "")
         character = acc.get("character", "")
-        server = acc.get("server", 1)
+        server = int(acc.get("server", 3))
 
         def _log(msg: str):
             if on_log:

@@ -21,12 +21,12 @@
         "trua1",
         "toi1"
       ],
-      "server": 1,
+      "server": 3,
       "enabled": true,
       "source": "manual",
       "password": "Nammothai3",
       "preferred_slot": 1,
-      "token": "873bc6ddb671deca8465602045dcc7fd",
+      "token": "37e32568864f46612d6d2f9bb938b13f",
       "category": "Chỉ Moss",
       "last_pid": 28204
     },
@@ -39,7 +39,7 @@
         "trua2",
         "toi2"
       ],
-      "server": 1,
+      "server": 3,
       "enabled": true,
       "source": "manual",
       "password": "Nammothai3",
@@ -54,7 +54,7 @@
       "characters_list": [
         "dtn01"
       ],
-      "server": 1,
+      "server": 3,
       "enabled": true,
       "source": "registry"
     },
@@ -67,7 +67,7 @@
         "DGptPlus",
         "DGeminiP"
       ],
-      "server": 1,
+      "server": 3,
       "enabled": true,
       "source": "registry"
     },
@@ -79,7 +79,7 @@
       "characters_list": [
         "dtn199x"
       ],
-      "server": 1,
+      "server": 3,
       "enabled": true,
       "source": "registry",
       "password": "Nammothai3"
@@ -92,7 +92,7 @@
       "characters_list": [
         "Rooneyy"
       ],
-      "server": 1,
+      "server": 3,
       "enabled": true,
       "source": "registry"
     }

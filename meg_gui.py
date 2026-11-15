@@ -1327,6 +1327,35 @@ def character_name_from_window_title(title: str) -> str:
             return head
     return ""
 
+def server_from_window_title(title: str) -> Optional[int]:
+    """Trích xuất chính xác số Server từ tiêu đề cửa sổ MEGAMU.
+    Hỗ trợ các định dạng:
+      - 'codedao (660/51rr) - MEGAMU Sv3' -> 3
+      - 'Diradira (660/51rr) - MEGAMU Sv41' -> 41
+      - 'MEGAMU Sv3' -> 3
+      - 'MEGAMU Server 5' -> 5
+      - 'MEGAMU - Sv2' -> 2
+      - 'test (400) - MEGAMU Server 8' -> 8
+    """
+    if not title:
+        return None
+    import re
+    m = re.search(r"MEGAMU[^\d\n\r]*?(?:Sv|Server|Sub)?\.?\s*(\d+)", title, re.IGNORECASE)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            pass
+    parts = re.split(r"MEGAMU", title, flags=re.IGNORECASE)
+    if len(parts) > 1:
+        m2 = re.search(r"(\d+)", parts[1])
+        if m2:
+            try:
+                return int(m2.group(1))
+            except Exception:
+                pass
+    return None
+
 def enumerate_megamu_processes() -> Dict[int, str]:
     """Tìm tất cả tiến trình MEGAMU.exe và lấy tiêu đề cửa sổ / tên nhân vật."""
     pids = set()
@@ -2311,6 +2340,8 @@ class SlotController:
         self.assigned_pid: Optional[int] = None
         self.char_name = "---"
         self.last_known_char_name = ""
+        self.server_num: Optional[int] = None
+        self.server_name: str = "---"
         self.level = "---"
         self.coords = "--,--"
         self.status = tr("idle")
@@ -2434,6 +2465,18 @@ class SlotController:
             self.char_name = t_name
             self.last_known_char_name = t_name
 
+        t_srv = server_from_window_title(title)
+        if not t_srv:
+            try:
+                from meg_navigator import ProcessMemoryReader
+                if hasattr(ProcessMemoryReader, "read_character_server"):
+                    t_srv = ProcessMemoryReader.read_character_server(pid)
+            except Exception:
+                pass
+        if t_srv:
+            self.server_num = t_srv
+            self.server_name = f"Sv{t_srv}"
+
         try:
             from meg_navigator import ProcessMemoryReader
             t_lvl = ProcessMemoryReader._fallback_level_from_title(pid) or ProcessMemoryReader.read_character_level(pid)
@@ -2445,7 +2488,7 @@ class SlotController:
         except Exception:
             pass
 
-        self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords)
+        self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, server=self.server_name)
 
         if MegDirectEngine:
             self.engine = MegDirectEngine.get_engine(pid)
@@ -2792,7 +2835,7 @@ class SlotController:
             except Exception:
                 pass
 
-        # Lấy tên nhân vật từ window title hoặc ProcessMemoryReader nếu chưa có
+        # Lấy tên nhân vật và server từ window title hoặc ProcessMemoryReader / Engine
         title = self.app.detected_games.get(self.assigned_pid, "")
         t_name = character_name_from_window_title(title)
         if not t_name:
@@ -2804,6 +2847,23 @@ class SlotController:
 
         if t_name and (self.char_name == "---" or not self.char_name):
             self.char_name = t_name
+
+        t_srv = server_from_window_title(title)
+        if not t_srv and self.engine and hasattr(self.engine, "get_server_code"):
+            try:
+                t_srv = self.engine.get_server_code() or None
+            except Exception:
+                pass
+        if not t_srv:
+            try:
+                from meg_navigator import ProcessMemoryReader
+                if hasattr(ProcessMemoryReader, "read_character_server"):
+                    t_srv = ProcessMemoryReader.read_character_server(self.assigned_pid)
+            except Exception:
+                pass
+        if t_srv:
+            self.server_num = t_srv
+            self.server_name = f"Sv{t_srv}"
 
         if p_info:
             p_name = p_info.get("name", "")
@@ -2867,9 +2927,9 @@ class SlotController:
                 except Exception:
                     pass
 
-            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code)
+            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code, server=self.server_name)
         elif self.char_name != "---" or self.level != "---":
-            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code)
+            self.app.update_slot_ui_telemetry(self.slot_idx, self.char_name, self.level, self.coords, points=self.points, class_code=self.class_code, server=self.server_name)
 
     def start_moss(self) -> bool:
         """Kích hoạt Auto Quay Moss cho riêng slot này theo cấu hình đã cài đặt."""
@@ -6287,7 +6347,16 @@ class DashboardApp(ctk.CTk):
                     char_name = ProcessMemoryReader.read_character_name(pid) or ""
                 except Exception:
                     pass
-            disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
+            srv_num = server_from_window_title(title)
+            if not srv_num:
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    if hasattr(ProcessMemoryReader, "read_character_server"):
+                        srv_num = ProcessMemoryReader.read_character_server(pid)
+                except Exception:
+                    pass
+            srv_tag = f" [Sv{srv_num}]" if srv_num else ""
+            disp = f"{char_name}{srv_tag} ({pid})" if char_name else f"MEGAMU{srv_tag} ({pid})"
             options.append(disp)
 
         init_proc = "--"
@@ -6345,6 +6414,16 @@ class DashboardApp(ctk.CTk):
         preset_combo.pack(side="left")
         add_tooltip(preset_combo, "Tuyến đường chạy bãi quái & bản đồ tự động cho slot này (Định hình trong tab Cấu hình)")
 
+        srv_str = ctrl.server_name if (ctrl.server_name and ctrl.server_name != "---") else "Sv --"
+        srv_lbl = ctk.CTkLabel(
+            top_line,
+            text=srv_str,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#c084fc"
+        )
+        srv_lbl.pack(side="right", padx=(3, 0))
+        add_tooltip(srv_lbl, f"[Slot #{i:02d}] Máy chủ (Server) đang kết nối")
+
         lvl_str = f"LV {ctrl.level}" if ctrl.level != "---" else "LV --"
         lvl_lbl = ctk.CTkLabel(
             top_line,
@@ -6352,7 +6431,7 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#94a3b8"
         )
-        lvl_lbl.pack(side="right")
+        lvl_lbl.pack(side="right", padx=(0, 2))
         add_tooltip(lvl_lbl, "Cấp độ hiện tại và số lần Reset (rr) của nhân vật")
 
         prog_bar = ctk.CTkProgressBar(
@@ -6640,6 +6719,7 @@ class DashboardApp(ctk.CTk):
             "profile_var": profile_var,
             "preset_combo": preset_combo,
             "preset_lbl": preset_combo,
+            "srv_lbl": srv_lbl,
             "lvl_lbl": lvl_lbl,
             "prog_bar": prog_bar,
             "exp_lbl": exp_lbl,
@@ -12636,8 +12716,39 @@ class DashboardApp(ctk.CTk):
             )
             char_combo.pack(side="left", padx=4)
 
-            # 6. Server Combobox
-            srv_val = int(acc.get("server", 1))
+            # 6. Server Combobox (Tự động nhận diện Server thực tế nếu game đang mở / đứng cũ)
+            live_srv = None
+            running_p = None
+            last_p = acc.get("last_pid")
+            if last_p and psutil.pid_exists(last_p):
+                running_p = last_p
+            else:
+                acc_char = (acc.get("character") or "").strip().lower()
+                chars_list = [c.strip().lower() for c in acc.get("characters_list", []) if c.strip()]
+                target_names = [acc_char] + chars_list if (acc_char and acc_char != "(mặc định)") else chars_list
+                for p, title in self.detected_games.items():
+                    c_name = character_name_from_window_title(title).strip().lower()
+                    if c_name and c_name in target_names:
+                        running_p = p
+                        acc["last_pid"] = p
+                        break
+
+            if running_p:
+                p_title = self.detected_games.get(running_p, "")
+                live_srv = server_from_window_title(p_title)
+                if not live_srv:
+                    try:
+                        from meg_navigator import ProcessMemoryReader
+                        if hasattr(ProcessMemoryReader, "read_character_server"):
+                            live_srv = ProcessMemoryReader.read_character_server(running_p)
+                    except Exception:
+                        pass
+                if live_srv and live_srv > 0 and acc.get("server") != live_srv:
+                    acc["server"] = live_srv
+                    if self.account_mgr:
+                        self.account_mgr.save_accounts()
+
+            srv_val = int(acc.get("server", live_srv or 3))
             srv_var = ctk.StringVar(value=f"Server {srv_val}")
             def _make_srv_cmd(a_ref):
                 return lambda val: self._on_acc_srv_change(a_ref, val)
@@ -12821,6 +12932,7 @@ class DashboardApp(ctk.CTk):
             acc["server"] = s_num
             if self.account_mgr:
                 self.account_mgr.save_accounts()
+            self.append_autologin_log(f"⚙️ [Account: {acc.get('username')}] Đã cập nhật mục tiêu vào Server {s_num}")
         except Exception:
             pass
 
@@ -13672,10 +13784,10 @@ class DashboardApp(ctk.CTk):
         c_ent = ctk.CTkEntry(f, width=220, font=ctk.CTkFont(family="Segoe UI", size=11), placeholder_text="Để trống nếu chọn mặc định")
         c_ent.grid(row=2, column=1, sticky="e", pady=6)
 
-        # 4. Server (Mặc định Server 1 - Public/Free server)
+        # 4. Server (Mặc định Server 3 - Public/Free server)
         ctk.CTkLabel(f, text="Chọn Server:", font=ctk.CTkFont(family="Segoe UI", size=11)).grid(row=3, column=0, sticky="w", pady=6)
         s_combo = ModernOptionMenu(f, values=[f"Server {s}" for s in range(1, 9)], width=220, font=ctk.CTkFont(family="Segoe UI", size=11))
-        s_combo.set("Server 1")
+        s_combo.set("Server 3")
         s_combo.grid(row=3, column=1, sticky="e", pady=6)
 
         # 5. Slot Target
@@ -13707,7 +13819,7 @@ class DashboardApp(ctk.CTk):
             try:
                 s = int(s_str)
             except Exception:
-                s = 1
+                s = 3
 
             if not u:
                 err_lbl.configure(text="⚠️ Vui lòng nhập tên tài khoản!")
@@ -13888,7 +14000,7 @@ class DashboardApp(ctk.CTk):
             try:
                 s = int(s_str)
             except Exception:
-                s = 1
+                s = 3
 
             if not new_u:
                 err_lbl.configure(text="⚠️ Tên tài khoản không được để trống!")
@@ -14057,7 +14169,7 @@ class DashboardApp(ctk.CTk):
         """Khởi chạy và AutoLogin cho 1 tài khoản đơn lẻ trên background thread (non-blocking)."""
         u = acc.get("username", "")
         c = acc.get("character", "")
-        s = acc.get("server", 1)
+        s = int(acc.get("server", 3))
 
         def _worker():
             self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Đang mở {u}...", text_color="#f59e0b"))
@@ -14103,7 +14215,7 @@ class DashboardApp(ctk.CTk):
         el = self.slot_ui_elements.get(ctrl.slot_idx)
         if el and el.get("proc_var"):
             el["proc_var"].set(f"{ctrl.char_name} ({pid})")
-        self.update_slot_ui_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.level, ctrl.coords)
+        self.update_slot_ui_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.level, ctrl.coords, server=ctrl.server_name)
         self.update_header_stats()
         self.log_message(f"[Slot {ctrl.slot_idx:02d}] Đã gán PID {pid} ({ctrl.char_name}) và kích hoạt telemetry!", "SUCCESS")
 
@@ -14121,13 +14233,13 @@ class DashboardApp(ctk.CTk):
         def _worker():
             u = acc.get("username", "")
             c = acc.get("character", "")
-            s = acc.get("server", 1)
+            s = int(acc.get("server", 3))
             ok = self.account_mgr.login_existing_pid(ctrl.assigned_pid, acc, on_log=self.append_autologin_log)
             if ok:
                 if c and c != "(Mặc định)":
                     ctrl.char_name = c
                     ctrl.last_known_char_name = c
-                    self.after(0, lambda: self.update_slot_ui_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.level, ctrl.coords))
+                    self.after(0, lambda: self.update_slot_ui_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.level, ctrl.coords, server=ctrl.server_name))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -15559,18 +15671,23 @@ class DashboardApp(ctk.CTk):
             _apply()
             self.update_master_run_button()
 
-    def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str, points: Optional[int] = None, class_code: Optional[str] = None):
+    def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str, points: Optional[int] = None, class_code: Optional[str] = None, server: Optional[str] = None):
         def _apply():
             el = self.slot_ui_elements.get(slot_idx)
             if not el:
                 return
             ctrl = self.controllers[slot_idx - 1]
             c_tag = f"[{class_code}] " if (class_code and class_code.strip()) else (f"[{ctrl.class_code}] " if ctrl.class_code else "")
+            srv_disp = server or ctrl.server_name or ""
+            if el.get("srv_lbl") and srv_disp and srv_disp != "---":
+                el["srv_lbl"].configure(text=srv_disp, text_color="#c084fc")
+
             if el.get("proc_var") and name and name != "---":
                 curr = el["proc_var"].get()
                 if curr in ("--", tr("select"), "") or name not in curr or (c_tag and not curr.startswith("[")):
                     pid_str = f"{ctrl.assigned_pid}" if ctrl.assigned_pid else ""
-                    disp_str = f"{c_tag}{name} ({pid_str})" if pid_str else f"{c_tag}{name}"
+                    srv_tag = f" [{srv_disp}]" if (srv_disp and srv_disp != "---") else ""
+                    disp_str = f"{c_tag}{name}{srv_tag} ({pid_str})" if pid_str else f"{c_tag}{name}{srv_tag}"
                     el["proc_var"].set(disp_str)
 
             if lvl and lvl != "---":
@@ -15655,7 +15772,16 @@ class DashboardApp(ctk.CTk):
                     char_name = ProcessMemoryReader.read_character_name(pid) or ""
                 except Exception:
                     pass
-            disp = f"{char_name} ({pid})" if char_name else f"MEGAMU ({pid})"
+            srv_num = server_from_window_title(title)
+            if not srv_num:
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    if hasattr(ProcessMemoryReader, "read_character_server"):
+                        srv_num = ProcessMemoryReader.read_character_server(pid)
+                except Exception:
+                    pass
+            srv_tag = f" [Sv{srv_num}]" if srv_num else ""
+            disp = f"{char_name}{srv_tag} ({pid})" if char_name else f"MEGAMU{srv_tag} ({pid})"
             options.append(disp)
 
         for i in self.slot_ui_elements.keys():

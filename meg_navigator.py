@@ -845,6 +845,33 @@ class ProcessMemoryReader:
             kernel32.CloseHandle(handle)
 
     @classmethod
+    def read_character_server(cls, pid: int) -> Optional[int]:
+        """
+        Đọc số Server mà nhân vật / client MEGAMU đang chơi:
+        1. Phân tích Window Title của Unity window (chính xác 100%, không tốn tài nguyên).
+        2. Fallback quét qua chuỗi MEGAMU Sv<X>.
+        """
+        import re
+        windows = WindowHelper.get_unity_windows()
+        for p, hwnd, title, w, h in windows:
+            if p == pid and title:
+                m = re.search(r"MEGAMU[^\d\n\r]*?(?:Sv|Server|Sub)?\.?\s*(\d+)", title, re.IGNORECASE)
+                if m:
+                    try:
+                        return int(m.group(1))
+                    except Exception:
+                        pass
+                parts = re.split(r"MEGAMU", title, flags=re.IGNORECASE)
+                if len(parts) > 1:
+                    m2 = re.search(r"(\d+)", parts[1])
+                    if m2:
+                        try:
+                            return int(m2.group(1))
+                        except Exception:
+                            pass
+        return None
+
+    @classmethod
     def read_character_name(cls, pid: int) -> Optional[str]:
         """
         Đọc tên nhân vật:
