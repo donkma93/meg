@@ -731,7 +731,7 @@ class AccountManager:
         2. Dịch chuyển (/m <map_name>) nếu chưa ở đúng map
         3. Dùng Unity NavMesh chạy tự động tới tọa độ (X, Y)
         4. Tự động kích hoạt MuHelper khi đến bãi
-        5. Giảm FPS xuống 15 & tối ưu hóa RAM (EmptyWorkingSet)
+        5. Giảm FPS xuống 15 để tiết kiệm CPU/GPU
         """
         def _log(msg: str):
             if on_log:
@@ -853,20 +853,10 @@ class AccountManager:
                     _log(f"⚠️ [PID {pid}] Thử bật lại MuHelper lần 2...")
                     eng.start_helper(target_x, target_y)
 
-            # 5. Tối ưu hóa tài nguyên (Hạ FPS và trim working set RAM)
+            # 5. Tối ưu hóa tài nguyên (Hạ FPS)
             if throttle_fps:
                 eng.set_target_fps(target_fps)
                 _log(f"⚡ [PID {pid}] Đã hạ FPS xuống {target_fps} để tối ưu hóa CPU/GPU.")
-                try:
-                    import ctypes
-                    kernel32 = ctypes.windll.kernel32
-                    psapi = ctypes.windll.psapi
-                    h_proc = kernel32.OpenProcess(0x1F0FFF, False, pid)
-                    if h_proc:
-                        psapi.EmptyWorkingSet(h_proc)
-                        kernel32.CloseHandle(h_proc)
-                except Exception:
-                    pass
 
             _log(f"🎉 [PID {pid}] ĐÃ HOÀN TẤT RA BÃI & ĐANG TRAIN TỰ ĐỘNG THÀNH CÔNG!")
             return True

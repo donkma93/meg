@@ -77,16 +77,6 @@ except ImportError:
     updater = None
 
 try:
-    import meg_ram_optimizer
-    from meg_ram_optimizer import RamOptimizerManager, trim_single_process, get_megamu_processes, optimize_all_megamu
-except ImportError:
-    meg_ram_optimizer = None
-    RamOptimizerManager = None
-    trim_single_process = None
-    get_megamu_processes = None
-    optimize_all_megamu = None
-
-try:
     from meg_account_manager import AccountManager, find_megamu_exe_path
 except ImportError:
     AccountManager = None
@@ -1073,13 +1063,6 @@ I18N = {
         "header_stats": "Game: {games} | Đã kết nối: {conn}/{slots} | Auto: {auto} | Bản quyền: {license}",
         "footer_stats": "Tổng số: {slots} Tài khoản | Đã kết nối: {conn} | Đang chạy: {auto}",
         "lang_changed": "Đã chuyển đổi ngôn ngữ sang: {lang}",
-        "ram_optimizer": "Tối ưu RAM",
-        "ram_trim_now": "Tối ưu RAM",
-        "ram_auto_trim": "Tự động dọn RAM:",
-        "ram_active_clients": "CLIENT HOẠT ĐỘNG",
-        "ram_current_ram": "RAM ĐANG DÙNG",
-        "ram_total_saved": "TỔNG ĐÃ TIẾT KIỆM",
-        "ram_optimize_all_btn": "TỐI ƯU TOÀN BỘ MEGAMU (TRIM RAM NGAY)",
         "moss_merchant": "Moss Merchant",
         "moss_title": "🎰 MEGAMU MOSS THE GAMBLER • AUTO ROLL PRO",
         "moss_subtitle": "Quay đồ may rủi tự động tại NPC Moss (Elbeland) • Hỗ trợ mở giao diện ngầm & quay đồ Zero-Focus",
@@ -1145,13 +1128,6 @@ I18N = {
         "header_stats": "Games: {games} | Connected: {conn}/{slots} | Auto: {auto} | License: {license}",
         "footer_stats": "Total: {slots} Accounts | Connected: {conn} | Running: {auto}",
         "lang_changed": "Language switched to: {lang}",
-        "ram_optimizer": "RAM Optimizer",
-        "ram_trim_now": "Trim RAM",
-        "ram_auto_trim": "Auto-Trim RAM:",
-        "ram_active_clients": "ACTIVE CLIENTS",
-        "ram_current_ram": "CURRENT RAM",
-        "ram_total_saved": "TOTAL SAVED",
-        "ram_optimize_all_btn": "OPTIMIZE MEGAMU (TRIM RAM NOW)",
         "moss_merchant": "Moss Merchant",
         "moss_title": "🎰 MEGAMU MOSS THE GAMBLER • AUTO ROLL PRO",
         "moss_subtitle": "Auto Gamble Item Roll at NPC Moss (Elbeland) • Zero-Focus Native Packet Dispatch",
@@ -1217,13 +1193,6 @@ I18N = {
         "header_stats": "Jogos: {games} | Conectados: {conn}/{slots} | Auto: {auto} | Licença: {license}",
         "footer_stats": "Total: {slots} Contas | Conectados: {conn} | Executando: {auto}",
         "lang_changed": "Idioma alterado para: {lang}",
-        "ram_optimizer": "Otimizar RAM",
-        "ram_trim_now": "Otimizar RAM",
-        "ram_auto_trim": "Limpeza Automática:",
-        "ram_active_clients": "CLIENTS ATIVOS",
-        "ram_current_ram": "RAM ATUAL",
-        "ram_total_saved": "TOTAL ECONOMIZADO",
-        "ram_optimize_all_btn": "OTIMIZAR MEGAMU (TRIM RAM AGORA)",
         "moss_merchant": "Moss Merchant",
         "moss_title": "🎰 MEGAMU MOSS THE GAMBLER • AUTO ROLL PRO",
         "moss_subtitle": "Giro Automático no NPC Moss (Elbeland) • Disparo Nativo Zero-Focus",
@@ -5595,15 +5564,6 @@ class DashboardApp(ctk.CTk):
         self.logs_data: List[Tuple[str, str, str]] = [] # [(time, slot, text)]
         self._render_logs_scheduled = False
 
-        # Quản lý RAM Optimizer
-        self.ram_manager = RamOptimizerManager.get_instance() if RamOptimizerManager else None
-        if self.ram_manager:
-            self.ram_manager.register_callback(self._on_ram_manager_event)
-            if self.ram_manager.auto_trim_enabled:
-                self.ram_manager.start_worker()
-        self.ram_client_rows: Dict[int, Dict[str, Any]] = {}
-        self.ram_empty_label = None
-
         # Thành phần UI lưu trữ
         self.slot_ui_elements: Dict[int, Dict[str, Any]] = {}
         self.moss_ui_elements: Dict[int, Dict[str, Any]] = {}
@@ -5920,19 +5880,6 @@ class DashboardApp(ctk.CTk):
         )
         self.tab_profiles_btn.pack(side="left", padx=(0, 6))
 
-        self.tab_ram_btn = ctk.CTkButton(
-            tab_left,
-            image=UiIconFactory.get("bolt", color="#94a3b8", size=(14, 14)),
-            compound="left",
-            text=f" {tr('ram_optimizer')}",
-            height=30,
-            corner_radius=0,
-            hover=False,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=lambda: self.switch_tab("ram")
-        )
-        # self.tab_ram_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
-
         self.tab_moss_btn = ctk.CTkButton(
             tab_left,
             image=UiIconFactory.get("dice", color="#94a3b8", size=(14, 14)),
@@ -6001,11 +5948,10 @@ class DashboardApp(ctk.CTk):
         self.content_container = ctk.CTkFrame(self, fg_color="#0e1117", corner_radius=0, border_width=0)
         self.content_container.pack(fill="both", expand=True, padx=20, pady=(6, 6))
 
-        # 7 Panels cho các Tab (Quản lý trực tiếp bên trong content_container)
+        # 6 Panels cho các Tab (Quản lý trực tiếp bên trong content_container)
         self.panel_accounts = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
         self.panel_profiles = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
         self.panel_logs = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
-        self.panel_ram = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
         self.panel_moss = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
         self.panel_mirror = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
         self.panel_autologin = ctk.CTkFrame(self.content_container, fg_color="#13161f", border_width=1, border_color="#202430", corner_radius=0)
@@ -6014,7 +5960,6 @@ class DashboardApp(ctk.CTk):
             "accounts": self.panel_accounts,
             "profiles": self.panel_profiles,
             "logs": self.panel_logs,
-            "ram": self.panel_ram,
             "moss": self.panel_moss,
             "mirror": self.panel_mirror,
             "autologin": self.panel_autologin,
@@ -6144,14 +6089,6 @@ class DashboardApp(ctk.CTk):
             "Tự động gộp tất cả các viên ngọc lẻ (Bless, Soul, Chaos, Life...) trong thùng đồ của mọi tài khoản thành từng cụm 10/20/30 viên."
         )
 
-        self.btn_trim_ram = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("bolt", color="#facc15", size=(14, 14)),
-            command=self.quick_trim_ram,
-            **icon_btn_style
-        )
-        # self.btn_trim_ram.pack(side="left", padx=(6, 0)) # Tạm ẩn
-
         self.btn_quick_autologin = ctk.CTkButton(
             t_left,
             image=UiIconFactory.get("key", color="#c084fc", size=(14, 14)),
@@ -6254,7 +6191,6 @@ class DashboardApp(ctk.CTk):
         self.build_accounts_view()
         self.build_profiles_view()
         self.build_logs_view()
-        self.build_ram_view()
         self.build_moss_view()
         self.build_mirror_view()
         self.build_autologin_view()
@@ -8439,7 +8375,6 @@ class DashboardApp(ctk.CTk):
         # Unpack các nút tab tính năng
         self.tab_accounts_btn.pack_forget()
         self.tab_profiles_btn.pack_forget()
-        self.tab_ram_btn.pack_forget()
         self.tab_moss_btn.pack_forget()
         self.tab_mirror_btn.pack_forget()
         self.tab_autologin_btn.pack_forget()
@@ -8448,8 +8383,6 @@ class DashboardApp(ctk.CTk):
         if has_train:
             self.tab_accounts_btn.pack(side="left", padx=(0, 6))
             self.tab_profiles_btn.pack(side="left", padx=(0, 6))
-
-        # self.tab_ram_btn.pack(side="left", padx=(0, 6)) # Tạm ẩn theo yêu cầu
 
         if has_moss:
             self.tab_moss_btn.pack(side="left", padx=(0, 6))
@@ -8462,9 +8395,7 @@ class DashboardApp(ctk.CTk):
 
         # Kiểm tra xem tab hiện tại có bị ẩn không, nếu có thì tự động đổi tab
         cur_tab = getattr(self, "active_tab", "accounts")
-        if cur_tab in ("ram",):
-            self.switch_tab("accounts")
-        elif cur_tab == "autologin" and not has_train:
+        if cur_tab == "autologin" and not has_train:
             self.switch_tab("accounts")
         elif cur_tab in ("accounts", "profiles") and not has_train:
             if has_moss:
@@ -8520,7 +8451,6 @@ class DashboardApp(ctk.CTk):
             ("accounts", getattr(self, "tab_accounts_btn", None), "user"),
             ("profiles", getattr(self, "tab_profiles_btn", None), "gear"),
             ("logs", getattr(self, "tab_logs_btn", None), "file"),
-            ("ram", getattr(self, "tab_ram_btn", None), "bolt"),
             ("moss", getattr(self, "tab_moss_btn", None), "dice"),
             ("mirror", getattr(self, "tab_mirror_btn", None), "mirror"),
             ("autologin", getattr(self, "tab_autologin_btn", None), "key"),
@@ -8580,415 +8510,14 @@ class DashboardApp(ctk.CTk):
                 prev_panel.place_forget()
             self._active_panel = target_panel
 
-        # Cập nhật dữ liệu tức thì cho tab logs và ram (không dùng delay after để triệt tiêu khựng giật)
+        # Cập nhật dữ liệu tức thì cho tab logs (không dùng delay after để triệt tiêu khựng giật)
         if tab_name == "logs":
             self.refresh_license_and_logs_tab()
-        elif tab_name == "ram":
-            self.refresh_ram_tab_stats()
         elif tab_name == "autologin":
             if not getattr(self, "_autologin_table_initialized", False):
                 self.refresh_autologin_table()
             else:
                 self.sync_autologin_table_values()
-
-    # ==========================================================================
-    # TAB 4: TỐI ƯU HÓA BỘ NHỚ RAM (RAM OPTIMIZER TAB)
-    # ==========================================================================
-    def build_ram_view(self):
-        """Xây dựng giao diện Tab Tối ưu hóa RAM tích hợp."""
-        header_card = ctk.CTkFrame(self.panel_ram, fg_color="#181c26", corner_radius=0, border_width=1, border_color="#2b3244")
-        header_card.pack(fill="x", padx=14, pady=(12, 6))
-
-        inner_h = ctk.CTkFrame(header_card, fg_color="transparent")
-        inner_h.pack(fill="both", expand=True, padx=14, pady=10)
-
-        left_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        left_h.pack(side="left", fill="y")
-
-        title_lbl = ctk.CTkLabel(
-            left_h,
-            text="⚡ MEGAMU RAM OPTIMIZER PRO",
-            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
-            text_color="#38bdf8"
-        )
-        title_lbl.pack(anchor="w")
-
-        sub_lbl = ctk.CTkLabel(
-            left_h,
-            text="Tự động thu hồi bộ nhớ Working Set • Tiết kiệm ~70% RAM từ ~1GB còn ~200MB - 300MB / client",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        )
-        sub_lbl.pack(anchor="w", pady=(2, 0))
-
-        right_h = ctk.CTkFrame(inner_h, fg_color="transparent")
-        right_h.pack(side="right", fill="y")
-
-        self.ram_auto_var = ctk.BooleanVar(value=self.ram_manager.auto_trim_enabled if self.ram_manager else False)
-        self.ram_auto_switch = ctk.CTkSwitch(
-            right_h,
-            text=tr("ram_auto_trim"),
-            variable=self.ram_auto_var,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f8fafc",
-            progress_color="#10b981",
-            command=self._on_ram_auto_switch_toggled
-        )
-        self.ram_auto_switch.pack(side="left", padx=(0, 10))
-
-        self.ram_intervals_map = {
-            "1 Phút": 60,
-            "2 Phút": 120,
-            "3 Phút": 180,
-            "5 Phút": 300,
-            "10 Phút": 600,
-            "15 Phút": 900,
-            "30 Phút": 1800
-        }
-        curr_sec = self.ram_manager.interval_seconds if self.ram_manager else 180
-        curr_label = "3 Phút"
-        for k, s in self.ram_intervals_map.items():
-            if s == curr_sec:
-                curr_label = k
-                break
-
-        self.ram_interval_combo = ModernOptionMenu(
-            right_h,
-            values=list(self.ram_intervals_map.keys()),
-            width=110,
-            height=28,
-            fg_color="#141722",
-            border_color="#2b3244",
-            hover_color="#222736",
-            command=self._on_ram_interval_changed,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
-        )
-        self.ram_interval_combo.set(curr_label)
-        self.ram_interval_combo.pack(side="left")
-
-        stats_frame = ctk.CTkFrame(self.panel_ram, fg_color="transparent")
-        stats_frame.pack(fill="x", padx=14, pady=4)
-
-        self.ram_card_clients = self._create_ram_kpi_card(stats_frame, tr("ram_active_clients"), "0 Clients", "#38bdf8")
-        self.ram_card_clients.pack(side="left", fill="both", expand=True, padx=(0, 4))
-
-        self.ram_card_cur_ram = self._create_ram_kpi_card(stats_frame, tr("ram_current_ram"), "0 MB", "#f59e0b")
-        self.ram_card_cur_ram.pack(side="left", fill="both", expand=True, padx=4)
-
-        saved_init = f"{int(self.ram_manager.total_saved_mb)} MB" if self.ram_manager else "0 MB"
-        self.ram_card_saved = self._create_ram_kpi_card(stats_frame, tr("ram_total_saved"), saved_init, "#10b981")
-        self.ram_card_saved.pack(side="left", fill="both", expand=True, padx=(4, 0))
-
-        action_bar = ctk.CTkFrame(self.panel_ram, fg_color="transparent")
-        action_bar.pack(fill="x", padx=14, pady=(8, 6))
-
-        self.btn_ram_optimize_all = ctk.CTkButton(
-            action_bar,
-            text=f" {tr('ram_optimize_all_btn')}",
-            image=UiIconFactory.get("bolt", color="#ffffff", size=(15, 15)),
-            compound="left",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            height=38,
-            corner_radius=0,
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            command=self.trim_ram_now_ui
-        )
-        self.btn_ram_optimize_all.pack(side="left", fill="x", expand=True, padx=(0, 6))
-
-        self.btn_ram_refresh = ctk.CTkButton(
-            action_bar,
-            text=f" {tr('refresh_games')}",
-            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(13, 13)),
-            compound="left",
-            width=130,
-            height=38,
-            corner_radius=0,
-            fg_color="#181c26",
-            hover_color="#242b3a",
-            border_width=1,
-            border_color="#2b3244",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.refresh_ram_tab_stats
-        )
-        self.btn_ram_refresh.pack(side="right")
-
-        body_split = ctk.CTkFrame(self.panel_ram, fg_color="transparent")
-        body_split.pack(fill="both", expand=True, padx=14, pady=(4, 12))
-
-        left_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
-        left_body.pack(side="left", fill="both", expand=True, padx=(0, 6))
-
-        c_hdr = ctk.CTkFrame(left_body, fg_color="#181c26", height=28, corner_radius=0)
-        c_hdr.pack(fill="x", padx=4, pady=(4, 2))
-
-        ctk.CTkLabel(c_hdr, text="PID", width=70, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(10, 4))
-        ctk.CTkLabel(c_hdr, text="Cửa Sổ / Nhân Vật", anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", fill="x", expand=True, padx=4)
-        ctk.CTkLabel(c_hdr, text="RAM Sử Dụng", width=105, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(c_hdr, text="Thao Tác", width=95, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(4, 8))
-
-        self.ram_clients_scroll = ctk.CTkScrollableFrame(left_body, fg_color="transparent")
-        self.ram_clients_scroll.pack(fill="both", expand=True, padx=2, pady=2)
-
-        right_body = ctk.CTkFrame(body_split, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430", width=380)
-        right_body.pack(side="right", fill="both", padx=(6, 0))
-        right_body.pack_propagate(False)
-
-        log_hdr = ctk.CTkFrame(right_body, fg_color="#181c26", height=28, corner_radius=0)
-        log_hdr.pack(fill="x", padx=4, pady=(4, 2))
-
-        ctk.CTkLabel(log_hdr, text="📝 Nhật Ký Hoạt Động RAM", anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#38bdf8").pack(side="left", padx=10)
-
-        self.ram_log_txt = ctk.CTkTextbox(
-            right_body,
-            fg_color="transparent",
-            font=ctk.CTkFont(family="Consolas", size=10),
-            text_color="#cbd5e1"
-        )
-        self.ram_log_txt.pack(fill="both", expand=True, padx=8, pady=(4, 8))
-        self.append_ram_log("🟢 RAM Optimizer đã tích hợp sẵn sàng.")
-
-    def _create_ram_kpi_card(self, parent, title, initial_val, color):
-        card = ctk.CTkFrame(parent, corner_radius=0, fg_color="#181c26", border_width=1, border_color="#2b3244")
-        lbl_t = ctk.CTkLabel(card, text=title, font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"), text_color="#94a3b8")
-        lbl_t.pack(anchor="w", padx=12, pady=(6, 0))
-        lbl_v = ctk.CTkLabel(card, text=initial_val, font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color=color)
-        lbl_v.pack(anchor="w", padx=12, pady=(1, 6))
-        card.value_label = lbl_v
-        return card
-
-    def refresh_ram_tab_stats(self):
-        """Làm mới danh sách tiến trình MEGAMU và số liệu RAM ngầm qua thread, không gây block giao diện."""
-        if not hasattr(self, "ram_clients_scroll") or getattr(self, "active_tab", "") != "ram":
-            return
-
-        if getattr(self, "_refreshing_ram_stats", False):
-            return
-        self._refreshing_ram_stats = True
-
-        def _worker():
-            try:
-                clients = get_megamu_processes(self.detected_games) if get_megamu_processes else []
-            except Exception:
-                clients = []
-
-            def _apply():
-                self._refreshing_ram_stats = False
-                if getattr(self, "active_tab", "") != "ram":
-                    return
-                self._apply_ram_tab_stats_ui(clients)
-
-            try:
-                if getattr(self, "running", True) and self.winfo_exists():
-                    self.after(0, _apply)
-                else:
-                    self._refreshing_ram_stats = False
-            except Exception:
-                self._refreshing_ram_stats = False
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _apply_ram_tab_stats_ui(self, clients: List[Dict[str, Any]]):
-        """Cập nhật dữ liệu RAM lên giao diện không nhấp nháy (Zero-Flicker in-place update)."""
-        if not hasattr(self, "ram_clients_scroll") or getattr(self, "active_tab", "") != "ram":
-            return
-
-        total_rss = sum(c["mem_bytes"] for c in clients)
-        total_mb = total_rss / 1048576
-        total_str = f"{total_mb / 1024:.2f} GB" if total_mb >= 1024 else f"{int(total_mb)} MB"
-        c_text = f"{len(clients)} Client" if len(clients) == 1 else f"{len(clients)} Clients"
-
-        if hasattr(self, "ram_card_clients"):
-            self.ram_card_clients.value_label.configure(text=c_text)
-        if hasattr(self, "ram_card_cur_ram"):
-            self.ram_card_cur_ram.value_label.configure(text=total_str)
-        if hasattr(self, "ram_card_saved") and self.ram_manager:
-            tot_saved = self.ram_manager.total_saved_mb
-            tot_str = f"{tot_saved / 1024:.2f} GB" if tot_saved >= 1024 else f"{int(tot_saved)} MB"
-            self.ram_card_saved.value_label.configure(text=tot_str)
-
-        if not hasattr(self, "ram_client_rows"):
-            self.ram_client_rows = {}
-
-        current_pids = set()
-
-        if not clients:
-            for pid, r_dict in list(self.ram_client_rows.items()):
-                try:
-                    r_dict["frame"].destroy()
-                except Exception:
-                    pass
-            self.ram_client_rows.clear()
-            if not getattr(self, "ram_empty_label", None):
-                self.ram_empty_label = ctk.CTkLabel(
-                    self.ram_clients_scroll,
-                    text="Chưa phát hiện tiến trình MEGAMU.exe nào đang chạy.",
-                    font=ctk.CTkFont(family="Segoe UI", size=11),
-                    text_color="#64748b"
-                )
-                self.ram_empty_label.pack(pady=30)
-            return
-        else:
-            if getattr(self, "ram_empty_label", None):
-                try:
-                    self.ram_empty_label.destroy()
-                except Exception:
-                    pass
-                self.ram_empty_label = None
-
-        for c in clients:
-            pid = c["pid"]
-            current_pids.add(pid)
-            title = c.get("title") or self.detected_games.get(pid, "")
-            cname = character_name_from_window_title(title)
-            disp_name = f"{cname}" if cname else (title if title else f"MEGAMU Client")
-            mem_mb = c["mem_mb"]
-            mem_str = f"{mem_mb / 1024:.2f} GB" if mem_mb >= 1024 else f"{mem_mb:.1f} MB"
-
-            if pid in self.ram_client_rows:
-                # CẬP NHẬT TRỰC TIẾP TẠI CHỖ (IN-PLACE) - KHÔNG DESTROY/RECREATE -> KHÔNG BAO GIỜ BỊ NHÁY!
-                r_dict = self.ram_client_rows[pid]
-                if r_dict.get("name_lbl") and r_dict["name_lbl"].cget("text") != disp_name:
-                    r_dict["name_lbl"].configure(text=disp_name)
-                if r_dict.get("mem_lbl") and r_dict["mem_lbl"].cget("text") != mem_str:
-                    r_dict["mem_lbl"].configure(text=mem_str)
-            else:
-                row = ctk.CTkFrame(self.ram_clients_scroll, fg_color="#181c26", height=36, corner_radius=0)
-                row.pack(fill="x", pady=2)
-
-                pid_lbl = ctk.CTkLabel(row, text=str(pid), width=70, anchor="w", font=ctk.CTkFont(family="Consolas", size=11, weight="bold"), text_color="#cbd5e1")
-                pid_lbl.pack(side="left", padx=(10, 4))
-
-                name_lbl = ctk.CTkLabel(row, text=disp_name, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#f8fafc")
-                name_lbl.pack(side="left", fill="x", expand=True, padx=4)
-
-                mem_lbl = ctk.CTkLabel(row, text=mem_str, width=105, anchor="center", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#f59e0b")
-                mem_lbl.pack(side="left", padx=4)
-
-                btn_trim_one = ctk.CTkButton(
-                    row,
-                    text="Trim RAM",
-                    width=85,
-                    height=24,
-                    corner_radius=0,
-                    fg_color="#0369a1",
-                    hover_color="#0284c7",
-                    font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-                    command=lambda p=pid: self.trim_single_client_ui(p)
-                )
-                btn_trim_one.pack(side="left", padx=(4, 8))
-
-                self.ram_client_rows[pid] = {
-                    "frame": row,
-                    "name_lbl": name_lbl,
-                    "mem_lbl": mem_lbl,
-                    "btn": btn_trim_one
-                }
-
-        # Dọn dẹp những PID không còn tồn tại
-        for pid in list(self.ram_client_rows.keys()):
-            if pid not in current_pids:
-                try:
-                    self.ram_client_rows[pid]["frame"].destroy()
-                except Exception:
-                    pass
-                del self.ram_client_rows[pid]
-
-    def trim_ram_now_ui(self):
-        """Thực hiện tối ưu toàn bộ tiến trình MEGAMU từ giao diện RAM tab."""
-        if hasattr(self, "btn_ram_optimize_all"):
-            self.btn_ram_optimize_all.configure(state="disabled", text="⏳ Đang giải phóng RAM...")
-
-        def _run():
-            if self.ram_manager:
-                res = self.ram_manager.trim_now(self.detected_games)
-            else:
-                res = optimize_all_megamu(self.detected_games) if optimize_all_megamu else {}
-
-            def _done():
-                if hasattr(self, "btn_ram_optimize_all"):
-                    self.btn_ram_optimize_all.configure(state="normal", text=f" {tr('ram_optimize_all_btn')}")
-                c_cnt = res.get("total_clients", 0)
-                s_cnt = res.get("success_count", 0)
-                saved = res.get("saved_mb", 0.0)
-                pct = res.get("saved_pct", 0.0)
-                if c_cnt == 0:
-                    self.append_ram_log("⚠️ Không tìm thấy tiến trình MEGAMU.exe nào đang chạy!")
-                else:
-                    self.append_ram_log(f"🎉 Đã giải phóng {saved:.1f} MB ({pct:.0f}%) trên {s_cnt}/{c_cnt} client MEGAMU!")
-                self.refresh_ram_tab_stats()
-            self.after(0, _done)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def quick_trim_ram(self):
-        """Thực hiện dọn RAM 1-click từ thanh công cụ toolbar chính."""
-        if hasattr(self, "btn_trim_ram"):
-            self.btn_trim_ram.configure(state="disabled", text="⏳ Đang dọn...")
-
-        def _run():
-            if self.ram_manager:
-                res = self.ram_manager.trim_now(self.detected_games)
-            else:
-                res = optimize_all_megamu(self.detected_games) if optimize_all_megamu else {}
-
-            def _done():
-                if hasattr(self, "btn_trim_ram"):
-                    self.btn_trim_ram.configure(state="normal", text=f" {tr('ram_trim_now')}")
-                c_cnt = res.get("total_clients", 0)
-                s_cnt = res.get("success_count", 0)
-                saved = res.get("saved_mb", 0.0)
-                pct = res.get("saved_pct", 0.0)
-                if c_cnt == 0:
-                    self.log_message("⚠️ Không tìm thấy tiến trình MEGAMU.exe nào đang chạy để dọn RAM.", "WARNING")
-                else:
-                    self.log_message(f"🎉 Tối ưu RAM thành công: Đã thu hồi {saved:.1f} MB ({pct:.0f}%) trên {s_cnt}/{c_cnt} client MEGAMU!", "SUCCESS")
-                if getattr(self, "active_tab", "") == "ram":
-                    self.refresh_ram_tab_stats()
-            self.after(0, _done)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def trim_single_client_ui(self, pid: int):
-        def _run():
-            mem_before = 0
-            try:
-                p = psutil.Process(pid)
-                mem_before = p.memory_info().rss
-            except Exception:
-                pass
-            ok = trim_single_process(pid) if trim_single_process else False
-            time.sleep(0.2)
-            mem_after = 0
-            try:
-                p = psutil.Process(pid)
-                mem_after = p.memory_info().rss
-            except Exception:
-                pass
-            saved_mb = max(0, (mem_before - mem_after) / 1048576)
-            def _done():
-                if ok:
-                    self.append_ram_log(f"⚡ Đã dọn RAM cho PID {pid}: Tiết kiệm {saved_mb:.1f} MB!")
-                    self.log_message(f"[PID {pid}] Đã thu hồi {saved_mb:.1f} MB RAM thành công!", "SUCCESS")
-                else:
-                    self.append_ram_log(f"⚠️ Không thể dọn RAM cho PID {pid}.")
-                self.refresh_ram_tab_stats()
-            self.after(0, _done)
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _on_ram_manager_event(self, res: Dict[str, Any]):
-        def _done():
-            c_cnt = res.get("total_clients", 0)
-            s_cnt = res.get("success_count", 0)
-            saved = res.get("saved_mb", 0.0)
-            pct = res.get("saved_pct", 0.0)
-            if c_cnt > 0:
-                msg = f"🎉 [Auto-Trim] Đã giải phóng {saved:.1f} MB ({pct:.0f}%) trên {s_cnt}/{c_cnt} client!"
-                self.append_ram_log(msg)
-                self.log_message(msg, "SUCCESS")
-            if getattr(self, "active_tab", "") == "ram":
-                self.refresh_ram_tab_stats()
-        self.after(0, _done)
 
     def _safe_append_textbox(self, widget, text: str, max_lines: int = 1000, trim_lines: int = 150):
         """Chèn log an toàn đa luồng vào Textbox và tự động cắt tỉa các dòng cũ để chống phình to RAM."""
@@ -9011,30 +8540,6 @@ class DashboardApp(ctk.CTk):
             widget.see("end")
         except Exception:
             pass
-
-    def append_ram_log(self, text: str):
-        if hasattr(self, "ram_log_txt"):
-            self._safe_append_textbox(self.ram_log_txt, text)
-
-    def _on_ram_auto_switch_toggled(self):
-        if not self.ram_manager:
-            return
-        enabled = self.ram_auto_var.get()
-        self.ram_manager.set_auto_trim(enabled)
-        if enabled:
-            mins = self.ram_manager.interval_seconds // 60
-            self.append_ram_log(f"🟢 Đã BẬT Tự động dọn RAM định kỳ ({mins} phút/lần).")
-            self.log_message(f"🟢 Đã BẬT Tự động dọn RAM định kỳ ({mins} phút/lần).", "INFO")
-        else:
-            self.append_ram_log("⏹ Đã TẮT Tự động dọn RAM định kỳ.")
-            self.log_message("⏹ Đã TẮT Tự động dọn RAM định kỳ.", "INFO")
-
-    def _on_ram_interval_changed(self, choice: str):
-        if not self.ram_manager:
-            return
-        sec = self.ram_intervals_map.get(choice, 180)
-        self.ram_manager.set_interval(sec)
-        self.append_ram_log(f"⏱ Đã đặt khoảng thời gian dọn RAM: {choice}.")
 
     # ==========================================================================
     # TAB 5: TỰ ĐỘNG QUAY MOSS THE GAMBLER ĐA TÀI KHOẢN (MOSS MERCHANT GRID)
@@ -16599,8 +16104,6 @@ class DashboardApp(ctk.CTk):
             self.tab_profiles_btn.configure(text=f" {tr('configuration')}")
         if hasattr(self, "tab_logs_btn"):
             self.tab_logs_btn.configure(text=f" {tr('logs')}")
-        if hasattr(self, "tab_ram_btn"):
-            self.tab_ram_btn.configure(text=f" {tr('ram_optimizer')}")
         if hasattr(self, "btn_text_cfg"):
             self.btn_text_cfg.configure(text=tr("text_config"))
 
@@ -16615,12 +16118,6 @@ class DashboardApp(ctk.CTk):
             add_tooltip(self.btn_add_slot, f"➕ {tr('add')} Slot\nThêm một hàng quản lý tài khoản mới vào bảng.")
         if hasattr(self, "btn_remove_slot"):
             add_tooltip(self.btn_remove_slot, f"➖ {tr('remove')} Slot\nXóa bớt một hàng quản lý tài khoản ở cuối bảng.")
-        if hasattr(self, "btn_trim_ram"):
-            self.btn_trim_ram.configure(text=f" {tr('ram_trim_now')}")
-        if hasattr(self, "btn_ram_optimize_all"):
-            self.btn_ram_optimize_all.configure(text=f" {tr('ram_optimize_all_btn')}")
-        if hasattr(self, "ram_auto_switch"):
-            self.ram_auto_switch.configure(text=tr("ram_auto_trim"))
 
         # 3. Table Header in Accounts Tab
         if hasattr(self, "col_header_labels"):
@@ -16740,14 +16237,12 @@ class DashboardApp(ctk.CTk):
                         details="Lỗi đồng bộ dữ liệu Telemetry"
                     )
 
-                # Định kỳ mỗi 120s dọn rác heap Python và thu hồi RAM Working Set
+                # Định kỳ mỗi 120s dọn rác heap Python
                 now = time.time()
                 if now - last_gc_time >= 120.0:
                     last_gc_time = now
                     try:
                         gc.collect()
-                        from meg_ram_optimizer import trim_self
-                        trim_self()
                     except Exception:
                         pass
 
@@ -16761,11 +16256,6 @@ class DashboardApp(ctk.CTk):
             return
         try:
             self.apply_license_lock_state()
-            if getattr(self, "active_tab", "") == "ram":
-                self._ram_tick = getattr(self, "_ram_tick", 0) + 1
-                if self._ram_tick >= 3:
-                    self._ram_tick = 0
-                    self.refresh_ram_tab_stats()
             if hasattr(self, "header_stats_lbl"):
                 lic_str = license_client.get_license_display_text() if license_client else CURRENT_LICENSE
                 if not hasattr(self, "_last_lic_display") or self._last_lic_display != lic_str:
@@ -17067,11 +16557,6 @@ class DashboardApp(ctk.CTk):
     def on_closing(self):
         self.running = False
         self.moss_running = False
-        if hasattr(self, "ram_manager") and self.ram_manager:
-            try:
-                self.ram_manager.stop_worker()
-            except Exception:
-                pass
         for ctrl in self.controllers:
             if hasattr(ctrl, "stop_moss"):
                 ctrl.stop_moss()

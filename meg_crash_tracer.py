@@ -357,17 +357,6 @@ def trace_gc_protection(event: str, details: str, pid: Optional[int] = None, cha
     )
 
 
-def trace_ram_trim(event: str, details: str, pid: Optional[int] = None):
-    """Ghi nhận sự kiện dọn RAM Working Set, ngăn ngừa bão hard page faults."""
-    log_crash_trace(
-        source="RAM_TRIM",
-        event=event,
-        details=details,
-        pid=pid,
-        level="WARN" if "BLOCK" in event.upper() or "SKIP" in event.upper() else "INFO"
-    )
-
-
 def trace_frida_event(event: str, details: str, pid: Optional[int] = None, level: str = "INFO"):
     """Ghi nhận sự kiện Frida hooks, telemetry ticks, detach, hoặc exception."""
     log_crash_trace(

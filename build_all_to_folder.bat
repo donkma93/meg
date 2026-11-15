@@ -149,7 +149,6 @@ python -m PyInstaller ^
     --hidden-import="meg_auto_worker" ^
     --hidden-import="license_client" ^
     --hidden-import="updater" ^
-    --hidden-import="meg_ram_optimizer" ^
     --hidden-import="meg_account_manager" ^
     --hidden-import="meg_navigator" ^
     --hidden-import="meg_trash_cleaner" ^

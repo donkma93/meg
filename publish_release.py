@@ -174,10 +174,6 @@ if __name__ == "__main__":
   - **REA Zero-Confirm Devil Entry**: Tự động hook `TableEventEntryLevel` và bypass hộp thoại xác nhận khi vào Devil Square, vào cổng tức thì với độ trễ tối thiểu khi cổng mở.
   - **Tự động mở Popup trạng thái**: Tự động kích hoạt thông báo "Entrance is currently closed" trực quan khi nhân vật đã sẵn sàng nhưng sự kiện chưa tới giờ.
 
-- **Tối Ưu Hóa Bộ Nhớ RAM Tự Động (RAM Auto-Trim Optimizer):**
-  - Tích hợp công cụ dọn dẹp và tối ưu bộ nhớ RAM tự động định kỳ (`auto_trim_enabled`, `interval_seconds`), tự động giải phóng bộ nhớ đệm dư thừa của hàng chục client MEGAMU đồng thời.
-  - Tiết kiệm hàng chục gigabyte RAM cho máy chủ/máy trạm treo máy 24/7 mà không ảnh hưởng tới hiệu năng game.
-
 - **Kế thừa toàn diện các tính năng Promax của v1.5.9:**
   - Khắc phục triệt để lỗi crash `tcl86t.dll` (0xc0000005) bằng Thread-Safe Dispatching và Font/Tooltip caching.
   - Đột phá bán đồ rác Moss tại NPC Silvia với wire packet opcode `0xF9` (mã hóa XOR 0xCB).

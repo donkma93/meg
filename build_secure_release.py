@@ -113,7 +113,6 @@ def run_nuitka_build():
         "--include-module=license_client",
         "--include-module=_embedded_bridge",
         "--include-module=updater",
-        "--include-module=meg_ram_optimizer",
         "--include-module=meg_account_manager",
         "--include-module=meg_navigator",
         "--include-module=meg_trash_cleaner",
