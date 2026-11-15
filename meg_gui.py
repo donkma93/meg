@@ -12651,20 +12651,21 @@ class DashboardApp(ctk.CTk):
         tbl_hdr.pack(fill="x", padx=2, pady=2)
         tbl_hdr.pack_propagate(False)
 
-        ctk.CTkLabel(tbl_hdr, text="BẬT", width=42, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(6, 2))
-        ctk.CTkLabel(tbl_hdr, text="STT", width=38, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
-        ctk.CTkLabel(tbl_hdr, text="TÀI KHOẢN", width=125, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="PHÂN LOẠI", width=115, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="NHÂN VẬT LOGIN", width=135, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
+        ctk.CTkLabel(tbl_hdr, text="BẬT", width=36, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(8, 2))
+        ctk.CTkLabel(tbl_hdr, text="STT", width=32, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
+        ctk.CTkLabel(tbl_hdr, text="TRẠNG THÁI", width=72, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
+        ctk.CTkLabel(tbl_hdr, text="TÀI KHOẢN", width=120, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
+        ctk.CTkLabel(tbl_hdr, text="PHÂN LOẠI", width=110, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
+        ctk.CTkLabel(tbl_hdr, text="NHÂN VẬT LOGIN", width=130, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
         ctk.CTkLabel(tbl_hdr, text="SERVER", width=95, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="GÁN VÀO SLOT", width=115, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
+        ctk.CTkLabel(tbl_hdr, text="GÁN VÀO SLOT", width=110, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
         ctk.CTkLabel(tbl_hdr, text="THAO TÁC", anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=6, fill="x", expand=True)
 
         self.autologin_scroll = ctk.CTkScrollableFrame(table_container, fg_color="transparent")
         self.autologin_scroll.pack(fill="both", expand=True, padx=4, pady=4)
 
         # LOG CONTAINER (BÊN PHẢI)
-        log_box = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430", width=340)
+        log_box = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430", width=300)
         log_box.pack(side="right", fill="y", padx=(6, 0))
         log_box.pack_propagate(False)
 
@@ -12706,7 +12707,7 @@ class DashboardApp(ctk.CTk):
         self._autologin_table_initialized = True
 
     def sync_autologin_table_values(self):
-        """Đồng bộ nhanh giá trị Server và Slot trong bảng AutoLogin mà KHÔNG vẽ lại widget (0ms - Chống giật lag)."""
+        """Đồng bộ nhanh trạng thái Online/Offline, Server và Slot trong bảng AutoLogin mà KHÔNG vẽ lại widget (0ms - Chống giật lag)."""
         if not hasattr(self, "autologin_ui_rows") or not self.autologin_ui_rows:
             return
         for item in self.autologin_ui_rows:
@@ -12714,10 +12715,79 @@ class DashboardApp(ctk.CTk):
                 acc = item.get("acc")
                 if not acc:
                     continue
+                u = acc.get("username", "")
+
+                # 1. Trạng thái Online / Offline
+                is_online, live_pid = self.is_account_logged_in(acc)
+                status_badge = item.get("status_badge")
+                if status_badge:
+                    if is_online:
+                        status_badge.configure(
+                            text="🟢 Online",
+                            fg_color="#064e3b",
+                            text_color="#34d399"
+                        )
+                    else:
+                        status_badge.configure(
+                            text="⚪ Off",
+                            fg_color="#181c26",
+                            text_color="#64748b"
+                        )
+
+                # 2. Nút Mở & Login: Nếu online thì vô hiệu hoá, đổi text & màu sắc
+                btn_launch = item.get("btn_launch")
+                if btn_launch:
+                    if is_online:
+                        btn_launch.configure(
+                            text="🟢 Đang online",
+                            state="disabled",
+                            fg_color="#064e3b",
+                            text_color_disabled="#34d399"
+                        )
+                    else:
+                        btn_launch.configure(
+                            text="🚀 Mở & Login",
+                            state="normal",
+                            fg_color="#6366f1"
+                        )
+
+                # 3. Nút Đóng: Nếu online thì bật active red, nếu offline thì mờ đi
+                btn_close = item.get("btn_close")
+                if btn_close:
+                    if is_online:
+                        btn_close.configure(
+                            state="normal",
+                            fg_color="#450a0a",
+                            hover_color="#7f1d1d",
+                            border_color="#ef4444",
+                            text_color="#fca5a5"
+                        )
+                    else:
+                        btn_close.configure(
+                            state="disabled",
+                            fg_color="#181c26",
+                            hover_color="#181c26",
+                            border_color="#272e3f",
+                            text_color_disabled="#475569"
+                        )
+
+                # 4. Tự động nhận diện Server thực tế nếu game đang online
+                if is_online and live_pid:
+                    p_title = getattr(self, "detected_games", {}).get(live_pid, "")
+                    live_srv = server_from_window_title(p_title)
+                    if not live_srv and hasattr(self, "controllers"):
+                        for c_slot in self.controllers:
+                            if c_slot.assigned_pid == live_pid and getattr(c_slot, "server_num", None):
+                                live_srv = c_slot.server_num
+                                break
+                    if live_srv and live_srv > 0 and acc.get("server") != live_srv:
+                        acc["server"] = live_srv
+
                 srv_val = int(acc.get("server", 3))
                 srv_str = f"Server {srv_val}"
                 if item.get("srv_var") and item["srv_var"].get() != srv_str:
                     item["srv_var"].set(srv_str)
+
                 pref_slot = acc.get("preferred_slot")
                 if pref_slot and 1 <= pref_slot <= len(self.controllers):
                     slot_str = f"Slot #{pref_slot:02d}"
@@ -12789,6 +12859,8 @@ class DashboardApp(ctk.CTk):
             row.pack(fill="x", pady=2)
             row.pack_propagate(False)
 
+            is_online, live_pid = self.is_account_logged_in(acc)
+
             # 1. Checkbox Enable
             cb_var = ctk.BooleanVar(value=acc.get("enabled", True))
             def _make_cb_cmd(a_ref, v_ref):
@@ -12797,26 +12869,39 @@ class DashboardApp(ctk.CTk):
                 row,
                 text="",
                 variable=cb_var,
-                width=24,
+                width=20,
                 checkbox_width=18,
                 checkbox_height=18,
                 corner_radius=0,
                 command=_make_cb_cmd(acc, cb_var)
             )
-            cb.pack(side="left", padx=(10, 2))
+            cb.pack(side="left", padx=(8, 2))
 
             # 2. STT
-            stt_lbl = ctk.CTkLabel(row, text=f"#{idx+1:02d}", width=38, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8")
+            stt_lbl = ctk.CTkLabel(row, text=f"#{idx+1:02d}", width=32, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8")
             stt_lbl.pack(side="left", padx=2)
 
-            # 3. Username
+            # 3. Trạng thái (Online / Off)
+            status_badge = ctk.CTkLabel(
+                row,
+                text="🟢 Online" if is_online else "⚪ Off",
+                width=68,
+                height=24,
+                corner_radius=4,
+                fg_color="#064e3b" if is_online else "#181c26",
+                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                text_color="#34d399" if is_online else "#64748b"
+            )
+            status_badge.pack(side="left", padx=2)
+
+            # 4. Username
             u_name = acc.get("username", "")
             has_pwd = bool(acc.get("password"))
             u_title = f"{u_name} 🔑" if has_pwd else u_name
-            u_lbl = ctk.CTkLabel(row, text=u_title, width=125, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#38bdf8" if has_pwd else "#f1f5f9")
+            u_lbl = ctk.CTkLabel(row, text=u_title, width=120, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#38bdf8" if has_pwd else "#f1f5f9")
             u_lbl.pack(side="left", padx=4)
 
-            # 4. Phân loại mục đích (Category Combobox)
+            # 5. Phân loại mục đích (Category Combobox)
             cat_list = self.account_mgr.get_categories() if self.account_mgr else ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp"]
             a_cat = acc.get("category") or "Chung"
             if a_cat not in cat_list:
@@ -12835,7 +12920,7 @@ class DashboardApp(ctk.CTk):
                 row,
                 values=cat_list,
                 variable=cat_var,
-                width=115,
+                width=110,
                 height=28,
                 corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
@@ -12843,7 +12928,7 @@ class DashboardApp(ctk.CTk):
             )
             cat_combo.pack(side="left", padx=4)
 
-            # 5. Character Combobox
+            # 6. Character Combobox
             c_list = acc.get("characters_list", [])
             cur_char = acc.get("character", "")
             if cur_char and cur_char not in c_list:
@@ -12860,7 +12945,7 @@ class DashboardApp(ctk.CTk):
                 row,
                 values=c_list,
                 variable=char_var,
-                width=135,
+                width=130,
                 height=28,
                 corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=11),
@@ -12868,30 +12953,9 @@ class DashboardApp(ctk.CTk):
             )
             char_combo.pack(side="left", padx=4)
 
-            # 6. Server Combobox (Tự động nhận diện Server thực tế nếu game đang mở / đứng cũ)
+            # 7. Server Combobox (Tự động nhận diện Server thực tế nếu game đang mở / đứng cũ)
             live_srv = None
-            running_p = None
-            last_p = acc.get("last_pid")
-            if last_p and psutil.pid_exists(last_p):
-                running_p = last_p
-            else:
-                acc_char = (acc.get("character") or "").strip().lower()
-                chars_list = [c.strip().lower() for c in acc.get("characters_list", []) if c.strip()]
-                target_names = [acc_char] + chars_list if (acc_char and acc_char != "(mặc định)") else chars_list
-                for p, title in self.detected_games.items():
-                    c_name = character_name_from_window_title(title).strip().lower()
-                    if c_name and c_name in target_names:
-                        running_p = p
-                        acc["last_pid"] = p
-                        break
-
-            if not running_p and acc.get("preferred_slot"):
-                ps = acc.get("preferred_slot")
-                if 1 <= ps <= len(self.controllers):
-                    c_slot = self.controllers[ps - 1]
-                    if c_slot.assigned_pid and psutil.pid_exists(c_slot.assigned_pid):
-                        running_p = c_slot.assigned_pid
-                        acc["last_pid"] = running_p
+            running_p = live_pid if is_online else None
 
             if running_p:
                 p_title = self.detected_games.get(running_p, "")
@@ -12920,7 +12984,7 @@ class DashboardApp(ctk.CTk):
             )
             srv_combo.pack(side="left", padx=4)
 
-            # 7. Slot Target Combobox
+            # 8. Slot Target Combobox
             slot_opts = ["Tự động"] + [f"Slot #{c.slot_idx:02d}" for c in self.controllers]
             cur_pref = acc.get("preferred_slot")
             if cur_pref and 1 <= cur_pref <= len(self.controllers):
@@ -12936,7 +13000,7 @@ class DashboardApp(ctk.CTk):
                 row,
                 values=slot_opts,
                 variable=slot_var,
-                width=115,
+                width=110,
                 height=28,
                 corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=11),
@@ -12944,31 +13008,37 @@ class DashboardApp(ctk.CTk):
             )
             slot_combo.pack(side="left", padx=4)
 
-            # 8. Actions: Launch, Send Login, Close, Edit, Delete
+            # 9. Actions: Launch, Send Login, Close, Edit, Delete
             act_box = ctk.CTkFrame(row, fg_color="transparent")
-            act_box.pack(side="left", fill="x", expand=True, padx=6)
+            act_box.pack(side="left", fill="x", expand=True, padx=4)
 
             def _make_launch_cmd(a_ref, s_ref):
                 return lambda: self.launch_single_account_ui(a_ref, s_ref.get())
             btn_launch = ctk.CTkButton(
                 act_box,
-                text="🚀 Mở & Login",
-                width=88,
+                text="🟢 Đang online" if is_online else "🚀 Mở & Login",
+                width=92,
                 height=26,
                 corner_radius=0,
-                fg_color="#6366f1",
+                state="disabled" if is_online else "normal",
+                fg_color="#064e3b" if is_online else "#6366f1",
+                text_color_disabled="#34d399",
                 hover_color="#4f46e5",
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 command=_make_launch_cmd(acc, slot_var)
             )
             btn_launch.pack(side="left", padx=(0, 4))
+            if is_online:
+                add_tooltip(btn_launch, f"Tài khoản {u_name} đang online (PID: {live_pid}). Không thể mở thêm client!")
+            else:
+                add_tooltip(btn_launch, f"Mở client MEGAMU và tự động đăng nhập tài khoản {u_name}")
 
             def _make_send_cmd(a_ref, s_ref):
                 return lambda: self.send_login_to_slot_ui(a_ref, s_ref.get())
             btn_send = ctk.CTkButton(
                 act_box,
                 text="⚡ Gửi",
-                width=48,
+                width=46,
                 height=26,
                 corner_radius=0,
                 fg_color="#0f172a",
@@ -12980,20 +13050,23 @@ class DashboardApp(ctk.CTk):
                 command=_make_send_cmd(acc, slot_var)
             )
             btn_send.pack(side="left", padx=(0, 4))
+            add_tooltip(btn_send, f"⚡ Gửi thông tin đăng nhập tài khoản {u_name} vào Slot đã chọn mà không mở cửa sổ mới")
 
             def _make_close_cmd(a_ref):
                 return lambda: self.close_single_account_game(a_ref)
             btn_close = ctk.CTkButton(
                 act_box,
                 text="🛑 Đóng",
-                width=52,
+                width=50,
                 height=26,
                 corner_radius=0,
-                fg_color="#450a0a",
-                hover_color="#7f1d1d",
+                state="normal" if is_online else "disabled",
+                fg_color="#450a0a" if is_online else "#181c26",
+                hover_color="#7f1d1d" if is_online else "#181c26",
                 border_width=1,
-                border_color="#ef4444",
-                text_color="#fca5a5",
+                border_color="#ef4444" if is_online else "#272e3f",
+                text_color="#fca5a5" if is_online else "#475569",
+                text_color_disabled="#475569",
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 command=_make_close_cmd(acc)
             )
@@ -13005,7 +13078,7 @@ class DashboardApp(ctk.CTk):
             btn_edit = ctk.CTkButton(
                 act_box,
                 text="✏️ Sửa",
-                width=52,
+                width=48,
                 height=26,
                 corner_radius=0,
                 fg_color="#0369a1",
@@ -13020,7 +13093,7 @@ class DashboardApp(ctk.CTk):
             btn_del = ctk.CTkButton(
                 act_box,
                 text="🗑️ Xóa",
-                width=52,
+                width=48,
                 height=26,
                 corner_radius=0,
                 fg_color="#7f1d1d",
@@ -13034,9 +13107,17 @@ class DashboardApp(ctk.CTk):
             def _show_context_menu(event, a_ref=acc, s_ref=slot_var, u_str=u_name):
                 try:
                     menu = tk.Menu(self, tearoff=0, bg="#1e2433", fg="#f8fafc", activebackground="#6366f1", activeforeground="#ffffff", font=("Segoe UI", 10))
-                    menu.add_command(label=f"🚀 Mở & Login ({u_str})", command=lambda: self.launch_single_account_ui(a_ref, s_ref.get()))
+                    row_online, r_pid = self.is_account_logged_in(a_ref)
+                    if row_online:
+                        menu.add_command(label=f"🟢 Đang online ({u_str} - PID: {r_pid})", state="disabled")
+                    else:
+                        menu.add_command(label=f"🚀 Mở & Login ({u_str})", command=lambda: self.launch_single_account_ui(a_ref, s_ref.get()))
                     menu.add_command(label=f"⚡ Gửi Login vào {s_ref.get()}", command=lambda: self.send_login_to_slot_ui(a_ref, s_ref.get()))
-                    menu.add_command(label=f"🛑 Đóng Game Client ({u_str})", command=lambda: self.close_single_account_game(a_ref))
+                    menu.add_command(
+                        label=f"🛑 Đóng Game Client ({u_str})",
+                        command=lambda: self.close_single_account_game(a_ref),
+                        state="normal" if row_online else "disabled"
+                    )
                     menu.add_separator()
 
                     menu_cat = tk.Menu(menu, tearoff=0, bg="#1e2433", fg="#f8fafc", activebackground="#0284c7", activeforeground="#ffffff", font=("Segoe UI", 10))
@@ -13067,10 +13148,12 @@ class DashboardApp(ctk.CTk):
             self.autologin_ui_rows.append({
                 "acc": acc,
                 "cb_var": cb_var,
+                "status_badge": status_badge,
                 "char_var": char_var,
                 "srv_var": srv_var,
                 "slot_var": slot_var,
-                "btn_launch": btn_launch
+                "btn_launch": btn_launch,
+                "btn_close": btn_close,
             })
 
     def _on_acc_toggle(self, acc: Dict[str, Any], enabled: bool):
@@ -13627,33 +13710,71 @@ class DashboardApp(ctk.CTk):
 
     def find_account_running_pid(self, acc: Dict[str, Any]) -> Optional[int]:
         """Tìm PID của cửa sổ MEGAMU đang chạy ứng với tài khoản/nhân vật này."""
-        u = (acc.get("username") or "").strip()
-        c = (acc.get("character") or "").strip()
+        u = (acc.get("username") or "").strip().lower()
+        c = (acc.get("character") or "").strip().lower()
+        chars_list = [ch.strip().lower() for ch in acc.get("characters_list", []) if ch.strip()]
+        target_names = set(chars_list)
+        if c and c != "(mặc định)":
+            target_names.add(c)
+
+        # 1. Kiểm tra last_pid nếu tiến trình còn sống
         last_pid = acc.get("last_pid")
         if last_pid and psutil.pid_exists(last_pid):
-            return last_pid
+            detected = getattr(self, "detected_games", {})
+            if last_pid in detected:
+                return last_pid
+            try:
+                if psutil.Process(last_pid).name().lower() == "megamu.exe":
+                    return last_pid
+            except Exception:
+                pass
 
-        pref_slot = acc.get("preferred_slot")
-        if pref_slot and 1 <= pref_slot <= len(self.controllers):
-            c_ctrl = self.controllers[pref_slot - 1]
-            if c_ctrl.assigned_pid and psutil.pid_exists(c_ctrl.assigned_pid):
-                return c_ctrl.assigned_pid
+        # 2. Kiểm tra qua các Slot Controllers đang hoạt động
+        if hasattr(self, "controllers"):
+            pref_slot = acc.get("preferred_slot")
+            if pref_slot and 1 <= pref_slot <= len(self.controllers):
+                c_ctrl = self.controllers[pref_slot - 1]
+                if c_ctrl.assigned_pid and psutil.pid_exists(c_ctrl.assigned_pid):
+                    c_name = (c_ctrl.char_name or "").strip().lower()
+                    if c_name in target_names or (not c_name or c_name == "---"):
+                        return c_ctrl.assigned_pid
 
-        for ctrl in self.controllers:
-            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
-                if c and ctrl.char_name and c.lower() == ctrl.char_name.lower():
-                    return ctrl.assigned_pid
+            for ctrl in self.controllers:
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    c_name = (ctrl.char_name or "").strip().lower()
+                    if c_name and c_name in target_names:
+                        return ctrl.assigned_pid
 
+        # 3. Kiểm tra qua bộ nhớ detected_games (từ title cửa sổ)
+        detected = getattr(self, "detected_games", {})
+        if detected and target_names:
+            for p, title in detected.items():
+                t_lower = title.lower()
+                c_from_title = character_name_from_window_title(title).strip().lower()
+                if c_from_title and c_from_title in target_names:
+                    return p
+                for name in target_names:
+                    if name in t_lower:
+                        return p
+
+        # 4. Fallback qua WindowManager nếu chưa tìm thấy
         wins = MEGAMUWindowManager.get_active_game_windows(controllers=self.controllers)
         for w in wins:
-            w_cname = w.get("char_name", "")
-            w_title = w.get("title", "")
-            if c and w_cname and c.lower() == w_cname.lower():
+            w_cname = (w.get("char_name") or "").strip().lower()
+            w_title = (w.get("title") or "").strip().lower()
+            if w_cname and w_cname in target_names:
                 return w["pid"]
-            if u and u.lower() in w_title.lower():
+            if u and u in w_title:
                 return w["pid"]
 
         return None
+
+    def is_account_logged_in(self, acc: Dict[str, Any]) -> Tuple[bool, Optional[int]]:
+        """Kiểm tra xem tài khoản này hiện có đang mở game MEGAMU hay không (trả về (is_online, pid))."""
+        pid = self.find_account_running_pid(acc)
+        if pid and psutil.pid_exists(pid):
+            return True, pid
+        return False, None
 
     def close_single_account_game(self, acc: Dict[str, Any]):
         """Đóng cửa sổ game MEGAMU của một tài khoản cụ thể."""
@@ -13685,7 +13806,7 @@ class DashboardApp(ctk.CTk):
 
         acc["last_pid"] = None
         self.refresh_games()
-        self.refresh_autologin_table()
+        self.sync_autologin_table_values()
         self.update_header_stats()
         self.append_autologin_log(f"✅ Đã đóng game của tài khoản {u} (PID {pid}) thành công!")
         self.log_message(f"Đã đóng game client MEGAMU PID {pid} ({u}).", "SUCCESS")
@@ -13705,7 +13826,7 @@ class DashboardApp(ctk.CTk):
             if el and el.get("proc_var"):
                 el["proc_var"].set("--")
             self.refresh_games()
-            self.refresh_autologin_table()
+            self.sync_autologin_table_values()
             return
 
         if not messagebox.askyesno(
@@ -13721,7 +13842,7 @@ class DashboardApp(ctk.CTk):
         if el and el.get("proc_var"):
             el["proc_var"].set("--")
         self.refresh_games()
-        self.refresh_autologin_table()
+        self.sync_autologin_table_values()
         self.update_header_stats()
         self.log_message(f"[Slot {slot_idx:02d}] Đã đóng thành công game MEGAMU (PID {pid}).", "SUCCESS")
         self.append_autologin_log(f"🛑 [Slot #{slot_idx:02d}] Đã đóng cửa sổ game MEGAMU (PID {pid}).")
@@ -14334,6 +14455,15 @@ class DashboardApp(ctk.CTk):
         c = acc.get("character", "")
         s = int(acc.get("server", 3))
 
+        # CHẶN MỞ TRÙNG LẶP: Nếu tài khoản đang chạy game thì không cho phép mở tiếp!
+        is_online, live_pid = self.is_account_logged_in(acc)
+        if is_online:
+            self.append_autologin_log(f"⚠️ [Account: {u}] Tài khoản này ĐÃ ĐĂNG NHẬP / ĐANG CHẠY (PID: {live_pid})! Hệ thống từ chối mở trùng lặp.")
+            if hasattr(self, "autologin_status_lbl"):
+                self.autologin_status_lbl.configure(text=f"{u} đang online (PID {live_pid})", text_color="#10b981")
+            self.sync_autologin_table_values()
+            return
+
         def _worker():
             self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Đang mở {u}...", text_color="#f59e0b"))
             self.append_autologin_log(f"🚀 [Account: {u}] Bắt đầu mở MEGAMU.exe...")
@@ -14430,9 +14560,18 @@ class DashboardApp(ctk.CTk):
 
             # 1. GIAI ĐOẠN 1: Cấp phát Slot và Spawn ngay lập tức tất cả các tiến trình MEGAMU
             spawned_jobs = []
+            skipped_count = 0
             for idx, acc in enumerate(enabled):
                 u = acc.get("username", "")
                 c = acc.get("character", "")
+
+                # CHẶN MỞ TRÙNG LẶP: Nếu tài khoản đang chạy game thì bỏ qua
+                is_online, live_pid = self.is_account_logged_in(acc)
+                if is_online:
+                    skipped_count += 1
+                    self.append_autologin_log(f"⏭️ [Account: {u}] Đang online (PID: {live_pid}) -> Bỏ qua không mở trùng.")
+                    continue
+
                 pref_slot = acc.get("preferred_slot")
                 slot_arg = str(pref_slot) if (pref_slot and pref_slot > 0) else "Tự động"
 
@@ -14453,14 +14592,22 @@ class DashboardApp(ctk.CTk):
 
                 # Gán ngay PID vào Slot trên giao diện Dashboard để người dùng thấy tất cả các slot bật lên cùng lúc!
                 self.after(0, lambda c_ref=ctrl, p=pid, ch=c or u: self._bind_pid_to_slot_ui(c_ref, p, ch))
-                ctrl.set_status("⏳ Khởi động...")
-
+                ctrl.set_status("🔑 Đang khởi động...")
                 self.append_autologin_log(f"🚀 [{idx+1}/{len(enabled)}] Đã mở cửa sổ MEGAMU (PID {pid}) -> Gán Slot #{ctrl.slot_idx:02d} ({u})")
                 spawned_jobs.append((ctrl.slot_idx, ctrl, pid, acc))
 
                 # Giãn cách nhẹ (0.3s - 0.5s) giữa các lần gọi Popen để tránh kẹt CPU/Disk IO
                 if idx < len(enabled) - 1:
                     time.sleep(delay_sec)
+
+            if not spawned_jobs:
+                if skipped_count > 0:
+                    self.append_autologin_log(f"✅ Tất cả {skipped_count} tài khoản được chọn đều đang chạy trực tuyến! Không cần mở thêm.")
+                else:
+                    self.append_autologin_log("⚠️ Không có tài khoản nào được khởi chạy.")
+                self.after(0, lambda: self.btn_autologin_all.configure(state="normal"))
+                self.after(0, self.sync_autologin_table_values)
+                return
 
             self.after(0, lambda: self.autologin_status_lbl.configure(
                 text=f"Đã mở {len(spawned_jobs)} cửa sổ! Đang login song song...", text_color="#38bdf8"
@@ -16388,6 +16535,8 @@ class DashboardApp(ctk.CTk):
                     if games != getattr(self, "detected_games", None):
                         self.detected_games = games
                         self.update_header_stats()
+                        if getattr(self, "current_tab", "") == "autologin":
+                            self.sync_autologin_table_values()
                 if self.running:
                     self.after(0, _apply)
             except Exception:
