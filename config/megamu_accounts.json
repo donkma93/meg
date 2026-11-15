@@ -21,14 +21,14 @@
         "trua1",
         "toi1"
       ],
-      "server": 1,
+      "server": 4,
       "enabled": true,
       "source": "manual",
       "password": "Nammothai3",
       "preferred_slot": 1,
       "token": "7fd54d634cf2e1610ded244390bae23a",
       "category": "Chỉ Moss",
-      "last_pid": null
+      "last_pid": 19716
     },
     {
       "username": "anhdontb1",
@@ -39,13 +39,13 @@
         "trua2",
         "toi2"
       ],
-      "server": 3,
+      "server": 1,
       "enabled": true,
       "source": "manual",
       "password": "Nammothai3",
       "token": "757aa739d5cc93cb6c9f9ad39ab02138",
       "category": "Chung",
-      "last_pid": null
+      "last_pid": 4672
     },
     {
       "username": "dtn01",
