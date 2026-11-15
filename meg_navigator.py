@@ -855,12 +855,14 @@ class ProcessMemoryReader:
         windows = WindowHelper.get_unity_windows()
         for p, hwnd, title, w, h in windows:
             if p == pid and title:
-                m = re.search(r"MEGAMU[^\d\n\r]*?(?:Sv|Server|Sub)?\.?\s*(\d+)", title, re.IGNORECASE)
+                # 1. Tìm mẫu Sv<số> hoặc Server <số> hoặc Sub <số> trực tiếp
+                m = re.search(r"(?:Sv|Server|Sub)\.?\s*(\d+)", title, re.IGNORECASE)
                 if m:
                     try:
                         return int(m.group(1))
                     except Exception:
                         pass
+                # 2. Tìm số sau từ khóa MEGAMU
                 parts = re.split(r"MEGAMU", title, flags=re.IGNORECASE)
                 if len(parts) > 1:
                     m2 = re.search(r"(\d+)", parts[1])

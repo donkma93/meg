@@ -63,6 +63,39 @@ def find_megamu_exe_path() -> Optional[str]:
     return None
 
 
+def configure_megamu_registry_for_server(server: int = 3, username: str = "", character: str = "") -> bool:
+    """Cập nhật Registry Settings_h649772672 của MEGAMU trước khi khởi chạy game,
+    đảm bảo MEGAMU luôn tự động kết nối chính xác 100% vào đúng Server chỉ định (Sv1..Sv8)."""
+    try:
+        key_path = r"Software\MEGAMU\MEGAMU"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
+            try:
+                val, _ = winreg.QueryValueEx(key, "Settings_h649772672")
+                raw_bytes = bytes(val[:-1]) if (val and val[-1] == 0) else bytes(val)
+                settings = json.loads(raw_bytes.decode('utf-8'))
+            except Exception:
+                settings = {}
+
+            s_num = int(server or 3)
+            # MEGAMU Port mapping: Sv1=55502, Sv2=55504, Sv3=55506, Sv4=55508, Sv5=55510, Sv6=55512, Sv7=55514, Sv8=55516...
+            port = 55500 + s_num * 2
+            label = f"Sv{s_num}"
+
+            settings["LastServerPort"] = port
+            settings["LastServerLabel"] = label
+            settings["AutoSelectServer"] = True
+            if username:
+                settings["LastUsername"] = username
+            if character and character != "(Mặc định)":
+                settings["LastCharacter"] = character
+
+            new_raw = json.dumps(settings, separators=(',', ':')).encode('utf-8') + b'\x00'
+            winreg.SetValueEx(key, "Settings_h649772672", 0, winreg.REG_BINARY, new_raw)
+            return True
+    except Exception as e:
+        return False
+
+
 def read_accounts_from_registry() -> List[Dict[str, Any]]:
     """Đọc toàn bộ danh sách tài khoản MEGAMU đã lưu sẵn trong Windows Registry."""
     accounts = []
@@ -485,7 +518,12 @@ class AccountManager:
             else:
                 print(msg)
 
-        _log(f"🚀 [Account: {username}] Đang khởi chạy MEGAMU.exe...")
+        # Cấu hình Windows Registry Settings_h649772672 của MEGAMU để vào đúng Server chỉ định
+        target_srv = int(acc.get("server", 3))
+        target_char = acc.get("character", "")
+        configure_megamu_registry_for_server(server=target_srv, username=username, character=target_char)
+
+        _log(f"🚀 [Account: {username}] Đang khởi chạy MEGAMU.exe vào Server {target_srv}...")
         pid = self.spawn_client()
         if not pid:
             _log(f"❌ [Account: {username}] Không thể khởi chạy tiến trình MEGAMU.exe!")

@@ -3523,6 +3523,32 @@ try {
                         return;
                     }
 
+                    // Kiểm tra xem game có đang ở sai Server so với yêu cầu cấu hình không
+                    if (currState >= 2 && currState !== 3 && !pal.serverConnected && pal.server) {
+                        var currSCode = 0;
+                        if (nativeGetGSConnection !== null) {
+                            try {
+                                var gs = nativeGetGSConnection();
+                                if (!gs.isNull()) currSCode = gs.add(0xAC).readS32();
+                            } catch (eGS) {}
+                        }
+                        if (currSCode <= 0 && nativeGetCSConnection !== null) {
+                            try {
+                                var cs = nativeGetCSConnection();
+                                if (!cs.isNull()) currSCode = cs.add(0xA8).readS32();
+                            } catch (eCS) {}
+                        }
+                        if (currSCode > 0 && currSCode !== parseInt(pal.server)) {
+                            try {
+                                if (nativeMLoginSetState !== null) {
+                                    nativeMLoginSetState(mLoginInst, 3);
+                                    send({ type: "log", msg: "Phát hiện game đang ở Server " + currSCode + " nhưng cấu hình yêu cầu Server " + pal.server + ". Đang chuyển về ServerList để đổi..." });
+                                    return;
+                                }
+                            } catch (eSw) {}
+                        }
+                    }
+
                     // Nếu game ở trạng thái ServerList (State 3): Tự động chọn server mục tiêu người dùng yêu cầu
                     if (currState === 3 && !pal.serverConnected) {
                         pal.serverConnected = true;

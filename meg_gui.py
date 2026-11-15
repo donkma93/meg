@@ -1336,16 +1336,20 @@ def server_from_window_title(title: str) -> Optional[int]:
       - 'MEGAMU Server 5' -> 5
       - 'MEGAMU - Sv2' -> 2
       - 'test (400) - MEGAMU Server 8' -> 8
+      - 'Sv3 - MEGAMU' -> 3
+      - 'codedao - Sv3' -> 3
     """
     if not title:
         return None
     import re
-    m = re.search(r"MEGAMU[^\d\n\r]*?(?:Sv|Server|Sub)?\.?\s*(\d+)", title, re.IGNORECASE)
+    # 1. Tìm mẫu Sv<số> hoặc Server <số> hoặc Sub <số> trực tiếp
+    m = re.search(r"(?:Sv|Server|Sub)\.?\s*(\d+)", title, re.IGNORECASE)
     if m:
         try:
             return int(m.group(1))
         except Exception:
             pass
+    # 2. Tìm số sau từ khóa MEGAMU
     parts = re.split(r"MEGAMU", title, flags=re.IGNORECASE)
     if len(parts) > 1:
         m2 = re.search(r"(\d+)", parts[1])
@@ -2837,6 +2841,16 @@ class SlotController:
 
         # Lấy tên nhân vật và server từ window title hoặc ProcessMemoryReader / Engine
         title = self.app.detected_games.get(self.assigned_pid, "")
+        if not title:
+            try:
+                from meg_navigator import WindowHelper
+                for p, _, t, _, _ in WindowHelper.get_unity_windows():
+                    if p == self.assigned_pid and t:
+                        title = t
+                        self.app.detected_games[p] = t
+                        break
+            except Exception:
+                pass
         t_name = character_name_from_window_title(title)
         if not t_name:
             try:
@@ -5567,6 +5581,13 @@ class DashboardApp(ctk.CTk):
         self.update_header_stats()
         self.log_message(f"Khởi động thành công {APP_NAME} {APP_VERSION} - Hệ thống sẵn sàng!", "INFO")
         self.log_message(f"Đã nạp {len(self.controllers)} tài khoản/slots hoạt động mặc định.", "INFO")
+
+        # Tự động quét và nhận diện các game MEGAMU đang mở sẵn (nhân vật cũ / đứng sẵn)
+        try:
+            self.refresh_games()
+            self.auto_attach_standing_games()
+        except Exception:
+            pass
 
         # Trạng thái cập nhật bắt buộc (Mandatory Auto Update)
         self.is_update_mandatory: bool = False
@@ -8480,6 +8501,9 @@ class DashboardApp(ctk.CTk):
             self.refresh_license_and_logs_tab()
         elif tab_name == "ram":
             self.refresh_ram_tab_stats()
+        elif tab_name == "autologin":
+            self.refresh_games()
+            self.refresh_autologin_table()
 
     # ==========================================================================
     # TAB 4: TỐI ƯU HÓA BỘ NHỚ RAM (RAM OPTIMIZER TAB)
@@ -12586,6 +12610,11 @@ class DashboardApp(ctk.CTk):
         if not hasattr(self, "autologin_scroll"):
             return
 
+        # Luôn làm mới danh sách MEGAMU đang chạy để đồng bộ Server thực tế
+        fresh_games = enumerate_megamu_processes()
+        if fresh_games or not self.detected_games:
+            self.detected_games = fresh_games
+
         for w in self.autologin_scroll.winfo_children():
             w.destroy()
         self.autologin_ui_rows.clear()
@@ -12733,8 +12762,26 @@ class DashboardApp(ctk.CTk):
                         acc["last_pid"] = p
                         break
 
+            if not running_p and acc.get("preferred_slot"):
+                ps = acc.get("preferred_slot")
+                if 1 <= ps <= len(self.controllers):
+                    c_slot = self.controllers[ps - 1]
+                    if c_slot.assigned_pid and psutil.pid_exists(c_slot.assigned_pid):
+                        running_p = c_slot.assigned_pid
+                        acc["last_pid"] = running_p
+
             if running_p:
                 p_title = self.detected_games.get(running_p, "")
+                if not p_title:
+                    try:
+                        from meg_navigator import WindowHelper
+                        for p, _, t, _, _ in WindowHelper.get_unity_windows():
+                            if p == running_p and t:
+                                p_title = t
+                                self.detected_games[p] = t
+                                break
+                    except Exception:
+                        pass
                 live_srv = server_from_window_title(p_title)
                 if not live_srv:
                     try:
@@ -12932,7 +12979,12 @@ class DashboardApp(ctk.CTk):
             acc["server"] = s_num
             if self.account_mgr:
                 self.account_mgr.save_accounts()
-            self.append_autologin_log(f"⚙️ [Account: {acc.get('username')}] Đã cập nhật mục tiêu vào Server {s_num}")
+            try:
+                from meg_account_manager import configure_megamu_registry_for_server
+                configure_megamu_registry_for_server(s_num, acc.get("username", ""), acc.get("character", ""))
+            except Exception:
+                pass
+            self.append_autologin_log(f"⚙️ [Account: {acc.get('username')}] Đã cập nhật mục tiêu vào Server {s_num} (đã ghi nhận Registry)")
         except Exception:
             pass
 
@@ -15789,8 +15841,61 @@ class DashboardApp(ctk.CTk):
             if el and el.get("proc_combo"):
                 el["proc_combo"].configure(values=options)
 
+        # Cập nhật Server Label và Telemetry cho các Slot đã có gán PID
+        for ctrl in self.controllers:
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                p_title = self.detected_games.get(ctrl.assigned_pid, "")
+                s_code = server_from_window_title(p_title)
+                if s_code:
+                    ctrl.server_num = s_code
+                    ctrl.server_name = f"Sv{s_code}"
+                self.update_slot_ui_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.level, ctrl.coords, server=ctrl.server_name)
+
         self.update_header_stats()
         self.log_message(f"Đã làm mới: Phát hiện {len(self.detected_games)} cửa sổ MEGAMU.exe.", "INFO")
+
+    def auto_attach_standing_games(self):
+        """Tự động kết nối và nhận diện tất cả các cửa sổ MEGAMU đang mở sẵn (nhân vật cũ / đứng sẵn),
+        cập nhật ngay Server, Tên nhân vật, Level và Tọa độ lên Slot UI."""
+        if not self.detected_games:
+            self.detected_games = enumerate_megamu_processes()
+        if not self.detected_games:
+            return
+
+        assigned_pids = set()
+        for ctrl in self.controllers:
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                assigned_pids.add(ctrl.assigned_pid)
+
+        # 1. Ghép nối theo nhân vật / preferred_slot từ megamu_accounts.json
+        if self.account_mgr and self.account_mgr.accounts:
+            for acc in self.account_mgr.accounts:
+                pref_slot = acc.get("preferred_slot")
+                if pref_slot and 1 <= pref_slot <= len(self.controllers):
+                    ctrl = self.controllers[pref_slot - 1]
+                    if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+                        a_char = (acc.get("character") or "").strip().lower()
+                        chars = [c.strip().lower() for c in acc.get("characters_list", []) if c.strip()]
+                        t_names = [a_char] + chars if (a_char and a_char != "(mặc định)") else chars
+                        for p, title in self.detected_games.items():
+                            if p in assigned_pids:
+                                continue
+                            c_name = character_name_from_window_title(title).strip().lower()
+                            if c_name and c_name in t_names:
+                                ctrl.attach_pid(p)
+                                assigned_pids.add(p)
+                                break
+
+        # 2. Với các game MEGAMU còn lại chưa gán: tự động gán vào slot trống tiếp theo
+        avail_pids = [p for p in self.detected_games if p not in assigned_pids]
+        avail_pids.sort()
+        empty_ctrls = [c for c in self.controllers if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid)]
+        for p in avail_pids:
+            if not empty_ctrls:
+                break
+            ctrl = empty_ctrls.pop(0)
+            ctrl.attach_pid(p)
+            assigned_pids.add(p)
 
     def assign_all(self):
         """Gán toàn bộ các tiến trình MEGAMU đang mở vào các Slot trống (hỗ trợ linh hoạt 1, 2, 3, 4, 5, 6, 7, 8... tài khoản)."""
