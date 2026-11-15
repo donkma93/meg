@@ -3,8 +3,8 @@
   "chat_id": "5002085799",
   "chat_title": "Đôn",
   "bot_username": "megamutool_bot",
-  "enabled": false,
+  "enabled": true,
   "notify_enter": true,
   "notify_exit": true,
-  "updated_at": "2026-11-14 18:09:13"
+  "updated_at": "2026-11-15 17:58:26"
 }

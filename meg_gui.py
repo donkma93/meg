@@ -6858,7 +6858,8 @@ class DashboardApp(ctk.CTk):
         if hasattr(self, "tab_accounts_btn"):
             self.tab_accounts_btn.configure(text=f" {tr('characters')} ({n})")
         if hasattr(self, "footer_stats_lbl"):
-            num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
+            detected = getattr(self, "detected_games", {})
+            num_conn = sum(1 for c in self.controllers if c.assigned_pid and c.assigned_pid in detected)
             num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
             self.footer_stats_lbl.configure(text=tr("footer_stats", slots=n, conn=num_conn, auto=num_auto))
         if hasattr(self, "update_moss_slot_telemetry"):
@@ -8513,6 +8514,20 @@ class DashboardApp(ctk.CTk):
         # Cập nhật dữ liệu tức thì cho tab logs (không dùng delay after để triệt tiêu khựng giật)
         if tab_name == "logs":
             self.refresh_license_and_logs_tab()
+        elif tab_name == "moss":
+            if hasattr(self, "update_moss_slot_telemetry"):
+                for c in getattr(self, "controllers", []):
+                    try:
+                        self.update_moss_slot_telemetry(c.slot_idx, c.char_name, c.assigned_pid)
+                    except Exception:
+                        pass
+        elif tab_name == "mirror":
+            if hasattr(self, "update_mirror_slot_telemetry"):
+                for c in getattr(self, "controllers", []):
+                    try:
+                        self.update_mirror_slot_telemetry(c.slot_idx, c.char_name, c.assigned_pid, getattr(c, "coords", ""))
+                    except Exception:
+                        pass
         elif tab_name == "autologin":
             if not getattr(self, "_autologin_table_initialized", False):
                 self.refresh_autologin_table()
@@ -9749,7 +9764,8 @@ class DashboardApp(ctk.CTk):
         ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
         is_en = getattr(ctrl, "moss_enabled", True) if ctrl else True
         is_running = getattr(ctrl, "moss_running", False) if ctrl else False
-        pid_alive = bool(pid and psutil.pid_exists(pid))
+        detected = getattr(self, "detected_games", {})
+        pid_alive = bool(pid and pid in detected)
 
         cache_key = (name, pid if pid_alive else None, is_en, is_running)
         if el.get("_last_telemetry_cache") == cache_key:
@@ -10859,7 +10875,8 @@ class DashboardApp(ctk.CTk):
         is_en = getattr(ctrl, "mirror_enabled", True) if ctrl else True
         is_sniping = getattr(ctrl, "mirror_sniping", False) if ctrl else False
         is_running = getattr(ctrl, "mirror_running", False) if ctrl else False
-        pid_alive = bool(pid and psutil.pid_exists(pid))
+        detected = getattr(self, "detected_games", {})
+        pid_alive = bool(pid and pid in detected)
 
         cache_key = (name, pid if pid_alive else None, coords, is_en, is_sniping, is_running)
         if el.get("_last_telemetry_cache") == cache_key:
@@ -11681,10 +11698,11 @@ class DashboardApp(ctk.CTk):
                 gate_cache_key = next_gate_open.strftime("%Y%m%d_%H%M_precache")
                 if getattr(self, "_last_mirror_cache_key", None) != gate_cache_key:
                     self._last_mirror_cache_key = gate_cache_key
+                    detected = getattr(self, "detected_games", {})
                     for ctrl in self.controllers:
                         if not getattr(ctrl, "mirror_enabled", True):
                             continue
-                        if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                        if ctrl.assigned_pid and ctrl.assigned_pid in detected:
                             if getattr(ctrl, "cached_mirror_ticket_slot", -1) < 0:
                                 threading.Thread(target=ctrl.check_mirror_ticket, daemon=True).start()
 
@@ -11798,7 +11816,8 @@ class DashboardApp(ctk.CTk):
                     # BẮT BUỘC KIỂM TRA: Chỉ xử lý slot ĐÃ ĐƯỢC TÍCH CHỌN tham gia Mirror!
                     if not getattr(c, "mirror_enabled", True):
                         continue
-                    if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                    detected = getattr(self, "detected_games", {})
+                    if c.assigned_pid and c.assigned_pid in detected:
                         try:
                             eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
                             if eng and eng.is_mirror_event_map():
@@ -12326,6 +12345,10 @@ class DashboardApp(ctk.CTk):
             hdr_w = self.autologin_hdr_frame.winfo_reqwidth() if hasattr(self, "autologin_hdr_frame") else 740
             rows_w = self.autologin_rows_container.winfo_reqwidth()
             req_w = max(hdr_w, rows_w, 740)
+            geom_cache = (canv_w, req_w)
+            if getattr(self, "_last_geom_cache", None) == geom_cache and event is not None:
+                return
+            self._last_geom_cache = geom_cache
             if canv_w < req_w:
                 target_w = req_w
                 if hasattr(self, "autologin_h_scroll") and not self.autologin_h_scroll.winfo_ismapped():
@@ -13378,36 +13401,29 @@ class DashboardApp(ctk.CTk):
         if c and c != "(mặc định)":
             target_names.add(c)
 
-        # 1. Kiểm tra last_pid nếu tiến trình còn sống
+        # 1. Kiểm tra nhanh qua last_pid trong detected_games (0ms, không gọi Win32 API)
+        detected = getattr(self, "detected_games", {})
         last_pid = acc.get("last_pid")
-        if last_pid and psutil.pid_exists(last_pid):
-            detected = getattr(self, "detected_games", {})
-            if last_pid in detected:
-                return last_pid
-            try:
-                if psutil.Process(last_pid).name().lower() == "megamu.exe":
-                    return last_pid
-            except Exception:
-                pass
+        if last_pid and last_pid in detected:
+            return last_pid
 
         # 2. Kiểm tra qua các Slot Controllers đang hoạt động
         if hasattr(self, "controllers"):
             pref_slot = acc.get("preferred_slot")
             if pref_slot and 1 <= pref_slot <= len(self.controllers):
                 c_ctrl = self.controllers[pref_slot - 1]
-                if c_ctrl.assigned_pid and psutil.pid_exists(c_ctrl.assigned_pid):
+                if c_ctrl.assigned_pid and c_ctrl.assigned_pid in detected:
                     c_name = (c_ctrl.char_name or "").strip().lower()
                     if c_name in target_names or (not c_name or c_name == "---"):
                         return c_ctrl.assigned_pid
 
             for ctrl in self.controllers:
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                if ctrl.assigned_pid and ctrl.assigned_pid in detected:
                     c_name = (ctrl.char_name or "").strip().lower()
                     if c_name and c_name in target_names:
                         return ctrl.assigned_pid
 
-        # 3. Kiểm tra qua bộ nhớ detected_games (từ title cửa sổ)
-        detected = getattr(self, "detected_games", {})
+        # 3. Kiểm tra qua bộ nhớ detected_games (từ title cửa sổ đã quét ngầm)
         if detected and target_names:
             for p, title in detected.items():
                 t_lower = title.lower()
@@ -13418,22 +13434,12 @@ class DashboardApp(ctk.CTk):
                     if name in t_lower:
                         return p
 
-        # 4. Fallback qua WindowManager nếu chưa tìm thấy
-        wins = MEGAMUWindowManager.get_active_game_windows(controllers=self.controllers)
-        for w in wins:
-            w_cname = (w.get("char_name") or "").strip().lower()
-            w_title = (w.get("title") or "").strip().lower()
-            if w_cname and w_cname in target_names:
-                return w["pid"]
-            if u and u in w_title:
-                return w["pid"]
-
         return None
 
     def is_account_logged_in(self, acc: Dict[str, Any]) -> Tuple[bool, Optional[int]]:
         """Kiểm tra xem tài khoản này hiện có đang mở game MEGAMU hay không (trả về (is_online, pid))."""
         pid = self.find_account_running_pid(acc)
-        if pid and psutil.pid_exists(pid):
+        if pid:
             return True, pid
         return False, None
 
@@ -15592,23 +15598,31 @@ class DashboardApp(ctk.CTk):
         btn_cancel.pack(side="right", padx=8, pady=9)
 
     def update_slot_ui_status(self, slot_idx: int, text: str):
+        el = self.slot_ui_elements.get(slot_idx)
+        if not el or not el.get("status_lbl"):
+            return
+        tl = str(text).strip()
+        if el.get("_last_status_cache") == tl:
+            return
+        el["_last_status_cache"] = tl
+
         def _apply():
-            el = self.slot_ui_elements.get(slot_idx)
-            if el and el.get("status_lbl"):
-                lbl = el["status_lbl"]
-                tl = str(text).lower()
-                if "tự động đánh" in tl or "running" in tl or "đang chạy" in tl or "at spot" in tl or "tại bãi" in tl or "executando" in tl:
-                    lbl.configure(text=tr("status_running"), text_color="#4ade80", cursor="")
-                elif "moving" in tl or "chạy ra bãi" in tl or "di chuyển" in tl or "map" in tl or "movendo" in tl:
-                    lbl.configure(text=tr("status_moving"), text_color="#facc15", cursor="")
-                elif "game đã đóng" in tl or "game_closed" in tl or "closed" in tl or "disconnect" in tl or "pk" in tl or "mất kết nối" in tl or "desconectado" in tl:
-                    lbl.configure(text=tr("status_disconnected"), text_color="#f87171", cursor="hand2")
-                elif "đã kết nối" in tl or "connected" in tl or "stopped" in tl or "đã dừng" in tl or "parado" in tl:
-                    lbl.configure(text=tr("status_stopped"), text_color="#e2e8f0", cursor="")
-                elif "idle" in tl or "chờ" in tl or "aguardando" in tl:
-                    lbl.configure(text=tr("status_idle"), text_color="#94a3b8", cursor="")
-                else:
-                    lbl.configure(text=str(text), text_color="#94a3b8", cursor="")
+            if not el or not el.get("status_lbl"):
+                return
+            lbl = el["status_lbl"]
+            tl_low = tl.lower()
+            if "tự động đánh" in tl_low or "running" in tl_low or "đang chạy" in tl_low or "at spot" in tl_low or "tại bãi" in tl_low or "executando" in tl_low:
+                lbl.configure(text=tr("status_running"), text_color="#4ade80", cursor="")
+            elif "moving" in tl_low or "chạy ra bãi" in tl_low or "di chuyển" in tl_low or "map" in tl_low or "movendo" in tl_low:
+                lbl.configure(text=tr("status_moving"), text_color="#facc15", cursor="")
+            elif "game đã đóng" in tl_low or "game_closed" in tl_low or "closed" in tl_low or "disconnect" in tl_low or "pk" in tl_low or "mất kết nối" in tl_low or "desconectado" in tl_low:
+                lbl.configure(text=tr("status_disconnected"), text_color="#f87171", cursor="hand2")
+            elif "đã kết nối" in tl_low or "connected" in tl_low or "stopped" in tl_low or "đã dừng" in tl_low or "parado" in tl_low:
+                lbl.configure(text=tr("status_stopped"), text_color="#e2e8f0", cursor="")
+            elif "idle" in tl_low or "chờ" in tl_low or "aguardando" in tl_low:
+                lbl.configure(text=tr("status_idle"), text_color="#94a3b8", cursor="")
+            else:
+                lbl.configure(text=tl, text_color="#94a3b8", cursor="")
         try:
             self.after(0, _apply)
         except Exception:
@@ -15710,12 +15724,13 @@ class DashboardApp(ctk.CTk):
                     el["coords_lbl"].configure(text=c_disp)
                 else:
                     el["coords_lbl"].configure(text="--, --")
-            if hasattr(self, "update_moss_slot_telemetry"):
+            act_tab = getattr(self, "active_tab", "")
+            if act_tab == "moss" and hasattr(self, "update_moss_slot_telemetry"):
                 try:
                     self.update_moss_slot_telemetry(slot_idx, name, ctrl.assigned_pid)
                 except Exception:
                     pass
-            if hasattr(self, "update_mirror_slot_telemetry"):
+            elif act_tab == "mirror" and hasattr(self, "update_mirror_slot_telemetry"):
                 try:
                     self.update_mirror_slot_telemetry(slot_idx, name, ctrl.assigned_pid, coords)
                 except Exception:
@@ -16188,7 +16203,7 @@ class DashboardApp(ctk.CTk):
                     if games != getattr(self, "detected_games", None):
                         self.detected_games = games
                         self.update_header_stats()
-                        if getattr(self, "current_tab", "") == "autologin":
+                        if getattr(self, "active_tab", "") == "autologin":
                             self.sync_autologin_table_values()
                 if self.running:
                     self.after(0, _apply)
@@ -16274,7 +16289,8 @@ class DashboardApp(ctk.CTk):
                 pass
             return
         num_games = len(self.detected_games)
-        num_conn = sum(1 for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid))
+        detected = getattr(self, "detected_games", {})
+        num_conn = sum(1 for c in self.controllers if c.assigned_pid and c.assigned_pid in detected)
         num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
         num_slots = len(self.controllers)
 
