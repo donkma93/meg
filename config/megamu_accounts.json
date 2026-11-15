@@ -28,7 +28,7 @@
       "preferred_slot": 1,
       "token": "47169b8f1673524b972b1b1323b0814a",
       "category": "Chỉ Moss",
-      "last_pid": 27908
+      "last_pid": null
     },
     {
       "username": "anhdontb1",
@@ -101,12 +101,12 @@
       "characters_list": [
         "Rooneyy"
       ],
-      "server": 2,
+      "server": 30,
       "enabled": true,
       "source": "registry",
-      "last_pid": 29440,
+      "last_pid": 28868,
       "password": "Nammothai3",
-      "category": "Chỉ Moss",
+      "category": "Chỉ Mirror",
       "preferred_slot": 1
     },
     {
@@ -130,7 +130,7 @@
       "characters_list": [
         "EndGun"
       ],
-      "server": 4,
+      "server": 30,
       "enabled": true,
       "source": "manual",
       "category": "Chỉ Moss",
@@ -161,9 +161,12 @@
       "characters_list": [
         "VISlayer93"
       ],
-      "server": 3,
+      "server": 30,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "last_pid": 8672,
+      "password": "Nammothai3",
+      "category": "Chỉ Mirror"
     },
     {
       "username": "clario",
@@ -187,7 +190,9 @@
       ],
       "server": 3,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "category": "Chỉ Mirror",
+      "last_pid": 22248
     },
     {
       "username": "hungyen34",
@@ -220,12 +225,12 @@
       "characters_list": [
         "Hface"
       ],
-      "server": 30,
+      "server": 2,
       "enabled": true,
       "source": "manual",
-      "category": "Chung",
+      "category": "Chỉ Mirror",
       "password": "Nammothai3",
-      "last_pid": 22584
+      "last_pid": 9244
     },
     {
       "username": "thaibinh1",
@@ -234,23 +239,45 @@
       "characters_list": [
         "VgDongNhi"
       ],
-      "server": 30,
+      "server": 2,
       "enabled": true,
       "source": "manual",
-      "category": "Chung",
+      "category": "Chỉ Mirror",
       "password": "Nammothai3",
-      "last_pid": 21424
+      "last_pid": 23328
     },
     {
       "username": "sontop2018",
       "nickname": "sontop2018",
-      "character": "",
-      "characters_list": [],
+      "character": "YangXinh",
+      "characters_list": [
+        "YangXinh",
+        "KingVNE",
+        "BabyKitty",
+        "AngelVN",
+        "YangSan",
+        "Reus1993"
+      ],
       "server": 3,
       "enabled": true,
       "source": "manual",
-      "category": "Chung",
-      "password": "Nammothai3"
+      "category": "Chỉ Mirror",
+      "password": "1231235",
+      "last_pid": 13404
+    },
+    {
+      "username": "thaibinh17",
+      "nickname": "thaibinh17",
+      "character": "SLayerVNI",
+      "characters_list": [
+        "SLayerVNI"
+      ],
+      "server": 30,
+      "enabled": true,
+      "source": "manual",
+      "category": "Chỉ Mirror",
+      "password": "Nammothai3",
+      "last_pid": 19268
     }
   ]
 }

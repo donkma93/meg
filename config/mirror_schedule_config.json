@@ -4,7 +4,7 @@
     "auto_prep_before": true,
     "auto_lifecycle": true,
     "auto_gremory": true,
-    "prefire_sec": 5.0,
+    "prefire_sec": 7.0,
     "interval_hours": 2,
     "prep_minutes_before": 5,
     "times": [
@@ -23,9 +23,9 @@
     ]
   },
   "selected_slots": [
-    1,
     2,
     3,
+    4,
     5,
     6,
     7,
@@ -62,12 +62,12 @@
       70
     ],
     "HSmart": [
-      188,
-      70
-    ],
-    "VgDongNhi": [
       75,
       66
+    ],
+    "VgDongNhi": [
+      68,
+      180
     ],
     "Hface_NW": [
       68,
@@ -202,8 +202,8 @@
       70
     ],
     "AngelVN": [
-      75,
-      66
+      185,
+      187
     ],
     "AngelVN_SW": [
       75,
@@ -308,6 +308,18 @@
     "VgDongNhi_SW": [
       75,
       66
+    ],
+    "VISlayer93_NE": [
+      185,
+      187
+    ],
+    "HSmart_SW": [
+      75,
+      66
+    ],
+    "AngelVN_NE": [
+      185,
+      187
     ]
   },
   "telegram": {

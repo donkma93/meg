@@ -516,21 +516,22 @@ class AccountManager:
         # "Fatal error in GC: Collecting from unknown thread"
         _log(f"⏳ [PID {pid} - {username}] Đang đợi game nạp hoàn tất GameAssembly.dll & Boehm GC runtime...")
         start_init = time.time()
-        time.sleep(4.0)
-        while time.time() - start_init < 15.0:
+        time.sleep(3.0)
+        while time.time() - start_init < 12.0:
             if not psutil.pid_exists(pid):
                 _log(f"❌ [PID {pid}] Tiến trình game đã bị đóng!")
                 return False
             try:
                 p_proc = psutil.Process(pid)
-                maps = [m.path.lower() for m in p_proc.memory_maps()]
-                if any("gameassembly.dll" in m for m in maps):
+                # Kiểm tra working set memory siêu tốc (0.01ms thay vì quét toàn bộ memory_maps tốn CPU):
+                # Khi GameAssembly.dll nạp xong, RSS của MEGAMU luôn đạt trên 30MB
+                if p_proc.memory_info().rss >= 30 * 1024 * 1024:
                     break
             except Exception:
                 pass
             time.sleep(0.5)
 
-        time.sleep(0.8)
+        time.sleep(0.5)
 
         try:
             from meg_direct_engine import MegDirectEngine
