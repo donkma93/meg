@@ -12378,22 +12378,26 @@ class DashboardApp(ctk.CTk):
             command=self.choose_exe_path_dialog
         ).pack(side="left")
 
-        # ACTION TOOLBAR
+        # ACTION TOOLBAR (2 HÀNG GỌN GÀNG - CHỐNG TRÀN TRÊN MÀN HÌNH NHỎ)
         toolbar_card = ctk.CTkFrame(self.panel_autologin, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
         toolbar_card.pack(fill="x", padx=14, pady=(2, 6))
 
         inner_tb = ctk.CTkFrame(toolbar_card, fg_color="transparent")
-        inner_tb.pack(fill="both", expand=True, padx=10, pady=8)
+        inner_tb.pack(fill="both", expand=True, padx=8, pady=6)
 
-        left_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        left_tb.pack(side="left", fill="y")
+        # HÀNG 1: VẬN HÀNH GAME & BỐ CỤC LƯỚI
+        tb_row1 = ctk.CTkFrame(inner_tb, fg_color="transparent")
+        tb_row1.pack(fill="x", pady=(0, 4))
+
+        left_row1 = ctk.CTkFrame(tb_row1, fg_color="transparent")
+        left_row1.pack(side="left", fill="y")
 
         self.btn_autologin_all = ctk.CTkButton(
-            left_tb,
+            left_row1,
             image=UiIconFactory.get("key", color="#ffffff", size=(13, 13)),
             compound="left",
             text="🚀 MỞ & LOGIN TẤT CẢ",
-            height=30,
+            height=28,
             corner_radius=0,
             fg_color="#7c3aed",
             hover_color="#6d28d9",
@@ -12405,11 +12409,11 @@ class DashboardApp(ctk.CTk):
         self.btn_autologin_all.pack(side="left", padx=(0, 6))
 
         self.btn_autologin_close = ctk.CTkButton(
-            left_tb,
+            left_row1,
             image=UiIconFactory.get("stop", color="#f87171", size=(12, 12)),
             compound="left",
             text="🛑 ĐÓNG GAME",
-            height=30,
+            height=28,
             corner_radius=0,
             fg_color="#450a0a",
             hover_color="#7f1d1d",
@@ -12426,9 +12430,8 @@ class DashboardApp(ctk.CTk):
             "Nếu đang lọc danh mục (ví dụ 'Chỉ Moss'), ứng dụng sẽ hỏi bạn muốn đóng riêng các cửa sổ thuộc nhóm này hay đóng toàn bộ game."
         )
 
-        # MENU CHỌN LƯỚI BỐ CỤC TRỰC TIẾP TẠI TAB AUTO LOGIN
         self.combo_autologin_arrange = ModernOptionMenu(
-            left_tb,
+            left_row1,
             values=[
                 "⚡ Tự động (Auto)",
                 "🔲 Lưới 2x2 (4 Màn)",
@@ -12441,8 +12444,8 @@ class DashboardApp(ctk.CTk):
                 "⚙️ Tùy biến NxM..."
             ],
             variable=self.combo_arrange_var,
-            width=165,
-            height=30,
+            width=150,
+            height=28,
             command=self._on_arrange_preset_selected,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
         )
@@ -12454,12 +12457,12 @@ class DashboardApp(ctk.CTk):
         )
 
         self.btn_autologin_arrange = ctk.CTkButton(
-            left_tb,
+            left_row1,
             image=UiIconFactory.get("grid", color="#38bdf8", size=(13, 13)),
             compound="left",
             text="📐 SẮP XẾP",
-            width=92,
-            height=30,
+            width=88,
+            height=28,
             corner_radius=0,
             fg_color="#0c4a6e",
             hover_color="#075985",
@@ -12476,7 +12479,7 @@ class DashboardApp(ctk.CTk):
         )
 
         self.cb_autologin_auto_arrange = ctk.CTkCheckBox(
-            left_tb,
+            left_row1,
             text="📐 Tự chia lưới khi mở",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#38bdf8",
@@ -12487,18 +12490,60 @@ class DashboardApp(ctk.CTk):
             hover_color="#0369a1"
         )
         self.cb_autologin_auto_arrange.select()
-        self.cb_autologin_auto_arrange.pack(side="left", padx=(0, 8))
+        self.cb_autologin_auto_arrange.pack(side="left", padx=(0, 6))
         add_tooltip(
             self.cb_autologin_auto_arrange,
             "Tự động sắp xếp các cửa sổ MEGAMU vào lưới ngay sau khi mở đồng loạt."
         )
 
+        right_row1 = ctk.CTkFrame(tb_row1, fg_color="transparent")
+        right_row1.pack(side="right", fill="y")
+
+        ctk.CTkLabel(
+            right_row1,
+            text="Giãn cách:",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8"
+        ).pack(side="left", padx=(0, 4))
+
+        ctk.CTkEntry(
+            right_row1,
+            textvariable=self.autologin_delay_var,
+            width=40,
+            height=26,
+            corner_radius=0,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            justify="center"
+        ).pack(side="left", padx=(0, 4))
+
+        ctk.CTkLabel(
+            right_row1,
+            text="giây",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#94a3b8"
+        ).pack(side="left", padx=(0, 8))
+
+        self.autologin_status_lbl = ctk.CTkLabel(
+            right_row1,
+            text="Sẵn sàng",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#22c55e"
+        )
+        self.autologin_status_lbl.pack(side="left")
+
+        # HÀNG 2: QUẢN TRỊ TÀI KHOẢN & TÌM KIẾM & XEM NHẬT KÝ
+        tb_row2 = ctk.CTkFrame(inner_tb, fg_color="transparent")
+        tb_row2.pack(fill="x")
+
+        left_row2 = ctk.CTkFrame(tb_row2, fg_color="transparent")
+        left_row2.pack(side="left", fill="y")
+
         ctk.CTkButton(
-            left_tb,
+            left_row2,
             image=UiIconFactory.get("refresh", color="#38bdf8", size=(12, 12)),
             compound="left",
             text="🔄 Đọc từ Registry",
-            height=30,
+            height=28,
             corner_radius=0,
             fg_color="#0f172a",
             hover_color="#1e293b",
@@ -12509,11 +12554,11 @@ class DashboardApp(ctk.CTk):
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
-            left_tb,
+            left_row2,
             image=UiIconFactory.get("plus", color="#4ade80", size=(12, 12)),
             compound="left",
             text="➕ Thêm Tài Khoản",
-            height=30,
+            height=28,
             corner_radius=0,
             fg_color="#064e3b",
             hover_color="#047857",
@@ -12524,11 +12569,11 @@ class DashboardApp(ctk.CTk):
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
-            left_tb,
+            left_row2,
             image=UiIconFactory.get("trash", color="#f87171", size=(12, 12)),
             compound="left",
             text="🗑️ Xóa Đã Chọn",
-            height=30,
+            height=28,
             corner_radius=0,
             fg_color="#450a0a",
             hover_color="#991b1b",
@@ -12539,9 +12584,9 @@ class DashboardApp(ctk.CTk):
         ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
-            left_tb,
+            left_row2,
             text="☑️ Chọn/Bỏ Tất Cả",
-            height=30,
+            height=28,
             corner_radius=0,
             fg_color="#1e2433",
             hover_color="#2b3244",
@@ -12549,68 +12594,26 @@ class DashboardApp(ctk.CTk):
             command=self.toggle_all_accounts_ui
         ).pack(side="left", padx=(0, 6))
 
-        right_tb = ctk.CTkFrame(inner_tb, fg_color="transparent")
-        right_tb.pack(side="right", fill="y")
-
-        ctk.CTkLabel(
-            right_tb,
-            text="Giãn cách:",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        ).pack(side="left", padx=(0, 4))
-
-        ctk.CTkEntry(
-            right_tb,
-            textvariable=self.autologin_delay_var,
-            width=45,
+        self.btn_toggle_log = ctk.CTkButton(
+            left_row2,
+            text="📋 Ẩn Nhật Ký",
             height=28,
             corner_radius=0,
+            fg_color="#1e2433",
+            hover_color="#2b3244",
+            border_width=1,
+            border_color="#334155",
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            justify="center"
-        ).pack(side="left", padx=(0, 4))
-
-        ctk.CTkLabel(
-            right_tb,
-            text="giây",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8"
-        ).pack(side="left", padx=(0, 10))
-
-        self.autologin_status_lbl = ctk.CTkLabel(
-            right_tb,
-            text="Sẵn sàng",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#22c55e"
+            command=self.toggle_autologin_log_panel
         )
-        self.autologin_status_lbl.pack(side="left")
+        self.btn_toggle_log.pack(side="left", padx=(0, 6))
+        add_tooltip(self.btn_toggle_log, "📋 Ẩn hoặc hiện bảng nhật ký bên phải để giải phóng không gian màn hình")
 
-        # THANH PHÂN LOẠI MỤC ĐÍCH TÀI KHOẢN (CATEGORY TABS & SEARCH)
-        self.autologin_cat_bar = ctk.CTkFrame(self.panel_autologin, fg_color="#10141f", corner_radius=0, border_width=1, border_color="#1c2233", height=38)
-        self.autologin_cat_bar.pack(fill="x", padx=14, pady=(0, 6))
-        self.autologin_cat_bar.pack_propagate(False)
-
-        cat_inner = ctk.CTkFrame(self.autologin_cat_bar, fg_color="transparent")
-        cat_inner.pack(fill="both", expand=True, padx=6, pady=4)
+        right_row2 = ctk.CTkFrame(tb_row2, fg_color="transparent")
+        right_row2.pack(side="right", fill="y")
 
         ctk.CTkLabel(
-            cat_inner,
-            text="🏷️ Mục đích:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#c084fc"
-        ).pack(side="left", padx=(4, 8))
-
-        self.autologin_cat_tabs_frame = ctk.CTkFrame(cat_inner, fg_color="transparent")
-        self.autologin_cat_tabs_frame.pack(side="left", fill="y")
-
-        self.current_autologin_category = "Tất cả"
-        self.autologin_cat_buttons = {}
-
-        # Search box bên phải thanh category
-        search_box = ctk.CTkFrame(cat_inner, fg_color="transparent")
-        search_box.pack(side="right", fill="y", padx=(8, 2))
-
-        ctk.CTkLabel(
-            search_box,
+            right_row2,
             text="🔍",
             font=ctk.CTkFont(size=11),
             text_color="#94a3b8"
@@ -12618,10 +12621,10 @@ class DashboardApp(ctk.CTk):
 
         self.autologin_search_var = ctk.StringVar()
         self.autologin_search_entry = ctk.CTkEntry(
-            search_box,
+            right_row2,
             textvariable=self.autologin_search_var,
             placeholder_text="Tìm theo tên/nhân vật...",
-            width=165,
+            width=180,
             height=26,
             corner_radius=0,
             font=ctk.CTkFont(family="Segoe UI", size=11),
@@ -12639,61 +12642,147 @@ class DashboardApp(ctk.CTk):
             self._autologin_search_timer = self.after(200, self.refresh_autologin_table)
         self.autologin_search_var.trace_add("write", _on_search_change)
 
+        # THANH PHÂN LOẠI MỤC ĐÍCH TÀI KHOẢN (CATEGORY TABS)
+        self.autologin_cat_bar = ctk.CTkFrame(self.panel_autologin, fg_color="#10141f", corner_radius=0, border_width=1, border_color="#1c2233", height=38)
+        self.autologin_cat_bar.pack(fill="x", padx=14, pady=(0, 6))
+        self.autologin_cat_bar.pack_propagate(False)
+
+        cat_inner = ctk.CTkFrame(self.autologin_cat_bar, fg_color="transparent")
+        cat_inner.pack(fill="both", expand=True, padx=6, pady=4)
+
+        ctk.CTkLabel(
+            cat_inner,
+            text="🏷️ Mục đích:",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#c084fc"
+        ).pack(side="left", padx=(4, 8))
+
+        self.autologin_cat_tabs_frame = ctk.CTkFrame(cat_inner, fg_color="transparent")
+        self.autologin_cat_tabs_frame.pack(side="left", fill="both", expand=True)
+
+        self.current_autologin_category = "Tất cả"
+        self.autologin_cat_buttons = {}
+
         # BODY CONTAINER (TABLE + RUNTIME LOG)
         body_box = ctk.CTkFrame(self.panel_autologin, fg_color="transparent")
         body_box.pack(fill="both", expand=True, padx=14, pady=(0, 8))
 
-        # TABLE CONTAINER
+        # TABLE CONTAINER (HỖ TRỢ CUỘN NGANG VÀ DỌC ĐỒNG BỘ TRÊN MỌI MÀN HÌNH)
         table_container = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430")
         table_container.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
-        tbl_hdr = ctk.CTkFrame(table_container, fg_color="#171b26", height=32, corner_radius=0)
-        tbl_hdr.pack(fill="x", padx=2, pady=2)
-        tbl_hdr.pack_propagate(False)
+        # 1. Header Canvas (Cố định ở trên, đồng bộ cuộn ngang theo bảng)
+        self.autologin_hdr_canvas = tk.Canvas(table_container, bg="#171b26", height=32, highlightthickness=0)
+        self.autologin_hdr_canvas.pack(fill="x", side="top", padx=2, pady=(2, 0))
 
-        ctk.CTkLabel(tbl_hdr, text="BẬT", width=36, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(8, 2))
-        ctk.CTkLabel(tbl_hdr, text="STT", width=32, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
-        ctk.CTkLabel(tbl_hdr, text="TRẠNG THÁI", width=72, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
-        ctk.CTkLabel(tbl_hdr, text="TÀI KHOẢN", width=120, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="PHÂN LOẠI", width=110, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="NHÂN VẬT LOGIN", width=130, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="SERVER", width=95, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
-        ctk.CTkLabel(tbl_hdr, text="GÁN VÀO SLOT", width=110, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=4)
+        self.autologin_hdr_frame = ctk.CTkFrame(self.autologin_hdr_canvas, fg_color="#171b26", height=32, corner_radius=0)
+        self._autologin_hdr_win = self.autologin_hdr_canvas.create_window((0, 0), window=self.autologin_hdr_frame, anchor="nw")
+
+        tbl_hdr = self.autologin_hdr_frame
+        ctk.CTkLabel(tbl_hdr, text="BẬT", width=32, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=(6, 2))
+        ctk.CTkLabel(tbl_hdr, text="STT", width=28, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
+        ctk.CTkLabel(tbl_hdr, text="TRẠNG THÁI", width=56, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=2)
+        ctk.CTkLabel(tbl_hdr, text="TÀI KHOẢN", width=110, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=3)
+        ctk.CTkLabel(tbl_hdr, text="PHÂN LOẠI", width=98, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=3)
+        ctk.CTkLabel(tbl_hdr, text="NHÂN VẬT LOGIN", width=115, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=3)
+        ctk.CTkLabel(tbl_hdr, text="SERVER", width=88, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=3)
+        ctk.CTkLabel(tbl_hdr, text="GÁN VÀO SLOT", width=98, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=3)
         ctk.CTkLabel(tbl_hdr, text="THAO TÁC", anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8").pack(side="left", padx=6, fill="x", expand=True)
 
-        self.autologin_scroll = ctk.CTkScrollableFrame(table_container, fg_color="transparent")
-        self.autologin_scroll.pack(fill="both", expand=True, padx=4, pady=4)
+        # 2. Body Container (Canvas chứa các hàng tài khoản + Thanh cuộn dọc & ngang)
+        self.autologin_body_scroll_box = ctk.CTkFrame(table_container, fg_color="transparent")
+        self.autologin_body_scroll_box.pack(fill="both", expand=True, padx=2, pady=2)
 
-        # LOG CONTAINER (BÊN PHẢI)
-        log_box = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430", width=300)
-        log_box.pack(side="right", fill="y", padx=(6, 0))
-        log_box.pack_propagate(False)
+        self.autologin_body_canvas = tk.Canvas(self.autologin_body_scroll_box, bg="#12151e", highlightthickness=0)
+        self.autologin_v_scroll = ctk.CTkScrollbar(self.autologin_body_scroll_box, orientation="vertical", command=self.autologin_body_canvas.yview, width=12)
+        self.autologin_h_scroll = ctk.CTkScrollbar(table_container, orientation="horizontal", height=12)
 
-        log_hdr = ctk.CTkFrame(log_box, fg_color="#171b26", height=32, corner_radius=0)
+        def _on_hscroll(*args):
+            if hasattr(self, "autologin_hdr_canvas") and self.autologin_hdr_canvas.winfo_exists():
+                self.autologin_hdr_canvas.xview(*args)
+            if hasattr(self, "autologin_body_canvas") and self.autologin_body_canvas.winfo_exists():
+                self.autologin_body_canvas.xview(*args)
+
+        def _on_canvas_xscroll(*args):
+            if hasattr(self, "autologin_h_scroll") and self.autologin_h_scroll.winfo_exists():
+                self.autologin_h_scroll.set(*args)
+            if hasattr(self, "autologin_hdr_canvas") and self.autologin_hdr_canvas.winfo_exists():
+                self.autologin_hdr_canvas.xview_moveto(args[0])
+
+        self.autologin_h_scroll.configure(command=_on_hscroll)
+        self.autologin_body_canvas.configure(xscrollcommand=_on_canvas_xscroll, yscrollcommand=self.autologin_v_scroll.set)
+
+        self.autologin_rows_container = ctk.CTkFrame(self.autologin_body_canvas, fg_color="#12151e", corner_radius=0)
+        self._autologin_body_win = self.autologin_body_canvas.create_window((0, 0), window=self.autologin_rows_container, anchor="nw")
+
+        self.autologin_v_scroll.pack(side="right", fill="y")
+        self.autologin_body_canvas.pack(side="left", fill="both", expand=True)
+
+        self.autologin_scroll = self.autologin_rows_container
+
+        # Cuộn chuột (MouseWheel & Shift-MouseWheel)
+        def _on_mousewheel(event):
+            if hasattr(self, "autologin_body_canvas") and self.autologin_body_canvas.winfo_exists():
+                delta = -1 * int(event.delta / 120) if event.delta else 0
+                self.autologin_body_canvas.yview_scroll(delta, "units")
+
+        def _on_shift_mousewheel(event):
+            if hasattr(self, "autologin_body_canvas") and self.autologin_body_canvas.winfo_exists():
+                delta = -1 * int(event.delta / 120) if event.delta else 0
+                self.autologin_hdr_canvas.xview_scroll(delta, "units")
+                self.autologin_body_canvas.xview_scroll(delta, "units")
+
+        self.autologin_body_canvas.bind("<MouseWheel>", _on_mousewheel)
+        self.autologin_body_canvas.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+        self.autologin_rows_container.bind("<MouseWheel>", _on_mousewheel)
+        self.autologin_rows_container.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+
+        self.autologin_rows_container.bind("<Configure>", self._update_autologin_geometry)
+        self.autologin_body_canvas.bind("<Configure>", self._update_autologin_geometry)
+
+        # LOG CONTAINER (BÊN PHẢI - CÓ THỂ THU GỌN/MỞ RỘNG)
+        self.autologin_log_box = ctk.CTkFrame(body_box, fg_color="#12151e", corner_radius=0, border_width=1, border_color="#202430", width=260)
+        self.autologin_log_box.pack(side="right", fill="y", padx=(6, 0))
+        self.autologin_log_box.pack_propagate(False)
+        self._autologin_log_visible = True
+
+        log_hdr = ctk.CTkFrame(self.autologin_log_box, fg_color="#171b26", height=32, corner_radius=0)
         log_hdr.pack(fill="x", padx=2, pady=2)
         log_hdr.pack_propagate(False)
 
         ctk.CTkLabel(
             log_hdr,
-            text="📋 NHẬT KÝ AUTO LOGIN",
+            text="📋 NHẬT KÝ",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color="#c084fc"
-        ).pack(side="left", padx=8)
+        ).pack(side="left", padx=6)
+
+        ctk.CTkButton(
+            log_hdr,
+            text="✖ Thu gọn",
+            width=62,
+            height=22,
+            corner_radius=0,
+            fg_color="#1e2433",
+            hover_color="#333b4f",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            command=self.toggle_autologin_log_panel
+        ).pack(side="right", padx=(0, 4))
 
         ctk.CTkButton(
             log_hdr,
             text="Xóa",
-            width=45,
+            width=38,
             height=22,
             corner_radius=0,
             fg_color="#1e2433",
             hover_color="#2b3244",
             font=ctk.CTkFont(family="Segoe UI", size=10),
             command=self.clear_autologin_log
-        ).pack(side="right", padx=6)
+        ).pack(side="right", padx=4)
 
         self.autologin_log_txt = ctk.CTkTextbox(
-            log_box,
+            self.autologin_log_box,
             fg_color="#0a0c12",
             text_color="#e2e8f0",
             font=ctk.CTkFont(family="Consolas", size=10),
@@ -12705,6 +12794,53 @@ class DashboardApp(ctk.CTk):
         self.refresh_autologin_category_tabs()
         self.refresh_autologin_table()
         self._autologin_table_initialized = True
+
+    def toggle_autologin_log_panel(self):
+        """Ẩn/Hiện bảng nhật ký Auto Login bên phải để giải phóng không gian cho màn hình nhỏ."""
+        self._autologin_log_visible = not getattr(self, "_autologin_log_visible", True)
+        if self._autologin_log_visible:
+            if hasattr(self, "autologin_log_box"):
+                self.autologin_log_box.pack(side="right", fill="y", padx=(6, 0))
+            if hasattr(self, "btn_toggle_log"):
+                self.btn_toggle_log.configure(text="📋 Ẩn Nhật Ký", fg_color="#1e2433")
+        else:
+            if hasattr(self, "autologin_log_box"):
+                self.autologin_log_box.pack_forget()
+            if hasattr(self, "btn_toggle_log"):
+                self.btn_toggle_log.configure(text="📋 Hiện Nhật Ký", fg_color="#4f46e5")
+        if hasattr(self, "_update_autologin_geometry"):
+            self.after(50, self._update_autologin_geometry)
+
+    def _update_autologin_geometry(self, event=None):
+        """Cập nhật kích thước vùng cuộn và tự động ẩn/hiện thanh cuộn ngang theo độ phân giải màn hình."""
+        if not hasattr(self, "autologin_body_canvas") or not hasattr(self, "autologin_rows_container"):
+            return
+        try:
+            self.autologin_body_canvas.configure(scrollregion=self.autologin_body_canvas.bbox("all"))
+            canv_w = self.autologin_body_canvas.winfo_width()
+            hdr_w = self.autologin_hdr_frame.winfo_reqwidth() if hasattr(self, "autologin_hdr_frame") else 740
+            rows_w = self.autologin_rows_container.winfo_reqwidth()
+            req_w = max(hdr_w, rows_w, 740)
+            if canv_w < req_w:
+                target_w = req_w
+                if hasattr(self, "autologin_h_scroll") and not self.autologin_h_scroll.winfo_ismapped():
+                    if hasattr(self, "autologin_body_scroll_box"):
+                        self.autologin_h_scroll.pack(side="bottom", fill="x", before=self.autologin_body_scroll_box)
+                    else:
+                        self.autologin_h_scroll.pack(side="bottom", fill="x")
+            else:
+                target_w = canv_w
+                if hasattr(self, "autologin_h_scroll") and self.autologin_h_scroll.winfo_ismapped():
+                    self.autologin_h_scroll.pack_forget()
+
+            if hasattr(self, "autologin_hdr_canvas"):
+                self.autologin_hdr_canvas.configure(scrollregion=(0, 0, target_w, 32))
+                if hasattr(self, "_autologin_hdr_win"):
+                    self.autologin_hdr_canvas.itemconfig(self._autologin_hdr_win, width=target_w)
+            if hasattr(self, "_autologin_body_win"):
+                self.autologin_body_canvas.itemconfig(self._autologin_body_win, width=target_w)
+        except Exception:
+            pass
 
     def sync_autologin_table_values(self):
         """Đồng bộ nhanh trạng thái Online/Offline, Server và Slot trong bảng AutoLogin mà KHÔNG vẽ lại widget (0ms - Chống giật lag)."""
@@ -12723,7 +12859,7 @@ class DashboardApp(ctk.CTk):
                 if status_badge:
                     if is_online:
                         status_badge.configure(
-                            text="🟢 Online",
+                            text="🟢 On",
                             fg_color="#064e3b",
                             text_color="#34d399"
                         )
@@ -12739,14 +12875,14 @@ class DashboardApp(ctk.CTk):
                 if btn_launch:
                     if is_online:
                         btn_launch.configure(
-                            text="🟢 Đang online",
+                            text="🟢 Online",
                             state="disabled",
                             fg_color="#064e3b",
                             text_color_disabled="#34d399"
                         )
                     else:
                         btn_launch.configure(
-                            text="🚀 Mở & Login",
+                            text="🚀 Login",
                             state="normal",
                             fg_color="#6366f1"
                         )
@@ -12854,8 +12990,21 @@ class DashboardApp(ctk.CTk):
             empty_lbl.pack(pady=40)
             return
 
+        # Hàm cuộn chuột dùng chung cho các widget trong bảng
+        def _on_mousewheel(event):
+            if hasattr(self, "autologin_body_canvas") and self.autologin_body_canvas.winfo_exists():
+                delta = -1 * int(event.delta / 120) if event.delta else 0
+                self.autologin_body_canvas.yview_scroll(delta, "units")
+
+        def _on_shift_mousewheel(event):
+            if hasattr(self, "autologin_body_canvas") and self.autologin_body_canvas.winfo_exists():
+                delta = -1 * int(event.delta / 120) if event.delta else 0
+                if hasattr(self, "autologin_hdr_canvas"):
+                    self.autologin_hdr_canvas.xview_scroll(delta, "units")
+                self.autologin_body_canvas.xview_scroll(delta, "units")
+
         for idx, acc in enumerate(displayed_accounts):
-            row = ctk.CTkFrame(self.autologin_scroll, fg_color="#151924", height=42, corner_radius=0, border_width=1, border_color="#1f2535")
+            row = ctk.CTkFrame(self.autologin_scroll, fg_color="#151924", height=38, corner_radius=0, border_width=1, border_color="#1f2535")
             row.pack(fill="x", pady=2)
             row.pack_propagate(False)
 
@@ -12875,17 +13024,17 @@ class DashboardApp(ctk.CTk):
                 corner_radius=0,
                 command=_make_cb_cmd(acc, cb_var)
             )
-            cb.pack(side="left", padx=(8, 2))
+            cb.pack(side="left", padx=(6, 2))
 
             # 2. STT
-            stt_lbl = ctk.CTkLabel(row, text=f"#{idx+1:02d}", width=32, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8")
+            stt_lbl = ctk.CTkLabel(row, text=f"#{idx+1:02d}", width=28, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#94a3b8")
             stt_lbl.pack(side="left", padx=2)
 
             # 3. Trạng thái (Online / Off)
             status_badge = ctk.CTkLabel(
                 row,
-                text="🟢 Online" if is_online else "⚪ Off",
-                width=68,
+                text="🟢 On" if is_online else "⚪ Off",
+                width=56,
                 height=24,
                 corner_radius=4,
                 fg_color="#064e3b" if is_online else "#181c26",
@@ -12898,8 +13047,8 @@ class DashboardApp(ctk.CTk):
             u_name = acc.get("username", "")
             has_pwd = bool(acc.get("password"))
             u_title = f"{u_name} 🔑" if has_pwd else u_name
-            u_lbl = ctk.CTkLabel(row, text=u_title, width=120, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"), text_color="#38bdf8" if has_pwd else "#f1f5f9")
-            u_lbl.pack(side="left", padx=4)
+            u_lbl = ctk.CTkLabel(row, text=u_title, width=110, anchor="w", font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), text_color="#38bdf8" if has_pwd else "#f1f5f9")
+            u_lbl.pack(side="left", padx=3)
 
             # 5. Phân loại mục đích (Category Combobox)
             cat_list = self.account_mgr.get_categories() if self.account_mgr else ["Chung", "Chỉ Moss", "Chỉ Mirror", "Cày cấp"]
@@ -12920,13 +13069,13 @@ class DashboardApp(ctk.CTk):
                 row,
                 values=cat_list,
                 variable=cat_var,
-                width=110,
-                height=28,
+                width=98,
+                height=26,
                 corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
                 command=_make_cat_change(acc)
             )
-            cat_combo.pack(side="left", padx=4)
+            cat_combo.pack(side="left", padx=3)
 
             # 6. Character Combobox
             c_list = acc.get("characters_list", [])
@@ -12945,13 +13094,13 @@ class DashboardApp(ctk.CTk):
                 row,
                 values=c_list,
                 variable=char_var,
-                width=130,
-                height=28,
+                width=115,
+                height=26,
                 corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=11),
                 command=_make_char_cmd(acc)
             )
-            char_combo.pack(side="left", padx=4)
+            char_combo.pack(side="left", padx=3)
 
             # 7. Server Combobox (Tự động nhận diện Server thực tế nếu game đang mở / đứng cũ)
             live_srv = None
@@ -12976,13 +13125,13 @@ class DashboardApp(ctk.CTk):
                 row,
                 values=[f"Server {s}" for s in range(1, 9)],
                 variable=srv_var,
-                width=95,
-                height=28,
+                width=88,
+                height=26,
                 corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=11),
                 command=_make_srv_cmd(acc)
             )
-            srv_combo.pack(side="left", padx=4)
+            srv_combo.pack(side="left", padx=3)
 
             # 8. Slot Target Combobox
             slot_opts = ["Tự động"] + [f"Slot #{c.slot_idx:02d}" for c in self.controllers]
@@ -13000,13 +13149,13 @@ class DashboardApp(ctk.CTk):
                 row,
                 values=slot_opts,
                 variable=slot_var,
-                width=110,
-                height=28,
+                width=98,
+                height=26,
                 corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=11),
                 command=_make_slot_cmd(acc)
             )
-            slot_combo.pack(side="left", padx=4)
+            slot_combo.pack(side="left", padx=3)
 
             # 9. Actions: Launch, Send Login, Close, Edit, Delete
             act_box = ctk.CTkFrame(row, fg_color="transparent")
@@ -13016,8 +13165,8 @@ class DashboardApp(ctk.CTk):
                 return lambda: self.launch_single_account_ui(a_ref, s_ref.get())
             btn_launch = ctk.CTkButton(
                 act_box,
-                text="🟢 Đang online" if is_online else "🚀 Mở & Login",
-                width=92,
+                text="🟢 Online" if is_online else "🚀 Login",
+                width=74,
                 height=26,
                 corner_radius=0,
                 state="disabled" if is_online else "normal",
@@ -13027,7 +13176,7 @@ class DashboardApp(ctk.CTk):
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 command=_make_launch_cmd(acc, slot_var)
             )
-            btn_launch.pack(side="left", padx=(0, 4))
+            btn_launch.pack(side="left", padx=(0, 3))
             if is_online:
                 add_tooltip(btn_launch, f"Tài khoản {u_name} đang online (PID: {live_pid}). Không thể mở thêm client!")
             else:
@@ -13037,8 +13186,8 @@ class DashboardApp(ctk.CTk):
                 return lambda: self.send_login_to_slot_ui(a_ref, s_ref.get())
             btn_send = ctk.CTkButton(
                 act_box,
-                text="⚡ Gửi",
-                width=46,
+                text="⚡",
+                width=28,
                 height=26,
                 corner_radius=0,
                 fg_color="#0f172a",
@@ -13046,18 +13195,18 @@ class DashboardApp(ctk.CTk):
                 border_width=1,
                 border_color="#38bdf8",
                 text_color="#38bdf8",
-                font=ctk.CTkFont(family="Segoe UI", size=11),
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 command=_make_send_cmd(acc, slot_var)
             )
-            btn_send.pack(side="left", padx=(0, 4))
-            add_tooltip(btn_send, f"⚡ Gửi thông tin đăng nhập tài khoản {u_name} vào Slot đã chọn mà không mở cửa sổ mới")
+            btn_send.pack(side="left", padx=(0, 3))
+            add_tooltip(btn_send, f"⚡ Gửi thông tin đăng nhập tài khoản {u_name} vào Slot đã chọn (không mở client mới)")
 
             def _make_close_cmd(a_ref):
                 return lambda: self.close_single_account_game(a_ref)
             btn_close = ctk.CTkButton(
                 act_box,
-                text="🛑 Đóng",
-                width=50,
+                text="🛑",
+                width=28,
                 height=26,
                 corner_radius=0,
                 state="normal" if is_online else "disabled",
@@ -13070,15 +13219,15 @@ class DashboardApp(ctk.CTk):
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 command=_make_close_cmd(acc)
             )
-            btn_close.pack(side="left", padx=(0, 4))
+            btn_close.pack(side="left", padx=(0, 3))
             add_tooltip(btn_close, f"🛑 Đóng cửa sổ game MEGAMU của tài khoản {u_name}")
 
             def _make_edit_cmd(a_ref):
                 return lambda: self.open_edit_account_dialog(a_ref)
             btn_edit = ctk.CTkButton(
                 act_box,
-                text="✏️ Sửa",
-                width=48,
+                text="✏️",
+                width=28,
                 height=26,
                 corner_radius=0,
                 fg_color="#0369a1",
@@ -13086,14 +13235,15 @@ class DashboardApp(ctk.CTk):
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 command=_make_edit_cmd(acc)
             )
-            btn_edit.pack(side="left", padx=(0, 4))
+            btn_edit.pack(side="left", padx=(0, 3))
+            add_tooltip(btn_edit, f"✏️ Chỉnh sửa thông tin tài khoản '{u_name}'")
 
             def _make_del_cmd(u_str):
                 return lambda: self.delete_account_ui(u_str)
             btn_del = ctk.CTkButton(
                 act_box,
-                text="🗑️ Xóa",
-                width=48,
+                text="🗑️",
+                width=28,
                 height=26,
                 corner_radius=0,
                 fg_color="#7f1d1d",
@@ -13102,6 +13252,12 @@ class DashboardApp(ctk.CTk):
                 command=_make_del_cmd(u_name)
             )
             btn_del.pack(side="left")
+            add_tooltip(btn_del, f"🗑️ Xóa tài khoản '{u_name}' khỏi danh sách")
+
+            # Gắn cuộn chuột cho toàn bộ row và widget con
+            for w_elem in (row, stt_lbl, status_badge, u_lbl, act_box):
+                w_elem.bind("<MouseWheel>", _on_mousewheel)
+                w_elem.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
 
             # Gắn Context Menu chuột phải trên toàn bộ dòng
             def _show_context_menu(event, a_ref=acc, s_ref=slot_var, u_str=u_name):
@@ -16558,6 +16714,8 @@ class DashboardApp(ctk.CTk):
     def _on_resize_end(self):
         self._is_resizing = False
         self._resize_timer = None
+        if getattr(self, "active_tab", "") == "autologin" and hasattr(self, "_update_autologin_geometry"):
+            self._update_autologin_geometry()
 
     def _periodic_telemetry(self):
         """Khởi động worker telemetry một lần duy nhất theo mô hình Persistent Daemon Thread (Zero Thread Churn)."""
