@@ -8586,8 +8586,10 @@ class DashboardApp(ctk.CTk):
         elif tab_name == "ram":
             self.refresh_ram_tab_stats()
         elif tab_name == "autologin":
-            self.refresh_games()
-            self.refresh_autologin_table()
+            if not getattr(self, "_autologin_table_initialized", False):
+                self.refresh_autologin_table()
+            else:
+                self.sync_autologin_table_values()
 
     # ==========================================================================
     # TAB 4: TỐI ƯU HÓA BỘ NHỚ RAM (RAM OPTIMIZER TAB)
@@ -12628,7 +12630,14 @@ class DashboardApp(ctk.CTk):
             text_color="#f8fafc"
         )
         self.autologin_search_entry.pack(side="left")
-        self.autologin_search_var.trace_add("write", lambda *args: self.refresh_autologin_table())
+        def _on_search_change(*args):
+            if hasattr(self, "_autologin_search_timer") and self._autologin_search_timer:
+                try:
+                    self.after_cancel(self._autologin_search_timer)
+                except Exception:
+                    pass
+            self._autologin_search_timer = self.after(200, self.refresh_autologin_table)
+        self.autologin_search_var.trace_add("write", _on_search_change)
 
         # BODY CONTAINER (TABLE + RUNTIME LOG)
         body_box = ctk.CTkFrame(self.panel_autologin, fg_color="transparent")
@@ -12696,19 +12705,40 @@ class DashboardApp(ctk.CTk):
         self.refresh_autologin_table()
         self._autologin_table_initialized = True
 
+    def sync_autologin_table_values(self):
+        """Đồng bộ nhanh giá trị Server và Slot trong bảng AutoLogin mà KHÔNG vẽ lại widget (0ms - Chống giật lag)."""
+        if not hasattr(self, "autologin_ui_rows") or not self.autologin_ui_rows:
+            return
+        for item in self.autologin_ui_rows:
+            try:
+                acc = item.get("acc")
+                if not acc:
+                    continue
+                srv_val = int(acc.get("server", 3))
+                srv_str = f"Server {srv_val}"
+                if item.get("srv_var") and item["srv_var"].get() != srv_str:
+                    item["srv_var"].set(srv_str)
+                pref_slot = acc.get("preferred_slot")
+                if pref_slot and 1 <= pref_slot <= len(self.controllers):
+                    slot_str = f"Slot #{pref_slot:02d}"
+                    if item.get("slot_var") and item["slot_var"].get() != slot_str:
+                        item["slot_var"].set(slot_str)
+            except Exception:
+                pass
+
     def refresh_autologin_table(self):
-        """Vẽ lại toàn bộ danh sách tài khoản trong Tab AutoLogin."""
+        """Vẽ lại toàn bộ danh sách tài khoản trong Tab AutoLogin (Tối ưu hóa tránh quét lặp tiến trình)."""
         if not hasattr(self, "autologin_scroll"):
             return
 
-        # Luôn làm mới danh sách MEGAMU đang chạy để đồng bộ Server thực tế
-        fresh_games = enumerate_megamu_processes()
-        if fresh_games or not self.detected_games:
-            self.detected_games = fresh_games
+        # Tối ưu hóa: Dùng danh sách games đã quét ngầm, tránh quét lại psutil trên UI thread
+        if not getattr(self, "detected_games", None):
+            self.detected_games = enumerate_megamu_processes()
 
         for w in self.autologin_scroll.winfo_children():
             w.destroy()
         self.autologin_ui_rows.clear()
+        self._autologin_table_initialized = True
 
         if not self.account_mgr or not self.account_mgr.accounts:
             empty_lbl = ctk.CTkLabel(
@@ -12807,6 +12837,7 @@ class DashboardApp(ctk.CTk):
                 variable=cat_var,
                 width=115,
                 height=28,
+                corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
                 command=_make_cat_change(acc)
             )
@@ -12831,6 +12862,7 @@ class DashboardApp(ctk.CTk):
                 variable=char_var,
                 width=135,
                 height=28,
+                corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=11),
                 command=_make_char_cmd(acc)
             )
@@ -12863,28 +12895,14 @@ class DashboardApp(ctk.CTk):
 
             if running_p:
                 p_title = self.detected_games.get(running_p, "")
-                if not p_title:
-                    try:
-                        from meg_navigator import WindowHelper
-                        for p, _, t, _, _ in WindowHelper.get_unity_windows():
-                            if p == running_p and t:
-                                p_title = t
-                                self.detected_games[p] = t
-                                break
-                    except Exception:
-                        pass
                 live_srv = server_from_window_title(p_title)
                 if not live_srv:
-                    try:
-                        from meg_navigator import ProcessMemoryReader
-                        if hasattr(ProcessMemoryReader, "read_character_server"):
-                            live_srv = ProcessMemoryReader.read_character_server(running_p)
-                    except Exception:
-                        pass
+                    for c_slot in self.controllers:
+                        if c_slot.assigned_pid == running_p and getattr(c_slot, "server_num", None):
+                            live_srv = c_slot.server_num
+                            break
                 if live_srv and live_srv > 0 and acc.get("server") != live_srv:
                     acc["server"] = live_srv
-                    if self.account_mgr:
-                        self.account_mgr.save_accounts()
 
             srv_val = int(acc.get("server", live_srv or 3))
             srv_var = ctk.StringVar(value=f"Server {srv_val}")
@@ -12896,6 +12914,7 @@ class DashboardApp(ctk.CTk):
                 variable=srv_var,
                 width=95,
                 height=28,
+                corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=11),
                 command=_make_srv_cmd(acc)
             )
@@ -12919,6 +12938,7 @@ class DashboardApp(ctk.CTk):
                 variable=slot_var,
                 width=115,
                 height=28,
+                corner_radius=0,
                 font=ctk.CTkFont(family="Segoe UI", size=11),
                 command=_make_slot_cmd(acc)
             )
@@ -14343,7 +14363,7 @@ class DashboardApp(ctk.CTk):
             ok = self.account_mgr.login_existing_pid(pid, acc, on_log=self.append_autologin_log)
             if ok:
                 self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Đã login {u} (PID {pid})", text_color="#22c55e"))
-                self.after(0, lambda: self.refresh_autologin_table())
+                self.after(0, self.sync_autologin_table_values)
             else:
                 self.after(0, lambda: self.autologin_status_lbl.configure(text=f"Hoàn tất mở {u} (PID {pid})", text_color="#38bdf8"))
 
@@ -14466,7 +14486,7 @@ class DashboardApp(ctk.CTk):
 
                     # Cập nhật lại UI sau khi đã vào game
                     c_name = a_data.get("character") or u_name
-                    self.after(0, lambda: self.refresh_autologin_table())
+                    self.after(0, self.sync_autologin_table_values)
                     self.after(0, lambda: self.update_slot_ui_telemetry(s_idx, c_name, c_ref.level, c_ref.coords))
 
                 t = threading.Thread(target=_worker, daemon=True)
