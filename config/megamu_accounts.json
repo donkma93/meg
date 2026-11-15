@@ -21,14 +21,14 @@
         "trua1",
         "toi1"
       ],
-      "server": 4,
+      "server": 5,
       "enabled": true,
       "source": "manual",
       "password": "Nammothai3",
       "preferred_slot": 1,
-      "token": "7fd54d634cf2e1610ded244390bae23a",
+      "token": "65c5e314beae9cc5f8932e68222b9057",
       "category": "Chỉ Moss",
-      "last_pid": 19716
+      "last_pid": 15332
     },
     {
       "username": "anhdontb1",
@@ -39,13 +39,13 @@
         "trua2",
         "toi2"
       ],
-      "server": 1,
+      "server": 5,
       "enabled": true,
       "source": "manual",
       "password": "Nammothai3",
-      "token": "757aa739d5cc93cb6c9f9ad39ab02138",
+      "token": "f7194dd7856de154ade0df62cd9d90bc",
       "category": "Chung",
-      "last_pid": 4672
+      "last_pid": 26192
     },
     {
       "username": "dtn01",
@@ -57,7 +57,8 @@
       ],
       "server": 4,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "last_pid": 14656
     },
     {
       "username": "pvdon",
@@ -70,7 +71,8 @@
       ],
       "server": 3,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "last_pid": 26140
     },
     {
       "username": "dtn2026",
@@ -84,7 +86,7 @@
       "enabled": true,
       "source": "registry",
       "password": "Nammothai3",
-      "last_pid": 25296
+      "last_pid": 27744
     },
     {
       "username": "6sonquy",
@@ -96,7 +98,8 @@
       ],
       "server": 3,
       "enabled": true,
-      "source": "registry"
+      "source": "registry",
+      "last_pid": 11688
     }
   ]
 }

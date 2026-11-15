@@ -1,7 +1,7 @@
 {
   "language": "vi",
   "window_arrangement": {
-    "layout": "2x2",
+    "layout": "auto",
     "custom_cols": 2,
     "custom_rows": 2,
     "monitor_idx": 0,
