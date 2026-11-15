@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 MEGAMU MULTI-ACCOUNT MANAGER & AUTO LOGIN ENGINE
-Hệ thống quản lý không giới hạn tài khoản, tự động đọc từ Registry MEGAMU và tự động khởi chạy + login đồng loạt.
+Hệ thống quản lý không giới hạn tài khoản và tự động khởi chạy + login đồng loạt.
 """
 
 import os
@@ -97,34 +97,8 @@ def configure_megamu_registry_for_server(server: int = 3, username: str = "", ch
 
 
 def read_accounts_from_registry() -> List[Dict[str, Any]]:
-    """Đọc toàn bộ danh sách tài khoản MEGAMU đã lưu sẵn trong Windows Registry."""
-    accounts = []
-    try:
-        reg_path = r"Software\MEGAMU\MEGAMU"
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, reg_path) as key:
-            val, _ = winreg.QueryValueEx(key, "AccountList_h1682150822")
-            if val:
-                raw_str = bytes(val).decode("utf-8", errors="ignore").rstrip("\x00")
-                data = json.loads(raw_str)
-                for item in data.get("List", []):
-                    u_name = item.get("Username", "")
-                    if not u_name:
-                        continue
-                    chars = [c.get("Name", "") for c in item.get("Characters", []) if c.get("Name")]
-                    default_char = chars[0] if chars else ""
-                    accounts.append({
-                        "username": u_name,
-                        "nickname": item.get("Nickname", u_name),
-                        "token": item.get("Token", ""),
-                        "character": default_char,
-                        "characters_list": chars,
-                        "server": 3,
-                        "enabled": True,
-                        "source": "registry"
-                    })
-    except Exception as e:
-        print(f"[AccountManager] Lỗi đọc Registry MEGAMU: {e}")
-    return accounts
+    """Đã tắt chức năng đọc tài khoản từ Registry."""
+    return []
 
 
 class AccountManager:
@@ -139,7 +113,7 @@ class AccountManager:
         self.load_accounts()
 
     def load_accounts(self) -> List[Dict[str, Any]]:
-        """Tải cấu hình tài khoản từ file JSON, nếu chưa có thì đọc từ Registry MEGAMU."""
+        """Tải cấu hình tài khoản từ file JSON."""
         if ACCOUNTS_CONFIG_FILE.exists():
             try:
                 with open(ACCOUNTS_CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -154,8 +128,6 @@ class AccountManager:
             except Exception as e:
                 print(f"[AccountManager] Lỗi đọc config: {e}")
 
-        # Tự động import và đồng bộ token từ Registry
-        self.import_from_registry()
         return self.accounts
 
     def save_accounts(self):
@@ -172,26 +144,8 @@ class AccountManager:
             print(f"[AccountManager] Lỗi lưu config: {e}")
 
     def import_from_registry(self) -> int:
-        """Đọc và sáp nhập các tài khoản mới từ Registry vào danh sách hiện tại."""
-        reg_accs = read_accounts_from_registry()
-        existing_users = {a["username"].lower() for a in self.accounts}
-        added = 0
-        for ra in reg_accs:
-            if ra["username"].lower() not in existing_users:
-                self.accounts.append(ra)
-                existing_users.add(ra["username"].lower())
-                added += 1
-            else:
-                # Cập nhật danh sách nhân vật và token mới nhất từ Registry
-                for a in self.accounts:
-                    if a["username"].lower() == ra["username"].lower():
-                        if ra.get("characters_list"):
-                            a["characters_list"] = ra["characters_list"]
-                        if ra.get("token"):
-                            a["token"] = ra["token"]
-                        break
-        self.save_accounts()
-        return added
+        """Đã tắt chức năng đọc tài khoản từ Registry."""
+        return 0
 
     def add_account(
         self,
@@ -604,7 +558,7 @@ class AccountManager:
             if has_pwd:
                 auth_tag = " (Đăng nhập Form & Mật khẩu)"
             elif has_tok:
-                auth_tag = " (Đăng nhập Token Registry)"
+                auth_tag = " (Đăng nhập Token)"
             else:
                 auth_tag = " (Chưa có mật khẩu / token)"
             _log(f"🔑 [PID {pid}] Đã gắn Hook thành công! Đang kích hoạt AutoLogin{auth_tag} (Server: {server}, Acc: '{username}', NV: '{character}')...")
@@ -643,7 +597,7 @@ class AccountManager:
                         elif stage == "connecting_server":
                             _log(f"🌐 [PID {pid} - {username}] Đang kết nối vào Server {status.get('server', server)}...")
                         elif stage == "submitted_token":
-                            _log(f"✅ [PID {pid} - {username}] ĐÃ ĐĂNG NHẬP BẰNG TOKEN REGISTRY THÀNH CÔNG trên Main Thread! Game đang vào nhân vật...")
+                            _log(f"✅ [PID {pid} - {username}] ĐÃ ĐĂNG NHẬP BẰNG TOKEN THÀNH CÔNG trên Main Thread! Game đang vào nhân vật...")
                         elif stage == "waiting_character_list":
                             _log(f"⏳ [PID {pid} - {username}] Đã vào Lobby, đang đợi GameServer tải danh sách nhân vật...")
                         elif stage == "selected_character":
@@ -654,7 +608,7 @@ class AccountManager:
                             _log(f"🎉 [PID {pid} - {username}] ĐÃ VÀO THẾ GIỚI GAME THÀNH CÔNG! (Nhân vật '{in_world_char}')")
                             return True
                         elif stage == "need_credentials":
-                            _log(f"⚠️ [PID {pid} - {username}] Tài khoản chưa có Mật khẩu và chưa có Token lưu trong Registry! Vui lòng nhập mật khẩu vào bảng tài khoản.")
+                            _log(f"⚠️ [PID {pid} - {username}] Tài khoản chưa có Mật khẩu và chưa có Token! Vui lòng nhập mật khẩu vào bảng tài khoản.")
                             break
 
                 if status.get("done") or stage in ["in_game_world", "need_credentials"]:

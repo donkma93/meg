@@ -22,7 +22,16 @@
       "22:15"
     ]
   },
-  "selected_slots": [],
+  "selected_slots": [
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
   "combat_spots": {
     "GunApao": [
       185,
@@ -57,8 +66,8 @@
       70
     ],
     "VgDongNhi": [
-      185,
-      187
+      75,
+      66
     ],
     "Hface_NW": [
       68,
@@ -295,6 +304,10 @@
     "XxSontritb_NE": [
       185,
       187
+    ],
+    "VgDongNhi_SW": [
+      75,
+      66
     ]
   },
   "telegram": {

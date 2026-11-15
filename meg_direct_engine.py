@@ -1502,8 +1502,9 @@ function runSellPass(slots, itemsArr) {
 
 function sendMirrorEnterPacket(slot) {
     try {
-        var rel = (slot >= 12) ? (slot - 12) : slot;
-        return sendGSPacket([0xC1, 0x05, 0xBF, 0x0E, rel & 0xFF]);
+        var s = (slot !== undefined && slot !== null) ? parseInt(slot) : 0;
+        if (isNaN(s) || s < 0) s = 0;
+        return sendGSPacket([0xC1, 0x05, 0xBF, 0x0E, s & 0xFF]);
     } catch (eMirrorPkt) {
         return false;
     }
@@ -5020,12 +5021,11 @@ rpc.exports = {
                 entered: false
             };
 
-            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms) - Tối ưu 1 packet chuẩn 0xBF:0x0E duy nhất
+            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms) - LUÔN LUÔN gửi packet chuẩn C1:05:BF:0E
             if (nativeMirrorEnterAlt !== null) {
                 try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
-            } else {
-                sendMirrorEnterPacket(relSlot);
             }
+            sendMirrorEnterPacket(relSlot);
             _nativeMirrorTurboStats.packetsSent += 1;
 
             _nativeMirrorTurboTimer = setInterval(function() {
@@ -5064,12 +5064,11 @@ rpc.exports = {
                         return;
                     }
 
-                    // --- BƯỚC 3: GỌI NATIVE ENTRY VÀ BẮN PACKET CƯỚP CỔNG (Tối ưu 1 packet chuẩn 0xBF:0x0E duy nhất) ---
+                    // --- BƯỚC 3: GỌI NATIVE ENTRY VÀ LUÔN BẮN PACKET CƯỚP CỔNG TRỰC TIẾP TẦNG MẠNG ---
                     if (nativeMirrorEnterAlt !== null) {
                         try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot); } catch (eNEA) {}
-                    } else {
-                        sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
                     }
+                    sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
                     _nativeMirrorTurboStats.packetsSent += 1;
 
                 } catch (eLoop) {}
@@ -5169,9 +5168,8 @@ rpc.exports = {
                 var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
                 if (nativeMirrorEnterAlt !== null) {
                     try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
-                } else {
-                    sendMirrorEnterPacket(relSlot);
                 }
+                sendMirrorEnterPacket(relSlot);
                 return JSON.stringify({
                     success: true,
                     slot: itemSlot,

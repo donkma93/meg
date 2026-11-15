@@ -251,12 +251,14 @@ class AutoTrainWorker:
         log_callback: Optional[Callable[[str, str], None]] = None,
         progress_callback: Optional[Callable[[str, int], None]] = None,
         config: Optional[Dict[str, Any]] = None,
-        slot_idx: int = 1
+        slot_idx: int = 1,
+        coords_callback: Optional[Callable[[int, int], None]] = None
     ):
         self.pid = pid
         self.stages = stages
         self.log_callback = log_callback
         self.progress_callback = progress_callback
+        self.coords_callback = coords_callback
         self.config = config or {}
         self.slot_idx = slot_idx
 
@@ -618,7 +620,7 @@ class AutoTrainWorker:
         self.map_unknown_fallback_at = now + max(4.0, float(self.config.get("map_verify_unknown_timeout", 6.0)))
         self.map_soft_verify_at = now + max(2.2, float(self.config.get("map_verify_grace_seconds", 2.8)))
         self.map_move_sent = False
-        self.next_map_retry_at = now + max(3.5, float(self.config.get("map_command_retry_delay", 4.5)))
+        self.next_map_retry_at = now + max(5.5, float(self.config.get("map_command_retry_delay", 6.5)))
         self.arrived_at_spot = False
         self.respawn_armed = False
         self.last_move_issue = 0.0
@@ -728,25 +730,17 @@ class AutoTrainWorker:
             # Thử lại lệnh chuyển map định kỳ nếu MapID vẫn chưa đổi
             if now >= self.next_map_retry_at:
                 self.map_retry_count += 1
-                self.next_map_retry_at = now + max(4.0, float(self.config.get("map_command_retry_delay", 5.0)))
+                self.next_map_retry_at = now + max(5.5, float(self.config.get("map_command_retry_delay", 6.5)))
                 self._log(
                     f"MapID vẫn là {cur} (chưa chuyển sang {exp}) [Lần thử {self.map_retry_count}]. Đang thử lại lệnh chuyển map... "
                     "(Lưu ý: Nếu server game từ chối lệnh, hãy kiểm tra điều kiện Level tối thiểu và Zen của nhân vật)",
                     "WARNING"
                 )
 
-                # NẾU THỬ LẠI TỪ LẦN 1 TRỞ ĐI: CÓ THỂ NHÂN VẬT VỪA HỒI SINH BỊ KẸT TỌA ĐỘ / ĐÓNG BĂNG TRẠNG THÁI (RESPAWN FREEZE / NON-WARP TILE)
-                # Tự động đóng dialog (ESC) và bước nhẹ 2-3 bước để gửi gói tin Move giải phóng trạng thái kẹt!
-                if self.map_retry_count >= 1:
+                # NẾU THỬ LẠI TỪ LẦN 2 TRỞ ĐI: CÓ THỂ NHÂN VẬT VỪA HỒI SINH BỊ KẸT TỌA ĐỘ / ĐÓNG BĂNG TRẠNG THÁI (RESPAWN FREEZE / NON-WARP TILE)
+                # Bước nhẹ 2-3 bước để gửi gói tin Move giải phóng trạng thái kẹt (TUYỆT ĐỐI KHÔNG BẤM PHÍM ESC TRÁNH BẬT BẢNG CÀI ĐẶT GAME)
+                if self.map_retry_count >= 2:
                     try:
-                        # 1. Nhấn ESC đóng các pop-up/dialog/khung chat rác kẹt
-                        hwnd = getattr(self.core, "get_hwnd", lambda: None)()
-                        if hwnd:
-                            from meg_direct_engine import MegDirectEngine
-                            MegDirectEngine.send_background_key(hwnd, 0x1B, 0.05)  # VK_ESCAPE
-                            time.sleep(0.12)
-
-                        # 2. Lấy tọa độ hiện tại và nhích nhẹ 2-3 ô gỡ kẹt
                         pinfo = self.core.get_player_info(max_age=0.2)
                         if pinfo:
                             c_px = int(pinfo.get("tileX", 0))
@@ -927,7 +921,7 @@ class AutoTrainWorker:
                     break
 
                 # 1. Lấy thông tin nhân vật từ Fast Telemetry
-                cache_age = 0.55 if not self.arrived_at_spot else 0.9
+                cache_age = 0.12 if not self.arrived_at_spot else 0.8
                 info = self.core.get_player_info(max_age=cache_age)
                 if info is None:
                     time.sleep(0.18)
@@ -937,6 +931,16 @@ class AutoTrainWorker:
                 current_map_id = info.get("mapId", -1)
                 px = int(info.get("tileX", 0))
                 py = int(info.get("tileY", 0))
+
+                # Stream tọa độ tức thì lên UI khi nhân vật di chuyển từng ô
+                if (px, py) != (self.last_px, self.last_py):
+                    self.last_px = px
+                    self.last_py = py
+                    if self.coords_callback and (px > 0 or py > 0):
+                        try:
+                            self.coords_callback(px, py)
+                        except Exception:
+                            pass
                 is_moving = bool(info.get("isMoving", False))
                 info_resets = int(info.get("resets", 0)) if info.get("resets") is not None else 0
                 if info_resets > 0:

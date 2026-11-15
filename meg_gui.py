@@ -1056,6 +1056,8 @@ I18N = {
         "status_disconnected": "Mất kết nối",
         "status_stopped": "Đã dừng",
         "status_idle": "Chờ",
+        "status_connected": "Đã kết nối",
+        "connected_status": "Đã kết nối",
         "total_accounts": "Tổng số tài khoản: {n}",
         "connected": "Đã kết nối",
         "license": "Bản quyền",
@@ -1121,6 +1123,8 @@ I18N = {
         "status_disconnected": "Disconnected",
         "status_stopped": "Stopped",
         "status_idle": "Idle",
+        "status_connected": "Connected",
+        "connected_status": "Connected",
         "total_accounts": "Total accounts: {n}",
         "connected": "Connected",
         "license": "License",
@@ -1186,6 +1190,8 @@ I18N = {
         "status_disconnected": "Desconectado",
         "status_stopped": "Parado",
         "status_idle": "Aguardando",
+        "status_connected": "Conectado",
+        "connected_status": "Conectado",
         "total_accounts": "Total de contas: {n}",
         "connected": "Conectados",
         "license": "Licença",
@@ -2377,6 +2383,12 @@ class SlotController:
         self.stat_mode: str = "auto_class"
         self.custom_class: str = ""
         self.stat_ratio: Dict[str, float] = {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}
+        self.spot_map: str = "Lorencia"
+        self.current_map: str = "---"
+        self.spot_x: int = 125
+        self.spot_y: int = 125
+        self.auto_repair: bool = True
+        self.auto_clean_trash: bool = True
 
         try:
             evt_cfgs = ConfigPersistenceManager.load_event_configs()
@@ -2417,6 +2429,10 @@ class SlotController:
                 "SUCCESS"
             )
             self.set_status(tr("running", n=self.profile_index))
+
+    def is_auto_running(self) -> bool:
+        """Kiểm tra slot này có đang chạy Auto hay không."""
+        return bool((self.worker and self.worker.running) or self.auto_requested)
 
     def attach_pid(self, pid: int, auto_attach: bool = True) -> bool:
         """Kết nối tới Game PID."""
@@ -2460,13 +2476,18 @@ class SlotController:
             self.server_name = f"Sv{t_srv}"
 
         try:
-            from meg_navigator import ProcessMemoryReader
+            from meg_navigator import ProcessMemoryReader, MAP_CATALOG
             t_lvl = ProcessMemoryReader._fallback_level_from_title(pid) or ProcessMemoryReader.read_character_level(pid)
             if t_lvl:
                 self.level = str(t_lvl)
             live = ProcessMemoryReader.read_live_state(pid)
-            if live and live[2] is not None and live[3] is not None and (live[2] > 0 or live[3] > 0):
-                self.coords = f"{live[2]},{live[3]}"
+            if live:
+                if live[1] and live[1] != "Unknown":
+                    self.current_map = live[1]
+                elif live[0] is not None and live[0] >= 0:
+                    self.current_map = MAP_CATALOG.get(live[0], f"World {live[0]}")
+                if live[2] is not None and live[3] is not None and (live[2] > 0 or live[3] > 0):
+                    self.coords = f"{live[2]},{live[3]}"
         except Exception:
             pass
 
@@ -2688,6 +2709,7 @@ class SlotController:
             stages=stages,
             log_callback=worker_log,
             progress_callback=worker_progress,
+            coords_callback=lambda px, py: self.on_worker_coords(px, py),
             config=cfg,
             slot_idx=self.slot_idx
         )
@@ -2777,6 +2799,13 @@ class SlotController:
         self.auto_requested = is_on
         self.app.update_slot_ui_auto(self.slot_idx, is_on)
 
+    def on_worker_coords(self, px: int, py: int):
+        """Nhận tọa độ trực tiếp từ worker luồng di chuyển và stream ngay lên UI in-place (Zero-Lag)."""
+        c_str = f"{px},{py}"
+        if self.coords != c_str:
+            self.coords = c_str
+            self.app.stream_slot_coords(self.slot_idx, c_str, self.server_name)
+
     def sync_telemetry(self):
         """Đọc RAM thông tin nhân vật hiển thị lên bảng."""
         if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
@@ -2791,6 +2820,7 @@ class SlotController:
                 self.coords = "--,--"
                 self.server_name = "---"
                 self.server_num = None
+                self.current_map = "---"
                 self._last_synced_telemetry = None
                 self.app.update_slot_ui_telemetry(self.slot_idx, "---", "---", "--,--", points=0, class_code="", server="---")
                 if MegDirectEngine:
@@ -2820,6 +2850,8 @@ class SlotController:
                     "level": lvl or 0,
                     "tileX": live[2] if live and live[2] is not None else 0,
                     "tileY": live[3] if live and live[3] is not None else 0,
+                    "mapId": live[0] if live and live[0] is not None else -1,
+                    "mapName": live[1] if live and live[1] else "",
                 }
             except Exception:
                 pass
@@ -2906,7 +2938,33 @@ class SlotController:
                     pass
 
             if px > 0 or py > 0:
-                self.coords = f"{px},{py}"
+                c_str = f"{px},{py}"
+                if self.coords != c_str:
+                    self.coords = c_str
+                    self.app.stream_slot_coords(self.slot_idx, c_str, self.server_name)
+
+            # Cập nhật bản đồ thực tế nhân vật đang đứng
+            p_map_id = p_info.get("mapId", -1)
+            p_map_name = p_info.get("mapName", "")
+            if p_map_name and p_map_name != "Unknown":
+                self.current_map = p_map_name
+            elif p_map_id is not None and p_map_id >= 0:
+                try:
+                    from meg_navigator import MAP_CATALOG
+                    self.current_map = MAP_CATALOG.get(int(p_map_id), f"World {p_map_id}")
+                except Exception:
+                    pass
+            else:
+                try:
+                    from meg_navigator import ProcessMemoryReader, MAP_CATALOG
+                    live = ProcessMemoryReader.read_live_state(self.assigned_pid)
+                    if live:
+                        if live[1] and live[1] != "Unknown":
+                            self.current_map = live[1]
+                        elif live[0] is not None and live[0] >= 0:
+                            self.current_map = MAP_CATALOG.get(live[0], f"World {live[0]}")
+                except Exception:
+                    pass
 
             if "points" in p_info:
                 try:
@@ -2950,6 +3008,7 @@ class SlotController:
             self.char_name,
             self.level,
             self.coords,
+            self.current_map,
             self.points,
             self.master_points,
             self.class_code,
@@ -5606,6 +5665,9 @@ class DashboardApp(ctk.CTk):
         self._update_dlg_instance = None
         self._last_update_check_time = time.time()
 
+        from ui.state import AppStateManager
+        self.state_mgr = AppStateManager()
+
         # Bắt đầu vòng lặp quét tiến trình & telemetry & bản quyền
         self.running = True
         self._last_moss_trigger_key = None
@@ -5621,9 +5683,52 @@ class DashboardApp(ctk.CTk):
         self.after(1200, self._check_initial_license)
         threading.Thread(target=self._verify_license_async, daemon=True).start()
         threading.Thread(target=self._check_update_async, kwargs={"manual": False}, daemon=True).start()
+        self.after(100, self._master_zero_lag_tick)
 
         # Xử lý đóng ứng dụng an toàn
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def _master_zero_lag_tick(self):
+        """Vòng lặp Master Zero-Lag: Cập nhật UI theo cơ chế State Diffing in-place cực mượt."""
+        try:
+            if hasattr(self, "train_view") and hasattr(self, "state_mgr"):
+                for ctrl in self.controllers:
+                    s_idx = ctrl.slot_idx
+                    self.state_mgr.update_slot_telemetry(
+                        slot_idx=s_idx,
+                        char_name=ctrl.char_name if ctrl.char_name != "---" else None,
+                        level=f"LV {ctrl.level}" if ctrl.level != "---" else None,
+                        coords=ctrl.coords if ctrl.coords != "--, --" else None,
+                        server=ctrl.server_name if ctrl.server_name != "---" else None,
+                        status=ctrl.status,
+                        is_running=ctrl.is_auto_running(),
+                        assigned_pid=ctrl.assigned_pid,
+                        map=getattr(ctrl, "current_map", "---") if getattr(ctrl, "current_map", "---") != "---" else "---"
+                    )
+
+                dirty_slots = self.state_mgr.get_dirty_slots()
+                if dirty_slots and hasattr(self.train_view, "update_slots_data"):
+                    self.train_view.update_slots_data(dirty_slots)
+
+            if hasattr(self, "train_view") and hasattr(self, "detected_games"):
+                options = ["--"]
+                for pid, title in sorted(self.detected_games.items()):
+                    char_name = character_name_from_window_title(title)
+                    srv_num = server_from_window_title(title)
+                    srv_tag = f" [Sv{srv_num}]" if srv_num else ""
+                    disp = f"{char_name}{srv_tag} ({pid})" if char_name else f"MEGAMU{srv_tag} ({pid})"
+                    options.append(disp)
+                if getattr(self, "_last_detected_options", None) != options:
+                    self._last_detected_options = options
+                    if hasattr(self.train_view, "update_process_options_all"):
+                        self.train_view.update_process_options_all(options)
+        except Exception:
+            pass
+        finally:
+            try:
+                self.after(100, self._master_zero_lag_tick)
+            except Exception:
+                pass
 
     def _get_map_display_list(self) -> List[str]:
         if self.map_resolver:
@@ -5967,139 +6072,8 @@ class DashboardApp(ctk.CTk):
         self._active_panel = None
 
         # ----------------------------------------------------------------------
-        # 4. ACTION TOOLBAR (Tinh gọn chuẩn Icon-Only siêu hiện đại, chống tràn màn hình)
+        # 4. CẤU HÌNH LƯỚI SẮP XẾP CỬA SỔ
         # ----------------------------------------------------------------------
-        self.toolbar_frame = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=38)
-        self.toolbar_frame.pack(fill="x", padx=10, pady=(6, 4))
-
-        icon_btn_style = {
-            "width": 36,
-            "height": 30,
-            "corner_radius": 6,
-            "fg_color": "#181c26",
-            "hover_color": "#242b3a",
-            "border_width": 1,
-            "border_color": "#2c3345",
-            "text": ""
-        }
-
-        # Nhóm bên trái
-        t_left = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
-        t_left.pack(side="left")
-
-        # 1. Kết nối tất cả (Link Icon)
-        self.btn_connect_all = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("link", color="#38bdf8", size=(16, 16)),
-            command=self.connect_all,
-            **icon_btn_style
-        )
-        self.btn_connect_all.configure(border_color="#0284c7", hover_color="#0369a1")
-        self.btn_connect_all.pack(side="left", padx=(0, 6))
-        add_tooltip(
-            self.btn_connect_all,
-            "🔗 Kết nối tất cả (Connect All)\n"
-            "Tự động quét và kết nối tất cả các cửa sổ MEGAMU đang mở vào các Slot còn trống."
-        )
-
-        # 2. Gán toàn bộ (Users Icon)
-        self.btn_team5 = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("users", color="#38bdf8", size=(16, 16)),
-            command=self.assign_all,
-            **icon_btn_style
-        )
-        self.btn_team5.configure(border_color="#0284c7", hover_color="#0369a1")
-        self.btn_team5.pack(side="left", padx=(0, 6))
-        add_tooltip(
-            self.btn_team5,
-            "👥 Gán toàn bộ (Assign All)\n"
-            "Tự động quét và gán toàn bộ các cửa sổ game MEGAMU đang mở vào các ô Slot trống (hỗ trợ linh hoạt 3, 4, 5, 6, 7, 8... tài khoản cùng lúc)."
-        )
-
-        # 3. Làm mới game (Refresh Icon)
-        self.btn_refresh = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(16, 16)),
-            command=self.refresh_games,
-            **icon_btn_style
-        )
-        self.btn_refresh.pack(side="left", padx=(0, 6))
-        add_tooltip(
-            self.btn_refresh,
-            "🔄 Làm mới Game (Refresh)\n"
-            "Quét lại toàn bộ danh sách tiến trình MEGAMU.exe trên hệ thống để cập nhật danh sách chọn."
-        )
-
-        # Phân tách nhóm 1
-        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=18).pack(side="left", padx=(2, 8))
-
-        # 4. Thêm Slot (Plus Icon)
-        self.btn_add_slot = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("plus", color="#4ade80", size=(16, 16)),
-            command=self.add_new_slot,
-            **icon_btn_style
-        )
-        self.btn_add_slot.configure(border_color="#14532d", hover_color="#14532d")
-        self.btn_add_slot.pack(side="left", padx=(0, 6))
-        add_tooltip(self.btn_add_slot, "➕ Thêm Slot (Add Slot)\nThêm một hàng quản lý tài khoản mới vào bảng.")
-
-        # 5. Bớt Slot (Minus Icon)
-        self.btn_remove_slot = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("minus", color="#f87171", size=(16, 16)),
-            command=self.remove_last_slot,
-            **icon_btn_style
-        )
-        self.btn_remove_slot.configure(border_color="#7f1d1d", hover_color="#7f1d1d")
-        self.btn_remove_slot.pack(side="left", padx=(0, 6))
-        add_tooltip(self.btn_remove_slot, "➖ Bớt Slot (Remove Slot)\nXóa bớt một hàng quản lý tài khoản ở cuối bảng.")
-
-        # Phân tách nhóm 2
-        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=18).pack(side="left", padx=(2, 8))
-
-        # 6. Cài đặt Devil (Fire Icon)
-        self.btn_devil_config = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("fire", color="#f43f5e", size=(16, 16)),
-            command=self.open_devil_global_config_dialog,
-            **icon_btn_style
-        )
-        self.btn_devil_config.configure(fg_color="#2a1215", border_color="#be123c", hover_color="#451218")
-        self.btn_devil_config.pack(side="left", padx=(0, 6))
-        add_tooltip(
-            self.btn_devil_config,
-            "🔥 Cài đặt Devil Square (DS)\n"
-            "Thiết lập mốc Reset bắt đầu đi Devil và loại vé (Vé Thường / Vé Master) cho toàn bộ tài khoản."
-        )
-
-        # 7. Gom ngọc (Gem Icon)
-        self.btn_stack_jewels = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("gem", color="#c084fc", size=(16, 16)),
-            command=self.stack_all_jewels,
-            **icon_btn_style
-        )
-        self.btn_stack_jewels.configure(fg_color="#1e1528", border_color="#7e22ce", hover_color="#3b1d54")
-        self.btn_stack_jewels.pack(side="left")
-        add_tooltip(
-            self.btn_stack_jewels,
-            "💎 Gom Ngọc Toàn Bộ (Stack Jewels)\n"
-            "Tự động gộp tất cả các viên ngọc lẻ (Bless, Soul, Chaos, Life...) trong thùng đồ của mọi tài khoản thành từng cụm 10/20/30 viên."
-        )
-
-        self.btn_quick_autologin = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("key", color="#c084fc", size=(14, 14)),
-            command=lambda: self.switch_tab("autologin"),
-            **icon_btn_style
-        )
-        self.btn_quick_autologin.pack(side="left", padx=(6, 0))
-
-        # Phân tách nhóm 3: Sắp xếp màn hình / Layout Grid
-        ctk.CTkFrame(t_left, fg_color="#242b3a", width=1, height=18).pack(side="left", padx=(8, 8))
-
         self.window_arr_cfg = ConfigPersistenceManager.load_window_arrangement_config()
         cur_layout = self.window_arr_cfg.get("layout", "2x2")
         preset_map = {
@@ -6115,78 +6089,6 @@ class DashboardApp(ctk.CTk):
         }
         init_val = preset_map.get(cur_layout, "📐 Lưới: 2x2 (4 Màn)")
         self.combo_arrange_var = ctk.StringVar(value=init_val)
-
-        self.combo_arrange_preset = ModernOptionMenu(
-            t_left,
-            values=[
-                "📐 Lưới: Tự động (Auto)",
-                "📐 Lưới: 2x2 (4 Màn)",
-                "📐 Lưới: 3x2 (6 Màn)",
-                "📐 Lưới: 3x3 (9 Màn)",
-                "📐 Lưới: 4x2 (8 Màn)",
-                "📐 Lưới: 2x1 (2 Cột)",
-                "📐 Lưới: 1x2 (2 Hàng)",
-                "📐 Lưới: 4x3 (12 Màn)",
-                "⚙️ Tùy biến NxM..."
-            ],
-            variable=self.combo_arrange_var,
-            width=150,
-            height=30,
-            command=self._on_arrange_preset_selected,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold")
-        )
-        self.combo_arrange_preset.pack(side="left", padx=(0, 4))
-        add_tooltip(
-            self.combo_arrange_preset,
-            "📐 Chọn kiểu bố cục lưới sắp xếp cửa sổ MEGAMU.\n"
-            "Chọn 'Tùy biến NxM...' để thiết lập số hàng/cột và màn hình hiển thị."
-        )
-
-        self.btn_arrange_windows = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("grid", color="#38bdf8", size=(16, 16)),
-            command=self.on_click_arrange_windows,
-            **icon_btn_style
-        )
-        self.btn_arrange_windows.configure(border_color="#0284c7", hover_color="#0369a1")
-        self.btn_arrange_windows.pack(side="left")
-        add_tooltip(
-            self.btn_arrange_windows,
-            "📐 Sắp Xếp Màn Hình Game (Arrange Windows - Phím tắt F8)\n"
-            "Tự động dàn trải và chia lưới tất cả các cửa sổ MEGAMU đang mở theo tỷ lệ màn hình ngay lập tức."
-        )
-
-        self.btn_close_all_games = ctk.CTkButton(
-            t_left,
-            image=UiIconFactory.get("stop", color="#f87171", size=(16, 16)),
-            command=self.on_click_close_games_ui,
-            **icon_btn_style
-        )
-        self.btn_close_all_games.configure(border_color="#ef4444", hover_color="#7f1d1d")
-        self.btn_close_all_games.pack(side="left", padx=(4, 0))
-        add_tooltip(
-            self.btn_close_all_games,
-            "🛑 Đóng Tất Cả Game MEGAMU (Close All Game Clients)\n"
-            "Đóng an toàn và nhanh chóng toàn bộ các cửa sổ game MEGAMU đang mở trên máy tính."
-        )
-
-        # Nhóm bên phải: Nút Master Chạy/Dừng Tất Cả gộp 1 nút thông minh (Toggle)
-        t_right = ctk.CTkFrame(self.toolbar_frame, fg_color="transparent")
-        t_right.pack(side="right")
-
-        self.btn_master_run = ctk.CTkButton(
-            t_right,
-            image=UiIconFactory.get("play", color="#6ee7b7", size=(16, 16)),
-            command=self.on_master_auto_toggle,
-            **icon_btn_style
-        )
-        self.btn_master_run.configure(fg_color="#064e3b", hover_color="#047857", border_color="#059669")
-        self.btn_master_run.pack(side="right")
-        add_tooltip(
-            self.btn_master_run,
-            "▶ Chạy Tất Cả (Start All)\n"
-            "Tất cả tài khoản đang dừng. Nhấp vào đây để khởi động Auto cho toàn bộ."
-        )
 
         self.build_accounts_view()
         self.build_profiles_view()
@@ -6227,520 +6129,112 @@ class DashboardApp(ctk.CTk):
     # TAB 1: DANH SÁCH TÀI KHOẢN (ACCOUNTS TAB)
     # ==========================================================================
     def build_accounts_view(self):
-        # Thanh hướng dẫn nhanh (Quick Tips Banner) cho người dùng mới
-        tip_banner = ctk.CTkFrame(
+        for w in self.panel_accounts.winfo_children():
+            try:
+                w.destroy()
+            except Exception:
+                pass
+
+        from ui.views.train_view import TrainSlotsView
+        self.train_view = TrainSlotsView(
             self.panel_accounts,
-            fg_color="#101522",
-            border_width=1,
-            border_color="#1e293b",
-            corner_radius=6,
-            height=32
+            controllers=self.controllers,
+            maps_list=self._get_map_display_list(),
+            on_toggle_slot=self.on_slot_auto_toggle,
+            on_toggle_all=self._on_toggle_all_train_clicked,
+            on_save_slot_config=self._on_slot_config_saved,
+            on_connect_all=lambda: self.connect_all(async_mode=True),
+            on_assign_all=lambda: self.assign_all(async_mode=True),
+            on_refresh_games=lambda: threading.Thread(target=self.refresh_games, daemon=True, name="ManualRefreshGamesWorker").start(),
+            on_arrange_windows=self.on_click_arrange_windows,
+            on_slot_pid_selected=self.on_slot_pid_selected,
+            on_slot_profile_selected=self.on_slot_profile_selected,
+            on_stack_jewels=self.stack_all_jewels,
+            on_devil_config=self.open_devil_global_config_dialog,
+            on_close_games=self.on_click_close_games_ui,
+            on_open_stat_dialog=self.open_slot_stat_ratio_dialog
         )
-        tip_banner.pack(fill="x", padx=12, pady=(6, 4))
+        self.train_view.pack(fill="both", expand=True)
 
-        tip_lbl_icon = ctk.CTkLabel(
-            tip_banner,
-            text="💡",
-            font=ctk.CTkFont(size=12),
-            text_color="#facc15"
-        )
-        tip_lbl_icon.pack(side="left", padx=(10, 4), pady=3)
+        self.btn_connect_all = self.train_view.btn_connect_all
+        self.btn_team5 = self.train_view.btn_assign_all
+        self.btn_refresh = self.train_view.btn_refresh
+        self.btn_arrange_windows = self.train_view.btn_arrange_windows
+        self.btn_stack_jewels = self.train_view.btn_stack_jewels
+        self.btn_devil_config = self.train_view.btn_devil_config
+        self.btn_close_all_games = self.train_view.btn_close_all_games
+        self.btn_master_run = self.train_view.btn_master_run
 
-        tip_lbl_text = ctk.CTkLabel(
-            tip_banner,
-            text="💡 Hướng dẫn nhanh: 1. [🔗 Kết nối tất cả] (hoặc [👥 Gán toàn bộ]) ➔ 2. Chọn Cấu hình chặng ➔ 3. Bấm [▶ Chạy Tất Cả]. Click [🔥 DS] [🔄 RS] [⭐ PT] để bật/tắt nhanh các tính năng tự động.",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-            anchor="w"
-        )
-        tip_lbl_text.pack(side="left", fill="x", expand=True, padx=(0, 10), pady=3)
+        for i in range(1, 11):
+            if i in self.train_view.cards:
+                card = self.train_view.cards[i]
+                self.slot_ui_elements[i] = {
+                    "row_frame": card,
+                    "proc_var": card.proc_var,
+                    "proc_combo": card.proc_combo,
+                    "profile_var": card.preset_var,
+                    "preset_combo": card.preset_combo,
+                    "preset_lbl": card.preset_combo,
+                    "srv_lbl": None,
+                    "lvl_lbl": None,
+                    "map_lbl": card.map_lbl,
+                    "prog_bar": None,
+                    "exp_lbl": None,
+                    "pts_lbl": None,
+                    "coords_lbl": card.coords_lbl,
+                    "status_lbl": card.status_lbl,
+                    "btn_toggle": card.btn_toggle,
+                    "btn_devil": None,
+                    "btn_reset": None,
+                    "btn_point": None,
+                    "btn_cfg": card.btn_settings,
+                    "btn_log": None
+                }
 
-        # Header bảng cố định ở trên
-        tbl_header = ctk.CTkFrame(self.panel_accounts, fg_color="transparent", height=32)
-        tbl_header.pack(fill="x", padx=12, pady=(4, 4))
+    def _on_toggle_all_train_clicked(self, start_all: bool):
+        if start_all:
+            self.start_all()
+        else:
+            self.stop_all()
 
-        self.col_header_labels = []
-        col_defs = [
-            ("col_no", 45, "w"),
-            ("col_char_pid", 225, "w"),
-            ("col_route_preset", 220, "w"),
-            ("col_coordinates", 145, "center"),
-            ("col_status", 125, "center"),
-            ("col_actions", 260, "center")
-        ]
-
-        for k, w, anc in col_defs:
-            lbl = ctk.CTkLabel(
-                tbl_header,
-                text=tr(k),
-                width=w,
-                anchor=anc,
-                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                text_color="#94a3b8"
-            )
-            lbl.pack(side="left", padx=4)
-            self.col_header_labels.append(lbl)
-
-        # Divider line
-        div = ctk.CTkFrame(self.panel_accounts, fg_color="#1f2535", height=1)
-        div.pack(fill="x", padx=12, pady=(0, 6))
-
-        # Khung cuộn chứa danh sách các dòng tài khoản
-        self.accounts_scroll_frame = ctk.CTkScrollableFrame(
-            self.panel_accounts,
-            fg_color="transparent"
-        )
-        self.accounts_scroll_frame.pack(fill="both", expand=True, padx=4, pady=(0, 8))
-
-        # Tạo từng dòng tài khoản đã cấu hình
-        for i in range(1, len(self.controllers) + 1):
-            self.create_slot_row(i)
+    def _on_slot_config_saved(self, slot_idx: int, new_cfg: Dict[str, Any]):
+        if 1 <= slot_idx <= len(self.controllers):
+            ctrl = self.controllers[slot_idx - 1]
+            ctrl.spot_map = new_cfg.get("map", getattr(ctrl, "spot_map", "Lorencia"))
+            ctrl.spot_x = new_cfg.get("x", getattr(ctrl, "spot_x", 125))
+            ctrl.spot_y = new_cfg.get("y", getattr(ctrl, "spot_y", 125))
+            ctrl.auto_repair = new_cfg.get("auto_repair", getattr(ctrl, "auto_repair", True))
+            ctrl.auto_clean_trash = new_cfg.get("auto_clean_trash", getattr(ctrl, "auto_clean_trash", True))
+            ctrl.mirror_enabled = new_cfg.get("mirror_enabled", getattr(ctrl, "mirror_enabled", True))
+            ctrl.moss_enabled = new_cfg.get("moss_enabled", getattr(ctrl, "moss_enabled", True))
+            self.log_message(f"[Slot {slot_idx:02d}] Đã cập nhật cấu hình: Map {ctrl.spot_map} ({ctrl.spot_x}, {ctrl.spot_y})", "SUCCESS")
 
     def create_slot_row(self, i: int):
-        """Tạo 1 dòng giao diện cho Slot thứ i theo phong cách hiện đại, trực quan, thân thiện."""
-        ctrl = self.controllers[i - 1]
-        row_frame = ctk.CTkFrame(
-            self.accounts_scroll_frame,
-            fg_color="#131722",
-            height=54,
-            corner_radius=6,
-            border_width=1,
-            border_color="#1e2433"
-        )
-        row_frame.pack(fill="x", padx=4, pady=3)
-
-        # Hiệu ứng hover cho toàn dòng
-        def _on_row_enter(e):
-            try:
-                row_frame.configure(fg_color="#171c2a")
-            except Exception:
-                pass
-
-        def _on_row_leave(e):
-            try:
-                row_frame.configure(fg_color="#131722")
-            except Exception:
-                pass
-
-        row_frame.bind("<Enter>", _on_row_enter, add="+")
-        row_frame.bind("<Leave>", _on_row_leave, add="+")
-
-        # Cột 1: STT dạng Badge bo góc nổi bật
-        slot_badge = ctk.CTkFrame(
-            row_frame,
-            fg_color="#1a2030",
-            corner_radius=5,
-            width=36,
-            height=28
-        )
-        slot_badge.pack(side="left", padx=(8, 4))
-        slot_badge.pack_propagate(False)
-
-        slot_lbl = ctk.CTkLabel(
-            slot_badge,
-            text=f"{i:02d}",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#94a3b8"
-        )
-        slot_lbl.pack(expand=True)
-        add_tooltip(slot_badge, f"Slot #{i:02d} - Chuột phải vào đây để mở Menu Lệnh Nhanh.")
-
-        # Cột 2: Character/PID
-        options = ["--"]
-        for pid, title in sorted(self.detected_games.items()):
-            char_name = character_name_from_window_title(title)
-            if not char_name:
-                try:
-                    from meg_navigator import ProcessMemoryReader
-                    char_name = ProcessMemoryReader.read_character_name(pid) or ""
-                except Exception:
-                    pass
-            srv_num = server_from_window_title(title)
-            if not srv_num:
-                try:
-                    from meg_navigator import ProcessMemoryReader
-                    if hasattr(ProcessMemoryReader, "read_character_server"):
-                        srv_num = ProcessMemoryReader.read_character_server(pid)
-                except Exception:
-                    pass
-            srv_tag = f" [Sv{srv_num}]" if srv_num else ""
-            disp = f"{char_name}{srv_tag} ({pid})" if char_name else f"MEGAMU{srv_tag} ({pid})"
-            options.append(disp)
-
-        init_proc = "--"
-        if ctrl.assigned_pid:
-            t = self.detected_games.get(ctrl.assigned_pid, "")
-            cname = character_name_from_window_title(t)
-            if not cname:
-                try:
-                    from meg_navigator import ProcessMemoryReader
-                    cname = ProcessMemoryReader.read_character_name(ctrl.assigned_pid) or ""
-                except Exception:
-                    pass
-            if not cname and ctrl.char_name and ctrl.char_name != "---":
-                cname = ctrl.char_name
-            init_proc = f"{cname} ({ctrl.assigned_pid})" if cname else f"MEGAMU ({ctrl.assigned_pid})"
-
-        proc_var = ctk.StringVar(value=init_proc)
-        proc_combo = ModernOptionMenu(
-            row_frame,
-            values=options,
-            variable=proc_var,
-            width=220,
-            height=32,
-            fg_color="#181c26",
-            border_color="#242b3a",
-            hover_color="#222736",
-            corner_radius=5,
-            command=lambda val, s=i: self.on_slot_pid_selected(s, val),
-            on_open=lambda s=i: self.on_proc_combo_opened(s),
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
-        )
-        proc_combo.pack(side="left", padx=4)
-        add_tooltip(proc_combo, f"Gán tài khoản MEGAMU cho Slot #{i:02d}.\nNhấp vào để chọn hoặc tự động làm mới danh sách game đang mở.")
-
-        # Cột 3: Target Route Preset (Multi-tier: Master LV 450 / Progress / EXP)
-        route_box = ctk.CTkFrame(row_frame, fg_color="transparent", width=220)
-        route_box.pack(side="left", padx=4)
-
-        top_line = ctk.CTkFrame(route_box, fg_color="transparent")
-        top_line.pack(fill="x", padx=0, pady=(2, 0))
-
-        profile_var = ctk.StringVar(value=f"Config {ctrl.profile_index}")
-        preset_combo = ModernOptionMenu(
-            top_line,
-            values=PROFILE_NAMES,
-            variable=profile_var,
-            width=105,
-            height=24,
-            fg_color="#181c26",
-            hover_color="#222736",
-            corner_radius=4,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=lambda val, s=i: self.on_slot_profile_selected(s, val)
-        )
-        preset_combo.pack(side="left")
-        add_tooltip(preset_combo, "Tuyến đường chạy bãi quái & bản đồ tự động cho slot này (Định hình trong tab Cấu hình)")
-
-        srv_str = ctrl.server_name if (ctrl.server_name and ctrl.server_name != "---") else "Sv --"
-        srv_lbl = ctk.CTkLabel(
-            top_line,
-            text=srv_str,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#c084fc"
-        )
-        srv_lbl.pack(side="right", padx=(3, 0))
-        add_tooltip(srv_lbl, f"[Slot #{i:02d}] Máy chủ (Server) đang kết nối")
-
-        lvl_str = f"LV {ctrl.level}" if ctrl.level != "---" else "LV --"
-        lvl_lbl = ctk.CTkLabel(
-            top_line,
-            text=lvl_str,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#94a3b8"
-        )
-        lvl_lbl.pack(side="right", padx=(0, 2))
-        add_tooltip(lvl_lbl, "Cấp độ hiện tại và số lần Reset (rr) của nhân vật")
-
-        prog_bar = ctk.CTkProgressBar(
-            route_box,
-            width=210,
-            height=5,
-            corner_radius=2,
-            fg_color="#232836",
-            progress_color="#38bdf8"
-        )
-        prog_bar.set(0.0)
-        prog_bar.pack(anchor="w", pady=(2, 1))
-
-        bot_line = ctk.CTkFrame(route_box, fg_color="transparent")
-        bot_line.pack(fill="x", pady=(0, 2))
-
-        exp_lbl = ctk.CTkLabel(
-            bot_line,
-            text="-- / -- EXP",
-            font=ctk.CTkFont(family="Segoe UI", size=9),
-            text_color="#71717a",
-            anchor="w"
-        )
-        exp_lbl.pack(side="left")
-        add_tooltip(exp_lbl, "Tiến độ điểm kinh nghiệm (EXP hiện tại / EXP cần lên cấp)")
-
-        pts_init = f"⭐ {ctrl.points:,} pts" if ctrl.points > 0 else "⭐ 0 pts"
-        pts_color = "#10b981" if ctrl.points > 0 else "#64748b"
-        pts_lbl = ctk.CTkLabel(
-            bot_line,
-            text=pts_init,
-            font=ctk.CTkFont(family="Segoe UI", size=9, weight="bold"),
-            text_color=pts_color,
-            anchor="e"
-        )
-        pts_lbl.pack(side="right")
-        add_tooltip(pts_lbl, "Điểm tiềm năng (Point) chưa phân bổ. Bật nút [PT] bên phải để bot tự động cộng theo cấu hình.")
-
-        # Cột 4: Coordinates (Rounded container with coordinates and location pin)
-        coords_frame = ctk.CTkFrame(
-            row_frame,
-            fg_color="#181c26",
-            border_width=1,
-            border_color="#242b3a",
-            corner_radius=5,
-            width=140,
-            height=30
-        )
-        coords_frame.pack(side="left", padx=6)
-        coords_frame.pack_propagate(False)
-
-        pin_icon = ctk.CTkLabel(
-            coords_frame,
-            text="",
-            image=UiIconFactory.get("pin", color="#38bdf8", size=(11, 11))
-        )
-        pin_icon.pack(side="left", padx=(8, 2))
-
-        coords_lbl = ctk.CTkLabel(
-            coords_frame,
-            text="--, --",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f1f5f9"
-        )
-        coords_lbl.pack(side="left", fill="both", expand=True, padx=(2, 8))
-        add_tooltip(coords_frame, f"[Slot #{i:02d}] Tọa độ thời gian thực (X, Y) của nhân vật trong game.")
-
-        # Cột 5: Status (Text mặc định, hỗ trợ click để kết nối lại)
-        status_lbl = ctk.CTkLabel(
-            row_frame,
-            text="Idle",
-            width=120,
-            anchor="center",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            text_color="#94a3b8"
-        )
-        status_lbl.pack(side="left", padx=6)
-        status_lbl.bind("<Button-1>", lambda e, s=i: self.on_slot_status_clicked(s))
-        add_tooltip(
-            status_lbl,
-            f"[Slot #{i:02d}] Trạng thái hoạt động:\n"
-            "• 'Đang chạy' (Xanh lá): Bot đang tự động đánh và theo dõi nhân vật.\n"
-            "• 'Idle' (Xám): Đang tạm dừng.\n"
-            "• 'Mất kết nối' / 'Game đã đóng' (Đỏ): Nhấp chuột trái vào đây để tự động kết nối lại game!"
-        )
-
-        # Chuột phải vào dòng mở menu tiện ích
-        import tkinter as tk
-        def _show_slot_ctx(event, s=i):
-            try:
-                ctrl_s = self.controllers[s - 1]
-                ds_status = "✅ BẬT" if ctrl_s.auto_devil else "❌ TẮT"
-                rs_status = "✅ BẬT" if ctrl_s.auto_reset else "❌ TẮT"
-                pt_status = "✅ BẬT" if ctrl_s.auto_add_point else "❌ TẮT"
-
-                menu = tk.Menu(self, tearoff=0, bg="#181c26", fg="#f1f5f9", activebackground="#2563eb", activeforeground="#ffffff")
-                menu.add_command(label="🔄 Kết nối lại (Reconnect)", command=lambda: self.on_slot_status_clicked(s))
-                menu.add_command(label="⚙️ Mở Cấu hình Chặng", command=lambda: self.jump_to_config_tab(s))
-                menu.add_separator()
-                mir_status = "✅ BẬT" if getattr(ctrl_s, "mirror_enabled", True) else "❌ TẮT"
-                moss_status = "✅ BẬT" if getattr(ctrl_s, "moss_enabled", True) else "❌ TẮT"
-                menu.add_command(label=f"🪞 Tham gia Double Goer (Mirror) [{mir_status}]", command=lambda: self.on_mirror_slot_enabled_toggled(s))
-                menu.add_command(label=f"🎰 Tham gia Quay Moss Merchant [{moss_status}]", command=lambda: self.on_moss_slot_enabled_toggled(s))
-                menu.add_separator()
-                menu.add_command(label=f"🔥 Tự động đi Devil Square [{ds_status}]", command=lambda: self.on_toggle_slot_devil(s))
-                menu.add_command(label=f"🔄 Tự động Reset [{rs_status}]", command=lambda: self.on_toggle_slot_reset(s))
-                menu.add_command(label=f"⭐ Tự động Cộng Point [{pt_status}]", command=lambda: self.on_toggle_slot_point(s))
-                menu.add_command(label="⚡ Đi Devil Square ngay lập tức", command=lambda: self.on_quick_devil_enter(s))
-                menu.add_command(label="🔄 Thực hiện /reset ngay", command=lambda: self.on_quick_reset(s))
-                menu.add_command(label="🛠️ Cài đặt tỷ lệ Point & Reset...", command=lambda: self.open_slot_stat_ratio_dialog(s))
-                menu.add_separator()
-                menu.add_command(label="🗑️ Ném đồ rác tại chỗ (Slot này)", command=lambda s=s: self.controllers[s - 1].clean_moss_inventory(run_in_thread=True))
-                menu.add_command(label="💰 Bán đồ rác tại NPC Silvia", command=lambda s=s: self.controllers[s - 1].sell_moss_inventory())
-                menu.add_command(label="💎 Tự động Gom Ngọc slot này", command=lambda s=s: threading.Thread(target=self.controllers[s - 1].auto_stack_jewels, daemon=True).start())
-                menu.add_separator()
-                pid_s = getattr(ctrl_s, "assigned_pid", None)
-                if pid_s and psutil.pid_exists(pid_s):
-                    menu.add_command(
-                        label=f"🛑 Đóng Game Client MEGAMU (PID {pid_s})",
-                        command=lambda s=s: self.close_slot_game_client(s)
-                    )
-                menu.add_command(label="❌ Ngắt kết nối", command=lambda: self.controllers[s - 1].detach())
-                menu.tk_popup(event.x_root, event.y_root)
-            except Exception:
-                pass
-
-        for _w in (row_frame, slot_lbl, slot_badge, status_lbl, coords_frame, coords_lbl, pin_icon):
-            _w.bind("<Button-3>", lambda e, s=i: _show_slot_ctx(e, s))
-
-        # Cột 6: Actions (Play/Stop | [🔥 DS] [🔄 RS] [⭐ PT] | [⚙] [📋])
-        actions_box = ctk.CTkFrame(row_frame, fg_color="transparent")
-        actions_box.pack(side="left", padx=4)
-
-        # 1. Nút Play/Stop chính
-        btn_toggle = ctk.CTkButton(
-            actions_box,
-            text="",
-            image=UiIconFactory.get("play", color="#38bdf8", size=(12, 12)),
-            width=34,
-            height=28,
-            corner_radius=5,
-            fg_color="#181c26",
-            hover_color="#242b3a",
-            border_width=1,
-            border_color="#2b3244",
-            command=lambda s=i: self.on_slot_auto_toggle(s)
-        )
-        btn_toggle.pack(side="left", padx=(2, 4))
-        add_tooltip(
-            btn_toggle,
-            f"[Slot #{i:02d}] ▶ Chạy / ⏹ Dừng Auto\n"
-            "Bắt đầu hoặc tạm dừng chế độ tự động đánh quái và chạy chặng cho tài khoản này."
-        )
-
-        # Vách ngăn phân tách nhóm 1
-        ctk.CTkFrame(actions_box, fg_color="#222736", width=1, height=18).pack(side="left", padx=(1, 4))
-
-        # 2. Nhóm 3 Switch tính năng trực quan: [🔥 DS] [🔄 RS] [⭐ PT]
-        # Nút Devil Square (DS)
-        btn_devil = ctk.CTkButton(
-            actions_box,
-            text="🔥 DS",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=42,
-            height=28,
-            corner_radius=5,
-            fg_color="#4c0519" if ctrl.auto_devil else "#141824",
-            text_color="#f43f5e" if ctrl.auto_devil else "#64748b",
-            border_width=1,
-            border_color="#e11d48" if ctrl.auto_devil else "#2b3244",
-            hover_color="#881337" if ctrl.auto_devil else "#1e2433",
-            command=lambda s=i: self.on_toggle_slot_devil(s)
-        )
-        btn_devil.pack(side="left", padx=2)
-        _t_val = getattr(ctrl, "devil_ticket_type", "auto")
-        _t_txt = "Chỉ vé Master" if _t_val == "master" else ("Chỉ vé Thường" if _t_val == "normal" else "Tự động")
-        add_tooltip(
-            btn_devil,
-            f"[Slot #{i:02d}] 🔥 Auto Devil Square (DS)\n"
-            f"• Trạng thái: {'BẬT' if ctrl.auto_devil else 'TẮT'}\n"
-            f"• Điều kiện: Bắt đầu đi khi đạt từ >= {ctrl.devil_min_resets} Reset trở lên\n"
-            f"• Loại vé: {_t_txt}\n"
-            "• Tự động vào DS khi mở cổng (:27 - :30 giờ lẻ)\n"
-            "• Chỉ bỏ Auto Train khi đã vào map DS thành công\n"
-            "• Chưa đủ Reset hoặc không có vé: Tự động tiếp tục cắm bãi train\n"
-            "• Click để Bật/Tắt | Bấm [🔥 Cài đặt Devil] trên thanh công cụ để chỉnh chung\n"
-            "• Click Chuột Phải vào dòng để 'Đi Devil Square ngay lập tức'"
-        )
-
-        # Nút Auto Reset (RS)
-        btn_reset = ctk.CTkButton(
-            actions_box,
-            text="🔄 RS",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=42,
-            height=28,
-            corner_radius=5,
-            fg_color="#064e3b" if ctrl.auto_reset else "#141824",
-            text_color="#10b981" if ctrl.auto_reset else "#64748b",
-            border_width=1,
-            border_color="#059669" if ctrl.auto_reset else "#2b3244",
-            hover_color="#047857" if ctrl.auto_reset else "#1e2433",
-            command=lambda s=i: self.on_toggle_slot_reset(s)
-        )
-        btn_reset.pack(side="left", padx=2)
-        add_tooltip(
-            btn_reset,
-            f"[Slot #{i:02d}] 🔄 Auto Reset (RS)\n"
-            f"• Trạng thái: {'BẬT' if ctrl.auto_reset else 'TẮT'}\n"
-            f"• Điều kiện: Tự động gõ lệnh /reset khi nhân vật đạt Level {ctrl.reset_level}\n"
-            "• Click để Bật/Tắt | Bấm [⚙] bên cạnh để thay đổi mốc Level Reset"
-        )
-
-        # Nút Auto Cộng Point (PT)
-        btn_point = ctk.CTkButton(
-            actions_box,
-            text="⭐ PT",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            width=42,
-            height=28,
-            corner_radius=5,
-            fg_color="#075985" if ctrl.auto_add_point else "#141824",
-            text_color="#38bdf8" if ctrl.auto_add_point else "#64748b",
-            border_width=1,
-            border_color="#0284c7" if ctrl.auto_add_point else "#2b3244",
-            hover_color="#0369a1" if ctrl.auto_add_point else "#1e2433",
-            command=lambda s=i: self.on_toggle_slot_point(s)
-        )
-        btn_point.pack(side="left", padx=2)
-        add_tooltip(
-            btn_point,
-            f"[Slot #{i:02d}] ⭐ Auto Cộng Point (PT)\n"
-            f"• Trạng thái: {'BẬT' if ctrl.auto_add_point else 'TẮT'}\n"
-            "• Lưu ý: 'PT' là POINT (Điểm tiềm năng), KHÔNG phải Party!\n"
-            "• Tự động phân bổ điểm tiềm năng theo tỷ lệ cấu hình.\n"
-            "• Click để Bật/Tắt | Bấm [⚙] bên cạnh để cài đặt tỷ lệ cộng"
-        )
-
-        # Vách ngăn phân tách nhóm 2
-        ctk.CTkFrame(actions_box, fg_color="#222736", width=1, height=18).pack(side="left", padx=(4, 2))
-
-        act_tool_style = {
-            "width": 28,
-            "height": 28,
-            "corner_radius": 5,
-            "fg_color": "#181c26",
-            "hover_color": "#242b3a",
-            "border_width": 1,
-            "border_color": "#2b3244"
-        }
-
-        btn_cfg = ctk.CTkButton(
-            actions_box,
-            text="",
-            image=UiIconFactory.get("gear", color="#94a3b8", size=(13, 13)),
-            command=lambda s=i: self.open_slot_stat_ratio_dialog(s),
-            **act_tool_style
-        )
-        btn_cfg.pack(side="left", padx=2)
-        add_tooltip(
-            btn_cfg,
-            f"[Slot #{i:02d}] ⚙️ Cài đặt Slot & Tỷ lệ Point\n"
-            "Mở hộp thoại thiết lập tỷ lệ cộng Point, cấp độ Reset và phạm vi Devil Square cho Slot này."
-        )
-
-        btn_log = ctk.CTkButton(
-            actions_box,
-            text="",
-            image=UiIconFactory.get("file", color="#94a3b8", size=(13, 13)),
-            command=lambda s=i: self.jump_to_slot_logs(s),
-            **act_tool_style
-        )
-        btn_log.pack(side="left", padx=2)
-        add_tooltip(
-            btn_log,
-            f"[Slot #{i:02d}] 📋 Xem Nhật Ký (Logs)\n"
-            "Mở tab nhật ký chi tiết riêng của Slot này để theo dõi tiến trình và lỗi."
-        )
-
-        # Lưu references để cập nhật
-        self.slot_ui_elements[i] = {
-            "row_frame": row_frame,
-            "proc_var": proc_var,
-            "proc_combo": proc_combo,
-            "profile_var": profile_var,
-            "preset_combo": preset_combo,
-            "preset_lbl": preset_combo,
-            "srv_lbl": srv_lbl,
-            "lvl_lbl": lvl_lbl,
-            "prog_bar": prog_bar,
-            "exp_lbl": exp_lbl,
-            "pts_lbl": pts_lbl,
-            "coords_lbl": coords_lbl,
-            "status_lbl": status_lbl,
-            "btn_toggle": btn_toggle,
-            "btn_devil": btn_devil,
-            "btn_reset": btn_reset,
-            "btn_point": btn_point,
-            "btn_cfg": btn_cfg,
-            "btn_log": btn_log
-        }
+        """Khởi tạo và liên kết Slot thứ i với CompactSlotCard trên TrainSlotsView."""
+        if hasattr(self, "train_view") and i in self.train_view.cards:
+            card = self.train_view.cards[i]
+            self.slot_ui_elements[i] = {
+                "row_frame": card,
+                "proc_var": card.proc_var,
+                "proc_combo": card.proc_combo,
+                "profile_var": card.preset_var,
+                "preset_combo": card.preset_combo,
+                "preset_lbl": card.preset_combo,
+                "srv_lbl": None,
+                "lvl_lbl": None,
+                "map_lbl": card.map_lbl,
+                "prog_bar": None,
+                "exp_lbl": None,
+                "pts_lbl": None,
+                "coords_lbl": card.coords_lbl,
+                "status_lbl": card.status_lbl,
+                "btn_toggle": card.btn_toggle,
+                "btn_devil": None,
+                "btn_reset": None,
+                "btn_point": None,
+                "btn_cfg": card.btn_settings,
+                "btn_log": None
+            }
 
     def add_new_slot(self):
         """Thêm 1 slot tài khoản mới vào cuối danh sách (tùy thuộc vào License)."""
@@ -7906,6 +7400,12 @@ class DashboardApp(ctk.CTk):
                     f"Đã lưu thành công Config {idx} ({len(new_stages)} chặng) vào file autotrain_profiles.json!",
                     "SUCCESS"
                 )
+            if hasattr(self, "train_view") and hasattr(self.train_view, "update_profile_options_all"):
+                try:
+                    from ui.components.cards import CompactSlotCard
+                    self.train_view.update_profile_options_all(CompactSlotCard.get_default_profile_options())
+                except Exception:
+                    pass
 
             # Chỉ cập nhật các worker đang chạy Config này nếu stages thực sự thay đổi
             if is_changed:
@@ -10694,11 +10194,395 @@ class DashboardApp(ctk.CTk):
             if el and el.get("cb_enabled"):
                 el["cb_enabled"].select()
             self.update_mirror_row_visuals(ctrl.slot_idx)
-        self.update_mirror_selected_badge()
-        self.on_toggle_mirror_auto_schedule()
         self.append_mirror_log("✅ Đã chọn TẤT CẢ tài khoản tham gia Auto Mirror.")
 
     def deselect_all_mirror_slots(self):
+        """Bỏ chọn toàn bộ tài khoản tham gia Mirror."""
+        for ctrl in self.controllers:
+            ctrl.mirror_enabled = False
+            el = self.mirror_ui_elements.get(ctrl.slot_idx)
+            if el and el.get("cb_enabled"):
+                el["cb_enabled"].deselect()
+            self.update_mirror_row_visuals(ctrl.slot_idx)
+        self.update_mirror_selected_badge()
+        self.on_toggle_mirror_auto_schedule()
+        self.append_mirror_log("⬜ Đã BỎ CHỌN toàn bộ tài khoản tham gia Auto Mirror.")
+
+    def update_mirror_selected_badge(self):
+        """Cập nhật nhãn số lượng tài khoản đã chọn đi Mirror trên Toolbar."""
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, self.update_mirror_selected_badge)
+            except Exception:
+                pass
+            return
+        if hasattr(self, "lbl_mirror_count_badge") and self.lbl_mirror_count_badge:
+            total = len(self.controllers)
+            sel = sum(1 for c in self.controllers if getattr(c, "mirror_enabled", True))
+            cache_key = (sel, total)
+            if getattr(self, "_last_mirror_badge_cache", None) != cache_key:
+                self._last_mirror_badge_cache = cache_key
+                self.lbl_mirror_count_badge.configure(
+                    text=f"Đi Mirror: {sel}/{total}",
+                    text_color="#2dd4bf" if sel > 0 else "#64748b"
+                )
+
+    def update_mirror_row_visuals(self, slot_idx: int):
+        """Cập nhật màu sắc và trạng thái trực quan khi bật/tắt checkbox slot."""
+        el = self.mirror_ui_elements.get(slot_idx)
+        if not el:
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        is_en = getattr(ctrl, "mirror_enabled", True)
+        if is_en:
+            if el.get("row_frame"):
+                el["row_frame"].configure(fg_color="#141722")
+            if el.get("no_lbl"):
+                el["no_lbl"].configure(text_color="#94a3b8")
+            if el.get("char_lbl"):
+                el["char_lbl"].configure(text_color="#f8fafc" if ctrl.assigned_pid else "#64748b")
+            if el.get("coords_lbl"):
+                el["coords_lbl"].configure(text_color="#38bdf8")
+            if el.get("status_lbl"):
+                cur_text = el["status_lbl"].cget("text")
+                if "Bỏ qua" in cur_text:
+                    el["status_lbl"].configure(text="Sẵn sàng" if ctrl.assigned_pid else "Chưa gán", text_color="#10b981" if ctrl.assigned_pid else "#94a3b8")
+        else:
+            if el.get("row_frame"):
+                el["row_frame"].configure(fg_color="#0f1118")
+            if el.get("no_lbl"):
+                el["no_lbl"].configure(text_color="#475569")
+            if el.get("char_lbl"):
+                el["char_lbl"].configure(text_color="#475569")
+            if el.get("coords_lbl"):
+                el["coords_lbl"].configure(text_color="#475569")
+            if el.get("status_lbl"):
+                el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
+
+    def refresh_mirror_slot_ticket_display(self, slot_idx: int):
+        """Tự động quét và cập nhật hiển thị vé cho Slot i lên giao diện."""
+        if slot_idx < 1 or slot_idx > len(self.controllers):
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        el = self.mirror_ui_elements.get(slot_idx)
+        if not el:
+            return
+        if not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+            if el.get("ticket_lbl"):
+                el["ticket_lbl"].configure(text="--", text_color="#64748b")
+            return
+
+        def _bg_check():
+            try:
+                t_info = ctrl.check_mirror_ticket()
+                def _update():
+                    curr_el = self.mirror_ui_elements.get(slot_idx)
+                    if not curr_el or not curr_el.get("ticket_lbl"):
+                        return
+                    if t_info.get("hasTicket"):
+                        slots = t_info.get("slots", [])
+                        cnt = t_info.get("count", len(slots))
+                        details = t_info.get("details", [])
+                        main_cnt = sum(1 for d in details if not d.get("isExtended"))
+                        ext_cnt = sum(1 for d in details if d.get("isExtended"))
+                        if ext_cnt > 0 and main_cnt > 0:
+                            s_desc = f"{cnt} vé (C:{main_cnt}|P:{ext_cnt})"
+                        elif ext_cnt > 0:
+                            s_desc = f"{cnt} vé (Ba lô phụ)"
+                        else:
+                            s_desc = f"{cnt} vé [{', '.join(str(s) for s in slots[:2])}]"
+                        curr_el["ticket_lbl"].configure(text=f"🎟️ {s_desc}", text_color="#10b981")
+                        if curr_el.get("status_lbl") and getattr(ctrl, "mirror_enabled", True):
+                            curr_st = curr_el["status_lbl"].cget("text")
+                            if curr_st in ("Chờ ngoài map", "Chưa kết nối", "Chờ", "⚠️ Chưa có vé", "⚠️ Hết vé", "--", "⚠️ Cần ghép vé"):
+                                curr_el["status_lbl"].configure(text="🟢 Sẵn sàng", text_color="#10b981")
+                    elif t_info.get("hasOnlySign"):
+                        signs = t_info.get("signs", [])
+                        curr_el["ticket_lbl"].configure(text=f"⚠️ Mảnh [{len(signs)} cái]", text_color="#f97316")
+                        if curr_el.get("status_lbl") and getattr(ctrl, "mirror_enabled", True):
+                            curr_st = curr_el["status_lbl"].cget("text")
+                            if curr_st in ("Chờ ngoài map", "Chưa kết nối", "Chờ", "🟢 Sẵn sàng"):
+                                curr_el["status_lbl"].configure(text="⚠️ Cần ghép vé", text_color="#f97316")
+                    else:
+                        curr_el["ticket_lbl"].configure(text="⚠️ 0 vé (Trống)", text_color="#f59e0b")
+                        if curr_el.get("status_lbl") and getattr(ctrl, "mirror_enabled", True):
+                            curr_st = curr_el["status_lbl"].cget("text")
+                            if curr_st in ("Chờ ngoài map", "Chưa kết nối", "Chờ", "🟢 Sẵn sàng"):
+                                curr_el["status_lbl"].configure(text="⚠️ Hết vé", text_color="#f59e0b")
+                self.after(0, _update)
+            except Exception:
+                pass
+
+        threading.Thread(target=_bg_check, daemon=True).start()
+
+    def refresh_all_mirror_tickets_display(self):
+        for i, ctrl in enumerate(self.controllers, 1):
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid) and getattr(ctrl, "mirror_enabled", True):
+                self.refresh_mirror_slot_ticket_display(i)
+
+    def update_mirror_slot_ui_state(self, slot_idx: int, is_running: bool):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_ui_state(slot_idx, is_running))
+            except Exception:
+                pass
+            return
+        el = self.mirror_ui_elements.get(slot_idx)
+        if not el:
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        if not getattr(ctrl, "mirror_enabled", True):
+            if el.get("status_lbl"):
+                el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
+            return
+        if el.get("status_lbl"):
+            if ctrl.mirror_sniping:
+                el["status_lbl"].configure(text="⚡ Cướp cổng...", text_color="#c084fc")
+            elif ctrl.mirror_running:
+                el["status_lbl"].configure(text="🔄 Auto Mirror", text_color="#38bdf8")
+            else:
+                el["status_lbl"].configure(text="Đã dừng" if ctrl.assigned_pid else "Chưa kết nối", text_color="#94a3b8")
+
+    def update_mirror_slot_status(self, slot_idx: int, text: str, text_color: str = "#94a3b8"):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_status(slot_idx, text, text_color))
+            except Exception:
+                pass
+            return
+        el = self.mirror_ui_elements.get(slot_idx)
+        if el and el.get("status_lbl"):
+            ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
+            if ctrl and not getattr(ctrl, "mirror_enabled", True):
+                el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
+            else:
+                el["status_lbl"].configure(text=text, text_color=text_color)
+
+    def update_mirror_slot_telemetry(self, slot_idx: int, name: str, pid: Optional[int], coords: str = ""):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self.update_mirror_slot_telemetry(slot_idx, name, pid, coords))
+            except Exception:
+                pass
+            return
+        el = self.mirror_ui_elements.get(slot_idx)
+        if not el or not el.get("char_lbl"):
+            return
+        ctrl = self.controllers[slot_idx - 1] if 1 <= slot_idx <= len(self.controllers) else None
+        is_en = getattr(ctrl, "mirror_enabled", True) if ctrl else True
+        is_sniping = getattr(ctrl, "mirror_sniping", False) if ctrl else False
+        is_running = getattr(ctrl, "mirror_running", False) if ctrl else False
+        detected = getattr(self, "detected_games", {})
+        pid_alive = bool(pid and pid in detected)
+
+        cache_key = (name, pid if pid_alive else None, coords, is_en, is_sniping, is_running)
+        if el.get("_last_telemetry_cache") == cache_key:
+            return
+        el["_last_telemetry_cache"] = cache_key
+
+        target_font = getattr(self, "font_segoe_11_bold", None) if is_en else getattr(self, "font_segoe_11", None)
+        norm_font = getattr(self, "font_segoe_11", None)
+
+        if pid_alive:
+            disp = f"{name} ({pid})" if name and name != "---" else f"MEGAMU ({pid})"
+            el["char_lbl"].configure(text=disp, text_color="#f8fafc" if is_en else "#64748b", font=target_font)
+            if el.get("status_lbl"):
+                if not is_en:
+                    el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)", text_color="#64748b")
+                else:
+                    cur_st = el["status_lbl"].cget("text")
+                    if cur_st in ("Chưa kết nối", "Chưa gán", "⛔ Bỏ qua (Không đi)"):
+                        el["status_lbl"].configure(text="Sẵn sàng", text_color="#10b981")
+        else:
+            el["char_lbl"].configure(text="Chưa gán", text_color="#64748b", font=norm_font)
+            if el.get("status_lbl"):
+                el["status_lbl"].configure(text="⛔ Bỏ qua (Không đi)" if not is_en else "Chưa kết nối", text_color="#64748b")
+            if el.get("ticket_lbl"):
+                el["ticket_lbl"].configure(text="--", text_color="#64748b")
+        if el.get("coords_lbl") and coords:
+            el["coords_lbl"].configure(text=coords, text_color="#38bdf8" if is_en else "#475569")
+
+    def toggle_mirror_slot_auto(self, slot_idx: int):
+        ctrl = self.controllers[slot_idx - 1]
+        if ctrl.mirror_running or ctrl.mirror_sniping:
+            ctrl.stop_mirror_auto()
+            ctrl.stop_mirror_turbo_sniping()
+        else:
+            ctrl.start_mirror_auto()
+
+    def _get_current_or_upcoming_mirror_event_key(self) -> Optional[str]:
+        """Lấy mã định danh duy nhất cho đợt sự kiện Mirror hiện tại (nếu đang mở cổng hoặc sắp mở trong vòng 60s)."""
+        now = datetime.now()
+        valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+        if now.hour in valid_hours and 10 <= now.minute < 15:
+            return now.strftime("%Y%m%d_%H10_event")
+        for h in valid_hours:
+            cand_gate = now.replace(hour=h, minute=10, second=0, microsecond=0)
+            if cand_gate > now:
+                if (cand_gate - now).total_seconds() <= 60:
+                    return cand_gate.strftime("%Y%m%d_%H10_event")
+                return None
+        tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=10, second=0, microsecond=0)
+        if (tomorrow - now).total_seconds() <= 60:
+            return tomorrow.strftime("%Y%m%d_%H10_event")
+        return None
+
+    def _ensure_mirror_auto_schedule_enabled_from_manual(self):
+        """Khi bấm cướp cổng bằng tay, tự động tích bật luôn '⚡ Tự động cướp cổng (:10)' và khóa lượt cướp của đợt hiện tại."""
+        ev_key = self._get_current_or_upcoming_mirror_event_key()
+        if ev_key:
+            self._last_mirror_event_snipe_key = ev_key
+        if hasattr(self, "cb_mirror_auto_schedule") and self.cb_mirror_auto_schedule.get() != 1:
+            self.cb_mirror_auto_schedule.select()
+            cfg = self.get_mirror_schedule_config()
+            ConfigPersistenceManager.save_mirror_schedule_config(cfg)
+            self.append_mirror_log("⚡ [Tự động cướp cổng] Đã tự động BẬT lịch hẹn cướp cổng trước 5s cho các đợt sự kiện tiếp theo!")
+
+    def manual_snipe_mirror_slot(self, slot_idx: int):
+        """Kích hoạt cướp cổng bằng tay cho 1 slot (chạy đúng 1 lần và bật luôn chế độ tự động cướp cổng)."""
+        if slot_idx < 1 or slot_idx > len(self.controllers):
+            return
+        self._ensure_mirror_auto_schedule_enabled_from_manual()
+        delay_ms = self.get_mirror_snipe_delay()
+        dur_s = self.get_mirror_snipe_dur()
+        threading.Thread(
+            target=self.controllers[slot_idx - 1].start_mirror_turbo_sniping,
+            args=(delay_ms, dur_s),
+            daemon=True
+        ).start()
+
+    def start_all_mirror_turbo_sniping(self, from_scheduler: bool = False):
+        """Kích hoạt Turbo Sniping đồng loạt chỉ cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror (chạy đúng 1 lần duy nhất)."""
+        if not from_scheduler:
+            self._ensure_mirror_auto_schedule_enabled_from_manual()
+        delay_ms = self.get_mirror_snipe_delay()
+        dur_s = self.get_mirror_snipe_dur()
+
+        def _runner():
+            threads = []
+            results = []
+            res_lock = threading.Lock()
+
+            def _start_ctrl(c):
+                if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                    ok = c.start_mirror_turbo_sniping(interval_ms=delay_ms, max_duration_s=dur_s)
+                    if ok:
+                        with res_lock:
+                            results.append(c.slot_idx)
+
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "mirror_enabled", True):
+                    continue
+                t = threading.Thread(target=_start_ctrl, args=(ctrl,), daemon=True)
+                threads.append(t)
+                t.start()
+
+            for t in threads:
+                t.join(timeout=3.0)
+
+            started = len(results)
+            if started > 0:
+                self.after(0, lambda: self.append_mirror_log(
+                    f"⚡ ĐÃ KÍCH HOẠT CƯỚP CỔNG 1 LẦN DUY NHẤT CHO {started} TÀI KHOẢN ĐÃ CHỌN (Chu kỳ {delay_ms}ms, Tối đa {dur_s:.0f}s)!"
+                ))
+            else:
+                self.after(0, lambda: self.append_mirror_log("⚠️ Không có tài khoản đã chọn nào đang kết nối để kích hoạt Turbo Sniping!"))
+        threading.Thread(target=_runner, daemon=True).start()
+
+    def claim_all_gremory_case_items(self):
+        """Tự động lôi quà phím 'K' (Gremory Case) cho các tài khoản ĐÃ TÍCH CHỌN."""
+        def _worker():
+            self.append_mirror_log("🎁 [Gremory Case] Bắt đầu tự động lôi quà phím 'K' cho các tài khoản đã chọn...")
+            total_claimed = 0
+            for s_i, c in enumerate(self.controllers, 1):
+                if not getattr(c, "mirror_enabled", True):
+                    continue
+                if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                    try:
+                        eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
+                        if eng:
+                            res = eng.claim_gremory_case_items()
+                            cnt = res.get("claimed", 0)
+                            total_claimed += cnt
+                            if cnt > 0:
+                                self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] 🏆 ĐÃ LÔI THÀNH CÔNG {cnt} MÓN QUÀ TỪ PHÍM 'K' VÀO HÒM ĐỒ!")
+                            else:
+                                self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ℹ️ Hộp Quà Phím 'K' sạch quà (không có quà tồn).")
+                    except Exception as e:
+                        self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ⚠️ Lỗi lôi quà phím 'K': {e}")
+            self.append_mirror_log(f"🏁 [Gremory Case] Hoàn tất quá trình lôi quà! Tổng cộng đã nhận: {total_claimed} món quà.")
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def trigger_all_mirror_lifecycle(self):
+        """Kích hoạt chu trình chiến đấu bên trong Double Goer cho các tài khoản ĐÃ TÍCH CHỌN."""
+        cnt = 0
+        for ctrl in self.controllers:
+            if not getattr(ctrl, "mirror_enabled", True):
+                continue
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                cnt += 1
+                threading.Thread(target=ctrl.run_mirror_in_dungeon_lifecycle, kwargs={"force": True}, daemon=True).start()
+        if cnt == 0:
+            self.append_mirror_log("⚠️ Chưa có tài khoản nào được chọn kết nối để kích hoạt chu trình Double Goer!")
+        else:
+            self.append_mirror_log(f"⚔️ Đang kích hoạt chu trình: Đợi Safe Zone -> Phút :16 ra bãi -> Bật Helper -> Săn 3 Box quà cho {cnt} tài khoản...")
+
+    def enter_all_mirror(self):
+        """Gửi lệnh vào cửa Double Goer cho các tài khoản ĐÃ TÍCH CHỌN."""
+        def _enterer():
+            cnt = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "mirror_enabled", True):
+                    continue
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.enter_mirror()
+                    cnt += 1
+                    time.sleep(0.08)
+            self.after(0, lambda: self.append_mirror_log(f"🚪 Đã gửi lệnh vào cửa Double Goer cho {cnt} tài khoản đã chọn!"))
+        threading.Thread(target=_enterer, daemon=True).start()
+
+    def move_all_to_event_map(self):
+        """Di chuyển các tài khoản ĐÃ TÍCH CHỌN tới Event Map (Lugard)."""
+        def _mover():
+            cnt = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "mirror_enabled", True):
+                    continue
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.move_to_event_map()
+                    cnt += 1
+                    time.sleep(0.15)
+            self.after(0, lambda: self.append_mirror_log(f"🚶 Đã gửi lệnh di chuyển tới Event Map cho {cnt} tài khoản đã chọn!"))
+        threading.Thread(target=_mover, daemon=True).start()
+
+    move_all_to_lugard = move_all_to_event_map
+
+    def click_all_mirror_npc(self):
+        """Gửi lệnh tương tác NPC Lugard cho các tài khoản ĐÃ TÍCH CHỌN."""
+        def _clicker():
+            cnt = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "mirror_enabled", True):
+                    continue
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.click_mirror_npc()
+                    cnt += 1
+                    time.sleep(0.08)
+            self.after(0, lambda: self.append_mirror_log(f"💬 Đã tương tác NPC Lugard cho {cnt} tài khoản đã chọn!"))
+        threading.Thread(target=_clicker, daemon=True).start()
+
+    def start_all_mirror_auto(self):
+        """Kích hoạt Auto Double Goer cho các tài khoản ĐÃ TÍCH CHỌN."""
+        def _batch_runner():
+            started = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "mirror_enabled", True):
+                    continue
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ok = ctrl.start_mirror_auto()
+                    if ok:
+                        started += 1
+                        time.sleep(0.1)
         """Bỏ chọn toàn bộ tài khoản tham gia Mirror."""
         for ctrl in self.controllers:
             ctrl.mirror_enabled = False
@@ -11872,7 +11756,7 @@ class DashboardApp(ctk.CTk):
 
         sub_lbl = ctk.CTkLabel(
             left_h,
-            text="Khởi chạy client & Tự động đăng nhập vào nhân vật bằng Token Registry (Bỏ qua hoàn toàn giao diện chọn thủ công)",
+            text="Khởi chạy client & Tự động đăng nhập vào nhân vật (Bỏ qua hoàn toàn giao diện chọn thủ công)",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#94a3b8"
         )
@@ -12060,21 +11944,6 @@ class DashboardApp(ctk.CTk):
 
         left_row2 = ctk.CTkFrame(tb_row2, fg_color="transparent")
         left_row2.pack(side="left", fill="y")
-
-        ctk.CTkButton(
-            left_row2,
-            image=UiIconFactory.get("refresh", color="#38bdf8", size=(12, 12)),
-            compound="left",
-            text="🔄 Đọc từ Registry",
-            height=28,
-            corner_radius=0,
-            fg_color="#0f172a",
-            hover_color="#1e293b",
-            border_width=1,
-            border_color="#38bdf8",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self.import_accounts_from_registry_ui
-        ).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
             left_row2,
@@ -12476,7 +12345,7 @@ class DashboardApp(ctk.CTk):
         if not self.account_mgr or not self.account_mgr.accounts:
             empty_lbl = ctk.CTkLabel(
                 self.autologin_scroll,
-                text="Chưa có tài khoản nào được lưu.\nNhấn nút '🔄 Đọc từ Registry' để tự động nạp danh sách tài khoản MEGAMU trên máy!",
+                text="Chưa có tài khoản nào được lưu.\nNhấn nút '➕ Thêm Tài Khoản' để bắt đầu thêm tài khoản MEGAMU!",
                 font=ctk.CTkFont(family="Segoe UI", size=12),
                 text_color="#64748b",
                 justify="center"
@@ -12992,14 +12861,8 @@ class DashboardApp(ctk.CTk):
         self.refresh_autologin_table()
 
     def import_accounts_from_registry_ui(self):
-        """Đọc và sáp nhập tài khoản từ Windows Registry của MEGAMU."""
-        if not self.account_mgr:
-            return
-        cnt = self.account_mgr.import_from_registry()
-        self.refresh_autologin_table()
-        msg = f"Đã đồng bộ {cnt} tài khoản mới từ Registry MEGAMU!" if cnt > 0 else "Đã đồng bộ từ Registry (không có tài khoản mới nào)."
-        self.append_autologin_log(f"🔄 {msg}")
-        self.log_message(msg, "SUCCESS" if cnt > 0 else "INFO")
+        """Đã bỏ chức năng đọc từ registry."""
+        pass
 
     def _on_arrange_preset_selected(self, val: str):
         """Xử lý khi người dùng chọn một mục trong dropdown sắp xếp cửa sổ."""
@@ -14328,6 +14191,11 @@ class DashboardApp(ctk.CTk):
     # XỬ LÝ SỰ KIỆN TỪNG SLOT
     # ==========================================================================
     def on_slot_pid_selected(self, slot_idx: int, val: str):
+        if slot_idx > len(self.controllers):
+            while len(self.controllers) < slot_idx:
+                self.add_new_slot()
+        if not (1 <= slot_idx <= len(self.controllers)):
+            return
         ctrl = self.controllers[slot_idx - 1]
         if val in ("--", tr("select"), "") or not val:
             ctrl.detach()
@@ -14361,6 +14229,8 @@ class DashboardApp(ctk.CTk):
 
     def on_slot_status_clicked(self, slot_idx: int):
         """Khi người dùng click vào nhãn trạng thái 'Mất kết nối', tự động kết nối lại."""
+        if not (1 <= slot_idx <= len(self.controllers)):
+            return
         ctrl = self.controllers[slot_idx - 1]
         is_dead = (ctrl.assigned_pid and not psutil.pid_exists(ctrl.assigned_pid))
         is_disc = ctrl.status in (tr("game_closed"), tr("status_disconnected"), "Game đã đóng", "Mất kết nối")
@@ -14375,6 +14245,11 @@ class DashboardApp(ctk.CTk):
         self.refresh_games()
 
     def on_slot_profile_selected(self, slot_idx: int, val: str):
+        if slot_idx > len(self.controllers):
+            while len(self.controllers) < slot_idx:
+                self.add_new_slot()
+        if not (1 <= slot_idx <= len(self.controllers)):
+            return
         try:
             p_idx = int(val.replace("Config ", "").strip())
             ctrl = self.controllers[slot_idx - 1]
@@ -14401,6 +14276,11 @@ class DashboardApp(ctk.CTk):
             self.open_license_dialog()
             return
 
+        if slot_idx > len(self.controllers):
+            while len(self.controllers) < slot_idx:
+                self.add_new_slot()
+        if not (1 <= slot_idx <= len(self.controllers)):
+            return
         ctrl = self.controllers[slot_idx - 1]
         ctrl.toggle_auto()
 
@@ -15616,7 +15496,9 @@ class DashboardApp(ctk.CTk):
                 lbl.configure(text=tr("status_moving"), text_color="#facc15", cursor="")
             elif "game đã đóng" in tl_low or "game_closed" in tl_low or "closed" in tl_low or "disconnect" in tl_low or "pk" in tl_low or "mất kết nối" in tl_low or "desconectado" in tl_low:
                 lbl.configure(text=tr("status_disconnected"), text_color="#f87171", cursor="hand2")
-            elif "đã kết nối" in tl_low or "connected" in tl_low or "stopped" in tl_low or "đã dừng" in tl_low or "parado" in tl_low:
+            elif "connected" in tl_low or "đã kết nối" in tl_low or "connected_status" in tl_low:
+                lbl.configure(text="Đã kết nối", text_color="#38bdf8", cursor="")
+            elif "stopped" in tl_low or "đã dừng" in tl_low or "parado" in tl_low:
                 lbl.configure(text=tr("status_stopped"), text_color="#e2e8f0", cursor="")
             elif "idle" in tl_low or "chờ" in tl_low or "aguardando" in tl_low:
                 lbl.configure(text=tr("status_idle"), text_color="#94a3b8", cursor="")
@@ -15656,16 +15538,18 @@ class DashboardApp(ctk.CTk):
             self.update_master_run_button()
 
     def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str, points: Optional[int] = None, class_code: Optional[str] = None, server: Optional[str] = None, resets: Optional[int] = None):
+        el = self.slot_ui_elements.get(slot_idx)
+        if not el:
+            return
+        cache_key = (name, lvl, coords, points, class_code, server, resets)
+        if el.get("_last_ui_telemetry_cache") == cache_key:
+            return
+        el["_last_ui_telemetry_cache"] = cache_key
+
         def _apply():
-            el = self.slot_ui_elements.get(slot_idx)
             if not el:
                 return
             ctrl = self.controllers[slot_idx - 1]
-
-            cache_key = (name, lvl, coords, points, class_code, server, resets)
-            if el.get("_last_ui_telemetry_cache") == cache_key:
-                return
-            el["_last_ui_telemetry_cache"] = cache_key
 
             c_tag = f"[{class_code}] " if (class_code and class_code.strip()) else (f"[{ctrl.class_code}] " if ctrl.class_code else "")
             srv_disp = server or ctrl.server_name or ""
@@ -15713,16 +15597,16 @@ class DashboardApp(ctk.CTk):
                 else:
                     el["pts_lbl"].configure(text="⭐ 0 pts", text_color="#64748b")
 
-            if el.get("coords_lbl"):
+            if hasattr(self, "train_view") and hasattr(self.train_view, "cards") and slot_idx in self.train_view.cards:
+                self.train_view.cards[slot_idx].stream_coords(coords, srv_disp)
+            elif el.get("coords_lbl"):
                 if coords and coords.strip() and coords not in ("--,--", "--", "--, --"):
                     parts = [p.strip() for p in coords.replace("/", ",").split(",") if p.strip()]
-                    if len(parts) >= 2:
-                        c_disp = f"{parts[0]}, {parts[1]}"
-                    else:
-                        c_disp = coords.strip()
-                    el["coords_lbl"].configure(text=c_disp)
+                    c_disp = f"{parts[0]}, {parts[1]}" if len(parts) >= 2 else coords.strip()
+                    c_txt = f"Tọa độ: {c_disp} | {srv_disp}" if (srv_disp and srv_disp != "---") else f"Tọa độ: {c_disp}"
+                    el["coords_lbl"].configure(text=c_txt)
                 else:
-                    el["coords_lbl"].configure(text="--, --")
+                    el["coords_lbl"].configure(text="Tọa độ: --, --")
             act_tab = getattr(self, "active_tab", "")
             if act_tab == "moss" and hasattr(self, "update_moss_slot_telemetry"):
                 try:
@@ -15840,8 +15724,11 @@ class DashboardApp(ctk.CTk):
             ctrl.attach_pid(p)
             assigned_pids.add(p)
 
-    def assign_all(self):
+    def assign_all(self, async_mode: bool = False):
         """Gán toàn bộ các tiến trình MEGAMU đang mở vào các Slot trống (hỗ trợ linh hoạt 1, 2, 3, 4, 5, 6, 7, 8... tài khoản)."""
+        if async_mode:
+            threading.Thread(target=self.assign_all, kwargs={"async_mode": False}, daemon=True, name="AssignAllWorker").start()
+            return
         self.refresh_games()
         # Chỉ coi PID là đã gán nếu PID đó thực sự đang tồn tại trên Windows
         assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)}
@@ -15918,8 +15805,11 @@ class DashboardApp(ctk.CTk):
         else:
             self.append_log(f"💎 Đang tiến hành gom ngọc tự động cho {cnt} tài khoản...")
 
-    def connect_all(self):
+    def connect_all(self, async_mode: bool = False):
         """Kết nối tới tất cả các slot đã chọn PID hoặc tự động kết nối lại các slot bị mất kết nối."""
+        if async_mode:
+            threading.Thread(target=self.connect_all, kwargs={"async_mode": False}, daemon=True, name="ConnectAllWorker").start()
+            return
         if getattr(self, "is_update_mandatory", False):
             self.open_update_dialog()
             return

@@ -1,7 +1,7 @@
 {
   "slots": {
     "1": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
@@ -19,7 +19,7 @@
       }
     },
     "2": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
@@ -37,7 +37,7 @@
       }
     },
     "3": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
@@ -55,7 +55,7 @@
       }
     },
     "4": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
@@ -73,7 +73,7 @@
       }
     },
     "5": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
@@ -91,7 +91,7 @@
       }
     },
     "6": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
@@ -109,7 +109,7 @@
       }
     },
     "7": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
@@ -127,7 +127,7 @@
       }
     },
     "8": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
@@ -145,7 +145,7 @@
       }
     },
     "9": {
-      "auto_devil": false,
+      "auto_devil": true,
       "devil_min_resets": 0,
       "devil_max_resets": 9999,
       "devil_ticket_type": "auto",
