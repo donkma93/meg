@@ -66,7 +66,7 @@
       "username": "pvdon",
       "nickname": "pvdon",
       "token": "19454129cc0c0d8865b9d4891d2123ca",
-      "character": "DGptPlus",
+      "character": "DGeminiP",
       "characters_list": [
         "DGptPlus",
         "DGeminiP"
@@ -74,9 +74,10 @@
       "server": 2,
       "enabled": true,
       "source": "registry",
-      "last_pid": 24668,
+      "last_pid": 11340,
       "password": "Nammothai3",
-      "category": "Chỉ Moss"
+      "category": "Chỉ Moss",
+      "preferred_slot": 1
     },
     {
       "username": "dtn2026",
@@ -230,7 +231,7 @@
       "source": "manual",
       "category": "Chỉ Mirror",
       "password": "Nammothai3",
-      "last_pid": 9244
+      "last_pid": 27948
     },
     {
       "username": "thaibinh1",
@@ -239,17 +240,17 @@
       "characters_list": [
         "VgDongNhi"
       ],
-      "server": 2,
+      "server": 30060,
       "enabled": true,
       "source": "manual",
       "category": "Chỉ Mirror",
       "password": "Nammothai3",
-      "last_pid": 23328
+      "last_pid": 31668
     },
     {
       "username": "sontop2018",
       "nickname": "sontop2018",
-      "character": "YangXinh",
+      "character": "AngelVN",
       "characters_list": [
         "YangXinh",
         "KingVNE",
@@ -258,12 +259,12 @@
         "YangSan",
         "Reus1993"
       ],
-      "server": 3,
+      "server": 30,
       "enabled": true,
       "source": "manual",
       "category": "Chỉ Mirror",
       "password": "1231235",
-      "last_pid": 13404
+      "last_pid": 2148
     },
     {
       "username": "thaibinh17",
@@ -277,7 +278,21 @@
       "source": "manual",
       "category": "Chỉ Mirror",
       "password": "Nammothai3",
-      "last_pid": 19268
+      "last_pid": 32688
+    },
+    {
+      "username": "anhdontb3",
+      "nickname": "anhdontb3",
+      "character": "laclac24",
+      "characters_list": [
+        "laclac24"
+      ],
+      "server": 30,
+      "enabled": true,
+      "source": "manual",
+      "category": "Chung",
+      "password": "1231235",
+      "last_pid": 13952
     }
   ]
 }

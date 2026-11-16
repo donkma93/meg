@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-MEGAMU Auto Train Dashboard - v1.6.0
+MEGAMU Auto Train Dashboard - v1.6.1
 ====================================
 Giao diện hoàn chỉnh và thuật toán chuẩn 100% khớp MEGAMU Auto Train Dashboard gốc:
 - Giao diện 3 tab: 10 Tài khoản | Cấu hình | Nhật ký
@@ -100,7 +100,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.6.0"
+APP_VERSION = "v1.6.1"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -4501,16 +4501,26 @@ class SlotController:
 
         is_in_mirror = eng.is_mirror_event_map()
         if not is_in_mirror and not force:
-            self.app.after(0, lambda: self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Nhân vật hiện ở map ngoài, chưa vào Double Goer (Map 65-68, 82-90). Tính năng tự động ra bãi phút :16 & săn 3 box quà đã BẬT SẴN, sẽ tự chạy ngay khi bước vào cổng!"
-            ))
+            # Rate-limit thông báo "chưa vào map" để tránh spam/trùng log
+            now_ts = time.time()
+            last_info = float(getattr(self, "_last_mirror_outside_log_ts", 0.0) or 0.0)
+            if now_ts - last_info >= 8.0:
+                self._last_mirror_outside_log_ts = now_ts
+                self.app.after(0, lambda: self.app.append_mirror_log(
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Nhân vật hiện ở map ngoài, chưa vào Double Goer. Tự ra bãi :16 sẽ chạy khi vào cổng."
+                ))
             return
 
         def _dungeon_worker():
             with self._mirror_lock:
                 if self._mirror_dungeon_running:
                     return
+                # force=True từ nút UI: nếu chưa trong map thì không chạy (tránh mở lifecycle giả)
                 if not eng.is_mirror_event_map():
+                    if force:
+                        self.app.after(0, lambda: self.app.append_mirror_log(
+                            f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa vào Double Goer — lifecycle sẽ tự chạy sau khi vào cổng."
+                        ))
                     return
                 self._mirror_dungeon_running = True
 
@@ -5154,24 +5164,41 @@ class SlotController:
                     f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏁 SỰ KIỆN DOUBLE GOER KẾT THÚC! (Đã nhặt {looted_chests} rương). Khôi phục Auto Train..."
                 ))
 
-                # TỰ ĐỘNG LÔI QUÀ TỪ HỘP QUÀ PHÍM "K" (GREMORY CASE) RA HÒM ĐỒ CHÍNH
+                # TỰ ĐỘNG LÔI QUÀ PHÍM "K" — CHỈ KHI ĐÃ RA NGOÀI MAP DOUBLE GOER
                 try:
                     is_gremory_enabled = hasattr(self.app, "cb_mirror_auto_gremory") and (self.app.cb_mirror_auto_gremory.get() == 1)
                     if is_gremory_enabled:
-                        time.sleep(1.0)
-                        self.app.after(0, lambda: self.app.append_mirror_log(
-                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎁 TỰ ĐỘNG LÔI QUÀ: Đang kiểm tra và nhận tất cả quà trong Hộp Quà Phím 'K' (Gremory Case)..."
-                        ))
-                        res_claim = eng.claim_gremory_case_items() if hasattr(eng, "claim_gremory_case_items") else {"claimed": 0}
-                        c_count = res_claim.get("claimed", 0)
-                        if c_count > 0:
-                            self.app.after(0, lambda c=c_count: self.app.append_mirror_log(
-                                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 ĐÃ TỰ ĐỘNG LÔI THÀNH CÔNG {c} MÓN QUÀ TỪ PHÍM 'K' VÀO HÒM ĐỒ CHÍNH!"
+                        # Chờ/xác nhận đã rời map Mirror trước khi mở hộp K
+                        left_map = False
+                        for _wait in range(40):  # tối đa ~20s
+                            try:
+                                if not eng.is_mirror_event_map():
+                                    left_map = True
+                                    break
+                            except Exception:
+                                left_map = True
+                                break
+                            time.sleep(0.5)
+
+                        if not left_map:
+                            self.app.after(0, lambda: self.app.append_mirror_log(
+                                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Bỏ qua lôi quà K: nhân vật vẫn còn trong Double Goer."
                             ))
                         else:
+                            time.sleep(0.8)
                             self.app.after(0, lambda: self.app.append_mirror_log(
-                                f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Hộp Quà Phím 'K' hiện không còn quà chờ nhận."
+                                f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎁 ĐÃ RA NGOÀI MAP — bắt đầu lôi quà phím 'K' (Gremory Case)..."
                             ))
+                            res_claim = eng.claim_gremory_case_items() if hasattr(eng, "claim_gremory_case_items") else {"claimed": 0}
+                            c_count = int((res_claim or {}).get("claimed", 0) or 0)
+                            if c_count > 0:
+                                self.app.after(0, lambda c=c_count: self.app.append_mirror_log(
+                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 ĐÃ LÔI THÀNH CÔNG {c} MÓN QUÀ TỪ PHÍM 'K'!"
+                                ))
+                            else:
+                                self.app.after(0, lambda: self.app.append_mirror_log(
+                                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Hộp Quà Phím 'K' hiện không còn quà chờ nhận."
+                                ))
                 except Exception as e_k:
                     print(f"Error auto claiming Gremory gifts: {e_k}")
                 self.app.after(0, lambda: self.app.update_mirror_slot_status(self.slot_idx, "Hoàn tất"))
@@ -10501,27 +10528,41 @@ class DashboardApp(ctk.CTk):
         threading.Thread(target=_runner, daemon=True).start()
 
     def claim_all_gremory_case_items(self):
-        """Tự động lôi quà phím 'K' (Gremory Case) cho các tài khoản ĐÃ TÍCH CHỌN."""
+        """Lôi quà phím 'K' cho slot đã chọn — chỉ khi đã RA NGOÀI map Double Goer."""
         def _worker():
-            self.append_mirror_log("🎁 [Gremory Case] Bắt đầu tự động lôi quà phím 'K' cho các tài khoản đã chọn...")
+            self.append_mirror_log("🎁 [Gremory Case] Bắt đầu lôi quà phím 'K' (chỉ slot đã ra ngoài Double Goer)...")
             total_claimed = 0
+            skipped_in_map = 0
             for s_i, c in enumerate(self.controllers, 1):
                 if not getattr(c, "mirror_enabled", True):
                     continue
                 if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
                     try:
                         eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
-                        if eng:
-                            res = eng.claim_gremory_case_items()
-                            cnt = res.get("claimed", 0)
-                            total_claimed += cnt
-                            if cnt > 0:
-                                self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] 🏆 ĐÃ LÔI THÀNH CÔNG {cnt} MÓN QUÀ TỪ PHÍM 'K' VÀO HÒM ĐỒ!")
-                            else:
-                                self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ℹ️ Hộp Quà Phím 'K' sạch quà (không có quà tồn).")
+                        if not eng:
+                            continue
+                        # Bắt buộc: không lôi K khi còn trong Double Goer
+                        try:
+                            if eng.is_mirror_event_map():
+                                skipped_in_map += 1
+                                self.append_mirror_log(
+                                    f"[Slot {s_i:02d} - {c.char_name}] ⏳ Bỏ qua: vẫn đang trong Double Goer — chỉ lôi K sau khi ra ngoài."
+                                )
+                                continue
+                        except Exception:
+                            pass
+                        res = eng.claim_gremory_case_items()
+                        cnt = int((res or {}).get("claimed", 0) or 0)
+                        total_claimed += cnt
+                        if cnt > 0:
+                            self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] 🏆 ĐÃ LÔI THÀNH CÔNG {cnt} MÓN QUÀ TỪ PHÍM 'K'!")
+                        else:
+                            self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ℹ️ Hộp Quà Phím 'K' sạch quà (không có quà tồn).")
                     except Exception as e:
                         self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ⚠️ Lỗi lôi quà phím 'K': {e}")
-            self.append_mirror_log(f"🏁 [Gremory Case] Hoàn tất quá trình lôi quà! Tổng cộng đã nhận: {total_claimed} món quà.")
+            if skipped_in_map:
+                self.append_mirror_log(f"ℹ️ Đã bỏ qua {skipped_in_map} slot còn trong Double Goer.")
+            self.append_mirror_log(f"🏁 [Gremory Case] Hoàn tất! Tổng nhận: {total_claimed} món.")
         threading.Thread(target=_worker, daemon=True).start()
 
     def trigger_all_mirror_lifecycle(self):

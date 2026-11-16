@@ -23,6 +23,7 @@
     ]
   },
   "selected_slots": [
+    1,
     2,
     3,
     4,
@@ -30,7 +31,8 @@
     6,
     7,
     8,
-    9
+    9,
+    10
   ],
   "combat_spots": {
     "GunApao": [
@@ -202,8 +204,8 @@
       70
     ],
     "AngelVN": [
-      185,
-      187
+      188,
+      70
     ],
     "AngelVN_SW": [
       75,
@@ -320,6 +322,10 @@
     "AngelVN_NE": [
       185,
       187
+    ],
+    "AngelVN_SE": [
+      188,
+      70
     ]
   },
   "telegram": {
@@ -330,6 +336,6 @@
     "enabled": true,
     "notify_enter": true,
     "notify_exit": true,
-    "updated_at": "2026-11-15 17:58:26"
+    "updated_at": "2026-11-16 13:20:11"
   }
 }

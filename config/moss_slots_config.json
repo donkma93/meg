@@ -1,71 +1,71 @@
 {
   "slots": {
     "1": {
-      "category": 7,
-      "delay_ms": 1000,
+      "category": 2,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "2": {
       "category": 2,
-      "delay_ms": 1000,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "3": {
       "category": 2,
-      "delay_ms": 1000,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "4": {
       "category": 2,
-      "delay_ms": 1000,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "5": {
-      "category": 9,
-      "delay_ms": 1000,
+      "category": 2,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "6": {
       "category": 2,
-      "delay_ms": 1000,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "7": {
       "category": 2,
-      "delay_ms": 1000,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "8": {
       "category": 2,
-      "delay_ms": 1000,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "9": {
       "category": 2,
-      "delay_ms": 1000,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
     },
     "10": {
       "category": 2,
-      "delay_ms": 2000,
+      "delay_ms": 1200,
       "max_rolls": 0,
       "auto_clean": false,
       "clean_equipment_trash": true
@@ -107,13 +107,11 @@
     2,
     3,
     4,
+    5,
     6,
     7,
     8,
     9,
-    10,
-    11,
-    12,
-    13
+    10
   ]
 }

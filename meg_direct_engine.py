@@ -66,8 +66,6 @@ DEFAULT_OFFSETS = {
     "mlogin_ui_type_info": "0x55286D0",
     "mlogin_submit": "0x1C27DE0",
     "mlogin_token_login": "0x1C28D20",
-    "input_field_set_text": "0x46C8EB0",
-    "unity_event_invoke": "0x45E5B00",
     "get_scene_handler": "0x1078500",
     "set_target_framerate": "0x458B5A0",
     "get_target_framerate": "0x458B550",
@@ -138,9 +136,6 @@ DEFAULT_OFFSETS = {
     "mlogin_set_state": "0x1C33070",
     "auto_select_character": "0xEC6020",
     "unit_select_character": "0x111C0F0",
-    "unit_entry_character": "0x11203D0",
-    "connect_server_select": "0x11F2A50",
-    "get_helper_ui": "0x107EF80",
     "mirror_enter": "0xF94450",
     "mirror_enter_alt": "0xF94B00",
     "mirror_npc_click": "0xF927B0",
@@ -148,19 +143,11 @@ DEFAULT_OFFSETS = {
     "mirror_is_event_map_alt": "0xF94270",
     "mirror_teleport_event": "0x37F2C0",
     "item_mirror_ticket": 7279,
-    "devil_closure_enter": "0xF91530",
-    "devil_closure_type_info": "0x5553118",
-    "devil_enter": "0xF91530",
-    "devil_enter_alt": "0xF834C0",
-    "devil_enter_1e": "0xF75CF0",
-    "devil_npc_click": "0xF82E70",
+    "devil_enter": "0xF75CF0",
+    "devil_npc_click": "0xF760C0",
     "devil_is_event_map": "0xF75C40",
     "item_devil_ticket": 7187,
     "item_devil_ticket_master": 6702,
-    "table_event_entry_level": "0xCEA9B0",
-    "helper_ui_get_instance": "0x107EF80",
-    "helper_ui_show_dialog": "0x1BFEA00",
-    "helper_ui_show_confirm": "0x1BFFFB0",
     "get_gs_connection": "0x1077910",
     "gs_send": "0x11F9280",
     "gs_send_alt": "0x11F9280",
@@ -194,7 +181,16 @@ DEFAULT_OFFSETS = {
     "gremory_type_info": "0x553B900",
     "gremory_claim_item": "0xFD85C0",
     "gremory_instance_offset": "0x138",
-    "gremory_dict_offset": "0x20"
+    "gremory_dict_offset": "0x20",
+    "mirror_enter_recv": "0xF92350",
+    "set_target_framerate": "0x458B5A0",
+    "get_target_framerate": "0x458B550",
+    "set_vsync_count": "0x459FDF0",
+    "get_vsync_count": "0x459FDA0",
+    "pkt_enc_nikini": "0x120D1F0",
+    "pkt_enc_ngjg": "0x120D930",
+    "socket_send_err": "0x4285F20",
+    "unity_get_time": "0x45D60B0"
 }
 
 FRIDA_AGENT_JS = r"""
@@ -209,31 +205,6 @@ try {
 
 var ga = Process.getModuleByName('GameAssembly.dll');
 var baseAddr = ga.base;
-
-var pDomainGet = ga.findExportByName('il2cpp_domain_get');
-var pThreadAttach = ga.findExportByName('il2cpp_thread_attach');
-var pThreadDetach = ga.findExportByName('il2cpp_thread_detach');
-var pObjectNew = ga.findExportByName('il2cpp_object_new');
-var il2cpp_domain_get = pDomainGet ? new NativeFunction(pDomainGet, 'pointer', []) : null;
-var il2cpp_thread_attach = pThreadAttach ? new NativeFunction(pThreadAttach, 'pointer', ['pointer']) : null;
-var il2cpp_thread_detach = pThreadDetach ? new NativeFunction(pThreadDetach, 'void', ['pointer']) : null;
-var il2cpp_object_new = pObjectNew ? new NativeFunction(pObjectNew, 'pointer', ['pointer']) : null;
-
-function ensureThreadAttached() {
-    try {
-        if (il2cpp_domain_get !== null && il2cpp_thread_attach !== null) {
-            var domain = il2cpp_domain_get();
-            if (!domain.isNull()) {
-                il2cpp_thread_attach(domain);
-            }
-        }
-    } catch (e) {}
-}
-
-// Đăng ký ngay thread hiện tại của Frida vào Boehm GC của Il2Cpp để chống crash 'Collecting from unknown thread'
-try {
-    ensureThreadAttached();
-} catch (eInitAttach) {}
 
 function off(v) { return ptr(v); }
 
@@ -561,14 +532,6 @@ try {
     }
 } catch (eMirrorTeleport) {}
 
-var nativeDevilClosureEnter = null;
-try {
-    var dceOff = off('__DEVIL_CLOSURE_ENTER__');
-    if (!dceOff.isNull()) {
-        nativeDevilClosureEnter = new NativeFunction(baseAddr.add(dceOff), 'void', ['pointer', 'bool', 'pointer']);
-    }
-} catch (eDevilClosure) {}
-
 var nativeDevilEnter = null;
 try {
     var deOff = off('__DEVIL_ENTER__');
@@ -576,22 +539,6 @@ try {
         nativeDevilEnter = new NativeFunction(baseAddr.add(deOff), 'void', ['int', 'int', 'pointer']);
     }
 } catch (eDevilEnter) {}
-
-var nativeDevilEnterAlt = null;
-try {
-    var deaOff = off('__DEVIL_ENTER_ALT__');
-    if (!deaOff.isNull()) {
-        nativeDevilEnterAlt = new NativeFunction(baseAddr.add(deaOff), 'void', ['int', 'int', 'pointer']);
-    }
-} catch (eDevilEnterAlt) {}
-
-var nativeDevilEnter1E = null;
-try {
-    var de1eOff = off('__DEVIL_ENTER_1E__');
-    if (!de1eOff.isNull()) {
-        nativeDevilEnter1E = new NativeFunction(baseAddr.add(de1eOff), 'void', ['int', 'int', 'pointer']);
-    }
-} catch (eDevilEnter1E) {}
 
 var nativeDevilNpcClick = null;
 try {
@@ -608,136 +555,6 @@ try {
         nativeDevilIsEventMap = new NativeFunction(baseAddr.add(dimOff), 'bool', []);
     }
 } catch (eDevilMap) {}
-
-var nativeHelperUIGetInstance = null;
-try {
-    var offHUI = off('__HELPER_UI_GET_INSTANCE__');
-    if (!offHUI.isNull()) {
-        nativeHelperUIGetInstance = new NativeFunction(baseAddr.add(offHUI), 'pointer', []);
-    }
-} catch (eHUI) {}
-
-var nativeHelperUIShowDialog = null;
-try {
-    var offHSD = off('__HELPER_UI_SHOW_DIALOG__');
-    if (!offHSD.isNull()) {
-        nativeHelperUIShowDialog = new NativeFunction(baseAddr.add(offHSD), 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'pointer', 'pointer']);
-    }
-} catch (eHSD) {}
-
-var nativeUIModalBoxManagerGetInstance = null;
-try {
-    var offInst = off('__MODAL_MGR_GET_INSTANCE__');
-    if (!offInst.isNull()) {
-        nativeUIModalBoxManagerGetInstance = new NativeFunction(baseAddr.add(offInst), 'pointer', []);
-    }
-} catch (eOffInst) {}
-
-var nativeUIModalBoxManagerCreate = null;
-try {
-    var offCreate = off('__MODAL_MGR_CREATE__');
-    if (!offCreate.isNull()) {
-        nativeUIModalBoxManagerCreate = new NativeFunction(baseAddr.add(offCreate), 'pointer', ['pointer', 'pointer', 'pointer']);
-    }
-} catch (eOffCreate) {}
-
-var nativeUIModalBoxSetText1 = null;
-try {
-    var offT1 = off('__MODAL_BOX_SET_TEXT1__');
-    if (!offT1.isNull()) {
-        nativeUIModalBoxSetText1 = new NativeFunction(baseAddr.add(offT1), 'void', ['pointer', 'pointer', 'pointer']);
-    }
-} catch (eOffT1) {}
-
-var nativeUIModalBoxSetText2 = null;
-try {
-    var offT2 = off('__MODAL_BOX_SET_TEXT2__');
-    if (!offT2.isNull()) {
-        nativeUIModalBoxSetText2 = new NativeFunction(baseAddr.add(offT2), 'void', ['pointer', 'pointer', 'pointer']);
-    }
-} catch (eOffT2) {}
-
-var nativeUIModalBoxSetConfirmText = null;
-try {
-    var offCT = off('__MODAL_BOX_SET_CONFIRM_TEXT__');
-    if (!offCT.isNull()) {
-        nativeUIModalBoxSetConfirmText = new NativeFunction(baseAddr.add(offCT), 'void', ['pointer', 'pointer', 'pointer']);
-    }
-} catch (eOffCT) {}
-
-var nativeUIModalBoxShow = null;
-try {
-    var offShow = off('__MODAL_BOX_SHOW__');
-    if (!offShow.isNull()) {
-        nativeUIModalBoxShow = new NativeFunction(baseAddr.add(offShow), 'void', ['pointer', 'pointer']);
-    }
-} catch (eOffShow) {}
-
-function showModalBox(title, message, btnText) {
-    try {
-        ensureThreadAttached();
-        title = title || "DEVIL SQUARE";
-        message = message || "Entrance is currently closed";
-        var tStr = il2cpp_string_new(Memory.allocUtf8String(title));
-        var mStr = il2cpp_string_new(Memory.allocUtf8String(message));
-
-        // 1. Phương pháp chính: Sử dụng HelperUI Dialog native của Game (Game.Instance->_HelperUI)
-        var helperUI = null;
-        if (nativeHelperUIGetInstance !== null) {
-            try {
-                helperUI = nativeHelperUIGetInstance();
-            } catch (eHGet) {}
-        }
-        if (!helperUI || helperUI.isNull()) {
-            try {
-                var offGameClass = off('__GAME_CLASS_OFFSET__');
-                if (!offGameClass.isNull()) {
-                    var gameKlass = baseAddr.add(offGameClass).readPointer();
-                    if (!gameKlass.isNull()) {
-                        var staticFields = gameKlass.add(0xb8).readPointer();
-                        if (!staticFields.isNull()) {
-                            var gameInst = staticFields.add(0x8).readPointer();
-                            if (!gameInst.isNull()) {
-                                helperUI = gameInst.add(0x1f8).readPointer();
-                            }
-                        }
-                    }
-                }
-            } catch (eGameDirect) {}
-        }
-
-        if (helperUI && !helperUI.isNull() && nativeHelperUIShowDialog !== null) {
-            try {
-                var dlg = nativeHelperUIShowDialog(helperUI, tStr, mStr, 1, ptr(0), ptr(0), ptr(0));
-                if (dlg && !dlg.isNull()) {
-                    return true;
-                }
-            } catch (eSD) {}
-        }
-
-        // 2. Phương pháp dự phòng: DuloGames UIModalBoxManager
-        if (nativeUIModalBoxManagerGetInstance !== null && nativeUIModalBoxManagerCreate !== null && nativeUIModalBoxShow !== null) {
-            var mgr = nativeUIModalBoxManagerGetInstance();
-            if (mgr && !mgr.isNull()) {
-                var box = nativeUIModalBoxManagerCreate(mgr, ptr(0), ptr(0));
-                if (box && !box.isNull()) {
-                    if (nativeUIModalBoxSetText1 !== null && title) {
-                        try { nativeUIModalBoxSetText1(box, tStr, ptr(0)); } catch (eT1) {}
-                    }
-                    if (nativeUIModalBoxSetText2 !== null && message) {
-                        try { nativeUIModalBoxSetText2(box, mStr, ptr(0)); } catch (eT2) {}
-                    }
-                    if (nativeUIModalBoxSetConfirmText !== null && btnText) {
-                        try { nativeUIModalBoxSetConfirmText(box, il2cpp_string_new(Memory.allocUtf8String(btnText)), ptr(0)); } catch (eBT) {}
-                    }
-                    nativeUIModalBoxShow(box, ptr(0));
-                    return true;
-                }
-            }
-        }
-    } catch (eMB) {}
-    return false;
-}
 
 var nativeNpcTalk = null;
 try {
@@ -1074,14 +891,6 @@ try {
     }
 } catch (eUSC) {}
 
-var nativeUnitEntryCharacter = null;
-try {
-    var uecOff = off('__UNIT_ENTRY_CHARACTER__');
-    if (!uecOff.isNull()) {
-        nativeUnitEntryCharacter = new NativeFunction(baseAddr.add(uecOff), 'void', ['int', 'pointer']);
-    }
-} catch (eUEC) {}
-
 var nativeMLoginSubmit = null;
 try {
     var mlsOff = off('__MLOGIN_SUBMIT__');
@@ -1097,38 +906,6 @@ try {
         nativeMLoginTokenLogin = new NativeFunction(baseAddr.add(mltOff), 'void', ['pointer', 'pointer']);
     }
 } catch (eMLT) {}
-
-var nativeInputField_set_text = null;
-try {
-    var ifstOff = off('__INPUT_FIELD_SET_TEXT__');
-    if (!ifstOff.isNull()) {
-        nativeInputField_set_text = new NativeFunction(baseAddr.add(ifstOff), 'void', ['pointer', 'pointer']);
-    }
-} catch (eIFST) {}
-
-var nativeUnityEvent_Invoke = null;
-try {
-    var ueiOff = off('__UNITY_EVENT_INVOKE__');
-    if (!ueiOff.isNull()) {
-        nativeUnityEvent_Invoke = new NativeFunction(baseAddr.add(ueiOff), 'void', ['pointer']);
-    }
-} catch (eUEI) {}
-
-var nativeConnectServerSelect = null;
-try {
-    var cssOff = off('__CONNECT_SERVER_SELECT__');
-    if (!cssOff.isNull()) {
-        nativeConnectServerSelect = new NativeFunction(baseAddr.add(cssOff), 'void', ['int']);
-    }
-} catch (eCSS) {}
-
-var nativeGetHelperUI = null;
-try {
-    var ghuOff = off('__GET_HELPER_UI__');
-    if (!ghuOff.isNull()) {
-        nativeGetHelperUI = new NativeFunction(baseAddr.add(ghuOff), 'pointer', []);
-    }
-} catch (eGHU) {}
 
 var nativeGetSceneHandler = null;
 try {
@@ -1154,13 +931,59 @@ try {
     }
 } catch (eGTF) {}
 
+var nativeSetVSyncCount = null;
+try {
+    var svcOff = off('__SET_VSYNC_COUNT__');
+    if (!svcOff.isNull()) {
+        nativeSetVSyncCount = new NativeFunction(baseAddr.add(svcOff), 'void', ['int']);
+    }
+} catch (eSVC) {}
+
+var nativeGetVSyncCount = null;
+try {
+    var gvcOff = off('__GET_VSYNC_COUNT__');
+    if (!gvcOff.isNull()) {
+        nativeGetVSyncCount = new NativeFunction(baseAddr.add(gvcOff), 'int', []);
+    }
+} catch (eGVC) {}
+
+var nativeGetUnityTime = null;
+try {
+    var ugtOff = off('__UNITY_GET_TIME__');
+    if (!ugtOff.isNull()) {
+        nativeGetUnityTime = new NativeFunction(baseAddr.add(ugtOff), 'float', []);
+    }
+} catch (eUGT) {}
+
+var nativePktEncNikini = null;
+try {
+    var nikOff = off('__PKT_ENC_NIKINI__');
+    if (!nikOff.isNull()) {
+        nativePktEncNikini = new NativeFunction(baseAddr.add(nikOff), 'pointer', ['pointer', 'pointer', 'pointer']);
+    }
+} catch (eNIK) {}
+
+var nativePktEncNgjg = null;
+try {
+    var ngjOff = off('__PKT_ENC_NGJG__');
+    if (!ngjOff.isNull()) {
+        nativePktEncNgjg = new NativeFunction(baseAddr.add(ngjOff), 'void', ['pointer', 'pointer', 'pointer']);
+    }
+} catch (eNGJ) {}
+
+var nativeSocketSendErr = null;
+try {
+    var sseOff = off('__SOCKET_SEND_ERR__');
+    if (!sseOff.isNull()) {
+        nativeSocketSendErr = new NativeFunction(baseAddr.add(sseOff), 'int', ['pointer', 'pointer', 'int', 'int', 'int', 'pointer', 'pointer']);
+    }
+} catch (eSSE) {}
+
 var nativeGetGS = null;
-var nativeGetGSConnection = null;
 try {
     var gsOff = off('__GET_GS_CONNECTION__');
     if (!gsOff.isNull()) {
         nativeGetGS = new NativeFunction(baseAddr.add(gsOff), 'pointer', ['pointer']);
-        nativeGetGSConnection = new NativeFunction(baseAddr.add(gsOff), 'pointer', []);
     }
 } catch (eGS) {}
 
@@ -1265,13 +1088,29 @@ function sendGSPacketDirect(gs, arr) {
 }
 
 var lastSendError = "";
+var _c1SaltCounter = 0;
 
-function sendGSPacket(bytes) {
+function prepareC1FrameBytes(bytes, alreadyXored) {
+    if (!bytes || bytes.length < 3) return bytes;
+    var out = bytes.slice ? bytes.slice() : Array.prototype.slice.call(bytes);
+    // MLBANIKPCGO.NIKINIHADGM yêu cầu byte đầu dạng 0x10..0x1F (cho 0xC1) và opcode byte[2] XOR 0xCB
+    if (out[0] === 0xC1) {
+        _c1SaltCounter = (_c1SaltCounter + 1) & 0x0F;
+        out[0] = (0x10 + _c1SaltCounter) & 0xFF;
+        if (!alreadyXored) {
+            out[2] = (out[2] ^ 0xCB) & 0xFF;
+        }
+    }
+    return out;
+}
+
+function sendGSPacket(bytes, alreadyXored) {
     lastSendError = "";
     try {
         var gs = getGSConnection();
         if (gs.isNull()) { lastSendError = "no_gs_connection"; return false; }
-        var arr = createManagedByteArray(bytes);
+        var frameBytes = prepareC1FrameBytes(bytes, alreadyXored === true);
+        var arr = createManagedByteArray(frameBytes);
         if (!arr || arr.isNull()) {
             lastSendError = (il2cpp_array_new === null) ? "il2cpp_array_new_missing"
                           : ((getByteClass() === null) ? "byte_class_lookup_failed" : "array_alloc_failed");
@@ -1336,7 +1175,7 @@ function sendDropPacket(slot, targetX, targetY) {
         // Chuẩn mã hóa MEGAMU ANHCGMHDOKM.JENEDENFEFD (RVA 0x120ED40): Headcode XOR 0xCB
         // 0x23 ^ 0xCB = 0xE8
         var encDrop = 0x23 ^ 0xCB; // 0xE8
-        var sent = sendGSPacket([0xC1, 0x06, encDrop, tx, ty, s]);
+        var sent = sendGSPacket([0xC1, 0x06, encDrop, tx, ty, s], true);
         if (!sent) {
             sent = sendGSPacket([0xC1, 0x06, 0x23, tx, ty, s]);
         }
@@ -1369,10 +1208,10 @@ function sendSellPacket(slot) {
         var encSell = 0x32 ^ 0xCB; // 0xF9
 
         // Gói tin 5-byte chuẩn MEGAMU 5thEra: [0xC1, 0x05, 0xF9, slot, 0x01] (0x01: Main Inventory)
-        var sent5 = sendGSPacket([0xC1, 0x05, encSell, s, 0x01]);
+        var sent5 = sendGSPacket([0xC1, 0x05, encSell, s, 0x01], true);
 
         // Gói tin 4-byte tương thích: [0xC1, 0x04, 0xF9, slot]
-        var sent4 = sendGSPacket([0xC1, 0x04, encSell, s]);
+        var sent4 = sendGSPacket([0xC1, 0x04, encSell, s], true);
 
         return sent5 || sent4;
     } catch (eSellPkt) {
@@ -1502,9 +1341,8 @@ function runSellPass(slots, itemsArr) {
 
 function sendMirrorEnterPacket(slot) {
     try {
-        var s = (slot !== undefined && slot !== null) ? parseInt(slot) : 0;
-        if (isNaN(s) || s < 0) s = 0;
-        return sendGSPacket([0xC1, 0x05, 0xBF, 0x0E, s & 0xFF]);
+        var rel = (slot >= 12) ? (slot - 12) : slot;
+        return sendGSPacket([0xC1, 0x05, 0xBF, 0x0E, rel & 0xFF]);
     } catch (eMirrorPkt) {
         return false;
     }
@@ -1531,7 +1369,7 @@ function sendLugardTalkPacket() {
 
 function sendCharonTalkPacket() {
     try {
-        var charon = getOrCreateCharonPtr();
+        var charon = findCharonNpc();
         if (charon && !charon.isNull()) {
             var npcKey = -1;
             try { npcKey = charon.add(0x20).readS32(); } catch (eK) {}
@@ -1539,9 +1377,6 @@ function sendCharonTalkPacket() {
                 var kLow = npcKey & 0xFF;
                 var kHigh = (npcKey >> 8) & 0xFF;
                 sendGSPacket([0xC1, 0x05, 0x30, kLow, kHigh]);
-                sendGSPacket([0xC1, 0x06, 0x30, kLow, kHigh, 0x00]);
-                sendGSPacket([0xC1, 0x05, 0xFB, kLow, kHigh]);
-                sendGSPacket([0xC1, 0x06, 0xFB, kLow, kHigh, 0x00]);
                 return true;
             }
         }
@@ -1554,32 +1389,7 @@ function sendCharonTalkPacket() {
 function sendDevilEnterPacket(level, slot) {
     try {
         var actualSlot = (slot < 12 && slot >= 0) ? (slot + 12) : slot;
-        var relSlot = (actualSlot >= 12) ? (actualSlot - 12) : actualSlot;
-        // Bóc tách REA: Client MEGAMU tại RVA 0xF91678 thực hiện `add dil, 0xc` trước khi ghi vào packet
-        // Do đó wireSlot = actualSlot + 12 là byte chuẩn client chính thức gửi lên GameServer
-        var wireSlot = (actualSlot + 12) & 0xFF;
-        var s1 = actualSlot & 0xFF;
-        var s2 = relSlot & 0xFF;
-        var lvl = level & 0xFF;
-
-        // 1. Opcode 0x90 (Chuẩn IL2CPP Client chính thống DevilSquare.ECEGJEAOELA.ILEAOLLJKPG - RVA 0xF91530)
-        // Lưu ý REA: Hàm 0x120EE30 mã hóa opcode bằng XOR 0xCB -> 0x90 ^ 0xCB = 0x5B
-        var ok1 = sendGSPacket([0xC1, 0x05, 0x5B, lvl, wireSlot]);
-        var ok2 = sendGSPacket([0xC1, 0x05, 0x90, lvl, wireSlot]);
-        var ok3 = sendGSPacket([0xC1, 0x05, 0x5B, lvl, s1]);
-        var ok4 = sendGSPacket([0xC1, 0x05, 0x90, lvl, s1]);
-
-        // 2. Opcode 0x1E (Phương thức native DevilSquare.OMKNMKGNIPF - RVA 0xF75CF0)
-        // 0x1E ^ 0xCB = 0xD5
-        var ok5 = sendGSPacket([0xC1, 0x05, 0xD5, lvl, wireSlot]);
-        var ok6 = sendGSPacket([0xC1, 0x05, 0x1E, lvl, wireSlot]);
-
-        // 3. Opcode 0xC2 (Phương thức native DevilSquare.HNCDPEIBGPG - RVA 0xF834C0)
-        // 0xC2 ^ 0x9E = 0x5C
-        var ok7 = sendGSPacket([0xC1, 0x05, 0x5C, lvl, wireSlot]);
-        var ok8 = sendGSPacket([0xC1, 0x05, 0xC2, lvl, wireSlot]);
-
-        return ok1 || ok2 || ok3 || ok4 || ok5 || ok6 || ok7 || ok8;
+        return sendGSPacket([0xC1, 0x05, 0x90, level & 0xFF, actualSlot & 0xFF]);
     } catch (eDevilPkt) {
         return false;
     }
@@ -2538,8 +2348,9 @@ function performMerchantCloseNow() {
     }
     try {
         var encClose = 0x31 ^ 0xCB; // 0xFA
-        sendGSPacket([0xC1, 0x04, encClose, 0x00]);
-        sendGSPacket([0xC1, 0x04, 0x31, 0x00]);
+        if (!sendGSPacket([0xC1, 0x04, encClose, 0x00], true)) {
+            sendGSPacket([0xC1, 0x04, 0x31, 0x00]);
+        }
     } catch (eGS) {}
     try {
         if (nativeGetGameUI !== null) {
@@ -2742,8 +2553,6 @@ function getOrCreateLugardPtr(npcPtr) {
     return null;
 }
 
-var cachedCharonPtr = null;
-
 function findCharonNpc() {
     try {
         var localPlayer = getPlayerPtr();
@@ -2767,27 +2576,17 @@ function findCharonNpc() {
             var entryAddr = entries.add(0x20 + i * 24);
             var val = entryAddr.add(16).readPointer();
             if (val.isNull()) continue;
-            var body = val;
-            try {
-                var pBody = val.add(ptr('0x18')).readPointer();
-                if (!pBody.isNull()) body = pBody;
-            } catch (eB) {}
+            var body = val.add(ptr('0x18')).readPointer();
             if (body.isNull()) continue;
 
-            if (!localPlayer.isNull()) {
-                if (body.equals(localPlayer) || val.equals(localPlayer)) continue;
-            }
+            if (!localPlayer.isNull() && body.equals(localPlayer)) continue;
 
             var npcType = -1;
             try { npcType = body.add(0x34).readS32(); } catch (eT) {}
-            if (npcType === -1) {
-                try { npcType = val.add(0x34).readS32(); } catch (eT2) {}
-            }
 
             var name = "";
             try {
                 var namePtr = body.add(off('__PLAYER_NAME__')).readPointer();
-                if (namePtr.isNull()) namePtr = val.add(off('__PLAYER_NAME__')).readPointer();
                 if (!namePtr.isNull()) {
                     var len = namePtr.add(0x10).readS32();
                     if (len > 0 && len < 64) {
@@ -2799,7 +2598,6 @@ function findCharonNpc() {
             var tx = -1, ty = -1;
             try {
                 var cPtr = body.add(off('__PLAYER_COORD__')).readPointer();
-                if (cPtr.isNull()) cPtr = val.add(off('__PLAYER_COORD__')).readPointer();
                 if (!cPtr.isNull()) {
                     tx = cPtr.add(0x10).readS32();
                     ty = cPtr.add(0x14).readS32();
@@ -2807,31 +2605,18 @@ function findCharonNpc() {
             } catch (eC) {}
 
             var lowName = (name || "").toLowerCase();
-            // Loại trừ NPC Lugard (Mirror)
-            var isLugard = (npcType === 45 || npcType === 0x2d || npcType === -76 || npcType === 723 || npcType === 540 || lowName.indexOf("lugard") !== -1 || lowName.indexOf("doppel") !== -1);
-            if (isLugard) continue;
-
-            // Nhận diện NPC Charon:
-            // 1. Theo npcType:
-            //    - Client native OnClick (0xF760C0): cmp eax, 0x9d (157) & cmp eax, -0x7e (-126)
-            //    - Chuẩn MuOnline: 236, 237, 720, 251, -78
-            // 2. Theo tên (tiếng Anh, Bồ Đào Nha MEGAMU Caronte, tiếng Việt):
-            //    - charon, caron, caronte, devil, diabo, mestre
-            // 3. Theo tọa độ Event Square: (220, 2), (220, 22), (225, 52), Noria (171, 105)
-            // 4. Fallback: Bất kỳ NPC nào trong Event Square không phải Lugard
+            // NPC Charon ID: 236 (Noria/Chuẩn), 237, 720 (Event Square)
+            // Tọa độ Charon: Event Square (225, 52), Noria (171, 105)
             var isCharon = false;
-            if (npcType === 236 || npcType === 237 || npcType === 720 || npcType === 251 || npcType === -126 || npcType === -0x7e || npcType === 157 || npcType === 0x9d || npcType === -78) {
+            if (npcType === 236 || npcType === 237 || npcType === 720) {
                 isCharon = true;
-            } else if (lowName.indexOf("charon") !== -1 || lowName.indexOf("caron") !== -1 || lowName.indexOf("devil") !== -1 || lowName.indexOf("diabo") !== -1 || lowName.indexOf("mestre") !== -1) {
+            } else if (lowName.indexOf("charon") !== -1 || lowName.indexOf("devil") !== -1) {
                 isCharon = true;
-            } else if ((tx >= 210 && tx <= 228 && ((ty >= 0 && ty <= 15) || (ty >= 18 && ty <= 28) || (ty >= 48 && ty <= 56))) || (tx >= 168 && tx <= 174 && ty >= 102 && ty <= 108)) {
-                isCharon = true;
-            } else if (tx > 0 && Math.abs(tx - 220) <= 6 && (Math.abs(ty - 2) <= 6 || Math.abs(ty - 22) <= 6)) {
+            } else if ((tx >= 222 && tx <= 228 && ty >= 49 && ty <= 55) || (tx >= 168 && tx <= 174 && ty >= 102 && ty <= 108)) {
                 isCharon = true;
             }
 
             if (isCharon) {
-                cachedCharonPtr = body;
                 return body;
             }
         }
@@ -2843,24 +2628,12 @@ function getOrCreateCharonPtr(npcPtr) {
     if (npcPtr && npcPtr !== 0) {
         try {
             var p = ptr(npcPtr);
-            if (!p.isNull()) {
-                cachedCharonPtr = p;
-                return p;
-            }
+            if (!p.isNull()) return p;
         } catch (e) {}
     }
     var charon = findCharonNpc();
     if (charon && !charon.isNull()) {
-        cachedCharonPtr = charon;
         return charon;
-    }
-    if (cachedCharonPtr !== null) {
-        try {
-            cachedCharonPtr.readS32();
-            return cachedCharonPtr;
-        } catch (e) {
-            cachedCharonPtr = null;
-        }
     }
     return null;
 }
@@ -2870,68 +2643,20 @@ function checkDevilItem(itemPtr, idx) {
     var itName = getItemName(itemPtr) || "";
     var lowName = itName.toLowerCase();
     var itLevel = 0;
-    try { itLevel = itemPtr.add(0x10).readS32(); } catch (eL) {}
-    if (itLevel <= 0) {
-        try {
-            var altLvl = itemPtr.add(0x14).readS32();
-            if (altLvl > 0 && altLvl <= 15) itLevel = altLvl;
-        } catch (eL2) {}
-    }
-    if (itLevel <= 0 && lowName.length > 0) {
-        var m = lowName.match(/\+\s*(\d+)/);
-        if (m) {
-            try { itLevel = parseInt(m[1], 10); } catch (eM) {}
-        }
-    }
+    try { itLevel = itemPtr.add(0x14).readS32(); } catch (eL) {}
 
     // 1. Nhận diện Master Ticket (Vé Master):
-    // - ID chuẩn: 6702 (0x1A2E - Item 13, 46), 7214 (0x1C2E - Item 14, 46), 6675 (Item 13, 19), 6705..6709
-    // - Hoặc vé 7187 có level >= 7 (hoặc level 6 nếu server đếm 0-indexed)
-    // - Hoặc tên có từ 'master' cùng với 'devil'/'invit'/'diabo'/'convite'/'square'/'ticket'/'vé'
-    // - Hoặc tên chứa +7 kèm từ khóa devil / diabo
-    var isMasterId = (
-        trueIdx === 6702 || trueIdx === 7214 || trueIdx === 6675 ||
-        (trueIdx >= 6705 && trueIdx <= 6709)
-    );
-    var hasMasterWord = (
-        lowName.indexOf("master") !== -1 ||
-        lowName.indexOf("+7") !== -1 ||
-        lowName.indexOf("+ 7") !== -1
-    );
-    var hasDevilWord = (
+    // - ID: 6702 (0x1A2E), 7214 (0x1C2E), 6675
+    // - Hoặc vé 7187 có level >= 7
+    // - Hoặc tên có từ 'master' cùng với 'devil'/'invit'/'diabo'/'convite'
+    var isMasterId = (trueIdx === 6702 || trueIdx === 7214 || trueIdx === 6675);
+    var isMasterName = (lowName.indexOf("master") !== -1 && (
         lowName.indexOf("devil") !== -1 ||
-        lowName.indexOf("diabo") !== -1 ||
-        lowName.indexOf("square") !== -1 ||
-        trueIdx === 7187 ||
-        isMasterId
-    );
-    var hasTicketWord = (
         lowName.indexOf("invit") !== -1 ||
-        lowName.indexOf("convite") !== -1 ||
-        lowName.indexOf("ticket") !== -1 ||
-        lowName.indexOf("vé") !== -1 ||
-        trueIdx === 7187 ||
-        isMasterId
-    );
-    var isMasterName = (hasMasterWord && (hasDevilWord || hasTicketWord));
-    if (!isMasterName && lowName.length > 0) {
-        if (
-            lowName.indexOf("master devil") !== -1 ||
-            lowName.indexOf("devil master") !== -1 ||
-            lowName.indexOf("diabo master") !== -1 ||
-            lowName.indexOf("convite master") !== -1 ||
-            lowName.indexOf("convite do diabo +7") !== -1 ||
-            lowName.indexOf("devil's invitation +7") !== -1 ||
-            lowName.indexOf("devil invitation +7") !== -1 ||
-            lowName.indexOf("devil square ticket +7") !== -1 ||
-            lowName.indexOf("devil square +7") !== -1 ||
-            lowName.indexOf("vé devil master") !== -1 ||
-            lowName.indexOf("vé master devil") !== -1
-        ) {
-            isMasterName = true;
-        }
-    }
-    var isMaster = isMasterId || isMasterName || (trueIdx === 7187 && itLevel >= 7) || (itLevel >= 7 && (hasDevilWord || hasTicketWord));
+        lowName.indexOf("diabo") !== -1 ||
+        lowName.indexOf("convite") !== -1
+    ));
+    var isMaster = isMasterId || isMasterName || (trueIdx === 7187 && itLevel >= 7);
 
     // 2. Nhận diện Normal Ticket (Vé thường):
     // - ID 7187 (level 1..6)
@@ -2943,15 +2668,15 @@ function checkDevilItem(itemPtr, idx) {
         lowName.indexOf("convite do diabo") !== -1 ||
         lowName.indexOf("convite devil") !== -1 ||
         lowName.indexOf("devil square ticket") !== -1 ||
-        lowName.indexOf("devil square") !== -1 ||
-        (hasDevilWord && hasTicketWord)
+        (lowName.indexOf("devil") !== -1 && lowName.indexOf("invit") !== -1) ||
+        (lowName.indexOf("diabo") !== -1 && lowName.indexOf("convite") !== -1)
     );
 
     if (isMaster) {
         return {
             isTicket: true,
             isMaster: true,
-            level: (itLevel > 0 ? itLevel : 7),
+            level: itLevel,
             index: trueIdx,
             name: itName || "Master Devil's Invitation"
         };
@@ -2975,22 +2700,24 @@ function getPlayerDevilSquareLevel() {
         var p = getPlayerPtr();
         if (p.isNull()) return 0;
         var lvl = p.add(off('__PLAYER_LEVEL__')).readS32();
-        // Phân cấp Devil Square chuẩn Server MEGAMU:
-        // Tier 1: Level 50 - 199 (DS 1 - Vé +1)
-        // Tier 2: Level 200 - 299 (DS 2 - Vé +2)
-        // Tier 3: Level 300 - 349 (DS 3 - Vé +3)
-        // Tier 4: Level 350 - 399 (DS 4 - Vé +4)
-        // Tier 5: Level 400 - 749 (DS 5 - Vé +5)
-        // Tier 6: Level 750 - 899 (DS 6 - Vé +6)
-        // Tier 7: Level 900+ (DS 7 - Vé +7 / Master Ticket)
-        if (lvl < 50) return -1;
-        if (lvl <= 199) return 0; // DS 1
-        if (lvl <= 299) return 1; // DS 2
-        if (lvl <= 349) return 2; // DS 3
-        if (lvl <= 399) return 3; // DS 4
-        if (lvl <= 749) return 4; // DS 5
-        if (lvl <= 899) return 5; // DS 6
-        return 6;                 // DS 7 (Master)
+        var cls = p.add(off('__PLAYER_CLASS__')).readS32();
+        var isSpecial = (cls >= 48 && cls <= 67);
+        if (lvl >= 400) return 6; // DS 7
+        if (isSpecial) {
+            if (lvl <= 110) return 0; // DS 1
+            if (lvl <= 160) return 1; // DS 2
+            if (lvl <= 210) return 2; // DS 3
+            if (lvl <= 260) return 3; // DS 4
+            if (lvl <= 310) return 4; // DS 5
+            return 5;                 // DS 6
+        } else {
+            if (lvl <= 130) return 0; // DS 1
+            if (lvl <= 180) return 1; // DS 2
+            if (lvl <= 230) return 2; // DS 3
+            if (lvl <= 280) return 3; // DS 4
+            if (lvl <= 330) return 4; // DS 5
+            return 5;                 // DS 6
+        }
     } catch (e) {
         return 0;
     }
@@ -3203,6 +2930,8 @@ try {
             onEnter: function(args) {
                 if (shuttingDown) return;
 
+                try { tickNativeMirrorTurboMainThread(); } catch (eMTT) {}
+
                 // 1. Luôn ưu tiên xử lý lệnh Helper Toggle & Chat trên vòng lặp Game.Update chính
                 // Đảm bảo chạy 60 FPS liên tục kể cả khi game đang chạy ngầm, không cần user phải click chuột vào game!
                 if (pendingHelperAction !== null) {
@@ -3297,132 +3026,32 @@ try {
                         return;
                     }
 
-                    // Scene 3 (Character Lobby): ĐANG Ở MÀN HÌNH CHỌN NHÂN VẬT -> ĐỌC DANH SÁCH & VÀO THẲNG NHÂN VẬT
+                    // Scene 3 (Character Lobby): ĐANG Ở MÀN HÌNH CHỌN NHÂN VẬT -> CHỌN NHÂN VẬT
                     if (sceneType === 3) {
-                        pal.inLobbyFrames = (pal.inLobbyFrames || 0) + 1;
-                        var foundChars = [];
-                        var uAcc = null;
-                        if (nativeGetUserAccount !== null) {
-                            try { uAcc = nativeGetUserAccount(); } catch (eGUA) {}
-                        }
-
-                        if (uAcc !== null && !uAcc.isNull()) {
-                            try {
-                                var info = uAcc.add(0x20).readPointer();
-                                if (!info.isNull()) {
-                                    var charsList = info.add(0x30).readPointer();
-                                    if (!charsList.isNull()) {
-                                        var count = charsList.add(0x18).readS32();
-                                        if (count > 0) {
-                                            var itemsArr = charsList.add(0x10).readPointer();
-                                            if (!itemsArr.isNull()) {
-                                                for (var cIdx = 0; cIdx < count; cIdx++) {
-                                                    var cInfo = itemsArr.add(0x20 + cIdx * 8).readPointer();
-                                                    if (!cInfo.isNull()) {
-                                                        var sNum = cInfo.add(0x18).readS32();
-                                                        var nPtr = cInfo.add(0x20).readPointer();
-                                                        var cName = "";
-                                                        if (!nPtr.isNull()) {
-                                                            var nLen = nPtr.add(0x10).readS32();
-                                                            if (nLen > 0) {
-                                                                cName = nPtr.add(0x14).readUtf16String(nLen);
-                                                            }
-                                                        }
-                                                        var cLvl = cInfo.add(0x28).readS32();
-                                                        var cCls = cInfo.add(0x30).readS32();
-                                                        if (cName) {
-                                                            foundChars.push({ slot: sNum, name: cName, level: cLvl, classCode: cCls, namePtr: nPtr });
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (eReadChars) {}
-                        }
-
-                        // Nếu danh sách nhân vật chưa load xong từ GameServer (count == 0): đợi thêm
-                        if (foundChars.length === 0) {
-                            if (pal.inLobbyFrames % 30 === 0) {
-                                send({ type: "autologin_status", ok: false, stage: "waiting_character_list", scene: 3, account: pal.account });
-                            }
-                            return;
-                        }
-
-                        // Báo cáo danh sách nhân vật đọc được về Python
-                        if (!pal.charsReported) {
-                            pal.charsReported = true;
-                            send({
-                                type: "autologin_characters_found",
-                                account: pal.account,
-                                characters: foundChars.map(function(c) { return { slot: c.slot, name: c.name, level: c.level, classCode: c.classCode }; })
-                            });
-                        }
-
-                        // Lựa chọn nhân vật mục tiêu:
-                        var targetEntry = null;
-                        var reqChar = (pal.character || "").trim().toLowerCase();
-                        if (reqChar && reqChar !== "(mặc định)") {
-                            for (var k = 0; k < foundChars.length; k++) {
-                                if (foundChars[k].name.toLowerCase() === reqChar) {
-                                    targetEntry = foundChars[k];
-                                    break;
-                                }
-                            }
-                        }
-                        if (!targetEntry && foundChars.length > 0) {
-                            targetEntry = foundChars[0];
-                        }
-
-                        // Gửi gói tin chọn nhân vật & vào thẳng game (gửi lại mỗi 20 frames nếu chưa vào Scene 4)
-                        if (targetEntry && (!pal.charSelected || pal.inLobbyFrames % 20 === 0)) {
+                        if (!pal.charSelected && pal.character) {
                             pal.charSelected = true;
-                            pal.selectedCharName = targetEntry.name;
                             try {
                                 var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
-                                var chrStr = targetEntry.namePtr ? targetEntry.namePtr : il2cpp_string_new(Memory.allocUtf8String(targetEntry.name));
-
+                                var chrStr = il2cpp_string_new(Memory.allocUtf8String(pal.character));
+                                var selOk = false;
                                 if (nativeAutoSelectCharacter !== null && nativeGetAutoLogin !== null) {
                                     var al = nativeGetAutoLogin();
                                     if (!al.isNull()) {
-                                        nativeAutoSelectCharacter(al, accStr, chrStr);
+                                        selOk = nativeAutoSelectCharacter(al, accStr, chrStr);
                                     }
                                 }
-
-                                if (nativeUnitSelectCharacter !== null) {
-                                    nativeUnitSelectCharacter(targetEntry.slot, chrStr);
+                                if (!selOk && nativeUnitSelectCharacter !== null) {
+                                    nativeUnitSelectCharacter(0, chrStr);
                                 }
-
-                                if (typeof nativeUnitEntryCharacter !== 'undefined' && nativeUnitEntryCharacter !== null) {
-                                    nativeUnitEntryCharacter(targetEntry.slot, chrStr);
-                                }
-                            } catch (eSel) {}
-
-                            autoLoginLastStatus = {
-                                done: false,
-                                submitted: true,
-                                stage: "selected_character",
-                                scene: 3,
-                                account: pal.account,
-                                character: targetEntry.name,
-                                slot: targetEntry.slot
-                            };
-                            send({
-                                type: "autologin_status",
-                                ok: true,
-                                stage: "selected_character",
-                                scene: 3,
-                                account: pal.account,
-                                character: targetEntry.name,
-                                slot: targetEntry.slot
-                            });
+                            } catch (eChar) {}
+                            autoLoginLastStatus = { done: false, submitted: true, stage: "selected_character", scene: sceneType, account: pal.account, character: pal.character };
+                            send({ type: "autologin_status", ok: true, stage: "selected_character", scene: sceneType, account: pal.account, character: pal.character });
                         }
                         return;
                     }
 
                     // Scene 2 (Login screen - MLoginUI):
-                    // Đảm bảo AutoLogin KHÔNG ở trạng thái QuickSwitch (QuickSwitchServerValue phải bằng -1)
+                    // Cấu hình AutoLogin singleton đúng 1 LẦN DUY NHẤT (Ghi trực tiếp struct không gọi LOLGHCBECAE)
                     if (!pal.configured) {
                         pal.configured = true;
                         var al = null;
@@ -3431,13 +3060,15 @@ try {
                         }
                         if (al !== null && !al.isNull()) {
                             try {
+                                var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
+                                var chrStr = il2cpp_string_new(Memory.allocUtf8String(pal.character));
                                 al.add(0x20).writeU8(0);
                                 al.add(0x21).writeU8(0);
                                 al.add(0x22).writeU8(0);
                                 al.add(0x23).writeU8(0);
-                                al.add(0x24).writeS32(-1); // QUAN TRỌNG: -1 để MLoginUI không bị ép vào State 1 (Loading)
-                                al.add(0x28).writePointer(ptr(0));
-                                al.add(0x30).writePointer(ptr(0));
+                                al.add(0x24).writeS32(pal.server);
+                                al.add(0x28).writePointer(accStr);
+                                al.add(0x30).writePointer(chrStr);
                             } catch (eAL) {}
                         }
                     }
@@ -3462,182 +3093,15 @@ try {
                         }
                     } catch (eType) {}
 
-                    if (mLoginInst === null || mLoginInst.isNull()) {
-                        return;
-                    }
-
-                    // Đọc CurrentState của MLoginUI (offset 0x24):
-                    // 0: None, 1: Loading, 2: Login, 3: ServerList, 4: LoginForm, 5: AccountList, 6: OAuthLoading, 7: OAuthList
-                    var currState = -1;
-                    try {
-                        currState = mLoginInst.add(0x24).readS32();
-                    } catch (eCS) {}
-
-                    // Kiểm tra và tự động đóng modal cảnh báo (nếu có dialog HelperUI như "No access" / "Your account does not have permission")
-                    try {
-                        if (nativeGetHelperUI !== null) {
-                            var helper = nativeGetHelperUI();
-                            if (helper !== null && !helper.isNull()) {
-                                var curDialog = helper.add(0x78).readPointer();
-                                if (!curDialog.isNull()) {
-                                    var okBtn = curDialog.add(0x40).readPointer();
-                                    if (!okBtn.isNull() && nativeUnityEvent_Invoke !== null) {
-                                        var onClick = okBtn.add(0x100).readPointer();
-                                        if (!onClick.isNull()) {
-                                            nativeUnityEvent_Invoke(onClick);
-                                            send({ type: "log", msg: "Phát hiện hộp thoại thông báo game (Quyền phòng / Thông báo). Đã tự động nhấn OK." });
-                                        }
-                                    }
-                                    // Nếu xuất hiện hộp thoại bị từ chối vào phòng do Server 1 là VIP / SpeedPass:
-                                    // Tự động chuyển hướng sang Server 3 (Phòng chơi miễn phí / Public) và thử lại!
-                                    if (pal.server === 1) {
-                                        send({ type: "log", msg: "Server 1 là phòng VIP / Giới hạn quyền truy cập. Đang tự động chuyển hướng kết nối sang Server 3 (Public Free)..." });
-                                        pal.server = 3;
-                                        pal.serverConnected = false;
-                                        try {
-                                            if (nativeMLoginSetState !== null) {
-                                                nativeMLoginSetState(mLoginInst, 3);
-                                            }
-                                        } catch (eSt3) {}
-                                    }
-                                }
-                            }
-                        }
-                    } catch (eDlg) {}
-
-                    // Nếu game đang ở State 1 (Loading) hoặc 0 (None):
-                    // Game đang tải tài nguyên / kết nối web API ban đầu -> KIÊN NHẪN ĐỢI
-                    if (currState <= 1) {
-                        autoLoginLastStatus = { done: false, submitted: pal.submitted, stage: "waiting_login_ui", state: currState, frames: pal.frames, account: pal.account };
-                        if (pal.frames % 60 === 0) {
-                            send({ type: "autologin_status", ok: false, stage: "waiting_login_ui", state: currState, frames: pal.frames, account: pal.account });
-                        }
-                        // Nếu bị kẹt ở Loading State 1 quá 180 frames (3s) sau khi đã cố kết nối server, đưa về ServerList (State 3) để thử lại
-                        if (pal.serverConnected && pal.frames > 180 && currState === 1) {
-                            try {
-                                if (nativeMLoginSetState !== null) {
-                                    nativeMLoginSetState(mLoginInst, 3);
-                                    pal.serverConnected = false;
-                                }
-                            } catch (eUnstick) {}
-                        }
-                        return;
-                    }
-
-                    // Kiểm tra xem game có đang ở sai Server so với yêu cầu cấu hình không
-                    if (currState >= 2 && currState !== 3 && !pal.serverConnected && pal.server) {
-                        var currSCode = 0;
-                        if (nativeGetGSConnection !== null) {
-                            try {
-                                var gs = nativeGetGSConnection();
-                                if (!gs.isNull()) currSCode = gs.add(0xAC).readS32();
-                            } catch (eGS) {}
-                        }
-                        if (currSCode <= 0 && nativeGetCSConnection !== null) {
-                            try {
-                                var cs = nativeGetCSConnection();
-                                if (!cs.isNull()) currSCode = cs.add(0xA8).readS32();
-                            } catch (eCS) {}
-                        }
-                        if (currSCode > 0 && currSCode !== parseInt(pal.server)) {
-                            try {
-                                if (nativeMLoginSetState !== null) {
-                                    nativeMLoginSetState(mLoginInst, 3);
-                                    send({ type: "log", msg: "Phát hiện game đang ở Server " + currSCode + " nhưng cấu hình yêu cầu Server " + pal.server + ". Đang chuyển về ServerList để đổi..." });
-                                    return;
-                                }
-                            } catch (eSw) {}
-                        }
-                    }
-
-                    // Nếu game ở trạng thái ServerList (State 3): Tự động chọn server mục tiêu người dùng yêu cầu
-                    if (currState === 3 && !pal.serverConnected) {
-                        pal.serverConnected = true;
-                        var targetSrv = (pal.server && parseInt(pal.server) >= 1) ? parseInt(pal.server) : 3;
-                        try {
-                            // Gọi đúng thứ tự chuẩn của client game MEGAMU: SetState(1) sang Loading trước, rồi gửi ConnectServerSelect
-                            if (nativeMLoginSetState !== null) {
-                                nativeMLoginSetState(mLoginInst, 1);
-                            }
-                            if (nativeConnectServerSelect !== null) {
-                                nativeConnectServerSelect(targetSrv);
-                            } else if (nativeGetCSConnection !== null && nativeCSConnect !== null) {
-                                var cs = nativeGetCSConnection();
-                                if (!cs.isNull()) {
-                                    nativeCSConnect(cs, targetSrv);
-                                }
-                            }
-                        } catch (eSrv) {}
-                        autoLoginLastStatus = { done: false, submitted: true, stage: "connecting_server", server: targetSrv, account: pal.account };
-                        send({ type: "autologin_status", ok: true, stage: "connecting_server", server: targetSrv, account: pal.account });
-                        return;
-                    }
-
-                    // Khi game đã nạp xong (currState >= 2) và chưa submit:
-                    if (!pal.submitted) {
+                    // Nếu MLoginUI.Instance đã sẵn sàng và chưa submit:
+                    if (mLoginInst !== null && !mLoginInst.isNull() && !pal.submitted && pal.frames > 30) {
                         var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
 
-                        // 1. Trường hợp có Mật khẩu: Đăng nhập bằng WebAPI Form Submit và UI Automation
-                        if (pal.password && (nativeMLoginSubmit !== null || nativeUnityEvent_Invoke !== null)) {
-                            // Đảm bảo UI chuyển sang LoginForm panel (State 4)
-                            if (currState !== 4) {
-                                try {
-                                    if (nativeMLoginSetState !== null) {
-                                        nativeMLoginSetState(mLoginInst, 4);
-                                    }
-                                } catch (eSt4) {}
-                                return; // Chờ 1 frame để Unity kích hoạt Panel và các InputField
-                            }
-
-                            var pwdStr = il2cpp_string_new(Memory.allocUtf8String(pal.password));
-                            var uInput = ptr(0);
-                            var pInput = ptr(0);
-                            try {
-                                uInput = mLoginInst.add(0x98).readPointer();
-                                pInput = mLoginInst.add(0xA0).readPointer();
-                            } catch (eInp) {}
-
-                            // Nếu các ô InputField chưa sẵn sàng thì đợi frame sau
-                            if (uInput.isNull() || pInput.isNull()) {
-                                return;
-                            }
-
+                        // 1. Trường hợp có Mật khẩu: Đăng nhập bằng WebAPI Form Submit
+                        if (pal.password && nativeMLoginSubmit !== null) {
                             pal.submitted = true;
-
-                            // Điền text vào InputField và tick nhớ mật khẩu
-                            try {
-                                if (nativeInputField_set_text !== null) {
-                                    nativeInputField_set_text(uInput, accStr);
-                                    nativeInputField_set_text(pInput, pwdStr);
-                                }
-                                uInput.add(0x180).writePointer(accStr);
-                                pInput.add(0x180).writePointer(pwdStr);
-
-                                var remToggle = mLoginInst.add(0xA8).readPointer();
-                                if (!remToggle.isNull()) {
-                                    remToggle.add(0x120).writeU8(1);
-                                }
-                            } catch (eFill) {}
-
-                            // Kích hoạt Event Enter Button hoặc gọi direct native submit
-                            var clickedEnter = false;
-                            try {
-                                var enterBtn = mLoginInst.add(0xB0).readPointer();
-                                if (!enterBtn.isNull() && nativeUnityEvent_Invoke !== null) {
-                                    var onClick = enterBtn.add(0x100).readPointer();
-                                    if (!onClick.isNull()) {
-                                        nativeUnityEvent_Invoke(onClick);
-                                        clickedEnter = true;
-                                    }
-                                }
-                            } catch (eBtn) {}
-
-                            if (!clickedEnter && nativeMLoginSubmit !== null) {
-                                try {
-                                    nativeMLoginSubmit(mLoginInst, accStr, pwdStr, 1);
-                                } catch (eSub) {}
-                            }
-
+                            var pwdStr = il2cpp_string_new(Memory.allocUtf8String(pal.password));
+                            nativeMLoginSubmit(mLoginInst, accStr, pwdStr, 1);
                             autoLoginLastStatus = { done: false, submitted: true, stage: "submitted_password", account: pal.account };
                             send({ type: "autologin_status", ok: true, stage: "submitted_password", account: pal.account });
                             return;
@@ -3672,8 +3136,7 @@ try {
                                 try {
                                     var cs = nativeGetCSConnection();
                                     if (!cs.isNull()) {
-                                        var targetSrv = (pal.server && parseInt(pal.server) >= 1) ? parseInt(pal.server) : 3;
-                                        nativeCSConnect(cs, targetSrv);
+                                        nativeCSConnect(cs, -1);
                                     }
                                 } catch (eCS) {}
                             }
@@ -3699,7 +3162,23 @@ try {
     }
 } catch (eHookGU) {}
 
+var pDomainGet = ga.findExportByName('il2cpp_domain_get');
+var pThreadAttach = ga.findExportByName('il2cpp_thread_attach');
+var pObjectNew = ga.findExportByName('il2cpp_object_new');
+var il2cpp_domain_get = pDomainGet ? new NativeFunction(pDomainGet, 'pointer', []) : null;
+var il2cpp_thread_attach = pThreadAttach ? new NativeFunction(pThreadAttach, 'pointer', ['pointer']) : null;
+var il2cpp_object_new = pObjectNew ? new NativeFunction(pObjectNew, 'pointer', ['pointer']) : null;
 
+function ensureThreadAttached() {
+    try {
+        if (il2cpp_domain_get && il2cpp_thread_attach) {
+            var domain = il2cpp_domain_get();
+            if (!domain.isNull()) {
+                il2cpp_thread_attach(domain);
+            }
+        }
+    } catch (e) {}
+}
 
 
 
@@ -3888,7 +3367,55 @@ fastTelemetryTimer = setInterval(fastTelemetryTick, 150);
 fastTelemetryTick();
 
 var _nativeMirrorTurboTimer = null;
-var _nativeMirrorTurboStats = { running: false, packetsSent: 0, startTime: 0, durationMs: 0, activeSlot: -1, relSlot: -1, entered: false };
+var doubleGoerEnterRecvHook = null;
+var _mirrorPinnedArrPtr = null;
+var _mirrorPinnedHandle = 0;
+var _sockErrBuf = null;
+var _savedTurboTargetFps = null;
+var _savedTurboVSyncCount = null;
+var _pendingMirrorFpsBoost = false;
+var _pendingMirrorFpsRestore = false;
+var _pendingMirrorPreStage = null;
+var _pendingMirrorRescanTicket = false;
+var _mirrorLastMainTickMs = 0;
+
+var _nativeMirrorTurboStats = {
+    running: false,
+    armed: false,
+    armStartEpochMs: 0,
+    packetsSent: 0,
+    mainThreadHits: 0,
+    directSocketHits: 0,
+    fallbackHits: 0,
+    directSocketErrors: 0,
+    startTime: 0,
+    durationMs: 0,
+    intervalMs: 10,
+    staggerMs: 0,
+    activeSlot: -1,
+    relSlot: -1,
+    entered: false,
+    serverAccepted: false,
+    spamPaused: false,
+    needLugardWarm: false,
+    directSocketFast: true,
+    ackPaced: true,
+    ackInFlight: false,
+    lastSendMs: 0,
+    firstSendMs: 0,
+    firstAckRecorded: false,
+    lastRecvMs: 0,
+    lastRecvCode: -1,
+    prevRecvCode: -1,
+    rCodeCounts: {},
+    probePendingSendMs: 0,
+    probeMode: false,
+    rttMs: -1,
+    minRttMs: -1,
+    serverOpenEpochMs: 0,
+    preStagedAtMs: 0,
+    fpsBoosted: false
+};
 
 function cleanupNativeTurbo() {
     if (_nativeMirrorTurboTimer !== null) {
@@ -3897,124 +3424,523 @@ function cleanupNativeTurbo() {
     }
 }
 
-// =========================================================================
-// REA HOOK: TableEventEntryLevel.EAJKFGNLDBN (RVA 0xCEA9B0)
-// Sửa lỗi client MEGAMU trả về -1 cho nhân vật Master (ChangeUp >= 2, vd: Slayer 175/197rr)
-// Khi hàm trả về -1, client MEGAMU tự động bỏ qua vòng lặp tìm vé Master (6702) và hiển thị
-// popup "You don't have a ticket for your level". Hook này đảm bảo hàm trả về cấp phòng
-// Devil Square chuẩn theo level nhân vật, giúp client tự động nhận diện vé Master.
-// =========================================================================
-var tableEventEntryLevelHook = null;
-try {
-    var offEntryLevel = off('__TABLE_EVENT_ENTRY_LEVEL__');
-    if (!offEntryLevel.isNull()) {
-        tableEventEntryLevelHook = Interceptor.attach(baseAddr.add(offEntryLevel), {
-            onEnter: function(args) {
-                if (shuttingDown) return;
-                // args[0] = TableEventEntryLevel this
-                // args[1] = type (0 = DevilSquare, 1 = BloodCastle, 2 = ChaosCastle, 3 = IllusionTemple)
-                // args[2] = body (Player Body)
-                this.isDS = (args[1].toInt32() === 0);
-            },
-            onLeave: function(retval) {
-                if (shuttingDown) return;
-                if (this.isDS && retval.toInt32() === -1) {
-                    var dsLvl = getPlayerDevilSquareLevel();
-                    retval.replace(ptr(dsLvl));
+function freePinnedMirrorPacket() {
+    try {
+        if (_mirrorPinnedHandle && _mirrorPinnedHandle !== 0 && il2cpp_gchandle_free !== null) {
+            il2cpp_gchandle_free(_mirrorPinnedHandle);
+        }
+    } catch (eFreePin) {}
+    _mirrorPinnedHandle = 0;
+    _mirrorPinnedArrPtr = null;
+}
+
+function ensurePinnedMirrorPacket() {
+    if (_mirrorPinnedArrPtr !== null && !_mirrorPinnedArrPtr.isNull()) {
+        return _mirrorPinnedArrPtr;
+    }
+    try {
+        var arr = createManagedByteArray([0x10, 0x05, (0xBF ^ 0xCB) & 0xFF, 0x0E, 0x00]);
+        if (!arr || arr.isNull()) return null;
+        if (il2cpp_gchandle_new !== null) {
+            var h = il2cpp_gchandle_new(arr, 1);
+            if (!h) return null;
+            _mirrorPinnedHandle = h;
+            _mirrorPinnedArrPtr = arr;
+            return _mirrorPinnedArrPtr;
+        }
+    } catch (ePinArr) {}
+    return null;
+}
+
+function writePinnedMirrorFrame(arrPtr, relSlot) {
+    _c1SaltCounter = (_c1SaltCounter + 1) & 0x0F;
+    var raw = arrPtr.add(0x20);
+    raw.writeU8((0x10 + _c1SaltCounter) & 0xFF);
+    raw.add(1).writeU8(0x05);
+    raw.add(2).writeU8((0xBF ^ 0xCB) & 0xFF);
+    raw.add(3).writeU8(0x0E);
+    raw.add(4).writeU8(relSlot & 0xFF);
+}
+
+function findMirrorTicketSlotSmart() {
+    try {
+        var p = getPlayerPtr();
+        if (!p || p.isNull()) return -1;
+        var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+        if (inv.isNull()) return -1;
+        var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+        if (itemsArr.isNull()) return -1;
+        var maxSlot = 204;
+        try {
+            var arrLen = itemsArr.add(0x18).readS32();
+            if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
+        } catch (eLen) {}
+        var mainTicketSlot = -1;
+        var extTicketSlot = -1;
+        for (var s = 12; s < maxSlot; s++) {
+            var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+            if (!itemPtr.isNull()) {
+                var idx = readItemIndex(itemPtr);
+                var check = checkMirrorItem(itemPtr, idx);
+                if (check.isTicket) {
+                    if (s < 76 && mainTicketSlot < 0) {
+                        mainTicketSlot = s;
+                        break;
+                    } else if (s >= 76 && extTicketSlot < 0) {
+                        extTicketSlot = s;
+                    }
                 }
             }
-        });
-    }
-} catch (eHookEntryLevel) {}
+        }
+        return (mainTicketSlot >= 12) ? mainTicketSlot : extTicketSlot;
+    } catch (eScan) {}
+    return -1;
+}
 
-// =========================================================================
-// REA HOOK: HelperUI.LPFAFDNGGLF (ShowDialog - RVA 0x1BFEA00)
-// Chặn triệt để popup báo lỗi "You don't have a ticket for your level" trên client
-// =========================================================================
-var helperUIShowDialogHook = null;
-try {
-    var offHSDHook = off('__HELPER_UI_SHOW_DIALOG__');
-    if (!offHSDHook.isNull()) {
-        helperUIShowDialogHook = Interceptor.attach(baseAddr.add(offHSDHook), {
-            onEnter: function(args) {
-                this.suppress = false;
-                if (shuttingDown) return;
-                try {
-                    var msg = "";
-                    if (args[2] && !args[2].isNull()) {
-                        var len = args[2].add(0x10).readS32();
-                        if (len > 0 && len < 256) {
-                            msg = args[2].add(0x14).readUtf16String(len);
-                        }
-                    }
-                    var lowMsg = msg.toLowerCase();
-                    if (lowMsg.indexOf("ticket for your level") !== -1 || lowMsg.indexOf("don't have a ticket") !== -1) {
-                        this.suppress = true;
-                    }
-                } catch (eMsg) {}
-            },
-            onLeave: function(retval) {
-                if (this.suppress) {
-                    retval.replace(ptr(0));
-                }
-            }
-        });
-    }
-} catch (eHSDHook) {}
+function boostMirrorTurboFpsMainThread() {
+    _pendingMirrorFpsBoost = false;
+    try {
+        if (_savedTurboTargetFps === null && nativeGetTargetFps !== null) {
+            try { _savedTurboTargetFps = nativeGetTargetFps(); } catch (eGF) {}
+        }
+        if (_savedTurboVSyncCount === null && nativeGetVSyncCount !== null) {
+            try { _savedTurboVSyncCount = nativeGetVSyncCount(); } catch (eGV) {}
+        }
+        if (nativeSetVSyncCount !== null) {
+            try { nativeSetVSyncCount(0); } catch (eSV) {}
+        }
+        if (nativeSetTargetFps !== null) {
+            try { nativeSetTargetFps(240); } catch (eSF) {}
+        }
+        _nativeMirrorTurboStats.fpsBoosted = true;
+    } catch (eBoost) {}
+}
 
-// =========================================================================
-// REA HOOK: HelperUI.HMIFHHIEDNL (ShowConfirm - RVA 0x1BFFFB0)
-// Tự động xác nhận vào Devil Square (100% Zero-Confirm, không cần người dùng click)
-// =========================================================================
-var helperUIShowConfirmHook = null;
-try {
-    var offShowConfirm = off('__HELPER_UI_SHOW_CONFIRM__');
-    if (!offShowConfirm.isNull()) {
-        helperUIShowConfirmHook = Interceptor.attach(baseAddr.add(offShowConfirm), {
-            onEnter: function(args) {
-                this.autoConfirm = false;
-                if (shuttingDown) return;
+function restoreMirrorTurboFpsMainThread() {
+    _pendingMirrorFpsRestore = false;
+    try {
+        if (_savedTurboTargetFps !== null && nativeSetTargetFps !== null) {
+            try { nativeSetTargetFps(parseInt(_savedTurboTargetFps)); } catch (eRF) {}
+        }
+        if (_savedTurboVSyncCount !== null && nativeSetVSyncCount !== null) {
+            try { nativeSetVSyncCount(parseInt(_savedTurboVSyncCount)); } catch (eRV) {}
+        }
+    } catch (eRest) {}
+    _savedTurboTargetFps = null;
+    _savedTurboVSyncCount = null;
+    _nativeMirrorTurboStats.fpsBoosted = false;
+}
+
+function dispatchMirrorEnterPacketFast(relSlot) {
+    try {
+        var gs = getGSConnection();
+        var rSlot = relSlot & 0xFF;
+        var pinnedPtr = ensurePinnedMirrorPacket();
+
+        if (!gs.isNull() && pinnedPtr !== null && !pinnedPtr.isNull()) {
+            writePinnedMirrorFrame(pinnedPtr, rSlot);
+
+            // Method 5: Direct Socket.Send Fast-Path trên Unity MainThread (bỏ qua SendAsync/TaskFactory)
+            if (_nativeMirrorTurboStats.directSocketFast &&
+                nativePktEncNikini !== null &&
+                nativePktEncNgjg !== null &&
+                nativeSocketSendErr !== null) {
                 try {
-                    var title = "";
-                    if (args[2] && !args[2].isNull()) {
-                        var tLen = args[2].add(0x10).readS32();
-                        if (tLen > 0 && tLen < 128) title = args[2].add(0x14).readUtf16String(tLen);
-                    }
-                    var msg = "";
-                    if (args[3] && !args[3].isNull()) {
-                        var mLen = args[3].add(0x10).readS32();
-                        if (mLen > 0 && mLen < 256) msg = args[3].add(0x14).readUtf16String(mLen);
-                    }
-                    var lowT = title.toLowerCase();
-                    var lowM = msg.toLowerCase();
-                    if (lowT.indexOf("devil") !== -1 || lowM.indexOf("devil") !== -1) {
-                        var actionPtr = null;
-                        try {
-                            actionPtr = this.context.rsp.add(0x30).readPointer();
-                        } catch (eStk) {}
-                        if (!actionPtr || actionPtr.isNull()) {
-                            try { actionPtr = args[5]; } catch (eA5) {}
-                        }
-                        if (actionPtr && !actionPtr.isNull()) {
-                            var mPtr = actionPtr.add(0x10).readPointer();
-                            var target = actionPtr.add(0x18).readPointer();
-                            if (!mPtr.isNull()) {
-                                var actFn = new NativeFunction(mPtr, 'void', ['pointer', 'bool', 'pointer']);
-                                actFn(target, 1, ptr(0));
-                                this.autoConfirm = true;
+                    if (_sockErrBuf === null) _sockErrBuf = Memory.alloc(4);
+                    var tcp = gs.add(0x90).readPointer();
+                    if (!tcp.isNull()) {
+                        var sock = tcp.add(0x10).readPointer();
+                        if (!sock.isNull() && sock.add(0x52).readU8() === 1) {
+                            var encArr = nativePktEncNikini(pinnedPtr, gs.add(0xC0), ptr(0));
+                            if (encArr && !encArr.isNull()) {
+                                var encLen = encArr.add(0x18).readS32();
+                                if (encLen > 0) {
+                                    nativePktEncNgjg(encArr, encArr, ptr(0));
+                                    _sockErrBuf.writeS32(0);
+                                    var sentBytes = nativeSocketSendErr(sock, encArr, 0, encLen, 0, _sockErrBuf, ptr(0));
+                                    var sockErr = _sockErrBuf.readS32();
+                                    if (sentBytes > 0 && sockErr === 0) {
+                                        if (nativeGetUnityTime !== null) {
+                                            try { gs.add(0x74).writeFloat(nativeGetUnityTime()); } catch (eUT) {}
+                                        }
+                                        try { gs.add(0xB8).writeS32(gs.add(0xB8).readS32() + 1); } catch (eSC) {}
+                                        _nativeMirrorTurboStats.directSocketHits += 1;
+                                        return true;
+                                    }
+                                    _nativeMirrorTurboStats.directSocketErrors += 1;
+                                    // Đã tăng SendSerial trong NIKINIHADGM -> không gọi nativeGSSend lại gói này
+                                    return false;
+                                }
                             }
                         }
                     }
-                } catch (eConfirm) {}
-            },
-            onLeave: function(retval) {
-                if (this.autoConfirm) {
-                    retval.replace(ptr(0));
+                } catch (eSockFast) {
+                    _nativeMirrorTurboStats.directSocketErrors += 1;
                 }
+            }
+
+            // Method 2 fallback: Zero-alloc pinned nativeGSSend trực tiếp trên Unity MainThread
+            if (sendGSPacketDirect(gs, pinnedPtr)) {
+                _nativeMirrorTurboStats.fallbackHits += 1;
+                return true;
+            }
+        }
+
+        // Native/managed fallback cuối
+        if (nativeMirrorEnterAlt !== null) {
+            try {
+                nativeMirrorEnterAlt(rSlot);
+                _nativeMirrorTurboStats.fallbackHits += 1;
+                return true;
+            } catch (eNEA) {}
+        }
+        if (sendMirrorEnterPacket(rSlot)) {
+            _nativeMirrorTurboStats.fallbackHits += 1;
+            return true;
+        }
+    } catch (eDisp) {}
+    return false;
+}
+
+function finishMirrorTurbo(msgType, enteredFlag) {
+    _nativeMirrorTurboStats.running = false;
+    _nativeMirrorTurboStats.armed = false;
+    _nativeMirrorTurboStats.spamPaused = false;
+    _nativeMirrorTurboStats.ackInFlight = false;
+    if (enteredFlag) _nativeMirrorTurboStats.entered = true;
+    cleanupNativeTurbo();
+    _pendingMirrorFpsRestore = true;
+    try {
+        var nowMs = Date.now();
+        var elapsed = _nativeMirrorTurboStats.startTime > 0 ? (nowMs - _nativeMirrorTurboStats.startTime) : 0;
+        send({
+            type: msgType,
+            packets: _nativeMirrorTurboStats.packetsSent,
+            elapsed: elapsed,
+            mainThreadHits: _nativeMirrorTurboStats.mainThreadHits,
+            directSocketHits: _nativeMirrorTurboStats.directSocketHits,
+            fallbackHits: _nativeMirrorTurboStats.fallbackHits,
+            rttMs: _nativeMirrorTurboStats.rttMs,
+            minRttMs: _nativeMirrorTurboStats.minRttMs,
+            lastRecvCode: _nativeMirrorTurboStats.lastRecvCode,
+            rCodeCounts: _nativeMirrorTurboStats.rCodeCounts,
+            serverOpenEpochMs: _nativeMirrorTurboStats.serverOpenEpochMs
+        });
+    } catch (eFin) {}
+}
+
+function handleMirrorEnterRecv(rCode, recvAtMs) {
+    var st = _nativeMirrorTurboStats;
+    st.prevRecvCode = st.lastRecvCode;
+    st.lastRecvCode = rCode;
+    st.lastRecvMs = recvAtMs;
+    var kCode = String(rCode);
+    st.rCodeCounts[kCode] = (st.rCodeCounts[kCode] || 0) + 1;
+
+    if (st.probePendingSendMs > 0) {
+        var rttSample = recvAtMs - st.probePendingSendMs;
+        if (rttSample >= 1 && rttSample <= 2000) {
+            st.rttMs = (st.rttMs < 0) ? rttSample : Math.round(st.rttMs * 0.6 + rttSample * 0.4);
+            st.minRttMs = (st.minRttMs < 0) ? rttSample : Math.min(st.minRttMs, rttSample);
+        }
+        st.probePendingSendMs = 0;
+    } else if (st.firstSendMs > 0 && !st.firstAckRecorded && st.packetsSent <= 2) {
+        var firstRtt = recvAtMs - st.firstSendMs;
+        if (firstRtt >= 1 && firstRtt <= 2000) {
+            st.rttMs = (st.rttMs < 0) ? firstRtt : Math.round(st.rttMs * 0.6 + firstRtt * 0.4);
+            st.minRttMs = (st.minRttMs < 0) ? firstRtt : Math.min(st.minRttMs, firstRtt);
+        }
+        st.firstAckRecorded = true;
+    }
+
+    st.ackInFlight = false;
+
+    if (rCode === 0) {
+        if (!st.serverAccepted) {
+            st.serverAccepted = true;
+            st.spamPaused = true;
+            if (st.prevRecvCode === 6 || st.serverOpenEpochMs === 0) {
+                st.serverOpenEpochMs = recvAtMs;
+            }
+            try {
+                send({
+                    type: "mirror_enter_recv",
+                    rCode: 0,
+                    serverOpenEpochMs: st.serverOpenEpochMs,
+                    recvAtMs: recvAtMs,
+                    rttMs: st.rttMs,
+                    minRttMs: st.minRttMs,
+                    packets: st.packetsSent,
+                    elapsed: st.startTime > 0 ? (recvAtMs - st.startTime) : 0,
+                    probe: st.probeMode
+                });
+            } catch (eR0) {}
+        }
+        st.probeMode = false;
+        return;
+    }
+
+    if (rCode === 1 && st.running) {
+        _pendingMirrorRescanTicket = true;
+    }
+
+    if (st.probeMode || rCode !== st.prevRecvCode) {
+        try {
+            send({
+                type: "mirror_enter_recv",
+                rCode: rCode,
+                recvAtMs: recvAtMs,
+                rttMs: st.rttMs,
+                minRttMs: st.minRttMs,
+                packets: st.packetsSent,
+                probe: st.probeMode
+            });
+        } catch (eRN) {}
+        if (st.probeMode) st.probeMode = false;
+    }
+}
+
+function tickNativeMirrorTurboMainThread() {
+    var nowMs = Date.now();
+    _mirrorLastMainTickMs = nowMs;
+
+    if (_pendingMirrorFpsRestore) {
+        restoreMirrorTurboFpsMainThread();
+    }
+    if (_pendingMirrorFpsBoost) {
+        boostMirrorTurboFpsMainThread();
+    }
+
+    if (_pendingMirrorPreStage !== null) {
+        var ps = _pendingMirrorPreStage;
+        _pendingMirrorPreStage = null;
+        try {
+            ensurePinnedMirrorPacket();
+            if (nativeCloseTalk !== null) {
+                try { nativeCloseTalk(); } catch (eCT1) {}
+            }
+            sendLugardTalkPacket();
+            _nativeMirrorTurboStats.preStagedAtMs = nowMs;
+            if (ps.measureProbe && ps.relSlot >= 0) {
+                _nativeMirrorTurboStats.probeMode = true;
+                _nativeMirrorTurboStats.probePendingSendMs = Date.now();
+                dispatchMirrorEnterPacketFast(ps.relSlot);
+            }
+        } catch (ePS) {}
+    }
+
+    if (_pendingMirrorRescanTicket && _nativeMirrorTurboStats.running) {
+        _pendingMirrorRescanTicket = false;
+        var nextSlot = findMirrorTicketSlotSmart();
+        if (nextSlot >= 12) {
+            _nativeMirrorTurboStats.activeSlot = nextSlot;
+            _nativeMirrorTurboStats.relSlot = nextSlot - 12;
+        }
+    }
+
+    var st = _nativeMirrorTurboStats;
+    if (!st.running && !st.armed) return;
+
+    // Kiểm tra đã thực sự vào map Double Goer (65..68)
+    if (isCurrentMapDoubleGoer()) {
+        finishMirrorTurbo("mirror_turbo_entered", true);
+        return;
+    }
+
+    // Chế độ Pre-Armed Gate (Method 4): Đợi đúng mốc startAtEpochMs trên đồng hồ máy
+    if (st.armed && !st.running) {
+        if (!st.fpsBoosted && (st.armStartEpochMs - nowMs) <= 2000) {
+            boostMirrorTurboFpsMainThread();
+        }
+        if (nowMs >= st.armStartEpochMs) {
+            st.armed = false;
+            st.running = true;
+            st.startTime = nowMs;
+            st.firstSendMs = nowMs;
+            st.firstAckRecorded = false;
+            if (!st.fpsBoosted) boostMirrorTurboFpsMainThread();
+        } else {
+            return;
+        }
+    }
+
+    if (!st.running) return;
+
+    var elapsed = nowMs - st.startTime;
+    if (elapsed >= st.durationMs) {
+        finishMirrorTurbo("mirror_turbo_timeout", false);
+        return;
+    }
+
+    // Nếu server vừa trả R=0 (accept), tạm dừng spam chờ warp map hoàn tất (tối đa 2500ms)
+    if (st.spamPaused) {
+        if (st.lastRecvMs > 0 && (nowMs - st.lastRecvMs) < 2500) {
+            return;
+        }
+        st.spamPaused = false;
+        st.serverAccepted = false;
+    }
+
+    if (st.needLugardWarm) {
+        st.needLugardWarm = false;
+        if (nativeCloseTalk !== null) {
+            try { nativeCloseTalk(); } catch (eCT2) {}
+        }
+        sendLugardTalkPacket();
+        st.preStagedAtMs = nowMs;
+    }
+
+    // Pacing: intMs = 0 -> bắn mỗi frame; intMs >= 1 -> bắn khi đủ intMs (hoặc server vừa ACK R=6/2 trong chế độ ackPaced)
+    var dueByTime = (st.lastSendMs === 0) || ((nowMs - st.lastSendMs) >= st.intervalMs);
+    var dueByAck = st.ackPaced && !st.ackInFlight && (st.lastRecvMs > st.lastSendMs) && ((nowMs - st.lastSendMs) >= Math.min(st.intervalMs, 2));
+    if (!dueByTime && !dueByAck) {
+        return;
+    }
+
+    st.lastSendMs = nowMs;
+    st.ackInFlight = true;
+    dispatchMirrorEnterPacketFast(st.relSlot);
+    st.packetsSent += 1;
+    st.mainThreadHits += 1;
+}
+
+try {
+    var dgerOff = off('__DOUBLEGOER_ENTER_RECV__');
+    if (!dgerOff.isNull()) {
+        doubleGoerEnterRecvHook = Interceptor.attach(baseAddr.add(dgerOff), {
+            onEnter: function(args) {
+                if (shuttingDown) return;
+                try {
+                    var arrPtr = args[0];
+                    if (arrPtr && !arrPtr.isNull()) {
+                        var len = arrPtr.add(0x18).readS32();
+                        if (len >= 5) {
+                            var rCode = arrPtr.add(0x24).readU8();
+                            handleMirrorEnterRecv(rCode, Date.now());
+                        }
+                    }
+                } catch (eDGER) {}
             }
         });
     }
-} catch (eHSCFH) {}
+} catch (eHookDGER) {}
+
+function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtEpochMs, optionsObj) {
+    ensureThreadAttached();
+    cleanupNativeTurbo();
+
+    var opts = (optionsObj && typeof optionsObj === "object") ? optionsObj : {};
+    var itemSlot = -1;
+    if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
+        itemSlot = parseInt(slot);
+    } else {
+        itemSlot = findMirrorTicketSlotSmart();
+    }
+
+    if (itemSlot < 0) {
+        return { success: false, error: "no_ticket" };
+    }
+
+    var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
+    var parsedInt = (intervalMs !== undefined && intervalMs !== null) ? parseInt(intervalMs) : 10;
+    if (isNaN(parsedInt)) parsedInt = 10;
+    var intMs = Math.max(0, Math.min(1000, parsedInt));
+    var maxDur = (maxDurationMs !== undefined && parseInt(maxDurationMs) >= 1000) ? parseInt(maxDurationMs) : 15000;
+    var nowMs = Date.now();
+    var targetEpoch = (startAtEpochMs !== undefined && startAtEpochMs !== null) ? Number(startAtEpochMs) : 0;
+    var isArmedFuture = !isNaN(targetEpoch) && (targetEpoch > nowMs + 10);
+    var recentlyStaged = (_nativeMirrorTurboStats.preStagedAtMs > 0) && ((nowMs - _nativeMirrorTurboStats.preStagedAtMs) <= 15000);
+
+    _nativeMirrorTurboStats.running = !isArmedFuture;
+    _nativeMirrorTurboStats.armed = isArmedFuture;
+    _nativeMirrorTurboStats.armStartEpochMs = isArmedFuture ? targetEpoch : 0;
+    _nativeMirrorTurboStats.packetsSent = 0;
+    _nativeMirrorTurboStats.mainThreadHits = 0;
+    _nativeMirrorTurboStats.directSocketHits = 0;
+    _nativeMirrorTurboStats.fallbackHits = 0;
+    _nativeMirrorTurboStats.directSocketErrors = 0;
+    _nativeMirrorTurboStats.startTime = isArmedFuture ? 0 : nowMs;
+    _nativeMirrorTurboStats.durationMs = maxDur;
+    _nativeMirrorTurboStats.intervalMs = intMs;
+    _nativeMirrorTurboStats.staggerMs = opts.staggerMs ? Number(opts.staggerMs) : 0;
+    _nativeMirrorTurboStats.activeSlot = itemSlot;
+    _nativeMirrorTurboStats.relSlot = relSlot;
+    _nativeMirrorTurboStats.entered = false;
+    _nativeMirrorTurboStats.serverAccepted = false;
+    _nativeMirrorTurboStats.spamPaused = false;
+    _nativeMirrorTurboStats.needLugardWarm = (opts.preStaged === true || recentlyStaged) ? false : true;
+    _nativeMirrorTurboStats.directSocketFast = (opts.directSocket !== false);
+    _nativeMirrorTurboStats.ackPaced = (opts.ackPaced !== false);
+    _nativeMirrorTurboStats.ackInFlight = false;
+    _nativeMirrorTurboStats.lastSendMs = 0;
+    _nativeMirrorTurboStats.firstSendMs = isArmedFuture ? 0 : nowMs;
+    _nativeMirrorTurboStats.firstAckRecorded = false;
+    _nativeMirrorTurboStats.lastRecvCode = -1;
+    _nativeMirrorTurboStats.prevRecvCode = -1;
+    _nativeMirrorTurboStats.rCodeCounts = {};
+    _nativeMirrorTurboStats.probePendingSendMs = 0;
+    _nativeMirrorTurboStats.probeMode = false;
+    _nativeMirrorTurboStats.serverOpenEpochMs = 0;
+
+    if (!isArmedFuture || (targetEpoch - nowMs) <= 2500) {
+        _pendingMirrorFpsBoost = true;
+    }
+
+    // Watchdog an toàn (dùng cho test contract _nativeMirrorTurboTimer + fallback nếu Game.Update bị pause hoàn toàn)
+    var watchInterval = Math.max(25, Math.min(120, intMs > 0 ? intMs * 2 : 50));
+    _nativeMirrorTurboTimer = setInterval(function() {
+        try {
+            ensureThreadAttached();
+            var st = _nativeMirrorTurboStats;
+            if (!st.running && !st.armed) {
+                cleanupNativeTurbo();
+                return;
+            }
+            var tNow = Date.now();
+            if (isCurrentMapDoubleGoer()) {
+                finishMirrorTurbo("mirror_turbo_entered", true);
+                return;
+            }
+            if (st.armed && !st.running) {
+                if (tNow >= st.armStartEpochMs && (_mirrorLastMainTickMs === 0 || (tNow - _mirrorLastMainTickMs) > 300)) {
+                    st.armed = false;
+                    st.running = true;
+                    st.startTime = tNow;
+                    st.firstSendMs = tNow;
+                } else {
+                    return;
+                }
+            }
+            if (st.running && st.startTime > 0 && (tNow - st.startTime) >= st.durationMs) {
+                finishMirrorTurbo("mirror_turbo_timeout", false);
+                return;
+            }
+            // Chỉ bắn từ watchdog nếu Unity MainThread Update chưa tick trong >300ms (tránh race SendSerial!)
+            if (st.running && !st.spamPaused && (tNow - _mirrorLastMainTickMs) > 300 && (tNow - st.lastSendMs) >= Math.max(10, st.intervalMs)) {
+                st.lastSendMs = tNow;
+                if (nativeMirrorEnterAlt !== null) {
+                    try { nativeMirrorEnterAlt(st.relSlot); } catch (eWN) {}
+                } else {
+                    sendMirrorEnterPacket(st.relSlot);
+                }
+                st.packetsSent += 1;
+                st.fallbackHits += 1;
+            }
+        } catch (eWatch) {}
+    }, watchInterval);
+
+    return {
+        success: true,
+        armed: isArmedFuture,
+        startAtEpochMs: isArmedFuture ? targetEpoch : nowMs,
+        slot: itemSlot,
+        relSlot: relSlot,
+        intervalMs: intMs,
+        directSocketFast: _nativeMirrorTurboStats.directSocketFast,
+        ackPaced: _nativeMirrorTurboStats.ackPaced,
+        fpsBoostQueued: _pendingMirrorFpsBoost
+    };
+}
 
 rpc.exports = {
     getPlayerInfo: function() {
@@ -4678,8 +4604,9 @@ rpc.exports = {
                 var lo = npc.index & 0xFF;
                 var hi = (npc.index >> 8) & 0xFF;
                 var encTalk = 0x30 ^ 0xCB; // 0xFB
-                sendGSPacket([0xC1, 0x05, encTalk, lo, hi]);
-                sendGSPacket([0xC1, 0x05, 0x30, lo, hi]);
+                if (!sendGSPacket([0xC1, 0x05, encTalk, lo, hi], true)) {
+                    sendGSPacket([0xC1, 0x05, 0x30, lo, hi]);
+                }
             }
 
             // 2. Gọi native NpcManager.GEBGEGOEFAD(npc.ptr) (RVA 0x1023B10) - Hàm client gửi packet 0x30
@@ -4950,136 +4877,104 @@ rpc.exports = {
         }
     },
 
-    startNativeMirrorTurbo: function(slot, intervalMs, maxDurationMs) {
+    preStageMirrorTurbo: function(slot, measureProbe) {
         try {
             ensureThreadAttached();
-            if (_nativeMirrorTurboTimer !== null) {
-                clearInterval(_nativeMirrorTurboTimer);
-                _nativeMirrorTurboTimer = null;
-            }
-            var itemSlot = -1;
-            if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
-                itemSlot = parseInt(slot);
-            } else {
-                try {
-                    var p = getPlayerPtr();
-                    if (!p.isNull()) {
-                        var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
-                        if (!inv.isNull()) {
-                            var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
-                            if (!itemsArr.isNull()) {
-                                var maxSlot = 204;
-                                try {
-                                    var arrLen = itemsArr.add(0x18).readS32();
-                                    if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
-                                } catch (eLen) {}
-                                var mainTicketSlot = -1;
-                                var extTicketSlot = -1;
-                                for (var s = 12; s < maxSlot; s++) {
-                                    var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
-                                    if (!itemPtr.isNull()) {
-                                        var idx = readItemIndex(itemPtr);
-                                        var check = checkMirrorItem(itemPtr, idx);
-                                        if (check.isTicket) {
-                                            if (s < 76 && mainTicketSlot < 0) mainTicketSlot = s;
-                                            else if (s >= 76 && extTicketSlot < 0) extTicketSlot = s;
-                                        }
-                                    }
-                                }
-                                itemSlot = (mainTicketSlot >= 12) ? mainTicketSlot : extTicketSlot;
-                            }
-                        }
-                    }
-                } catch (eScan) {}
-            }
-
-            // Đóng bất kỳ cửa sổ đối thoại NPC nào đang mở
-            if (nativeCloseTalk !== null) {
-                try { nativeCloseTalk(); } catch (eCT) {}
-            }
-
-            // Gửi packet C1:30/C1:32 tới GameServer (Server sẽ phản hồi thông báo cổng đóng nếu chưa đến giờ)
-            sendLugardTalkPacket();
-
+            var itemSlot = (slot !== undefined && slot !== null && parseInt(slot) >= 0)
+                ? parseInt(slot)
+                : findMirrorTicketSlotSmart();
             if (itemSlot < 0) {
                 return JSON.stringify({ success: false, error: "no_ticket" });
             }
-
             var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
-            var intMs = (intervalMs !== undefined && parseInt(intervalMs) >= 20) ? parseInt(intervalMs) : 35;
-            var maxDur = (maxDurationMs !== undefined && parseInt(maxDurationMs) >= 1000) ? parseInt(maxDurationMs) : 15000;
-
-            cleanupNativeTurbo();
-
-            _nativeMirrorTurboStats = {
-                running: true,
-                packetsSent: 0,
-                startTime: Date.now(),
-                durationMs: maxDur,
-                activeSlot: itemSlot,
-                relSlot: relSlot,
-                entered: false
-            };
-
-            // Bắn đợt packet & gọi Native Entry đầu tiên (0ms) - LUÔN LUÔN gửi packet chuẩn C1:05:BF:0E
-            if (nativeMirrorEnterAlt !== null) {
-                try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
-            }
-            sendMirrorEnterPacket(relSlot);
-            _nativeMirrorTurboStats.packetsSent += 1;
-
-            _nativeMirrorTurboTimer = setInterval(function() {
-                try {
-                    ensureThreadAttached();
-                    if (!_nativeMirrorTurboStats.running) {
-                        cleanupNativeTurbo();
-                        return;
-                    }
-
-                    // --- BƯỚC 1: KIỂM TRA ĐÃ VÀO MAP DOUBLE GOER (MAP ID: 65, 66, 67, 68) ---
-                    // Tuyệt đối chỉ trigger thành công khi SceneIndex thực sự thuộc 65-68!
-                    // Event Square là map 53 sẽ luôn trả về false, không bao giờ trigger ảo!
-                    if (isCurrentMapDoubleGoer()) {
-                        _nativeMirrorTurboStats.running = false;
-                        _nativeMirrorTurboStats.entered = true;
-                        cleanupNativeTurbo();
-                        send({
-                            type: "mirror_turbo_entered",
-                            packets: _nativeMirrorTurboStats.packetsSent,
-                            elapsed: Date.now() - _nativeMirrorTurboStats.startTime
-                        });
-                        return;
-                    }
-
-                    // --- BƯỚC 2: KIỂM TRA HẾT HẠN THỜI GIAN (TIMEOUT) ---
-                    var elapsed = Date.now() - _nativeMirrorTurboStats.startTime;
-                    if (elapsed >= _nativeMirrorTurboStats.durationMs) {
-                        _nativeMirrorTurboStats.running = false;
-                        cleanupNativeTurbo();
-                        send({
-                            type: "mirror_turbo_timeout",
-                            packets: _nativeMirrorTurboStats.packetsSent,
-                            elapsed: elapsed
-                        });
-                        return;
-                    }
-
-                    // --- BƯỚC 3: GỌI NATIVE ENTRY VÀ LUÔN BẮN PACKET CƯỚP CỔNG TRỰC TIẾP TẦNG MẠNG ---
-                    if (nativeMirrorEnterAlt !== null) {
-                        try { nativeMirrorEnterAlt(_nativeMirrorTurboStats.relSlot); } catch (eNEA) {}
-                    }
-                    sendMirrorEnterPacket(_nativeMirrorTurboStats.relSlot);
-                    _nativeMirrorTurboStats.packetsSent += 1;
-
-                } catch (eLoop) {}
-            }, intMs);
-
-            return JSON.stringify({
-                success: true,
+            _nativeMirrorTurboStats.activeSlot = itemSlot;
+            _nativeMirrorTurboStats.relSlot = relSlot;
+            _pendingMirrorPreStage = {
                 slot: itemSlot,
                 relSlot: relSlot,
-                intervalMs: intMs
+                measureProbe: (measureProbe === true)
+            };
+            return JSON.stringify({
+                success: true,
+                queued: true,
+                slot: itemSlot,
+                relSlot: relSlot,
+                isExtended: (itemSlot >= 76)
             });
+        } catch (ePS) {
+            return JSON.stringify({ success: false, error: ePS.toString() });
+        }
+    },
+
+    probeMirrorGate: function(slot) {
+        try {
+            ensureThreadAttached();
+            var itemSlot = (slot !== undefined && slot !== null && parseInt(slot) >= 0)
+                ? parseInt(slot)
+                : findMirrorTicketSlotSmart();
+            if (itemSlot < 0) {
+                return JSON.stringify({ success: false, error: "no_ticket" });
+            }
+            var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
+            _nativeMirrorTurboStats.activeSlot = itemSlot;
+            _nativeMirrorTurboStats.relSlot = relSlot;
+            _pendingMirrorPreStage = {
+                slot: itemSlot,
+                relSlot: relSlot,
+                measureProbe: true
+            };
+            return JSON.stringify({
+                success: true,
+                probing: true,
+                slot: itemSlot,
+                relSlot: relSlot
+            });
+        } catch (eProbe) {
+            return JSON.stringify({ success: false, error: eProbe.toString() });
+        }
+    },
+
+    getMirrorTimingStats: function() {
+        return JSON.stringify({
+            rttMs: _nativeMirrorTurboStats.rttMs,
+            minRttMs: _nativeMirrorTurboStats.minRttMs,
+            lastRecvCode: _nativeMirrorTurboStats.lastRecvCode,
+            rCodeCounts: _nativeMirrorTurboStats.rCodeCounts,
+            serverOpenEpochMs: _nativeMirrorTurboStats.serverOpenEpochMs,
+            mainThreadHits: _nativeMirrorTurboStats.mainThreadHits,
+            directSocketHits: _nativeMirrorTurboStats.directSocketHits,
+            fallbackHits: _nativeMirrorTurboStats.fallbackHits,
+            directSocketErrors: _nativeMirrorTurboStats.directSocketErrors,
+            preStagedAtMs: _nativeMirrorTurboStats.preStagedAtMs,
+            fpsBoosted: _nativeMirrorTurboStats.fpsBoosted,
+            running: _nativeMirrorTurboStats.running,
+            armed: _nativeMirrorTurboStats.armed
+        });
+    },
+
+    armNativeMirrorTurbo: function(slot, intervalMs, maxDurationMs, startAtEpochMs, optionsJson) {
+        try {
+            var opts = {};
+            if (typeof optionsJson === "string" && optionsJson.length > 0) {
+                try { opts = JSON.parse(optionsJson); } catch (eOJ) {}
+            } else if (optionsJson && typeof optionsJson === "object") {
+                opts = optionsJson;
+            }
+            return JSON.stringify(startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtEpochMs, opts));
+        } catch (eArm) {
+            return JSON.stringify({ success: false, error: eArm.toString() });
+        }
+    },
+
+    startNativeMirrorTurbo: function(slot, intervalMs, maxDurationMs, optionsJson) {
+        try {
+            var opts = {};
+            if (typeof optionsJson === "string" && optionsJson.length > 0) {
+                try { opts = JSON.parse(optionsJson); } catch (eOJ2) {}
+            } else if (optionsJson && typeof optionsJson === "object") {
+                opts = optionsJson;
+            }
+            return JSON.stringify(startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, 0, opts));
         } catch (eST) {
             return JSON.stringify({ success: false, error: eST.toString() });
         }
@@ -5089,9 +4984,14 @@ rpc.exports = {
         try {
             cleanupNativeTurbo();
             _nativeMirrorTurboStats.running = false;
+            _nativeMirrorTurboStats.armed = false;
+            _nativeMirrorTurboStats.spamPaused = false;
+            _pendingMirrorFpsRestore = true;
             return JSON.stringify({
                 stopped: true,
                 packetsSent: _nativeMirrorTurboStats.packetsSent,
+                mainThreadHits: _nativeMirrorTurboStats.mainThreadHits,
+                directSocketHits: _nativeMirrorTurboStats.directSocketHits,
                 entered: _nativeMirrorTurboStats.entered
             });
         } catch (eStop) {
@@ -5168,8 +5068,9 @@ rpc.exports = {
                 var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
                 if (nativeMirrorEnterAlt !== null) {
                     try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
+                } else {
+                    sendMirrorEnterPacket(relSlot);
                 }
-                sendMirrorEnterPacket(relSlot);
                 return JSON.stringify({
                     success: true,
                     slot: itemSlot,
@@ -6366,41 +6267,14 @@ rpc.exports = {
         }
     },
 
-    enterDevil: function(targetLevel, slot, ticketPreference) {
+    enterDevil: function(targetLevel, slot) {
         try {
             ensureThreadAttached();
             var dsLevel = (targetLevel !== undefined && targetLevel !== null && parseInt(targetLevel) >= 0) ? parseInt(targetLevel) : getPlayerDevilSquareLevel();
             var itemSlot = -1;
             var isMasterTicketUsed = false;
-            var tPref = (ticketPreference !== undefined && ticketPreference !== null) ? String(ticketPreference).toLowerCase().trim() : "auto";
-
-            var charLvl = 1;
-            try {
-                var lpInit = getPlayerPtr();
-                if (lpInit && !lpInit.isNull()) {
-                    charLvl = lpInit.add(off('__PLAYER_LEVEL__')).readS32();
-                }
-            } catch (eLvlInit) {}
-            var isMasterEligible = (charLvl >= 400 || dsLevel >= 6);
-
             if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
                 itemSlot = parseInt(slot);
-                try {
-                    var p0 = getPlayerPtr();
-                    if (!p0.isNull()) {
-                        var inv0 = p0.add(off('__PLAYER_INVENTORY__')).readPointer();
-                        if (!inv0.isNull()) {
-                            var itemsArr0 = inv0.add(off('__INVENTORY_ITEMS__')).readPointer();
-                            if (!itemsArr0.isNull()) {
-                                var itP0 = itemsArr0.add(0x20 + itemSlot * 8).readPointer();
-                                if (!itP0.isNull()) {
-                                    var chk0 = checkDevilItem(itP0);
-                                    if (chk0.isMaster) isMasterTicketUsed = true;
-                                }
-                            }
-                        }
-                    }
-                } catch (eSlotChk) {}
             } else {
                 try {
                     var p = getPlayerPtr();
@@ -6415,10 +6289,8 @@ rpc.exports = {
                                     if (arrLen > 12 && arrLen < maxSlot) maxSlot = arrLen;
                                 } catch (eLen) {}
 
-                                var masterMatchedMainSlot = -1;
-                                var masterMatchedExtSlot = -1;
-                                var normalMatchedMainSlot = -1;
-                                var normalMatchedExtSlot = -1;
+                                var masterMatchedSlot = -1;
+                                var normalMatchedSlot = -1;
                                 var anyMasterSlot = -1;
                                 var anyNormalSlot = -1;
                                 var anyTicketSlot = -1;
@@ -6430,45 +6302,47 @@ rpc.exports = {
                                         var check = checkDevilItem(itemPtr, idx);
                                         if (check.isTicket) {
                                             if (anyTicketSlot < 0) anyTicketSlot = s;
-                                            var isMain = (s < 76);
                                             if (check.isMaster) {
                                                 if (anyMasterSlot < 0) anyMasterSlot = s;
-                                                if (isMasterEligible) {
-                                                    if (isMain && masterMatchedMainSlot < 0) masterMatchedMainSlot = s;
-                                                    else if (!isMain && masterMatchedExtSlot < 0) masterMatchedExtSlot = s;
+                                                // Master: dsLevel >= 6
+                                                if (dsLevel >= 6 && masterMatchedSlot < 0) {
+                                                    masterMatchedSlot = s;
                                                 }
                                             } else {
                                                 if (anyNormalSlot < 0) anyNormalSlot = s;
-                                                var isNormMatched = (dsLevel >= 0 && (check.level === (dsLevel + 1) || (isMasterEligible && check.level >= 7)));
-                                                if (isNormMatched) {
-                                                    if (isMain && normalMatchedMainSlot < 0) normalMatchedMainSlot = s;
-                                                    else if (!isMain && normalMatchedExtSlot < 0) normalMatchedExtSlot = s;
+                                                if (check.level === (dsLevel + 1) || check.level === 0 || (dsLevel >= 6 && check.level >= 7)) {
+                                                    if (normalMatchedSlot < 0) normalMatchedSlot = s;
                                                 }
                                             }
                                         }
                                     }
                                 }
 
-                                var chosenMasterMatchedSlot = (masterMatchedMainSlot >= 12) ? masterMatchedMainSlot : masterMatchedExtSlot;
-                                var chosenNormalMatchedSlot = (normalMatchedMainSlot >= 12) ? normalMatchedMainSlot : normalMatchedExtSlot;
-
-                                // Lựa chọn vé theo cấp độ phòng Devil Square và ticketPreference:
-                                // QUY TẮC MEGAMU: Phân chia 7 cấp độ phòng nghiêm ngặt.
-                                // Nhân vật cấp thường (DS 1-6) BẮT BUỘC dùng vé thường đúng cấp (+1 đến +6).
-                                // Vé Master chỉ dùng được cho cấp Master (DS 7 / Level 900+).
-                                if (isMasterEligible) {
-                                    if (tPref === "normal" && chosenNormalMatchedSlot >= 12) {
-                                        itemSlot = chosenNormalMatchedSlot;
-                                    } else if (chosenMasterMatchedSlot >= 12) {
-                                        itemSlot = chosenMasterMatchedSlot;
+                                // Ưu tiên vé:
+                                // Nếu là Master (dsLevel >= 6): Ưu tiên Master Ticket trước, sau đó tới Normal Matched (+7)
+                                if (dsLevel >= 6) {
+                                    if (masterMatchedSlot >= 12) {
+                                        itemSlot = masterMatchedSlot;
                                         isMasterTicketUsed = true;
-                                    } else if (chosenNormalMatchedSlot >= 12) {
-                                        itemSlot = chosenNormalMatchedSlot;
+                                    } else if (anyMasterSlot >= 12) {
+                                        itemSlot = anyMasterSlot;
+                                        isMasterTicketUsed = true;
+                                    } else if (normalMatchedSlot >= 12) {
+                                        itemSlot = normalMatchedSlot;
+                                    } else if (anyTicketSlot >= 12) {
+                                        itemSlot = anyTicketSlot;
                                     }
                                 } else {
-                                    // Nhân vật DS 1..6: Bắt buộc dùng vé thường khớp cấp độ phòng
-                                    if (chosenNormalMatchedSlot >= 12) {
-                                        itemSlot = chosenNormalMatchedSlot;
+                                    // Nhân vật thường: Ưu tiên Normal Ticket đúng cấp
+                                    if (normalMatchedSlot >= 12) {
+                                        itemSlot = normalMatchedSlot;
+                                    } else if (anyNormalSlot >= 12) {
+                                        itemSlot = anyNormalSlot;
+                                    } else if (anyMasterSlot >= 12) {
+                                        itemSlot = anyMasterSlot;
+                                        isMasterTicketUsed = true;
+                                    } else if (anyTicketSlot >= 12) {
+                                        itemSlot = anyTicketSlot;
                                     }
                                 }
                             }
@@ -6477,74 +6351,47 @@ rpc.exports = {
                 } catch (eScan) {}
             }
 
-            if (itemSlot < 12) {
-                return JSON.stringify({ success: false, error: "no_matching_ticket", dsLevel: dsLevel, targetTicketLevel: dsLevel + 1 });
+            // Đóng mọi popup đối thoại trước khi gửi lệnh vào trực tiếp (Zero-prompt, Zero-dialog)
+            if (nativeCloseTalk !== null) {
+                try { nativeCloseTalk(); } catch (eCT) {}
             }
-
             var charon = getOrCreateCharonPtr();
-            // Khởi tạo tương tác NPC Charon qua mạng trước khi gửi packet vào cổng 0x90
-            sendCharonTalkPacket();
+
+            // 1. Tương tác với NPC Charon: Gửi packet C1:30 đối thoại và gọi NPC Talk
+            // Server sẽ gửi thông báo cổng đóng trực tiếp trên màn hình game nếu chưa đến giờ mở cửa!
+            try {
+                sendCharonTalkPacket();
+                if (charon && !charon.isNull()) {
+                    invokeNpcTalk(charon);
+                }
+            } catch (eCharonTalk) {}
 
             if (itemSlot >= 0) {
                 var actualSlot = (itemSlot < 12) ? (itemSlot + 12) : itemSlot;
-                var relSlot = (actualSlot >= 12) ? (actualSlot - 12) : actualSlot;
-                // Bóc tách REA: Client MEGAMU tại RVA 0xF91678 thực hiện `add dil, 0xc` trước khi ghi vào packet
-                var wireSlot = (actualSlot + 12) & 0xFF;
-
-                var charLvl = 0;
-                try {
-                    var lp = getPlayerPtr();
-                    if (lp && !lp.isNull()) {
-                        charLvl = lp.add(off('__PLAYER_LEVEL__')).readS32();
-                    }
-                } catch (eLvl) {}
-
-                // Cấp phòng chuẩn xác theo cấp độ nhân vật (TableEventEntryLevel)
-                var enterDsLevel = (dsLevel >= 0 && dsLevel <= 6) ? dsLevel : 0;
-                var levelsToSend = [enterDsLevel];
-
                 // Gửi trực tiếp vào NPC và bỏ qua xác nhận (Zero-confirm)
-                for (var li = 0; li < levelsToSend.length; li++) {
-                    var targetDsLvl = levelsToSend[li];
+                if (nativeDevilEnter !== null) {
+                    try { nativeDevilEnter(dsLevel, actualSlot, ptr(0)); } catch (eNDE1) {}
+                }
+                // Fallback qua GS packet [0xC1, 0x05, 0x90, level, slot]
+                sendDevilEnterPacket(dsLevel, actualSlot);
 
-                    // 1. GỌI TRỰC TIẾP CLOSURE IL2CPP NATIVE CỦA CLIENT (RVA 0xF91530: DevilSquare.ECEGJEAOELA.ILEAOLLJKPG)
-                    // Đây chính là hàm native được client MEGAMU gọi khi người chơi bấm nút xác nhận OK trên popup!
-                    // Thực thi trực tiếp closure này trong RAM đảm bảo 100% Zero-Confirm (không hiển thị UI, không dialog)
-                    if (nativeDevilClosureEnter !== null && typeof il2cpp_object_new !== 'undefined' && il2cpp_object_new !== null) {
-                        try {
-                            var pTIAddr = baseAddr.add(off('__DEVIL_CLOSURE_TYPE_INFO__'));
-                            if (!pTIAddr.isNull()) {
-                                var klass = pTIAddr.readPointer();
-                                if (!klass.isNull()) {
-                                    var closure = il2cpp_object_new(klass);
-                                    if (!closure.isNull()) {
-                                        closure.add(0x10).writeS32(targetDsLvl);
-                                        closure.add(0x14).writeS32(actualSlot);
-                                        nativeDevilClosureEnter(closure, 1, ptr(0));
-                                    }
-                                }
-                            }
-                        } catch (eClosure) {}
-                    }
-
-                    // 2. GỬI PACKET GIAO THỨC TẦNG MẠNG CHUẨN XÁC 100% THEO CLIENT NATIVE 0xF91530:
-                    // Packet mã hóa: [0xC1, 0x05, 0x5B (0x90 ^ 0xCB), targetDsLvl, wireSlot]
-                    sendGSPacket([0xC1, 0x05, 0x5B, targetDsLvl, wireSlot]);
-                    // Fallback raw opcode 0x90
-                    sendGSPacket([0xC1, 0x05, 0x90, targetDsLvl, wireSlot]);
-                    sendDevilEnterPacket(targetDsLvl, actualSlot);
+                if (nativeCloseTalk !== null) {
+                    try { nativeCloseTalk(); } catch (eCT2) {}
                 }
 
                 return JSON.stringify({
                     success: true,
-                    ok: true,
-                    dsLevel: enterDsLevel,
+                    dsLevel: dsLevel,
                     slot: actualSlot,
-                    wireSlot: wireSlot,
                     isMasterTicket: isMasterTicketUsed,
                     isExtended: (actualSlot >= 76)
                 });
             } else {
+                // KHÔNG CÓ VÉ: Kích hoạt client click NPC Charon (0xF760C0)
+                // Game sẽ hiển thị popup dialog "You don't have a Devil's Invitation" ngay trên màn hình game!
+                if (nativeDevilNpcClick !== null && charon && !charon.isNull()) {
+                    try { nativeDevilNpcClick(charon, ptr(0)); } catch (eDNC) {}
+                }
                 return JSON.stringify({ success: false, error: "no_ticket" });
             }
         } catch (eDE) {
@@ -6557,10 +6404,7 @@ rpc.exports = {
             ensureThreadAttached();
             var dsLevel = getPlayerDevilSquareLevel();
             var p = getPlayerPtr();
-            var charLvl = 1;
             if (!p.isNull()) {
-                try { charLvl = p.add(off('__PLAYER_LEVEL__')).readS32(); } catch (eLv) {}
-                var isMasterEligible = (charLvl >= 400 || dsLevel >= 6);
                 var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
                 if (!inv.isNull()) {
                     var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
@@ -6575,8 +6419,6 @@ rpc.exports = {
                         var normalSlots = [];
                         var masterSlots = [];
                         var matchedTickets = [];
-                        var normalMatchedTickets = [];
-                        var masterMatchedTickets = [];
                         var normalTickets = [];
                         var masterTickets = [];
 
@@ -6597,16 +6439,10 @@ rpc.exports = {
 
                                     var isMatched = false;
                                     if (check.isMaster) {
-                                        // Vé Master trong MEGAMU chỉ dành cho cấp Master (DS 7 / Level 900+)
-                                        if (dsLevel >= 6) {
-                                            isMatched = true;
-                                            masterMatchedTickets.push(s);
-                                        }
+                                        if (dsLevel >= 6) isMatched = true;
                                     } else {
-                                        // Vé thường: Khớp đúng cấp phòng (dsLevel + 1) theo 7 Tier MEGAMU
-                                        if (dsLevel >= 0 && (check.level === (dsLevel + 1) || (dsLevel >= 6 && check.level >= 7))) {
+                                        if (check.level === (dsLevel + 1) || check.level === 0 || (dsLevel >= 6 && check.level >= 7)) {
                                             isMatched = true;
-                                            normalMatchedTickets.push(s);
                                         }
                                     }
                                     if (isMatched) {
@@ -6620,24 +6456,15 @@ rpc.exports = {
                             hasNormalTicket: normalSlots.length > 0,
                             hasMasterTicket: masterSlots.length > 0,
                             hasMatchedTicket: matchedTickets.length > 0,
-                            hasEligibleMasterTicket: masterMatchedTickets.length > 0,
-                            hasEligibleNormalTicket: normalMatchedTickets.length > 0,
-                            isMasterEligible: isMasterEligible,
-                            charLevel: charLvl,
-                            dsLevel: dsLevel,
-                            targetTicketLevel: dsLevel + 1,
                             count: tickets.length,
                             normalCount: normalSlots.length,
                             masterCount: masterSlots.length,
-                            matchedCount: matchedTickets.length,
-                            normalMatchedCount: normalMatchedTickets.length,
-                            masterMatchedCount: masterMatchedTickets.length,
+                            dsLevel: dsLevel,
+                            targetTicketLevel: dsLevel + 1,
                             slots: tickets,
                             normalSlots: normalSlots,
                             masterSlots: masterSlots,
                             matchedSlots: matchedTickets,
-                            normalMatchedSlots: normalMatchedTickets,
-                            masterMatchedSlots: masterMatchedTickets,
                             normalTickets: normalTickets,
                             masterTickets: masterTickets
                         });
@@ -6650,18 +6477,9 @@ rpc.exports = {
             hasNormalTicket: false,
             hasMasterTicket: false,
             hasMatchedTicket: false,
-            hasEligibleMasterTicket: false,
-            hasEligibleNormalTicket: false,
-            isMasterEligible: false,
-            charLevel: 1,
-            dsLevel: 0,
-            targetTicketLevel: 1,
             count: 0,
             normalCount: 0,
             masterCount: 0,
-            matchedCount: 0,
-            normalMatchedCount: 0,
-            masterMatchedCount: 0,
             slots: []
         });
     },
@@ -6671,16 +6489,20 @@ rpc.exports = {
             ensureThreadAttached();
             var p = getOrCreateCharonPtr(npcPtr);
             if (p && !p.isNull()) {
-                invokeNpcTalk(p);
-                if (nativeNpcSendTalk !== null) {
-                    try { nativeNpcSendTalk(p, ptr(0)); } catch (eNST) {}
+                if (nativeCloseTalk !== null) {
+                    try { nativeCloseTalk(); } catch (eCT) {}
                 }
                 sendCharonTalkPacket();
-                showModalBox("DEVIL SQUARE", "Entrance is currently closed", "OK");
-                return true;
-            } else {
-                sendCharonTalkPacket();
-                showModalBox("DEVIL SQUARE", "Entrance is currently closed", "OK");
+                invokeNpcTalk(p);
+                if (nativeDevilNpcClick !== null) {
+                    try { nativeDevilNpcClick(p, ptr(0)); } catch (eDN) {}
+                }
+                if (nativeUniversalNpcClick !== null) {
+                    var nm = getNpcManagerPtr();
+                    if (!nm.isNull()) {
+                        try { nativeUniversalNpcClick(nm, p, ptr(0)); } catch (eUNC) {}
+                    }
+                }
                 return true;
             }
         } catch (eDN) {}
@@ -6697,8 +6519,7 @@ rpc.exports = {
             }
             var info = readPlayerInfoSnapshot(false);
             if (info && info.mapId !== undefined && info.mapId >= 0) {
-                // Map 9: DS 1-4, Map 32: DS 5-6, Map 87: Master DS, Map 120/209: DS Event (Bóc tách từ RVA 0xF75C40)
-                return (info.mapId === 9 || info.mapId === 32 || info.mapId === 87 || info.mapId === 120 || info.mapId === 209);
+                return (info.mapId === 9 || info.mapId === 32);
             }
         } catch (eDM) {}
         return false;
@@ -7453,7 +7274,7 @@ rpc.exports = {
     autoLogin: function(server, account, character, password, token) {
         try {
             ensureThreadAttached();
-            var s = parseInt(server || 3);
+            var s = parseInt(server || 1);
             var acc = account ? String(account) : "";
             var chr = character ? String(character) : "";
             var pwd = (password !== undefined && password !== null) ? String(password) : "";
@@ -7469,7 +7290,6 @@ rpc.exports = {
                 token: tok,
                 configured: false,
                 submitted: false,
-                serverConnected: false,
                 charSelected: false,
                 frames: 0,
                 done: false
@@ -7487,27 +7307,6 @@ rpc.exports = {
 
     get_auto_login_status: function() {
         return JSON.stringify(autoLoginLastStatus);
-    },
-
-    getServerCode: function() {
-        try {
-            ensureThreadAttached();
-            if (nativeGetGSConnection !== null) {
-                var gs = nativeGetGSConnection();
-                if (!gs.isNull()) {
-                    var sCode = gs.add(0xAC).readS32();
-                    if (sCode > 0) return sCode;
-                }
-            }
-            if (nativeGetCSConnection !== null) {
-                var cs = nativeGetCSConnection();
-                if (!cs.isNull()) {
-                    var csCode = cs.add(0xA8).readS32();
-                    if (csCode > 0) return csCode;
-                }
-            }
-        } catch (e) {}
-        return 0;
     },
 
     getSceneState: function() {
@@ -7568,29 +7367,23 @@ rpc.exports = {
             }
         } catch (eGU) {}
         try {
+            if (doubleGoerEnterRecvHook !== null) {
+                doubleGoerEnterRecvHook.detach();
+                doubleGoerEnterRecvHook = null;
+            }
+        } catch (eDGD) {}
+        try {
+            cleanupNativeTurbo();
+            _nativeMirrorTurboStats.running = false;
+            _nativeMirrorTurboStats.armed = false;
+            freePinnedMirrorPacket();
+        } catch (eMTC) {}
+        try {
             if (fastTelemetryTimer !== null) {
                 clearInterval(fastTelemetryTimer);
                 fastTelemetryTimer = null;
             }
         } catch (e0) {}
-        try {
-            if (tableEventEntryLevelHook !== null) {
-                tableEventEntryLevelHook.detach();
-                tableEventEntryLevelHook = null;
-            }
-        } catch (eTEL) {}
-        try {
-            if (helperUIShowDialogHook !== null) {
-                helperUIShowDialogHook.detach();
-                helperUIShowDialogHook = null;
-            }
-        } catch (eHSD) {}
-        try {
-            if (helperUIShowConfirmHook !== null) {
-                helperUIShowConfirmHook.detach();
-                helperUIShowConfirmHook = null;
-            }
-        } catch (eHSC) {}
         try {
             Interceptor.flush();
         } catch (eF) {}
@@ -7660,8 +7453,9 @@ class MegDirectEngine:
         self.offsets = dict(DEFAULT_OFFSETS)
         self._load_offsets_file()
 
-        # Connect non-blocking (kết nối Frida sẽ được thực hiện bất đồng bộ khi cần)
+        # Connect
         self._claim_mutex()
+        self._attach()
 
     def register_telemetry_callback(self, cb: Callable[[Dict[str, Any]], None]):
         """Đăng ký callback nhận dữ liệu telemetry RAM thời gian thực (150ms)."""
@@ -7766,8 +7560,6 @@ class MegDirectEngine:
             "__MLOGIN_UI_TYPE_INFO__": str(self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x55286D0")),
             "__MLOGIN_SUBMIT__": str(self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1C27DE0")),
             "__MLOGIN_TOKEN_LOGIN__": str(self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1C28D20")),
-            "__INPUT_FIELD_SET_TEXT__": str(self.offsets.get("input_field_set_text") or DEFAULT_OFFSETS.get("input_field_set_text", "0x46C8EB0")),
-            "__UNITY_EVENT_INVOKE__": str(self.offsets.get("unity_event_invoke") or DEFAULT_OFFSETS.get("unity_event_invoke", "0x45E5B00")),
             "__SET_AUTO_LOGIN__": str(self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xEBF7C0")),
             "__MOVE_TO__": str(self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xB893E0")),
             "__START_AUTO_MOVE__": str(self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xB93B10")),
@@ -7833,18 +7625,9 @@ class MegDirectEngine:
             "__MIRROR_IS_EVENT_MAP__": str(self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0xF93060")),
             "__MIRROR_IS_EVENT_MAP_ALT__": str(self.offsets.get("mirror_is_event_map_alt") or DEFAULT_OFFSETS.get("mirror_is_event_map_alt", "0xF94270")),
             "__MIRROR_TELEPORT_EVENT__": str(self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x37F2C0")),
-            "__DEVIL_CLOSURE_ENTER__": str(self.offsets.get("devil_closure_enter") or DEFAULT_OFFSETS.get("devil_closure_enter", "0xF91530")),
-            "__DEVIL_CLOSURE_TYPE_INFO__": str(self.offsets.get("devil_closure_type_info") or DEFAULT_OFFSETS.get("devil_closure_type_info", "0x5553118")),
-            "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xF91530")),
-            "__DEVIL_ENTER_ALT__": str(self.offsets.get("devil_enter_alt") or DEFAULT_OFFSETS.get("devil_enter_alt", "0xF834C0")),
-            "__DEVIL_ENTER_1E__": str(self.offsets.get("devil_enter_1e") or DEFAULT_OFFSETS.get("devil_enter_1e", "0xF75CF0")),
-            "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xF82E70")),
-            "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xF75C40")),
-            "__TABLE_EVENT_ENTRY_LEVEL__": str(self.offsets.get("table_event_entry_level") or DEFAULT_OFFSETS.get("table_event_entry_level", "0xCEA9B0")),
-            "__HELPER_UI_GET_INSTANCE__": str(self.offsets.get("helper_ui_get_instance") or DEFAULT_OFFSETS.get("helper_ui_get_instance", "0x107EF80")),
-            "__HELPER_UI_SHOW_DIALOG__": str(self.offsets.get("helper_ui_show_dialog") or DEFAULT_OFFSETS.get("helper_ui_show_dialog", "0x1BFEA00")),
-            "__HELPER_UI_SHOW_CONFIRM__": str(self.offsets.get("helper_ui_show_confirm") or DEFAULT_OFFSETS.get("helper_ui_show_confirm", "0x1BFFFB0")),
-            "__GAME_CLASS_OFFSET__": str(self.offsets.get("game_class_offset") or DEFAULT_OFFSETS.get("game_class_offset", "0x553B900")),
+            "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xF8E2F0")),
+            "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xF8DAB0")),
+            "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xF8D0B0")),
             "__GET_GS_CONNECTION__": str(self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0x1077910")),
             "__GS_SEND__": str(self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x11F9280")),
             "__GS_SEND_ALT__": str(self.offsets.get("gs_send_alt") or DEFAULT_OFFSETS.get("gs_send_alt", "0x11F9280")),
@@ -7879,6 +7662,13 @@ class MegDirectEngine:
             "__GREMORY_TYPE_INFO__": str(self.offsets.get("gremory_type_info") or DEFAULT_OFFSETS.get("gremory_type_info", "0x553B900")),
             "__SET_TARGET_FPS__": str(self.offsets.get("set_target_framerate") or DEFAULT_OFFSETS.get("set_target_framerate", "0x458B5A0")),
             "__GET_TARGET_FPS__": str(self.offsets.get("get_target_framerate") or DEFAULT_OFFSETS.get("get_target_framerate", "0x458B550")),
+            "__SET_VSYNC_COUNT__": str(self.offsets.get("set_vsync_count") or DEFAULT_OFFSETS.get("set_vsync_count", "0x459FDF0")),
+            "__GET_VSYNC_COUNT__": str(self.offsets.get("get_vsync_count") or DEFAULT_OFFSETS.get("get_vsync_count", "0x459FDA0")),
+            "__DOUBLEGOER_ENTER_RECV__": str(self.offsets.get("mirror_enter_recv") or DEFAULT_OFFSETS.get("mirror_enter_recv", "0xF92350")),
+            "__UNITY_GET_TIME__": str(self.offsets.get("unity_get_time") or DEFAULT_OFFSETS.get("unity_get_time", "0x45D60B0")),
+            "__PKT_ENC_NIKINI__": str(self.offsets.get("pkt_enc_nikini") or DEFAULT_OFFSETS.get("pkt_enc_nikini", "0x120D1F0")),
+            "__PKT_ENC_NGJG__": str(self.offsets.get("pkt_enc_ngjg") or DEFAULT_OFFSETS.get("pkt_enc_ngjg", "0x120D930")),
+            "__SOCKET_SEND_ERR__": str(self.offsets.get("socket_send_err") or DEFAULT_OFFSETS.get("socket_send_err", "0x4285F20")),
             "__GET_SCENE_HANDLER__": str(self.offsets.get("get_scene_handler") or DEFAULT_OFFSETS.get("get_scene_handler", "0x1078500")),
             "__RUNTIME_CLASS_INIT__": str(self.offsets.get("runtime_class_init") or DEFAULT_OFFSETS.get("runtime_class_init", "0x2E9950")),
             "__GET_USER_ACCOUNT__": str(self.offsets.get("get_user_account") or DEFAULT_OFFSETS.get("get_user_account", "0x1078930")),
@@ -7889,9 +7679,6 @@ class MegDirectEngine:
             "__MLOGIN_SET_STATE__": str(self.offsets.get("mlogin_set_state") or DEFAULT_OFFSETS.get("mlogin_set_state", "0x1C33070")),
             "__AUTO_SELECT_CHARACTER__": str(self.offsets.get("auto_select_character") or DEFAULT_OFFSETS.get("auto_select_character", "0xEC6020")),
             "__UNIT_SELECT_CHARACTER__": str(self.offsets.get("unit_select_character") or DEFAULT_OFFSETS.get("unit_select_character", "0x111C0F0")),
-            "__UNIT_ENTRY_CHARACTER__": str(self.offsets.get("unit_entry_character") or DEFAULT_OFFSETS.get("unit_entry_character", "0x11203D0")),
-            "__CONNECT_SERVER_SELECT__": str(self.offsets.get("connect_server_select") or DEFAULT_OFFSETS.get("connect_server_select", "0x11F2A50")),
-            "__GET_HELPER_UI__": str(self.offsets.get("get_helper_ui") or DEFAULT_OFFSETS.get("get_helper_ui", "0x107EF80")),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -7937,22 +7724,15 @@ class MegDirectEngine:
                             _safe_log(f"[MegDirectEngine] Native Chat đã gửi thành công: '{cmd_val}'")
                         else:
                             _safe_log(f"[MegDirectEngine] Native Chat gửi lỗi '{cmd_val}': {payload.get('error')}")
-                    elif p_type in ("mirror_turbo_entered", "mirror_turbo_timeout"):
-                        self.last_mirror_turbo_result = payload
+                    elif p_type in ("mirror_turbo_entered", "mirror_turbo_timeout", "mirror_enter_recv"):
+                        if p_type != "mirror_enter_recv":
+                            self.last_mirror_turbo_result = payload
+                        else:
+                            self.last_mirror_enter_recv = payload
                         cb = getattr(self, "on_mirror_turbo_event", None)
                         if callable(cb):
                             try:
                                 cb(payload)
-                            except Exception:
-                                pass
-                    elif p_type == "autologin_status":
-                        self.last_autologin_status = payload
-                    elif p_type == "autologin_characters_found":
-                        self.last_autologin_characters = payload.get("characters", [])
-                        cb = getattr(self, "on_autologin_characters", None)
-                        if callable(cb):
-                            try:
-                                cb(payload.get("account", ""), payload.get("characters", []))
                             except Exception:
                                 pass
         except Exception:
@@ -8001,13 +7781,6 @@ class MegDirectEngine:
             if not p.is_running() or p.status() in (getattr(psutil, "STATUS_ZOMBIE", "zombie"), getattr(psutil, "STATUS_DEAD", "dead")):
                 self.is_ready = False
                 return False
-            # Bỏ qua nếu process không có bộ nhớ thực tế (< 15MB) tránh treo khi attach process lỗi
-            try:
-                if p.memory_info().rss < 15 * 1024 * 1024:
-                    self.is_ready = False
-                    return False
-            except Exception:
-                pass
         except Exception:
             self.is_ready = False
             return False
@@ -8056,6 +7829,29 @@ class MegDirectEngine:
                 except Exception:
                     pass
                 self.session = None
+            return False
+
+        if frida is None:
+            _safe_log("[MegDirectEngine] Thư viện frida chưa được cài đặt trong môi trường python.")
+            return False
+
+        try:
+            self.session = frida.attach(self.pid)
+            try:
+                self.session.on("detached", self._on_detached)
+            except Exception:
+                pass
+            js_code = self._generate_js()
+            self.script = self.session.create_script(js_code)
+            self.script.on("message", self._on_message)
+            self.script.load()
+            self.is_ready = True
+            trace_frida_event("ATTACH_SUCCESS", f"Đã kết nối Frida session thành công tới PID {self.pid}", pid=self.pid)
+            return True
+        except Exception as e:
+            trace_frida_event("ATTACH_ERROR", f"Lỗi attach Frida tới PID {self.pid}: {e}", pid=self.pid, level="ERROR")
+            _safe_log(f"[MegDirectEngine] Lỗi attach Frida tới PID {self.pid}: {e}")
+            self.is_ready = False
             return False
 
     def _call(self, func_name: str, *args, timeout: float = 4.0) -> Any:
@@ -9017,55 +8813,84 @@ class MegDirectEngine:
         return {"sold": 0, "error": "not_ready"}
 
 
-    def start_native_mirror_turbo(self, slot: Optional[int] = None, interval_ms: int = 35, max_duration_ms: int = 15000) -> Dict[str, Any]:
-        """Kích hoạt Turbo Sniping Native In-Process bên trong tiến trình game (0ms IPC overhead)."""
-        if self.is_ready:
-            try:
-                arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
-                res = self._call("startNativeMirrorTurbo", arg_slot, int(interval_ms), int(max_duration_ms))
-                if isinstance(res, str):
-                    try:
-                        return json.loads(res)
-                    except Exception:
-                        pass
-                if isinstance(res, dict):
-                    return res
-                if bool(res):
-                    return {"success": True}
-            except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi start_native_mirror_turbo: {e}")
-                return {"success": False, "error": str(e)}
-        return {"success": False, "error": "not_ready"}
+    def _call_json(self, method: str, *args: Any, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Gọi Frida RPC trả về JSON và parse thống nhất."""
+        if not self.is_ready:
+            return dict(default) if default is not None else {"success": False, "error": "not_ready"}
+        try:
+            res = self._call(method, *args)
+            if isinstance(res, str):
+                try:
+                    parsed = json.loads(res)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    pass
+            if isinstance(res, dict):
+                return res
+            if bool(res):
+                return {"success": True}
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi {method}: {e}")
+            return {"success": False, "error": str(e)}
+        return dict(default) if default is not None else {"success": False, "error": "unknown"}
+
+    def pre_stage_mirror_turbo(self, slot: Optional[int] = None, measure_probe: bool = False) -> Dict[str, Any]:
+        """Pre-stage (T-15s): Ghim buffer byte[5], làm nóng Lugard talk trên MainThread và tùy chọn đo RTT."""
+        arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
+        return self._call_json("preStageMirrorTurbo", arg_slot, bool(measure_probe))
+
+    def probe_mirror_gate(self, slot: Optional[int] = None) -> Dict[str, Any]:
+        """Gửi 1 gói thăm dò EnterMirror trên MainThread để đo RTT thực và phản hồi R code."""
+        arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
+        return self._call_json("probeMirrorGate", arg_slot)
+
+    def get_mirror_timing_stats(self) -> Dict[str, Any]:
+        """Đọc thống kê RTT, R code, MainThread/DirectSocket hits của Mirror Sniping."""
+        return self._call_json(
+            "getMirrorTimingStats",
+            default={"rttMs": -1, "minRttMs": -1, "lastRecvCode": -1, "mainThreadHits": 0, "directSocketHits": 0},
+        )
+
+    def arm_native_mirror_turbo(
+        self,
+        slot: Optional[int] = None,
+        interval_ms: int = 10,
+        max_duration_ms: int = 15000,
+        start_at_epoch_ms: int = 0,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Nạp sẵn (Arm) snipe theo mốc epoch ms đồng bộ cho nhiều acc (MainThread + DirectSocket + FPS boost)."""
+        arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
+        opts_str = json.dumps(options or {})
+        return self._call_json(
+            "armNativeMirrorTurbo",
+            arg_slot,
+            int(interval_ms),
+            int(max_duration_ms),
+            int(start_at_epoch_ms),
+            opts_str,
+        )
+
+    def start_native_mirror_turbo(
+        self,
+        slot: Optional[int] = None,
+        interval_ms: int = 35,
+        max_duration_ms: int = 15000,
+        options: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Kích hoạt Turbo Sniping Native In-Process trên Unity MainThread (0ms IPC overhead)."""
+        arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
+        opts_str = json.dumps(options or {}) if options else ""
+        return self._call_json("startNativeMirrorTurbo", arg_slot, int(interval_ms), int(max_duration_ms), opts_str)
 
     def stop_native_mirror_turbo(self) -> Dict[str, Any]:
-        """Dừng Turbo Sniping Native In-Process."""
-        if self.is_ready:
-            try:
-                res = self._call("stopNativeMirrorTurbo")
-                if isinstance(res, str):
-                    try:
-                        return json.loads(res)
-                    except Exception:
-                        pass
-                if isinstance(res, dict):
-                    return res
-                return {"stopped": True}
-            except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi stop_native_mirror_turbo: {e}")
-        return {"stopped": False}
+        """Dừng Turbo Sniping Native In-Process và khôi phục FPS/VSync."""
+        return self._call_json("stopNativeMirrorTurbo", default={"stopped": False})
 
     def get_native_mirror_turbo_status(self) -> Dict[str, Any]:
         """Lấy trạng thái Turbo Sniping Native In-Process."""
-        if self.is_ready:
-            try:
-                res = self._call("getNativeMirrorTurboStatus")
-                if isinstance(res, str):
-                    return json.loads(res)
-                if isinstance(res, dict):
-                    return res
-            except Exception:
-                pass
-        return {"running": False, "packetsSent": 0, "entered": False}
+        return self._call_json("getNativeMirrorTurboStatus", default={"running": False, "packetsSent": 0, "entered": False})
 
     def enter_mirror(self, slot: Optional[int] = None) -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Double Goer (Mirror of Dimensions)."""
@@ -9473,14 +9298,13 @@ class MegDirectEngine:
         """
         return self.run_auto_stack_all_jewels(progress_cb=progress_callback)
 
-    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None, ticket_preference: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    def enter_devil(self, level: Optional[int] = None, slot: Optional[int] = None) -> Dict[str, Any]:
         """Gửi lệnh native vào cửa sự kiện Devil Square (không cần click NPC)."""
         if self.is_ready:
             try:
                 arg_lvl = int(level) if (level is not None and int(level) >= 0) else None
                 arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
-                pref = str(ticket_preference or kwargs.get("ticket_pref") or "auto").lower()
-                res = self._call("enterDevil", arg_lvl, arg_slot, pref)
+                res = self._call("enterDevil", arg_lvl, arg_slot)
                 if isinstance(res, str):
                     try:
                         res = json.loads(res)
@@ -9523,25 +9347,15 @@ class MegDirectEngine:
         return False
 
     def is_devil_event_map(self) -> bool:
-        """Kiểm tra nhân vật hiện có đang trong map sự kiện Devil Square (Map 9, 32, 87, 120, 209) hay không."""
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Devil Square (Map ID 9 hoặc 32) hay không."""
         if self.is_ready:
             try:
                 tele = self.get_player_info()
-                if tele and "mapId" in tele and tele["mapId"] in (9, 32, 87, 120, 209):
+                if tele and "mapId" in tele and tele["mapId"] in (9, 32):
                     return True
                 return bool(self._call("isDevilEventMap"))
             except Exception:
                 pass
-        return False
-
-    def show_modal_box(self, title: str = "DEVIL SQUARE", message: str = "Entrance is currently closed", btn_text: str = "OK") -> bool:
-        """Hiển thị hộp thoại modal thông báo native trên màn hình game."""
-        if self.is_ready:
-            try:
-                res = self._call("showModalBox", str(title), str(message), str(btn_text))
-                return bool(res)
-            except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi show_modal_box: {e}")
         return False
 
     def add_stats(self, str_pts: int = 0, agi_pts: int = 0, vit_pts: int = 0, ene_pts: int = 0, cmd_pts: int = 0) -> bool:
@@ -9746,7 +9560,7 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi sell_inventory_slot: {e}")
         return False
 
-    def auto_login(self, server: int = 3, account: str = "", character: str = "", password: str = "", token: str = "") -> Dict[str, Any]:
+    def auto_login(self, server: int = 1, account: str = "", character: str = "", password: str = "", token: str = "") -> Dict[str, Any]:
         """Gửi lệnh AutoLogin native vào GameAssembly.dll, hỗ trợ QuickSwitch, token registry và submit mật khẩu trực tiếp."""
         if self.is_ready:
             try:
@@ -9757,17 +9571,6 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi auto_login: {e}")
                 return {"ok": False, "err": str(e)}
         return {"ok": False, "err": "not_ready"}
-
-    def get_server_code(self) -> int:
-        """Đọc Server Code thực tế mà game MEGAMU đang kết nối từ bộ nhớ RAM (GSConnection/CSConnection)."""
-        if self.is_ready:
-            try:
-                res = self._call("getServerCode")
-                if res:
-                    return int(res)
-            except Exception:
-                pass
-        return 0
 
     def get_scene_state(self) -> dict:
         """Lấy trạng thái SceneHandler hiện tại (type: 2=Login, 3=Lobby, 4=Playing, worldReady: bool, worldIndex: int)."""
@@ -9800,8 +9603,6 @@ class MegDirectEngine:
 
     def get_autologin_status(self) -> Dict[str, Any]:
         """Lấy trạng thái thực thi AutoLogin trên Unity Main Thread."""
-        if hasattr(self, "last_autologin_status") and self.last_autologin_status:
-            return self.last_autologin_status
         if self.is_ready:
             try:
                 res = self._call("getAutoLoginStatus")
@@ -9810,10 +9611,6 @@ class MegDirectEngine:
             except Exception as e:
                 pass
         return {"done": False, "submitted": False, "stage": "disconnected"}
-
-    def get_autologin_characters(self) -> List[Dict[str, Any]]:
-        """Lấy danh sách các nhân vật đọc được từ bộ nhớ khi login vào Scene 3 (Lobby)."""
-        return getattr(self, "last_autologin_characters", [])
 
     def detach(self):
         """

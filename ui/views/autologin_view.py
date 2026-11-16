@@ -36,8 +36,8 @@ class CompactAccountCard(ctk.CTkFrame):
             fg_color=Colors.BG_CARD,
             border_width=1,
             border_color=Colors.BORDER_CARD,
-            corner_radius=4,
-            height=54,
+            corner_radius=6,
+            height=58,
             **kwargs
         )
         self.account = account
