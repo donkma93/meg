@@ -269,50 +269,69 @@ class BackgroundEngineSync:
     # LUỒNG 3: TÍNH TOÁN SỰ KIỆN DOUBLE GOER (MIRROR) & MOSS ĐẾM NGƯỢC
     # --------------------------------------------------------------------------
     def _events_loop(self):
-        """Đếm ngược Mirror/Moss đúng lịch meg_gui:
+        """Đếm ngược Mirror/Moss chuẩn xác theo Giờ Server đã đồng bộ (NTP Atomic Sync):
         - Mirror: giờ chẵn :10-:15 (00,02,...,22)
         - Moss: 00:15, 06:15, 12:15, 18:15 (mỗi đợt 5 phút)
         """
         from datetime import datetime, timedelta
+        try:
+            from services.time_sync_service import get_time_sync
+            time_sync = get_time_sync()
+        except Exception:
+            time_sync = None
 
         while self.running:
             try:
-                now = datetime.now()
-                valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
-
-                # ---- Mirror ----
-                is_gate_open = (now.hour in valid_hours and 10 <= now.minute < 15)
-                next_gate = None
-                for h in valid_hours:
-                    cand = now.replace(hour=h, minute=10, second=0, microsecond=0)
-                    if cand > now:
-                        next_gate = cand
-                        break
-                if next_gate is None:
-                    tomorrow = now + timedelta(days=1)
-                    next_gate = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
-
-                if is_gate_open:
-                    end_open = now.replace(minute=15, second=0, microsecond=0)
-                    rem_sec = max(0, int((end_open - now).total_seconds()))
-                    next_str = f"{now.hour:02d}:10 - {now.hour:02d}:15"
-                    status = "CỔNG ĐANG MỞ!"
+                if time_sync:
+                    sched = time_sync.get_mirror_event_schedule()
+                    now = sched["server_now"]
+                    self.state_mgr.update_event_state(
+                        "mirror",
+                        countdown_sec=sched["countdown_sec"],
+                        countdown_str=sched["countdown_str"],
+                        is_gate_open=sched["is_gate_open"],
+                        next_time_str=sched["next_time_str"],
+                        status_text=sched["status_text"],
+                        ntp_offset_sec=sched["ntp_offset_sec"],
+                        game_rtt_ms=sched["game_rtt_ms"],
+                    )
                 else:
-                    rem_sec = max(0, int((next_gate - now).total_seconds()))
-                    next_str = next_gate.strftime("%H:%M")
-                    status = f"Mở sau: {rem_sec // 3600:02d}:{(rem_sec % 3600) // 60:02d}:{rem_sec % 60:02d}"
+                    now = datetime.now()
+                    valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
 
-                cd_str = f"{rem_sec // 3600:02d}:{(rem_sec % 3600) // 60:02d}:{rem_sec % 60:02d}"
-                self.state_mgr.update_event_state(
-                    "mirror",
-                    countdown_sec=rem_sec,
-                    countdown_str=cd_str,
-                    is_gate_open=is_gate_open,
-                    next_time_str=next_str,
-                    status_text=status,
-                )
+                    # ---- Mirror ----
+                    is_gate_open = (now.hour in valid_hours and 10 <= now.minute < 15)
+                    next_gate = None
+                    for h in valid_hours:
+                        cand = now.replace(hour=h, minute=10, second=0, microsecond=0)
+                        if cand > now:
+                            next_gate = cand
+                            break
+                    if next_gate is None:
+                        tomorrow = now + timedelta(days=1)
+                        next_gate = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
 
-                # ---- Moss ----
+                    if is_gate_open:
+                        end_open = now.replace(minute=15, second=0, microsecond=0)
+                        rem_sec = max(0, int((end_open - now).total_seconds()))
+                        next_str = f"{now.hour:02d}:10 - {now.hour:02d}:15"
+                        status = "CỔNG ĐANG MỞ!"
+                    else:
+                        rem_sec = max(0, int((next_gate - now).total_seconds()))
+                        next_str = next_gate.strftime("%H:%M")
+                        status = f"Mở sau: {rem_sec // 3600:02d}:{(rem_sec % 3600) // 60:02d}:{rem_sec % 60:02d}"
+
+                    cd_str = f"{rem_sec // 3600:02d}:{(rem_sec % 3600) // 60:02d}:{rem_sec % 60:02d}"
+                    self.state_mgr.update_event_state(
+                        "mirror",
+                        countdown_sec=rem_sec,
+                        countdown_str=cd_str,
+                        is_gate_open=is_gate_open,
+                        next_time_str=next_str,
+                        status_text=status,
+                    )
+
+                # ---- Moss (Dùng srv_now để chuẩn xác 100%) ----
                 moss_slots = [(0, 15), (6, 15), (12, 15), (18, 15)]
                 MOSS_DURATION = 300
                 active = None

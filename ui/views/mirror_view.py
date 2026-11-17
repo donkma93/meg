@@ -110,6 +110,30 @@ class MirrorView(ctk.CTkFrame):
         )
         self.lbl_mirror_count_badge.pack(side="right", padx=12)
 
+        make_action_button(
+            strip, "🔄 Sync Giờ", self._handle_sync_time, tone="ghost", height=26, width=76
+        ).pack(side="right", padx=(4, 6), pady=8)
+
+        self.lbl_mirror_sync = ctk.CTkLabel(
+            strip, text="⏱️ Đang đồng bộ...", font=Fonts.CAPTION, text_color=Colors.CYAN
+        )
+        self.lbl_mirror_sync.pack(side="right", padx=(0, 6))
+
+    def _handle_sync_time(self):
+        try:
+            from services.time_sync_service import get_time_sync
+            svc = get_time_sync()
+            self.lbl_mirror_sync.configure(text="⏳ Đang đo NTP...", text_color=Colors.AMBER)
+            def _worker():
+                ok = svc.sync_ntp(force=True)
+                txt = svc.get_sync_status_text()
+                clr = Colors.GREEN if ok else Colors.AMBER
+                self.after(0, lambda: self.lbl_mirror_sync.configure(text=txt, text_color=clr))
+            import threading
+            threading.Thread(target=_worker, daemon=True).start()
+        except Exception:
+            pass
+
     def _build_actions(self):
         bar = ctk.CTkFrame(
             self, fg_color=Colors.BG_SURFACE, border_width=1,
@@ -374,6 +398,14 @@ class MirrorView(ctk.CTkFrame):
             self.lbl_mirror_countdown.configure(text_color=Colors.CYAN)
         if next_str:
             self.lbl_mirror_next.configure(text=f"Đợt kế: {next_str}")
+        if hasattr(self, "lbl_mirror_sync"):
+            try:
+                from services.time_sync_service import get_time_sync
+                st_txt = get_time_sync().get_sync_status_text()
+                if st_txt and self.lbl_mirror_sync.cget("text") != st_txt:
+                    self.lbl_mirror_sync.configure(text=st_txt)
+            except Exception:
+                pass
 
     def refresh_rows(self):
         for ctrl in self.controllers:

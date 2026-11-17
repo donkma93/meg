@@ -5276,6 +5276,27 @@ class SlotController:
 
         threading.Thread(target=_dungeon_worker, daemon=True, name=f"Slot{self.slot_idx:02d}_MirrorDungeonWorker").start()
 
+    def probe_mirror_gate(self) -> Dict[str, Any]:
+        """Gửi 1 probe packet tới GameServer để đo RTT thực và làm nóng socket."""
+        if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
+            return {"success": False, "error": "not_running"}
+        eng = self.engine or (MegDirectEngine.get_engine(self.assigned_pid) if MegDirectEngine else None)
+        if not eng:
+            return {"success": False, "error": "no_engine"}
+        if not eng.is_ready:
+            eng.attach()
+        slot = getattr(self, "cached_mirror_ticket_slot", -1)
+        res = eng.probe_mirror_gate(slot if slot >= 0 else None)
+        try:
+            stats = eng.get_mirror_timing_stats()
+            rtt = float(stats.get("rttMs", -1) or -1)
+            if rtt > 0:
+                from services.time_sync_service import get_time_sync
+                get_time_sync().record_game_rtt(rtt)
+        except Exception:
+            pass
+        return res
+
     def enter_mirror(self) -> bool:
         """
         ĐỨNG YÊN VỊ TRÍ VÀ GỬI PACKET ĐỂ VÀO CỔNG - TUYỆT ĐỐI KHÔNG DI CHUYỂN!
@@ -10542,7 +10563,11 @@ class DashboardApp(ctk.CTk):
 
     def _get_current_or_upcoming_mirror_event_key(self) -> Optional[str]:
         """Lấy mã định danh duy nhất cho đợt sự kiện Mirror hiện tại (nếu đang mở cổng hoặc sắp mở trong vòng 60s)."""
-        now = datetime.now()
+        try:
+            from services.time_sync_service import get_time_sync
+            now = get_time_sync().get_server_now()
+        except Exception:
+            now = datetime.now()
         valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
         if now.hour in valid_hours and 10 <= now.minute < 15:
             return now.strftime("%Y%m%d_%H10_event")
@@ -11296,31 +11321,17 @@ class DashboardApp(ctk.CTk):
         poll_interval_ms = 1000
 
         try:
-            now = datetime.now()
-            valid_hours = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+            from services.time_sync_service import get_time_sync
+            time_sync = get_time_sync()
+            sched = time_sync.get_mirror_event_schedule()
 
-            # 1. Xác định xem hiện tại có đang nằm trong khung MỞ CỔNG (:10:00 - :14:59 của giờ chẵn) hay không
-            is_in_gate_open_window = False
-            current_event_hour = None
-            if now.hour in valid_hours and 10 <= now.minute < 15:
-                is_in_gate_open_window = True
-                current_event_hour = now.hour
-
-            # 2. Tìm mốc MỞ CỔNG (:10) và mốc BẮT ĐẦU (:15) tiếp theo
-            next_gate_open = None
-            next_event_start = None
-            for h in valid_hours:
-                cand_gate = now.replace(hour=h, minute=10, second=0, microsecond=0)
-                cand_start = now.replace(hour=h, minute=15, second=0, microsecond=0)
-                if cand_gate > now:
-                    next_gate_open = cand_gate
-                    next_event_start = cand_start
-                    break
-            if not next_gate_open:
-                # Đã qua 22:10 hôm nay -> mốc kế tiếp là 00:10 ngày mai
-                tomorrow = now + timedelta(days=1)
-                next_gate_open = tomorrow.replace(hour=0, minute=10, second=0, microsecond=0)
-                next_event_start = tomorrow.replace(hour=0, minute=15, second=0, microsecond=0)
+            now = sched["server_now"]
+            is_in_gate_open_window = sched["is_gate_open"]
+            next_gate_open = sched["next_gate_dt"]
+            diff_to_open_float = sched["diff_to_open_float"]
+            diff_to_open = sched["countdown_sec"]
+            current_event_hour = now.hour if is_in_gate_open_window else None
+            next_event_start = next_gate_open.replace(minute=15, second=0, microsecond=0)
 
             # Đồng bộ trực tiếp trạng thái checkbox từ View (tránh lệch proxy)
             if hasattr(self, "_sync_event_checkbox_proxies_from_view"):
@@ -11345,8 +11356,6 @@ class DashboardApp(ctk.CTk):
                 except Exception:
                     pass
 
-            diff_to_open_float = (next_gate_open - now).total_seconds()
-            diff_to_open = int(diff_to_open_float)
             prefire_sec = self.get_mirror_prefire_sec() if hasattr(self, "get_mirror_prefire_sec") else 2.0
 
             # 3. ĐIỀU CHỈNH ĐỘ PHÂN GIẢI CLOCK (POLLING INTERVAL):
@@ -11372,8 +11381,8 @@ class DashboardApp(ctk.CTk):
                             if getattr(ctrl, "cached_mirror_ticket_slot", -1) < 0:
                                 threading.Thread(target=ctrl.check_mirror_ticket, daemon=True).start()
 
-            # 4. PRE-FIRE TURBO SNIPING (Chỉ chạy duy nhất 1 lần đón đầu trước giờ mở cổng :10:00):
-            # Khi còn <= prefire_sec (mặc định 2.0s trước giờ mở cổng :10:00):
+            # 4. PRE-FIRE TURBO SNIPING (Chỉ chạy duy nhất 1 lần đón đầu trước giờ mở cổng :10:00 theo đúng logic gốc meg_gui):
+            # Khi còn <= prefire_sec (mặc định 2.0s trước giờ mở cổng :10:00, tính theo giờ Server đã đồng bộ chuẩn):
             # Kích hoạt Turbo Sniping đồng loạt đúng 1 lần duy nhất đón đầu cho đợt sự kiện đó!
             prefire_key = next_gate_open.strftime("%Y%m%d_%H10_prefire")
             if not is_in_gate_open_window and diff_to_open_float <= (prefire_sec + 0.05):

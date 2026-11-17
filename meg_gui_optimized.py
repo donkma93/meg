@@ -1196,15 +1196,9 @@ class DashboardAppOptimized(ctk.CTk):
         return res
 
     def trigger_mirror_snipe(self):
-        """Cướp cổng Mirror — dùng luồng đầy đủ của meg_gui (turbo + khóa event key)."""
+        """Cướp cổng Mirror — gọi trực tiếp logic Turbo Sniping đồng loạt chuẩn xác 100% của meg_gui."""
         self._sync_event_checkbox_proxies_from_view()
-        if hasattr(self, "start_all_mirror_turbo_sniping"):
-            self.start_all_mirror_turbo_sniping(from_scheduler=False)
-        else:
-            self.append_mirror_log("⚡ Kích hoạt Cướp Cổng Mirror...")
-            for ctrl in self.controllers:
-                if ctrl.assigned_pid and getattr(ctrl, "mirror_enabled", True):
-                    threading.Thread(target=ctrl.start_mirror_turbo_sniping, daemon=True).start()
+        self.start_all_mirror_turbo_sniping(from_scheduler=False)
 
     def trigger_all_mirror_lifecycle(self):
         """Kích hoạt chu trình chiến đấu bên trong Double Goer cho các tài khoản ĐÃ TÍCH CHỌN."""

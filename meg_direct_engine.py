@@ -8024,6 +8024,15 @@ class MegDirectEngine:
                             self.last_mirror_turbo_result = payload
                         else:
                             self.last_mirror_enter_recv = payload
+                        # Tự động cập nhật RTT GameServer vào TimeSyncService
+                        if isinstance(payload, dict):
+                            try:
+                                _rtt_val = float(payload.get("rttMs", 0) or 0)
+                                if _rtt_val > 0:
+                                    from services.time_sync_service import get_time_sync
+                                    get_time_sync().record_game_rtt(_rtt_val)
+                            except Exception:
+                                pass
                         cb = getattr(self, "on_mirror_turbo_event", None)
                         if callable(cb):
                             try:
