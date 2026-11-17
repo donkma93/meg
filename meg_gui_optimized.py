@@ -52,6 +52,8 @@ from ui.views.mirror_view import MirrorView
 from ui.views.moss_view import MossView, moss_cat_id, moss_cat_name
 from ui.views.logs_view import LogsAndToolsView
 from ui.modals.slot_settings import SlotSettingsModal
+from ui.modals.party_modal import PartySettingsModal
+from services.party_manager import PartyManager
 from ui.engine_sync import BackgroundEngineSync, enumerate_megamu_processes
 
 from meg_gui import (
@@ -587,6 +589,7 @@ class DashboardAppOptimized(ctk.CTk):
             on_remove_slot=self.remove_last_slot,
             on_telegram_config=getattr(self, "open_mirror_telegram_settings_dialog", None),
             on_import_accounts=getattr(self, "import_accounts_from_registry_ui", None),
+            on_party_config=self.open_party_config_dialog,
         )
         self.train_view.grid(row=0, column=0, sticky="nsew")
 
@@ -802,6 +805,13 @@ class DashboardAppOptimized(ctk.CTk):
             return
         try:
             now = time.time()
+
+            # Auto Party background maintenance (Zero-lag)
+            try:
+                PartyManager.get_instance().tick(self.controllers)
+            except Exception:
+                pass
+
             dirty_slots = self.state_mgr.get_dirty_slots()
             if dirty_slots and hasattr(self, "train_view"):
                 self.train_view.update_slots_data(dirty_slots)
@@ -2139,6 +2149,17 @@ class DashboardAppOptimized(ctk.CTk):
             dlg.destroy()
 
         make_action_button(inner, "Lưu cấu hình", save_devil, tone="success", height=34).pack(fill="x", pady=(16, 0))
+
+    def open_party_config_dialog(self):
+        """Mở hộp thoại cấu hình & ghép Auto Party."""
+        try:
+            dlg = PartySettingsModal(
+                self,
+                controllers=self.controllers,
+                on_save_callback=lambda: self.log_message("Đã lưu cấu hình Auto PT thành công.", "SUCCESS")
+            )
+        except Exception as e:
+            self.log_message(f"Lỗi mở hộp thoại Auto PT: {e}", "ERROR")
 
     # ==========================================================================
     # LOG + SLOTCONTROLLER COMPAT

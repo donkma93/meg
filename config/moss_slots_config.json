@@ -94,7 +94,7 @@
   },
   "schedule": {
     "auto_schedule": false,
-    "auto_move_before": true,
+    "auto_move_before": false,
     "times": [
       "00:15",
       "06:15",

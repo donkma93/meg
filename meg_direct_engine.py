@@ -73,6 +73,7 @@ DEFAULT_OFFSETS = {
     "move_to": "0xB893E0",
     "start_auto_move": "0xB9A9C0",
     "stop_auto_move": "0xB98400",
+    "party_invite_by_key": "0x1482830",
     "chat_send": "0x1331880",
     "chat_frame_send": "0x1331880",
     "chat_send_cmd": "0xEFE530",
@@ -407,6 +408,14 @@ try {
         nativeWindowToggle = new NativeFunction(baseAddr.add(wtOff), 'void', ['pointer', 'pointer']);
     }
 } catch (eWT) {}
+
+var nativePartyInviteByKey = null;
+try {
+    var pibkOff = off('__PARTY_INVITE_BY_KEY__');
+    if (!pibkOff.isNull()) {
+        nativePartyInviteByKey = new NativeFunction(baseAddr.add(pibkOff), 'void', ['int', 'pointer']);
+    }
+} catch (ePIBK) {}
 
 var nativeButtonPress = null;
 try {
@@ -2958,6 +2967,8 @@ var gameUpdateHook = null;
 var pendingAutoLogin = null;
 var autoLoginLastStatus = { done: false, submitted: false, stage: "idle" };
 var helperSyncCounter = 0;
+var pendingPartyInviteKey = -1;
+var lastPartyInviteResult = { done: false, ok: false, err: null, key: -1 };
 
 try {
     var guOff = off('__GAME_UPDATE__');
@@ -2982,6 +2993,21 @@ try {
                     var cmd = pendingCommand;
                     pendingCommand = null;
                     try { dispatchChatMessage(cmd); } catch (eCGU) {}
+                }
+
+                if (pendingPartyInviteKey !== -1) {
+                    var pKey = pendingPartyInviteKey;
+                    pendingPartyInviteKey = -1;
+                    try {
+                        if (nativePartyInviteByKey !== null) {
+                            nativePartyInviteByKey(pKey, ptr(0));
+                            lastPartyInviteResult = { done: true, ok: true, err: null, key: pKey };
+                        } else {
+                            lastPartyInviteResult = { done: true, ok: false, err: "nativePartyInviteByKey_null", key: pKey };
+                        }
+                    } catch (ePI) {
+                        lastPartyInviteResult = { done: true, ok: false, err: String(ePI), key: pKey };
+                    }
                 }
 
                 if (pendingMoveTarget !== null) {
@@ -4230,9 +4256,94 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     };
 }
 
+function findTargetKeyByName(targetName) {
+    if (!targetName || typeof targetName !== "string") return -1;
+    var cleanTarget = targetName.trim().toLowerCase();
+    if (!cleanTarget) return -1;
+
+    try {
+        var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+        if (typeInfo.isNull()) return -1;
+        var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+        if (staticFields.isNull()) return -1;
+        var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+        if (gameInstance.isNull()) return -1;
+        var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+        if (viewport.isNull()) return -1;
+        var objDict = viewport.add(ptr('0x20')).readPointer();
+        if (objDict.isNull()) return -1;
+        var entries = objDict.add(ptr('0x18')).readPointer();
+        if (entries.isNull()) return -1;
+        var count = objDict.add(ptr('0x20')).readS32();
+        if (count <= 0 || count > 500) return -1;
+
+        for (var i = 0; i < count; i++) {
+            var entryAddr = entries.add(0x20 + i * 24);
+            var val = entryAddr.add(16).readPointer();
+            if (val.isNull()) continue;
+
+            var klass = val.readPointer();
+            if (klass.isNull()) continue;
+            var klassName = "";
+            try {
+                klassName = klass.add(0x10).readPointer().readCString() || "";
+            } catch (eK) {}
+            if (klassName.indexOf("ViewportBody") === -1) continue;
+
+            var body = val.add(ptr('0x18')).readPointer();
+            if (body.isNull()) continue;
+
+            var namePtr = body.add(0x28).readPointer();
+            if (namePtr.isNull()) continue;
+            var len = namePtr.add(0x10).readS32();
+            if (len <= 0 || len > 64) continue;
+            var bName = namePtr.add(0x14).readUtf16String(len);
+            if (bName && bName.trim().toLowerCase() === cleanTarget) {
+                var bIdx = body.add(0x20).readS32();
+                return bIdx;
+            }
+        }
+    } catch (eF) {}
+    return -1;
+}
+
 rpc.exports = {
     getPlayerInfo: function() {
         return readPlayerInfoSnapshot(true);
+    },
+
+    invitePartyByKey: function(key) {
+        try {
+            ensureThreadAttached();
+            lastPartyInviteResult = { done: false, ok: false, err: null, key: parseInt(key) };
+            pendingPartyInviteKey = parseInt(key);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    },
+
+    getPartyInviteResult: function() {
+        return JSON.stringify(lastPartyInviteResult);
+    },
+
+    findNearbyPlayerKey: function(name) {
+        return findTargetKeyByName(name);
+    },
+
+    invitePartyByName: function(name) {
+        try {
+            ensureThreadAttached();
+            var key = findTargetKeyByName(name);
+            if (key === -1) {
+                return JSON.stringify({ ok: false, error: "player_not_found_in_viewport", name: name });
+            }
+            lastPartyInviteResult = { done: false, ok: false, err: null, key: key };
+            pendingPartyInviteKey = key;
+            return JSON.stringify({ ok: true, key: key, name: name });
+        } catch (e) {
+            return JSON.stringify({ ok: false, error: String(e), name: name });
+        }
     },
 
     moveTo: function(targetX, targetY) {
@@ -7956,6 +8067,7 @@ class MegDirectEngine:
             "__GAME_WORLD__": str(self.offsets.get("game_world") or DEFAULT_OFFSETS.get("game_world", "0x200")),
             "__WORLD_SCENE_INDEX__": str(self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20")),
             "__VIEWPORT__": str(self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110")),
+            "__PARTY_INVITE_BY_KEY__": str(self.offsets.get("party_invite_by_key") or DEFAULT_OFFSETS.get("party_invite_by_key", "0x1482830")),
             "__UI_CHAT_FRAME__": str(self.offsets.get("ui_chat_frame") or DEFAULT_OFFSETS.get("ui_chat_frame", "0x50")),
             "__UI_MOSS_WINDOW__": str(self.offsets.get("ui_moss_window") or DEFAULT_OFFSETS.get("ui_moss_window", "0x1C8")),
             "__UI_MERCHANT_WINDOW__": str(self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x198")),
@@ -9711,6 +9823,91 @@ class MegDirectEngine:
         except Exception as e:
             _safe_log(f"[MegDirectEngine] Lỗi do_reset: {e}")
             return {"ok": False, "error": str(e)}
+
+    def read_party_info(self) -> Dict[str, Any]:
+        """Đọc thông tin Party hiện tại từ RAM IL2CPP."""
+        from meg_navigator import ProcessMemoryReader
+        return ProcessMemoryReader.read_party_info(self.pid)
+
+    def set_party_auto_mode(self, password: str = "", enable: bool = True) -> bool:
+        """
+        Bật/tắt chế độ tự động nhận Party qua lệnh game /re auto.
+        - enable = True, password rỗng: "/re auto"
+        - enable = True, password có giá trị: "/re auto <password>"
+        - enable = False: "/re off"
+        """
+        if enable:
+            p_clean = password.strip() if password else ""
+            cmd = f"/re auto {p_clean}" if p_clean else "/re auto"
+        else:
+            cmd = "/re off"
+        _safe_log(f"[MegDirectEngine] PID {self.pid} thiết lập party command: {cmd}")
+        return bool(self.send_chat(cmd))
+
+    def find_nearby_player_key(self, char_name: str) -> int:
+        """Tìm targetKey (Index trong Viewport) của nhân vật có tên char_name."""
+        if not self.is_ready or not char_name:
+            return -1
+        try:
+            res = self._call("findNearbyPlayerKey", str(char_name).strip())
+            if res is not None:
+                return int(res)
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi find_nearby_player_key: {e}")
+        return -1
+
+    def invite_party_by_key(self, target_key: int, wait_confirm: bool = True) -> bool:
+        """Gửi packet mời Party C1:40 trực tiếp tới target_key trên Unity Main Thread."""
+        if not self.is_ready or target_key is None or int(target_key) < 0:
+            return False
+        try:
+            ok = self._call("invitePartyByKey", int(target_key))
+            if not ok:
+                return False
+            if wait_confirm:
+                for _ in range(15):
+                    time.sleep(0.05)
+                    r = self._call_json("getPartyInviteResult")
+                    if r.get("done"):
+                        return bool(r.get("ok"))
+            return True
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi invite_party_by_key: {e}")
+            return False
+
+    def invite_party_by_name(self, target_name: str, wait_confirm: bool = True) -> Dict[str, Any]:
+        """
+        Mời nhân vật vào Party bằng tên:
+        1. Quét Viewport tìm targetKey của nhân vật.
+        2. Điều phối nativePartyInviteByKey(targetKey) trên Game.Update (Unity Main Thread).
+        """
+        if not self.is_ready or not target_name:
+            return {"ok": False, "error": "not_ready_or_empty_name"}
+        try:
+            res = self._call_json("invitePartyByName", str(target_name).strip())
+            if not res.get("ok"):
+                return res
+            if wait_confirm:
+                target_key = res.get("key", -1)
+                for _ in range(15):
+                    time.sleep(0.05)
+                    r = self._call_json("getPartyInviteResult")
+                    if r.get("done"):
+                        res["invite_dispatched"] = bool(r.get("ok"))
+                        res["err"] = r.get("err")
+                        break
+            return res
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi invite_party_by_name: {e}")
+            return {"ok": False, "error": str(e)}
+
+    def request_party(self, target_player_name: str = "") -> bool:
+        """Gửi yêu cầu ghép Party: nếu truyền tên target_player_name thì Leader chủ động mời, ngược lại bật /re auto."""
+        if target_player_name:
+            inv = self.invite_party_by_name(target_player_name)
+            if inv.get("ok"):
+                return True
+        return self.set_party_auto_mode(enable=True)
 
     get_latest_telemetry = get_player_info
 

@@ -39,6 +39,7 @@ class TrainSlotsView(ctk.CTkFrame):
         on_remove_slot: Optional[Callable[[], None]] = None,
         on_telegram_config: Optional[Callable[[], None]] = None,
         on_import_accounts: Optional[Callable[[], None]] = None,
+        on_party_config: Optional[Callable[[], None]] = None,
         **kwargs
     ):
         super().__init__(parent, fg_color="transparent", **kwargs)
@@ -61,6 +62,7 @@ class TrainSlotsView(ctk.CTkFrame):
         self.on_remove_slot = on_remove_slot
         self.on_telegram_config = on_telegram_config
         self.on_import_accounts = on_import_accounts
+        self.on_party_config = on_party_config
 
         self.cards: Dict[int, CompactSlotCard] = {}
         self.profile_options = CompactSlotCard.get_default_profile_options()
@@ -188,6 +190,16 @@ class TrainSlotsView(ctk.CTkFrame):
             height=28,
         )
         self.btn_devil_config.pack(side="left", padx=(0, 4), pady=7)
+
+        if self.on_party_config:
+            self.btn_party = make_action_button(
+                tb.left,
+                "🤝 Auto PT",
+                self.on_party_config,
+                tone="purple",
+                height=28,
+            )
+            self.btn_party.pack(side="left", padx=(0, 4), pady=7)
 
         if self.on_telegram_config:
             self.btn_telegram = make_action_button(

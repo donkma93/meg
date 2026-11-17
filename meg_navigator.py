@@ -35,7 +35,7 @@ import re
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any
 
 try:
     import psutil
@@ -214,6 +214,23 @@ HELPER_ACTIVE_TIME_OFFSET = 0x24   # uint32: Số giây Helper đã chạy
 HELPER_ACTIVE_MONEY_OFFSET = 0x28  # uint64: Lượng Zen đã tiêu
 HELPER_OPTION_OFFSET = 0x30        # pointer: Option (Cấu hình kỹ năng, phạm vi, nhặt đồ)
 HELPER_SWITCH_REQ_TIME_OFFSET = 0x38 # uint32: SwitchRequestTime
+
+# UserParty (Auto PT) Offsets (LocalCharacterBody.Party at 0x1C0)
+PLAYER_PARTY_OFFSET = 0x1C0         # UserParty inside _Player
+PARTY_IN_PARTY_OFFSET = 0x20        # uint8: 1 = InParty, 0 = Solo
+PARTY_IS_LEADER_OFFSET = 0x21       # uint8: 1 = IsLeader, 0 = Member
+PARTY_ASSIGN_STATE_OFFSET = 0x22    # uint8: AssignState
+PARTY_LEADER_OFFSET = 0x28          # pointer: Leader name (Il2CppString)
+PARTY_MEMBERS_OFFSET = 0x30         # pointer: Members (List<UserParty.MemberInfo>)
+PARTY_MEMBER_SLOT_OFFSET = 0x10     # int32: Slot
+PARTY_MEMBER_NAME_OFFSET = 0x18     # pointer: Name (Il2CppString)
+PARTY_MEMBER_IS_LEADER_OFFSET = 0x20 # uint8: IsLeader
+PARTY_MEMBER_SERVER_OFFSET = 0x24   # int32: ServerCode
+PARTY_MEMBER_LIFE_OFFSET = 0x28     # float: LifeRate
+PARTY_MEMBER_MANA_OFFSET = 0x2C     # float: ManaRate
+PARTY_MEMBER_HELPER_OFFSET = 0x30   # int32: HelperState
+PARTY_MEMBER_MAP_OFFSET = 0x38      # int32: Map
+PARTY_MEMBER_POS_OFFSET = 0x40      # Coord: X at +0x10, Y at +0x14
 
 MAPS_DIR = os.path.dirname(os.path.abspath(__file__))
 MAPS_INI_PATH = os.path.join(MAPS_DIR, "maps.ini")
@@ -665,6 +682,29 @@ class ProcessMemoryReader:
         return 0
 
     @staticmethod
+    def read_f32(handle: int, addr: int) -> float:
+        buf = ctypes.c_float()
+        read = ctypes.c_size_t()
+        if kernel32.ReadProcessMemory(handle, ctypes.c_void_p(addr), ctypes.byref(buf), ctypes.sizeof(buf), ctypes.byref(read)):
+            return float(buf.value)
+        return 0.0
+
+    @classmethod
+    def read_il2cpp_string(cls, handle: int, str_ptr: int, max_len: int = 64) -> Optional[str]:
+        """Đọc chuỗi ký tự Il2CppString từ địa chỉ con trỏ trong RAM."""
+        if not str_ptr:
+            return None
+        length = cls.read_i32(handle, str_ptr + 0x10)
+        if 1 <= length <= max_len:
+            buf = ctypes.create_string_buffer(length * 2)
+            read_bytes = ctypes.c_size_t()
+            if kernel32.ReadProcessMemory(handle, ctypes.c_void_p(str_ptr + 0x14), buf, length * 2, ctypes.byref(read_bytes)):
+                raw_str = buf.raw[:read_bytes.value].decode("utf-16le", errors="ignore").strip()
+                if raw_str:
+                    return raw_str
+        return None
+
+    @staticmethod
     def write_ptr(handle: int, addr: int, val: int) -> bool:
         buf = ctypes.c_uint64(val)
         written = ctypes.c_size_t()
@@ -723,6 +763,127 @@ class ProcessMemoryReader:
             active_money = cls.read_u64(handle, helper_ptr + HELPER_ACTIVE_MONEY_OFFSET)
 
             return (is_active, is_configured, active_time, active_money)
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
+    def read_party_info(cls, pid: int) -> Dict[str, Any]:
+        """
+        Đọc RAM IL2CPP thông tin Party (UserParty):
+        Returns: {
+            "in_party": bool,
+            "is_leader": bool,
+            "leader_name": str,
+            "member_count": int,
+            "members": [
+                {
+                    "slot": int,
+                    "name": str,
+                    "is_leader": bool,
+                    "server": int,
+                    "life_rate": float,
+                    "mana_rate": float,
+                    "helper_state": int,
+                    "map": int,
+                    "x": int,
+                    "y": int
+                }, ...
+            ]
+        }
+        """
+        default_res = {
+            "in_party": False,
+            "is_leader": False,
+            "leader_name": "",
+            "member_count": 0,
+            "members": []
+        }
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not handle:
+            return default_res
+
+        try:
+            base = cls.get_module_base(pid)
+            if not base:
+                return default_res
+
+            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            if not type_info:
+                return default_res
+
+            static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return default_res
+
+            game_instance = cls.read_ptr(handle, static_fields + GAME_STATIC_INSTANCE_OFFSET)
+            if not game_instance:
+                return default_res
+
+            player_ptr = cls.read_ptr(handle, game_instance + GAME_PLAYER_OFFSET)
+            if not player_ptr:
+                return default_res
+
+            party_ptr = cls.read_ptr(handle, player_ptr + PLAYER_PARTY_OFFSET)
+            if not party_ptr:
+                return default_res
+
+            in_party = bool(cls.read_u8(handle, party_ptr + PARTY_IN_PARTY_OFFSET))
+            is_leader = bool(cls.read_u8(handle, party_ptr + PARTY_IS_LEADER_OFFSET))
+
+            leader_str_ptr = cls.read_ptr(handle, party_ptr + PARTY_LEADER_OFFSET)
+            leader_name = cls.read_il2cpp_string(handle, leader_str_ptr) or ""
+
+            members_list: List[Dict[str, Any]] = []
+            members_ptr = cls.read_ptr(handle, party_ptr + PARTY_MEMBERS_OFFSET)
+            member_count = 0
+
+            if members_ptr:
+                count = cls.read_i32(handle, members_ptr + 0x18)
+                items_ptr = cls.read_ptr(handle, members_ptr + 0x10)
+                if 0 < count <= 5 and items_ptr:
+                    member_count = count
+                    for i in range(count):
+                        mem_ptr = cls.read_ptr(handle, items_ptr + 0x20 + (i * 8))
+                        if not mem_ptr:
+                            continue
+                        m_slot = cls.read_i32(handle, mem_ptr + PARTY_MEMBER_SLOT_OFFSET)
+                        m_name_ptr = cls.read_ptr(handle, mem_ptr + PARTY_MEMBER_NAME_OFFSET)
+                        m_name = cls.read_il2cpp_string(handle, m_name_ptr) or ""
+                        m_is_leader = bool(cls.read_u8(handle, mem_ptr + PARTY_MEMBER_IS_LEADER_OFFSET))
+                        m_server = cls.read_i32(handle, mem_ptr + PARTY_MEMBER_SERVER_OFFSET)
+                        m_life = cls.read_f32(handle, mem_ptr + PARTY_MEMBER_LIFE_OFFSET)
+                        m_mana = cls.read_f32(handle, mem_ptr + PARTY_MEMBER_MANA_OFFSET)
+                        m_helper = cls.read_i32(handle, mem_ptr + PARTY_MEMBER_HELPER_OFFSET)
+                        m_map = cls.read_i32(handle, mem_ptr + PARTY_MEMBER_MAP_OFFSET)
+
+                        m_x, m_y = 0, 0
+                        coord_ptr = cls.read_ptr(handle, mem_ptr + PARTY_MEMBER_POS_OFFSET)
+                        if coord_ptr:
+                            m_x = cls.read_i32(handle, coord_ptr + COORD_X_OFFSET)
+                            m_y = cls.read_i32(handle, coord_ptr + COORD_Y_OFFSET)
+
+                        members_list.append({
+                            "slot": m_slot,
+                            "name": m_name,
+                            "is_leader": m_is_leader,
+                            "server": m_server,
+                            "life_rate": m_life,
+                            "mana_rate": m_mana,
+                            "helper_state": m_helper,
+                            "map": m_map,
+                            "x": m_x,
+                            "y": m_y
+                        })
+
+            return {
+                "in_party": in_party,
+                "is_leader": is_leader,
+                "leader_name": leader_name,
+                "member_count": member_count if member_count > 0 else len(members_list),
+                "members": members_list
+            }
+        except Exception:
+            return default_res
         finally:
             kernel32.CloseHandle(handle)
 

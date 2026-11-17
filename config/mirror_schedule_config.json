@@ -1,9 +1,9 @@
 {
   "schedule": {
-    "auto_schedule": true,
-    "auto_prep_before": true,
-    "auto_lifecycle": true,
-    "auto_gremory": true,
+    "auto_schedule": false,
+    "auto_prep_before": false,
+    "auto_lifecycle": false,
+    "auto_gremory": false,
     "prefire_sec": 5.0,
     "interval_ms": 35,
     "max_duration_s": 15.0,
@@ -341,9 +341,9 @@
     "chat_id": "5002085799",
     "chat_title": "Đôn",
     "bot_username": "megamutool_bot",
-    "enabled": true,
+    "enabled": false,
     "notify_enter": true,
     "notify_exit": true,
-    "updated_at": "2026-11-16 21:08:30"
+    "updated_at": "2026-11-17 19:07:57"
   }
 }
