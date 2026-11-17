@@ -272,9 +272,11 @@ class DashboardAppOptimized(ctk.CTk):
         self.cb_mirror_auto_prep_before = _BoolCheckboxProxy(bool(mirror_sched_cfg.get("auto_prep_before", True)))
         self.cb_moss_auto_schedule = _BoolCheckboxProxy(bool(moss_sched_cfg.get("auto_schedule", True)))
         self.cb_moss_auto_move_before = _BoolCheckboxProxy(bool(moss_sched_cfg.get("auto_move_before", True)))
-        self.mirror_snipe_delay_ms = int(mirror_sched_cfg.get("interval_ms", 35) or 35)
+        raw_delay_val = mirror_sched_cfg.get("interval_ms", mirror_sched_cfg.get("snipe_interval_ms", 10))
+        self.mirror_snipe_delay_ms = int(raw_delay_val) if raw_delay_val is not None else 10
         self.mirror_snipe_dur_s = float(mirror_sched_cfg.get("max_duration_s", 15.0) or 15.0)
-        self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 2.0) or 2.0)
+        self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 2.0) if mirror_sched_cfg.get("prefire_sec") is not None else 2.0)
+        self.mirror_zero_confirm = bool(mirror_sched_cfg.get("zero_confirm", True))
         self._last_moss_trigger_key = None
         self._last_moss_stop_key = None
         self._last_moss_move_key = None
@@ -1245,18 +1247,26 @@ class DashboardAppOptimized(ctk.CTk):
             self.append_mirror_log(f"⚔️ Đang kích hoạt chu trình: Đợi Safe Zone -> Phút :16 ra bãi -> Bật Helper -> Săn 3 Box quà cho {cnt} tài khoản...")
 
     def enter_all_mirror(self):
-        """Gửi lệnh vào cửa Double Goer cho các tài khoản ĐÃ TÍCH CHỌN."""
-        def _enterer():
-            cnt = 0
-            for ctrl in self.controllers:
-                if not getattr(ctrl, "mirror_enabled", True):
-                    continue
-                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
-                    ctrl.enter_mirror()
-                    cnt += 1
-                    time.sleep(0.08)
-            self.after(0, lambda: self.append_mirror_log(f"🚪 Đã gửi lệnh vào cửa Double Goer cho {cnt} tài khoản đã chọn!"))
-        threading.Thread(target=_enterer, daemon=True).start()
+        """Gửi lệnh vào cửa Double Goer ĐỒNG LOẠT (Zero-Confirm) cho các tài khoản ĐÃ TÍCH CHỌN."""
+        zero_confirm = self.get_mirror_zero_confirm()
+
+        def _enter_one(ctrl):
+            try:
+                eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
+                if eng and hasattr(eng, "set_mirror_zero_confirm"):
+                    eng.set_mirror_zero_confirm(zero_confirm)
+            except Exception:
+                pass
+            ctrl.enter_mirror()
+
+        selected = [
+            ctrl for ctrl in self.controllers
+            if getattr(ctrl, "mirror_enabled", True) and ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid)
+        ]
+        for ctrl in selected:
+            threading.Thread(target=_enter_one, args=(ctrl,), daemon=True).start()
+        zc_lbl = "Zero-Confirm" if zero_confirm else "Mặc định"
+        self.append_mirror_log(f"🚪 Đã gửi lệnh vào cửa Double Goer đồng loạt ({zc_lbl}) cho {len(selected)} tài khoản đã chọn!")
 
     def claim_all_gremory_case_items(self):
         """Tự động lôi quà phím 'K' (Gremory Case) cho các tài khoản ĐÃ TÍCH CHỌN."""
@@ -1412,7 +1422,13 @@ class DashboardAppOptimized(ctk.CTk):
     def get_mirror_snipe_delay(self) -> int:
         if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_snipe_delay"):
             return self.mirror_view.get_snipe_delay()
-        return max(15, min(1000, int(getattr(self, "mirror_snipe_delay_ms", 35) or 35)))
+        val = getattr(self, "mirror_snipe_delay_ms", 10)
+        return max(0, min(1000, int(val) if val is not None else 10))
+
+    def get_mirror_zero_confirm(self) -> bool:
+        if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_zero_confirm"):
+            return bool(self.mirror_view.get_zero_confirm())
+        return bool(getattr(self, "mirror_zero_confirm", True))
 
     def get_mirror_snipe_dur(self) -> float:
         if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_snipe_dur"):
@@ -1431,6 +1447,7 @@ class DashboardAppOptimized(ctk.CTk):
             "auto_prep_before": bool(self.cb_mirror_auto_prep_before.get()),
             "auto_lifecycle": bool(self.cb_mirror_auto_lifecycle.get()),
             "auto_gremory": bool(self.cb_mirror_auto_gremory.get()),
+            "zero_confirm": self.get_mirror_zero_confirm(),
             "prefire_sec": self.get_mirror_prefire_sec(),
             "interval_ms": self.get_mirror_snipe_delay(),
             "max_duration_s": self.get_mirror_snipe_dur(),
@@ -1917,9 +1934,12 @@ class DashboardAppOptimized(ctk.CTk):
                 ConfigPersistenceManager.save_mirror_schedule_config(
                     auto_schedule=cfg.get("auto_schedule", True),
                     auto_prep_before=cfg.get("auto_prep_before", True),
-                    prefire_sec=cfg.get("prefire_sec", 5.0),
+                    prefire_sec=cfg.get("prefire_sec", 2.0),
                     auto_lifecycle=cfg.get("auto_lifecycle", True),
                     auto_gremory=cfg.get("auto_gremory", True),
+                    interval_ms=cfg.get("interval_ms", 10),
+                    max_duration_s=cfg.get("max_duration_s", 15.0),
+                    zero_confirm=cfg.get("zero_confirm", True),
                     selected_slots=selected,
                 )
             else:
@@ -1945,6 +1965,16 @@ class DashboardAppOptimized(ctk.CTk):
                     self.cb_mirror_auto_lifecycle.set(bool(opts.get("auto_lifecycle", True)))
                 if "auto_gremory" in opts:
                     self.cb_mirror_auto_gremory.set(bool(opts.get("auto_gremory", True)))
+                if "zero_confirm" in opts:
+                    self.mirror_zero_confirm = bool(opts.get("zero_confirm", True))
+                    # Đồng bộ tức thì xuống các Direct Engine đang kết nối
+                    for c in self.controllers:
+                        try:
+                            eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if (MegDirectEngine and c.assigned_pid) else None)
+                            if eng and eng.is_ready and hasattr(eng, "set_mirror_zero_confirm"):
+                                eng.set_mirror_zero_confirm(self.mirror_zero_confirm)
+                        except Exception:
+                            pass
                 if "prefire_sec" in opts:
                     self.mirror_prefire_sec = float(opts["prefire_sec"])
                 if "interval_ms" in opts:
@@ -1953,17 +1983,22 @@ class DashboardAppOptimized(ctk.CTk):
                     self.mirror_snipe_dur_s = float(opts["max_duration_s"])
 
                 selected = [c.slot_idx for c in self.controllers if getattr(c, "mirror_enabled", True)]
+                zc_val = self.get_mirror_zero_confirm()
                 ConfigPersistenceManager.save_mirror_schedule_config(
                     auto_schedule=opts.get("auto_schedule", True),
                     auto_prep_before=opts.get("auto_prep_before", True),
                     auto_lifecycle=opts.get("auto_lifecycle", True),
                     auto_gremory=opts.get("auto_gremory", True),
+                    zero_confirm=zc_val,
                     prefire_sec=self.get_mirror_prefire_sec(),
                     interval_ms=self.get_mirror_snipe_delay(),
                     max_duration_s=self.get_mirror_snipe_dur(),
                     selected_slots=selected,
                 )
-                self.append_mirror_log(f"Đã lưu cấu hình Mirror (Bắn trước: {self.get_mirror_prefire_sec():.1f}s, Chu kỳ: {self.get_mirror_snipe_delay()}ms).")
+                zc_lbl = "BẬT" if zc_val else "TẮT"
+                self.append_mirror_log(
+                    f"Đã lưu cấu hình Mirror (Bắn trước: {self.get_mirror_prefire_sec():.1f}s, Chu kỳ: {self.get_mirror_snipe_delay()}ms, Zero-Confirm: {zc_lbl})."
+                )
             else:
                 if "auto_schedule" in opts:
                     self.cb_moss_auto_schedule.set(bool(opts.get("auto_schedule", True)))
@@ -3304,6 +3339,7 @@ _EXCLUDE_BIND = {
     "stream_slot_coords",
     "update_header_stats",
     "get_mirror_snipe_delay",
+    "get_mirror_zero_confirm",
     "get_mirror_snipe_dur",
     "get_mirror_prefire_sec",
     "get_mirror_schedule_config",

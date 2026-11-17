@@ -104,7 +104,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.6.2"
+APP_VERSION = "v1.6.3"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -2075,21 +2075,35 @@ class ConfigPersistenceManager:
                     sched = data.get("schedule", {})
                     sel = data.get("selected_slots", None)
                     raw_pf = float(sched.get("prefire_sec", 2.0))
-                    raw_int = int(sched.get("interval_ms", 35) or 35)
+                    raw_int_val = sched.get("interval_ms", sched.get("snipe_interval_ms", 10))
+                    raw_int = int(raw_int_val) if raw_int_val is not None else 10
                     raw_dur = float(sched.get("max_duration_s", 15.0) or 15.0)
                     return {
                         "auto_schedule": bool(sched.get("auto_schedule", True)),
                         "auto_prep_before": bool(sched.get("auto_prep_before", True)),
                         "auto_lifecycle": bool(sched.get("auto_lifecycle", True)),
                         "auto_gremory": bool(sched.get("auto_gremory", True)),
+                        "zero_confirm": bool(sched.get("zero_confirm", True)),
                         "prefire_sec": raw_pf,
                         "interval_ms": raw_int,
+                        "snipe_interval_ms": raw_int,
                         "max_duration_s": raw_dur,
                         "selected_slots": sel
                     }
                 except Exception:
                     pass
-            return {"auto_schedule": True, "auto_prep_before": True, "auto_lifecycle": True, "auto_gremory": True, "prefire_sec": 2.0, "interval_ms": 35, "max_duration_s": 15.0, "selected_slots": None}
+            return {
+                "auto_schedule": True,
+                "auto_prep_before": True,
+                "auto_lifecycle": True,
+                "auto_gremory": True,
+                "zero_confirm": True,
+                "prefire_sec": 2.0,
+                "interval_ms": 10,
+                "snipe_interval_ms": 10,
+                "max_duration_s": 15.0,
+                "selected_slots": None
+            }
 
     @classmethod
     def save_mirror_schedule_config(
@@ -2100,8 +2114,9 @@ class ConfigPersistenceManager:
         auto_lifecycle: bool = True,
         auto_gremory: bool = True,
         selected_slots: Optional[List[int]] = None,
-        interval_ms: int = 35,
+        interval_ms: Optional[int] = None,
         max_duration_s: float = 15.0,
+        zero_confirm: bool = True,
     ):
         """Lưu cấu hình Lịch Trình Auto Double Goer / Mirror kèm danh sách tài khoản được chọn."""
         if isinstance(auto_schedule, dict):
@@ -2110,11 +2125,15 @@ class ConfigPersistenceManager:
             prefire_sec = cfg_dict.get("prefire_sec", 2.0)
             auto_lifecycle = cfg_dict.get("auto_lifecycle", True)
             auto_gremory = cfg_dict.get("auto_gremory", True)
-            interval_ms = cfg_dict.get("interval_ms", 35)
+            zero_confirm = cfg_dict.get("zero_confirm", True)
+            iv_val = cfg_dict.get("interval_ms", cfg_dict.get("snipe_interval_ms", 10))
+            interval_ms = int(iv_val) if iv_val is not None else 10
             max_duration_s = cfg_dict.get("max_duration_s", 15.0)
             if selected_slots is None and "selected_slots" in cfg_dict:
                 selected_slots = cfg_dict["selected_slots"]
             auto_schedule = cfg_dict.get("auto_schedule", True)
+        if interval_ms is None:
+            interval_ms = 10
         with cls._lock:
             try:
                 store = {}
@@ -2128,8 +2147,10 @@ class ConfigPersistenceManager:
                     "auto_prep_before": bool(auto_prep_before),
                     "auto_lifecycle": bool(auto_lifecycle),
                     "auto_gremory": bool(auto_gremory),
+                    "zero_confirm": bool(zero_confirm),
                     "prefire_sec": float(prefire_sec),
                     "interval_ms": int(interval_ms),
+                    "snipe_interval_ms": int(interval_ms),
                     "max_duration_s": float(max_duration_s),
                     "interval_hours": 2,
                     "prep_minutes_before": 5,
@@ -5450,8 +5471,16 @@ class SlotController:
         self.stop_mirror_activity()
         self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Double Goer.")
 
-    def start_mirror_turbo_sniping(self, interval_ms: int = 35, max_duration_s: float = 15.0, barrier: Optional[threading.Barrier] = None) -> bool:
-        """Kích hoạt chế độ Turbo Sniping (Spam Packet tốc độ cao) để cướp cổng Double Goer."""
+    def start_mirror_turbo_sniping(
+        self,
+        interval_ms: int = 10,
+        max_duration_s: float = 15.0,
+        barrier: Optional[threading.Barrier] = None,
+        start_at_epoch_ms: int = 0,
+        stagger_ms: int = 0,
+        zero_confirm: bool = True,
+    ) -> bool:
+        """Kích hoạt chế độ Turbo Sniping (Bắn liên tiếp Direct Socket + Zero-Confirm bỏ qua toàn bộ popup) để cướp cổng Double Goer."""
         if license_client and not license_client.has_license_module("mirror"):
             self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Mirror of Dimensions!")
             if barrier:
@@ -5527,39 +5556,72 @@ class SlotController:
 
         self.mirror_sniping = True
         self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
-        self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms)", text_color="#c084fc")
+        zc_tag = " · Zero-Confirm" if zero_confirm else ""
+        self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms{zc_tag})", text_color="#c084fc")
 
-        # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, chạy trực tiếp trong RAM Game)
+        # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, Direct Socket + Zero-Confirm chạy trực tiếp trong RAM Game)
         native_started = False
-        if hasattr(eng, "start_native_mirror_turbo"):
+        turbo_opts = {
+            "directSocket": True,
+            "ackPaced": True,
+            "continuousBurst": True,
+            "zeroConfirm": bool(zero_confirm),
+            "suppressDialogs": bool(zero_confirm),
+            "staggerMs": int(stagger_ms or 0),
+        }
+        now_ms_py = int(time.time() * 1000)
+        use_arm = bool(start_at_epoch_ms and int(start_at_epoch_ms) > (now_ms_py + 10) and hasattr(eng, "arm_native_mirror_turbo"))
+
+        if hasattr(eng, "start_native_mirror_turbo") or use_arm:
             def _on_native_event(payload):
                 p_type = payload.get("type")
                 if p_type == "mirror_turbo_entered":
                     pkts = payload.get("packets", 0)
                     dur_ms = payload.get("elapsed", 0)
+                    sup_d = payload.get("suppressedDialogs", 0)
+                    sup_c = payload.get("suppressedConfirms", 0)
+                    sup_txt = f" | Đã bỏ qua {sup_d + sup_c} thông báo" if (sup_d + sup_c) > 0 else ""
                     self.mirror_sniping = False
                     self.cached_mirror_ticket_slot = -1
                     self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {pkts} packets (Native {dur_ms}ms)!"
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {pkts} packets (Native {dur_ms}ms{sup_txt})!"
                     ))
                     self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
                     # Kích hoạt ngay chu trình tự động trong map Double Goer (đợi hết giờ chuẩn bị -> bước ra khỏi Safe Zone -> bật Helper -> săn 3 rương)
                     self.run_mirror_in_dungeon_lifecycle(force=True)
                 elif p_type == "mirror_turbo_timeout":
                     pkts = payload.get("packets", 0)
+                    sup_d = payload.get("suppressedDialogs", 0)
+                    sup_c = payload.get("suppressedConfirms", 0)
+                    sup_txt = f" | Bỏ qua {sup_d + sup_c} popup" if (sup_d + sup_c) > 0 else ""
                     self.mirror_sniping = False
                     self.cached_mirror_ticket_slot = -1
                     self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {pkts} packets (Native)."
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {pkts} packets (Native{sup_txt})."
                     ))
                     self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
             eng.on_mirror_turbo_event = _on_native_event
 
-            res_nat = eng.start_native_mirror_turbo(slot=cached_slot, interval_ms=interval_ms, max_duration_ms=int(max_duration_s * 1000))
+            if use_arm:
+                res_nat = eng.arm_native_mirror_turbo(
+                    slot=cached_slot,
+                    interval_ms=interval_ms,
+                    max_duration_ms=int(max_duration_s * 1000),
+                    start_at_epoch_ms=int(start_at_epoch_ms),
+                    options=turbo_opts,
+                )
+            else:
+                res_nat = eng.start_native_mirror_turbo(
+                    slot=cached_slot,
+                    interval_ms=interval_ms,
+                    max_duration_ms=int(max_duration_s * 1000),
+                    options=turbo_opts,
+                )
             if res_nat.get("success"):
                 native_started = True
+                zc_desc = "Zero-Confirm BẬT (bỏ qua mọi thông báo)" if zero_confirm else "Zero-Confirm TẮT"
                 self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU NATIVE TURBO SNIPING CƯỚP CỔNG (0ms IPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU NATIVE TURBO LIÊN TIẾP (DirectSocket 0ms IPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, {zc_desc}, Tối đa: {max_duration_s:.0f}s)"
                 )
             elif res_nat.get("error") == "no_ticket":
                 self.mirror_sniping = False
@@ -5571,8 +5633,13 @@ class SlotController:
                 return False
 
         if not native_started:
+            if hasattr(eng, "set_mirror_zero_confirm"):
+                try:
+                    eng.set_mirror_zero_confirm(bool(zero_confirm))
+                except Exception:
+                    pass
             self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO SNIPING CƯỚP CỔNG (Fallback RPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO LIÊN TIẾP (Fallback RPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Zero-Confirm={'BẬT' if zero_confirm else 'TẮT'}, Tối đa: {max_duration_s:.0f}s)"
             )
 
         def _sniper():
@@ -5580,10 +5647,13 @@ class SlotController:
             if native_started:
                 # Native In-Process đang tự bắn liên thanh 0ms IPC bên trong RAM game.
                 # Luồng Python chỉ giám sát fast_state trong RAM Python (Zero GIL/RPC contention)!
+                wait_limit = max_duration_s + 0.5
+                if use_arm and start_at_epoch_ms:
+                    wait_limit += max(0.0, (int(start_at_epoch_ms) - now_ms_py) / 1000.0)
                 while self.mirror_sniping:
                     time.sleep(0.2)
                     now = time.time()
-                    if (now - start_t) > (max_duration_s + 0.5):
+                    if (now - start_t) > wait_limit:
                         break
                     if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
                         break
@@ -5608,7 +5678,7 @@ class SlotController:
                 return
 
             # Fallback Python High-Speed Loop (nếu native in-process chưa khả dụng)
-            base_sleep = max(0.015, interval_ms / 1000.0)
+            base_sleep = max(0.005, interval_ms / 1000.0)
             packets_sent = 0
             check_interval = 4
             iter_cnt = 0
@@ -10146,9 +10216,19 @@ class DashboardApp(ctk.CTk):
 
     def get_mirror_snipe_delay(self) -> int:
         try:
-            return max(15, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
+            return max(0, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
         except Exception:
-            return 35
+            return 10
+
+    def get_mirror_zero_confirm(self) -> bool:
+        try:
+            if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_zero_confirm"):
+                return bool(self.mirror_view.get_zero_confirm())
+            if hasattr(self, "mirror_zero_confirm"):
+                return bool(self.mirror_zero_confirm)
+        except Exception:
+            pass
+        return True
 
     def get_mirror_snipe_dur(self) -> float:
         try:
@@ -10600,18 +10680,20 @@ class DashboardApp(ctk.CTk):
         self._ensure_mirror_auto_schedule_enabled_from_manual()
         delay_ms = self.get_mirror_snipe_delay()
         dur_s = self.get_mirror_snipe_dur()
+        zero_confirm = self.get_mirror_zero_confirm() if hasattr(self, "get_mirror_zero_confirm") else True
         threading.Thread(
             target=self.controllers[slot_idx - 1].start_mirror_turbo_sniping,
-            args=(delay_ms, dur_s),
+            kwargs={"interval_ms": delay_ms, "max_duration_s": dur_s, "zero_confirm": zero_confirm},
             daemon=True
         ).start()
 
-    def start_all_mirror_turbo_sniping(self, from_scheduler: bool = False):
-        """Kích hoạt Turbo Sniping đồng loạt cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror."""
+    def start_all_mirror_turbo_sniping(self, from_scheduler: bool = False, target_open_epoch_ms: int = 0):
+        """Kích hoạt Turbo Sniping đồng loạt (bắn liên tiếp + Zero-Confirm) cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror."""
         if not from_scheduler:
             self._ensure_mirror_auto_schedule_enabled_from_manual()
         delay_ms = self.get_mirror_snipe_delay()
         dur_s = self.get_mirror_snipe_dur()
+        zero_confirm = self.get_mirror_zero_confirm() if hasattr(self, "get_mirror_zero_confirm") else True
 
         def _runner():
             detected = getattr(self, "detected_games", {})
@@ -10643,14 +10725,21 @@ class DashboardApp(ctk.CTk):
             res_lock = threading.Lock()
             barrier = threading.Barrier(len(unentered_ctrls)) if len(unentered_ctrls) > 1 else None
 
-            def _start_ctrl(c):
-                ok = c.start_mirror_turbo_sniping(interval_ms=delay_ms, max_duration_s=dur_s, barrier=barrier)
+            def _start_ctrl(c, idx_order):
+                ok = c.start_mirror_turbo_sniping(
+                    interval_ms=delay_ms,
+                    max_duration_s=dur_s,
+                    barrier=barrier,
+                    start_at_epoch_ms=int(target_open_epoch_ms or 0),
+                    stagger_ms=0,
+                    zero_confirm=zero_confirm,
+                )
                 if ok:
                     with res_lock:
                         results.append(c.slot_idx)
 
-            for ctrl in unentered_ctrls:
-                t = threading.Thread(target=_start_ctrl, args=(ctrl,), daemon=True)
+            for idx_order, ctrl in enumerate(unentered_ctrls):
+                t = threading.Thread(target=_start_ctrl, args=(ctrl, idx_order), daemon=True)
                 threads.append(t)
                 t.start()
 
@@ -10659,8 +10748,9 @@ class DashboardApp(ctk.CTk):
 
             started = len(results)
             if started > 0:
+                zc_lbl = "Zero-Confirm BẬT" if zero_confirm else "Zero-Confirm TẮT"
                 self.after(0, lambda: self.append_mirror_log(
-                    f"⚡ ĐÃ KÍCH HOẠT CƯỚP CỔNG CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms, Tối đa {dur_s:.0f}s)!"
+                    f"⚡ ĐÃ KÍCH HOẠT TURBO LIÊN TIẾP CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms · {zc_lbl} · Tối đa {dur_s:.0f}s)!"
                 ))
             else:
                 self.after(0, lambda: self.append_mirror_log("⚠️ Không kích hoạt được tài khoản nào (thiếu vé hoặc lỗi kết nối)!"))

@@ -10,6 +10,7 @@ import customtkinter as ctk
 from ui.theme import Colors, Fonts, Radii
 from ui.components.icons import UiIconFactory
 from ui.components.shell import make_action_button, bind_mousewheel_to_scrollable
+from ui.components.tooltip import attach_tooltip
 
 
 class MirrorView(ctk.CTkFrame):
@@ -59,6 +60,7 @@ class MirrorView(ctk.CTkFrame):
         self.var_mirror_lifecycle = ctk.BooleanVar(value=True)
         self.var_mirror_gremory = ctk.BooleanVar(value=True)
         self.var_mirror_prep = ctk.BooleanVar(value=True)
+        self.var_mirror_zero_confirm = ctk.BooleanVar(value=True)
         self.var_mirror_telegram = ctk.BooleanVar(value=False)
 
         self._build_layout()
@@ -171,16 +173,23 @@ class MirrorView(ctk.CTkFrame):
 
         for text, var in (
             ("⚡ Tự cướp", self.var_mirror_auto),
+            ("🔇 Zero-Confirm", self.var_mirror_zero_confirm),
             ("⚔️ Ra bãi", self.var_mirror_lifecycle),
             ("🎁 Lôi K", self.var_mirror_gremory),
             ("🚶 Lugard :08", self.var_mirror_prep),
             ("📱 Telegram", self.var_mirror_telegram),
         ):
             cmd = self._handle_toggle_telegram if var is self.var_mirror_telegram else self._emit_schedule
-            ctk.CTkCheckBox(
+            cb = ctk.CTkCheckBox(
                 inner, text=text, variable=var, font=Fonts.CAPTION,
                 checkbox_width=14, checkbox_height=14, command=cmd
-            ).pack(side="left", padx=(0, 8), pady=7)
+            )
+            cb.pack(side="left", padx=(0, 8), pady=7)
+            if var is self.var_mirror_zero_confirm:
+                attach_tooltip(
+                    cb,
+                    "Zero-Confirm: Bỏ qua toàn bộ thông báo/hộp thoại xác nhận trong game để bắn gói Turbo liên tiếp với độ trễ thấp nhất"
+                )
 
         right = ctk.CTkFrame(row, fg_color="transparent")
         right.pack(side="right", fill="y", padx=8)
@@ -203,8 +212,9 @@ class MirrorView(ctk.CTkFrame):
             right, width=38, height=24, font=Fonts.CAPTION, justify="center",
             fg_color=Colors.BG_SURFACE, border_color=Colors.BORDER_CARD
         )
-        self.entry_snipe_delay.insert(0, "35")
+        self.entry_snipe_delay.insert(0, "10")
         self.entry_snipe_delay.pack(side="right", padx=0, pady=6)
+        attach_tooltip(self.entry_snipe_delay, "Chu kỳ bắn gói Turbo liên tiếp (0ms = bắn mỗi khung hình 240 FPS, 5-10ms = bắn siêu tốc)")
         ctk.CTkLabel(right, text="Chu kỳ:", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="right", padx=(6, 2))
 
         ctk.CTkLabel(right, text="s", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="right", padx=(2, 6))
@@ -364,15 +374,17 @@ class MirrorView(ctk.CTkFrame):
             return
         sched = mirror_cfg.get("schedule", mirror_cfg)
         self.var_mirror_auto.set(bool(sched.get("auto_schedule", True)))
+        self.var_mirror_zero_confirm.set(bool(sched.get("zero_confirm", True)))
         self.var_mirror_lifecycle.set(bool(sched.get("auto_lifecycle", True)))
         self.var_mirror_gremory.set(bool(sched.get("auto_gremory", True)))
         self.var_mirror_prep.set(bool(sched.get("auto_prep_before", True)))
         if hasattr(self, "entry_prefire_sec"):
-            pf = float(sched.get("prefire_sec", 2.0) or 2.0)
+            pf = float(sched.get("prefire_sec", 2.0) if sched.get("prefire_sec") is not None else 2.0)
             self.entry_prefire_sec.delete(0, "end")
             self.entry_prefire_sec.insert(0, f"{pf:.1f}".rstrip('0').rstrip('.') if pf != int(pf) else str(int(pf)))
         if hasattr(self, "entry_snipe_delay"):
-            dl = int(sched.get("interval_ms", 35) or 35)
+            dl_raw = sched.get("interval_ms", sched.get("snipe_interval_ms", 10))
+            dl = int(dl_raw) if dl_raw is not None else 10
             self.entry_snipe_delay.delete(0, "end")
             self.entry_snipe_delay.insert(0, str(dl))
         if hasattr(self, "entry_snipe_dur"):
@@ -503,6 +515,7 @@ class MirrorView(ctk.CTkFrame):
         if self.on_save_schedule:
             self.on_save_schedule({
                 "auto_schedule": self.var_mirror_auto.get(),
+                "zero_confirm": self.var_mirror_zero_confirm.get(),
                 "auto_lifecycle": self.var_mirror_lifecycle.get(),
                 "auto_gremory": self.var_mirror_gremory.get(),
                 "auto_prep_before": self.var_mirror_prep.get(),
@@ -510,6 +523,12 @@ class MirrorView(ctk.CTkFrame):
                 "interval_ms": self.get_snipe_delay(),
                 "max_duration_s": self.get_snipe_dur(),
             })
+
+    def get_zero_confirm(self) -> bool:
+        try:
+            return bool(self.var_mirror_zero_confirm.get())
+        except Exception:
+            return True
 
     def get_prefire_sec(self) -> float:
         try:
@@ -519,9 +538,9 @@ class MirrorView(ctk.CTkFrame):
 
     def get_snipe_delay(self) -> int:
         try:
-            return max(15, min(1000, int(self.entry_snipe_delay.get().strip())))
+            return max(0, min(1000, int(self.entry_snipe_delay.get().strip())))
         except Exception:
-            return 35
+            return 10
 
     def get_snipe_dur(self) -> float:
         try:

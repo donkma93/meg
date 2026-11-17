@@ -3958,6 +3958,8 @@ var _pendingMirrorFpsRestore = false;
 var _pendingMirrorPreStage = null;
 var _pendingMirrorRescanTicket = false;
 var _mirrorLastMainTickMs = 0;
+var _mirrorZeroConfirmMode = true;
+var _suppressMirrorUiUntilMs = 0;
 
 var _nativeMirrorTurboStats = {
     running: false,
@@ -3980,6 +3982,10 @@ var _nativeMirrorTurboStats = {
     needLugardWarm: false,
     directSocketFast: true,
     ackPaced: true,
+    continuousBurst: true,
+    zeroConfirm: true,
+    suppressedDialogs: 0,
+    suppressedConfirms: 0,
     ackInFlight: false,
     lastSendMs: 0,
     firstSendMs: 0,
@@ -3996,6 +4002,14 @@ var _nativeMirrorTurboStats = {
     preStagedAtMs: 0,
     fpsBoosted: false
 };
+
+function isMirrorZeroConfirmSuppressing() {
+    if (!_mirrorZeroConfirmMode) return false;
+    var st = _nativeMirrorTurboStats;
+    if (st.running || st.armed || st.probeMode) return true;
+    if (_suppressMirrorUiUntilMs > 0 && Date.now() <= _suppressMirrorUiUntilMs) return true;
+    return false;
+}
 
 function cleanupNativeTurbo() {
     if (_nativeMirrorTurboTimer !== null) {
@@ -4190,6 +4204,9 @@ function finishMirrorTurbo(msgType, enteredFlag) {
     if (enteredFlag) _nativeMirrorTurboStats.entered = true;
     cleanupNativeTurbo();
     _pendingMirrorFpsRestore = true;
+    if (_mirrorZeroConfirmMode) {
+        _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 1200);
+    }
     try {
         var nowMs = Date.now();
         var elapsed = _nativeMirrorTurboStats.startTime > 0 ? (nowMs - _nativeMirrorTurboStats.startTime) : 0;
@@ -4204,7 +4221,10 @@ function finishMirrorTurbo(msgType, enteredFlag) {
             minRttMs: _nativeMirrorTurboStats.minRttMs,
             lastRecvCode: _nativeMirrorTurboStats.lastRecvCode,
             rCodeCounts: _nativeMirrorTurboStats.rCodeCounts,
-            serverOpenEpochMs: _nativeMirrorTurboStats.serverOpenEpochMs
+            serverOpenEpochMs: _nativeMirrorTurboStats.serverOpenEpochMs,
+            zeroConfirm: _nativeMirrorTurboStats.zeroConfirm,
+            suppressedDialogs: _nativeMirrorTurboStats.suppressedDialogs,
+            suppressedConfirms: _nativeMirrorTurboStats.suppressedConfirms
         });
     } catch (eFin) {}
 }
@@ -4396,7 +4416,11 @@ try {
                         var len = arrPtr.add(0x18).readS32();
                         if (len >= 5) {
                             var rCode = arrPtr.add(0x24).readU8();
-                            handleMirrorEnterRecv(rCode, Date.now());
+                            var recvNow = Date.now();
+                            if (rCode !== 0 && isMirrorZeroConfirmSuppressing()) {
+                                _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, recvNow + 600);
+                            }
+                            handleMirrorEnterRecv(rCode, recvNow);
                         }
                     }
                 } catch (eDGER) {}
@@ -4444,6 +4468,14 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     var targetEpoch = (startAtEpochMs !== undefined && startAtEpochMs !== null) ? Number(startAtEpochMs) : 0;
     var isArmedFuture = !isNaN(targetEpoch) && (targetEpoch > nowMs + 10);
     var recentlyStaged = (_nativeMirrorTurboStats.preStagedAtMs > 0) && ((nowMs - _nativeMirrorTurboStats.preStagedAtMs) <= 15000);
+    var zeroConf = (opts.zeroConfirm !== false && opts.suppressDialogs !== false);
+    var contBurst = (opts.continuousBurst !== false);
+
+    _mirrorZeroConfirmMode = zeroConf;
+    if (zeroConf) {
+        var endAt = (isArmedFuture ? targetEpoch : nowMs) + maxDur + 2000;
+        _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, endAt);
+    }
 
     _nativeMirrorTurboStats.running = !isArmedFuture;
     _nativeMirrorTurboStats.armed = isArmedFuture;
@@ -4465,6 +4497,10 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     _nativeMirrorTurboStats.needLugardWarm = (opts.preStaged === true || recentlyStaged) ? false : true;
     _nativeMirrorTurboStats.directSocketFast = (opts.directSocket !== false);
     _nativeMirrorTurboStats.ackPaced = (opts.ackPaced !== false);
+    _nativeMirrorTurboStats.continuousBurst = contBurst;
+    _nativeMirrorTurboStats.zeroConfirm = zeroConf;
+    _nativeMirrorTurboStats.suppressedDialogs = 0;
+    _nativeMirrorTurboStats.suppressedConfirms = 0;
     _nativeMirrorTurboStats.ackInFlight = false;
     _nativeMirrorTurboStats.lastSendMs = 0;
     _nativeMirrorTurboStats.firstSendMs = isArmedFuture ? 0 : nowMs;
@@ -4480,8 +4516,8 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
         _pendingMirrorFpsBoost = true;
     }
 
-    // Watchdog an toàn (dùng cho test contract _nativeMirrorTurboTimer + fallback nếu Game.Update bị pause hoàn toàn)
-    var watchInterval = Math.max(25, Math.min(120, intMs > 0 ? intMs * 2 : 50));
+    // Watchdog an toàn (hỗ trợ cả cửa sổ game thu nhỏ/chạy nền nếu Unity Update bị giảm tốc)
+    var watchInterval = Math.max(10, Math.min(50, intMs > 0 ? intMs : 15));
     _nativeMirrorTurboTimer = setInterval(function() {
         try {
             ensureThreadAttached();
@@ -4496,7 +4532,7 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
                 return;
             }
             if (st.armed && !st.running) {
-                if (tNow >= st.armStartEpochMs && (_mirrorLastMainTickMs === 0 || (tNow - _mirrorLastMainTickMs) > 300)) {
+                if (tNow >= st.armStartEpochMs && (_mirrorLastMainTickMs === 0 || (tNow - _mirrorLastMainTickMs) > 120)) {
                     st.armed = false;
                     st.running = true;
                     st.startTime = tNow;
@@ -4509,8 +4545,8 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
                 finishMirrorTurbo("mirror_turbo_timeout", false);
                 return;
             }
-            // Chỉ bắn từ watchdog nếu Unity MainThread Update chưa tick trong >300ms (tránh race SendSerial!)
-            if (st.running && !st.spamPaused && (tNow - _mirrorLastMainTickMs) > 300 && (tNow - st.lastSendMs) >= Math.max(10, st.intervalMs)) {
+            // Chỉ bắn từ watchdog nếu Unity MainThread Update chưa tick trong >120ms (tránh race SendSerial!)
+            if (st.running && !st.spamPaused && (tNow - _mirrorLastMainTickMs) > 120 && (tNow - st.lastSendMs) >= Math.max(5, st.intervalMs)) {
                 st.lastSendMs = tNow;
                 if (nativeMirrorEnterAlt !== null) {
                     try { nativeMirrorEnterAlt(st.relSlot); } catch (eWN) {}
@@ -4532,6 +4568,8 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
         intervalMs: intMs,
         directSocketFast: _nativeMirrorTurboStats.directSocketFast,
         ackPaced: _nativeMirrorTurboStats.ackPaced,
+        continuousBurst: _nativeMirrorTurboStats.continuousBurst,
+        zeroConfirm: _nativeMirrorTurboStats.zeroConfirm,
         fpsBoostQueued: _pendingMirrorFpsBoost
     };
 }
@@ -4619,42 +4657,110 @@ try {
 
 // =========================================================================
 // REA HOOK: HelperUI.LPFAFDNGGLF (ShowDialog - RVA 0x1BFEA00)
-// Chặn triệt để popup báo lỗi "You don't have a ticket for your level" trên client
+// Chặn triệt để popup báo lỗi Devil Square & toàn bộ thông báo/dialog Mirror
+// khi đang chạy Mirror Turbo Zero-Confirm (0 UI overhead trên MainThread)
 // =========================================================================
 var helperUIShowDialogHook = null;
+var helperUIShowDialogAddr = null;
+var _helperUIShowDialogCb = null;
+var _origHelperUIShowDialog = null;
 try {
     var offHSDHook = off('__HELPER_UI_SHOW_DIALOG__');
     if (!offHSDHook.isNull()) {
-        helperUIShowDialogHook = Interceptor.attach(baseAddr.add(offHSDHook), {
-            onEnter: function(args) {
-                this.suppress = false;
-                if (shuttingDown) return;
-                try {
-                    var msg = "";
-                    if (args[2] && !args[2].isNull()) {
-                        var len = args[2].add(0x10).readS32();
-                        if (len > 0 && len < 256) {
-                            msg = args[2].add(0x14).readUtf16String(len);
+        var hsdTarget = baseAddr.add(offHSDHook);
+        if (typeof Interceptor.replaceFast === "function" && typeof NativeCallback === "function") {
+            _helperUIShowDialogCb = new NativeCallback(function(a0, a1, a2, a3, a4, a5, a6) {
+                if (!shuttingDown) {
+                    if (isMirrorZeroConfirmSuppressing()) {
+                        _nativeMirrorTurboStats.suppressedDialogs += 1;
+                        return ptr(0);
+                    }
+                    try {
+                        var msg = "";
+                        if (a2 && !a2.isNull()) {
+                            var len = a2.add(0x10).readS32();
+                            if (len > 0 && len < 256) {
+                                msg = a2.add(0x14).readUtf16String(len);
+                            }
                         }
-                    }
-                    var lowMsg = msg.toLowerCase();
-                    if (lowMsg.indexOf("ticket for your level") !== -1 || lowMsg.indexOf("don't have a ticket") !== -1) {
-                        this.suppress = true;
-                    }
-                } catch (eMsg) {}
-            },
-            onLeave: function(retval) {
-                if (this.suppress) {
-                    retval.replace(ptr(0));
+                        var lowMsg = msg.toLowerCase();
+                        if (lowMsg.indexOf("ticket for your level") !== -1 || lowMsg.indexOf("don't have a ticket") !== -1) {
+                            return ptr(0);
+                        }
+                    } catch (eMsgR) {}
                 }
-            }
-        });
+                if (_origHelperUIShowDialog !== null) {
+                    return _origHelperUIShowDialog(a0, a1, a2, a3, a4, a5, a6);
+                }
+                return ptr(0);
+            }, 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'pointer', 'pointer']);
+            var origHsdPtr = Interceptor.replaceFast(hsdTarget, _helperUIShowDialogCb);
+            _origHelperUIShowDialog = new NativeFunction(origHsdPtr, 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'pointer', 'pointer']);
+            helperUIShowDialogAddr = hsdTarget;
+        } else {
+            helperUIShowDialogHook = Interceptor.attach(hsdTarget, {
+                onEnter: function(args) {
+                    this.suppress = false;
+                    if (shuttingDown) return;
+                    if (isMirrorZeroConfirmSuppressing()) {
+                        _nativeMirrorTurboStats.suppressedDialogs += 1;
+                        this.suppress = true;
+                        return;
+                    }
+                    try {
+                        var msg = "";
+                        if (args[2] && !args[2].isNull()) {
+                            var len = args[2].add(0x10).readS32();
+                            if (len > 0 && len < 256) {
+                                msg = args[2].add(0x14).readUtf16String(len);
+                            }
+                        }
+                        var lowMsg = msg.toLowerCase();
+                        if (lowMsg.indexOf("ticket for your level") !== -1 || lowMsg.indexOf("don't have a ticket") !== -1) {
+                            this.suppress = true;
+                        }
+                    } catch (eMsg) {}
+                },
+                onLeave: function(retval) {
+                    if (this.suppress) {
+                        retval.replace(ptr(0));
+                    }
+                }
+            });
+        }
     }
 } catch (eHSDHook) {}
 
 // =========================================================================
+// REA HOOK: UIModalBox.Show (RVA 0x16B7920)
+// Chặn hiển thị Modal Box thông báo/xác nhận trong chế độ Mirror Zero-Confirm
+// để luồng Unity MainThread không bị khựng khi bắn gói Turbo liên tiếp
+// =========================================================================
+var uiModalBoxShowAddr = null;
+var _uiModalBoxShowCb = null;
+var _origUIModalBoxShow = null;
+try {
+    var offMBS = off('__MODAL_BOX_SHOW__');
+    if (!offMBS.isNull() && typeof Interceptor.replaceFast === "function" && typeof NativeCallback === "function") {
+        var mbsTarget = baseAddr.add(offMBS);
+        _uiModalBoxShowCb = new NativeCallback(function(selfPtr, methodPtr) {
+            if (!shuttingDown && isMirrorZeroConfirmSuppressing()) {
+                _nativeMirrorTurboStats.suppressedDialogs += 1;
+                return;
+            }
+            if (_origUIModalBoxShow !== null) {
+                _origUIModalBoxShow(selfPtr, methodPtr);
+            }
+        }, 'void', ['pointer', 'pointer']);
+        var origMbsPtr = Interceptor.replaceFast(mbsTarget, _uiModalBoxShowCb);
+        _origUIModalBoxShow = new NativeFunction(origMbsPtr, 'void', ['pointer', 'pointer']);
+        uiModalBoxShowAddr = mbsTarget;
+    }
+} catch (eMBSHook) {}
+
+// =========================================================================
 // REA HOOK: HelperUI.HMIFHHIEDNL (ShowConfirm - RVA 0x1BFFFB0)
-// Tự động xác nhận vào Devil Square (100% Zero-Confirm, không cần người dùng click)
+// Tự động xác nhận vào Devil Square & Mirror (100% Zero-Confirm, không cần click)
 // =========================================================================
 var helperUIShowConfirmHook = null;
 try {
@@ -4677,7 +4783,15 @@ try {
                     }
                     var lowT = title.toLowerCase();
                     var lowM = msg.toLowerCase();
-                    if (lowT.indexOf("devil") !== -1 || lowM.indexOf("devil") !== -1) {
+                    var isDevilConfirm = (lowT.indexOf("devil") !== -1 || lowM.indexOf("devil") !== -1);
+                    var isMirrorConfirm = isMirrorZeroConfirmSuppressing() ||
+                        lowT.indexOf("mirror") !== -1 || lowM.indexOf("mirror") !== -1 ||
+                        lowT.indexOf("double") !== -1 || lowM.indexOf("double") !== -1 ||
+                        lowT.indexOf("doppel") !== -1 || lowM.indexOf("doppel") !== -1 ||
+                        lowT.indexOf("lugard") !== -1 || lowM.indexOf("lugard") !== -1 ||
+                        lowT.indexOf("espelho") !== -1 || lowM.indexOf("espelho") !== -1;
+
+                    if (isDevilConfirm || isMirrorConfirm) {
                         var actionPtr = null;
                         try {
                             actionPtr = this.context.rsp.add(0x30).readPointer();
@@ -4692,7 +4806,15 @@ try {
                                 var actFn = new NativeFunction(mPtr, 'void', ['pointer', 'bool', 'pointer']);
                                 actFn(target, 1, ptr(0));
                                 this.autoConfirm = true;
+                                if (isMirrorConfirm) {
+                                    _nativeMirrorTurboStats.suppressedConfirms += 1;
+                                    _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 600);
+                                }
                             }
+                        } else if (isMirrorConfirm) {
+                            _nativeMirrorTurboStats.suppressedConfirms += 1;
+                            _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 600);
+                            this.autoConfirm = true;
                         }
                     }
                 } catch (eConfirm) {}
@@ -5785,16 +5907,30 @@ rpc.exports = {
             _nativeMirrorTurboStats.armed = false;
             _nativeMirrorTurboStats.spamPaused = false;
             _pendingMirrorFpsRestore = true;
+            if (_mirrorZeroConfirmMode) {
+                _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 1200);
+            }
             return JSON.stringify({
                 stopped: true,
                 packetsSent: _nativeMirrorTurboStats.packetsSent,
                 mainThreadHits: _nativeMirrorTurboStats.mainThreadHits,
                 directSocketHits: _nativeMirrorTurboStats.directSocketHits,
+                suppressedDialogs: _nativeMirrorTurboStats.suppressedDialogs,
+                suppressedConfirms: _nativeMirrorTurboStats.suppressedConfirms,
                 entered: _nativeMirrorTurboStats.entered
             });
         } catch (eStop) {
             return JSON.stringify({ stopped: false, error: eStop.toString() });
         }
+    },
+
+    setMirrorZeroConfirm: function(enabled) {
+        _mirrorZeroConfirmMode = !!enabled;
+        _nativeMirrorTurboStats.zeroConfirm = _mirrorZeroConfirmMode;
+        if (!_mirrorZeroConfirmMode) {
+            _suppressMirrorUiUntilMs = 0;
+        }
+        return JSON.stringify({ success: true, zeroConfirm: _mirrorZeroConfirmMode });
     },
 
     getNativeMirrorTurboStatus: function() {
@@ -5852,31 +5988,30 @@ rpc.exports = {
                 try { nativeCloseTalk(); } catch (eCT) {}
             }
 
-            var pLugard = getOrCreateLugardPtr(0);
-
-            // Gửi packet C1:30/C1:32 đối thoại NPC Lugard để Server gửi thông báo "The entrance is currently closed" nếu chưa mở cổng
-            try {
-                sendLugardTalkPacket();
-                if (pLugard && !pLugard.isNull()) {
-                    invokeNpcTalk(pLugard);
-                }
-            } catch (eLugTalk) {}
-
             if (itemSlot >= 0) {
+                if (_mirrorZeroConfirmMode) {
+                    _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 1500);
+                }
+                // Zero-Confirm Fast-Path: chỉ gửi gói talk mạng nhẹ (không mở UI đối thoại NPC) và bắn thẳng gói vào cửa
+                try { sendLugardTalkPacket(); } catch (eLugTalk) {}
                 var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
-                if (nativeMirrorEnterAlt !== null) {
-                    try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
-                } else {
-                    sendMirrorEnterPacket(relSlot);
+                if (!dispatchMirrorEnterPacketFast(relSlot)) {
+                    if (nativeMirrorEnterAlt !== null) {
+                        try { nativeMirrorEnterAlt(relSlot); } catch (eNEA) {}
+                    } else {
+                        sendMirrorEnterPacket(relSlot);
+                    }
                 }
                 return JSON.stringify({
                     success: true,
                     slot: itemSlot,
                     relSlot: relSlot,
+                    zeroConfirm: _mirrorZeroConfirmMode,
                     isExtended: (itemSlot >= 76)
                 });
             } else {
-                if (nativeMirrorNpcClick !== null && pLugard && !pLugard.isNull()) {
+                var pLugard = getOrCreateLugardPtr(0);
+                if (!_mirrorZeroConfirmMode && nativeMirrorNpcClick !== null && pLugard && !pLugard.isNull()) {
                     try { nativeMirrorNpcClick(pLugard, ptr(0)); } catch (eMNP) {}
                 }
                 return JSON.stringify({ success: false, error: "no_ticket" });
@@ -7014,7 +7149,9 @@ rpc.exports = {
         try {
             ensureThreadAttached();
             var base = Process.findModuleByName('GameAssembly.dll').base;
-            var typeInfo = base.add(ptr('0x553B900')).readPointer();
+            var gTypeOff = off('__GREMORY_TYPE_INFO__');
+            var gClaimOff = off('__GREMORY_CLAIM_ITEM__');
+            var typeInfo = base.add(!gTypeOff.isNull() ? gTypeOff : ptr('0x553B900')).readPointer();
             if (typeInfo.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "typeInfo_null" });
             var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
             if (staticFields.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "staticFields_null" });
@@ -7025,33 +7162,43 @@ rpc.exports = {
             var dictPtr = gremoryCase.add(ptr('0x20')).readPointer();
             if (dictPtr.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "dictPtr_null" });
 
-            var claimFunc = new NativeFunction(base.add(ptr('0xFD85C0')), 'void', ['pointer', 'pointer']);
             var outerEntries = dictPtr.add(ptr('0x18')).readPointer();
             var outerCount = dictPtr.add(ptr('0x20')).readS32();
+            if (outerEntries.isNull() || outerCount <= 0) {
+                return JSON.stringify({ ok: true, success: true, claimed: 0, items: [], empty: true });
+            }
+            var outerArrLen = 0;
+            try { outerArrLen = outerEntries.add(ptr('0x18')).readS32(); } catch (eOAL) { outerArrLen = outerCount; }
+            var outerLimit = Math.min(outerCount, outerArrLen, 16);
+
+            var claimFunc = new NativeFunction(base.add(!gClaimOff.isNull() ? gClaimOff : ptr('0xFD85C0')), 'void', ['pointer', 'pointer']);
             var claimedCount = 0;
             var claimedItems = [];
 
-            for (var t = 0; t < outerCount; t++) {
+            for (var t = 0; t < outerLimit; t++) {
                 var oEntry = outerEntries.add(0x20 + t * 24);
                 if (oEntry.readS32() < 0) continue;
                 var subDict = oEntry.add(16).readPointer();
                 if (subDict.isNull()) continue;
 
                 var subEntries = subDict.add(ptr('0x18')).readPointer();
-                if (subEntries.isNull()) continue;
-                var arrLen = subEntries.add(ptr('0x18')).readS32();
+                var subCount = 0;
+                try { subCount = subDict.add(ptr('0x20')).readS32(); } catch (eSC) { subCount = 0; }
+                if (subEntries.isNull() || subCount <= 0) continue;
+                var arrLen = 0;
+                try { arrLen = subEntries.add(ptr('0x18')).readS32(); } catch (eAL) { arrLen = 0; }
+                var subLimit = Math.min(subCount, arrLen, 100);
 
-                for (var i = 0; i < arrLen; i++) {
+                for (var i = 0; i < subLimit; i++) {
                     var sEntry = subEntries.add(0x20 + i * 24);
                     if (sEntry.readS32() < 0) continue;
                     var itemInfo = sEntry.add(16).readPointer();
                     if (itemInfo.isNull()) continue;
 
                     var itemObj = itemInfo.add(ptr('0x20')).readPointer();
+                    if (itemObj.isNull()) continue;
                     var itemCode = 0;
-                    if (!itemObj.isNull()) {
-                        try { itemCode = itemObj.add(ptr('0x60')).readU16(); } catch (eCode) {}
-                    }
+                    try { itemCode = itemObj.add(ptr('0x60')).readU16(); } catch (eCode) {}
 
                     claimFunc(itemInfo, ptr(0));
                     claimedCount++;
@@ -7059,7 +7206,7 @@ rpc.exports = {
                     Thread.sleep(0.08);
                 }
             }
-            return JSON.stringify({ ok: true, success: true, claimed: claimedCount, items: claimedItems });
+            return JSON.stringify({ ok: true, success: true, claimed: claimedCount, items: claimedItems, empty: (claimedCount === 0) });
         } catch (e) {
             return JSON.stringify({ ok: false, success: false, claimed: 0, error: String(e) });
         }
@@ -8287,11 +8434,26 @@ rpc.exports = {
             }
         } catch (eTEL) {}
         try {
+            _suppressMirrorUiUntilMs = 0;
+            if (helperUIShowDialogAddr !== null && typeof Interceptor.revert === "function") {
+                Interceptor.revert(helperUIShowDialogAddr);
+                helperUIShowDialogAddr = null;
+                _origHelperUIShowDialog = null;
+                _helperUIShowDialogCb = null;
+            }
             if (helperUIShowDialogHook !== null) {
                 helperUIShowDialogHook.detach();
                 helperUIShowDialogHook = null;
             }
         } catch (eHSD) {}
+        try {
+            if (uiModalBoxShowAddr !== null && typeof Interceptor.revert === "function") {
+                Interceptor.revert(uiModalBoxShowAddr);
+                uiModalBoxShowAddr = null;
+                _origUIModalBoxShow = null;
+                _uiModalBoxShowCb = null;
+            }
+        } catch (eMBS) {}
         try {
             if (helperUIShowConfirmHook !== null) {
                 helperUIShowConfirmHook.detach();
@@ -9844,14 +10006,18 @@ class MegDirectEngine:
     def start_native_mirror_turbo(
         self,
         slot: Optional[int] = None,
-        interval_ms: int = 35,
+        interval_ms: int = 10,
         max_duration_ms: int = 15000,
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Kích hoạt Turbo Sniping Native In-Process trên Unity MainThread (0ms IPC overhead)."""
+        """Kích hoạt Turbo Sniping Native In-Process trên Unity MainThread (0ms IPC overhead, Zero-Confirm)."""
         arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
         opts_str = json.dumps(options or {}) if options else ""
         return self._call_json("startNativeMirrorTurbo", arg_slot, int(interval_ms), int(max_duration_ms), opts_str)
+
+    def set_mirror_zero_confirm(self, enabled: bool = True) -> Dict[str, Any]:
+        """Bật/tắt chế độ Zero-Confirm (bỏ qua toàn bộ popup/dialog thông báo khi cướp cổng Mirror)."""
+        return self._call_json("setMirrorZeroConfirm", bool(enabled), default={"success": False})
 
     def stop_native_mirror_turbo(self) -> Dict[str, Any]:
         """Dừng Turbo Sniping Native In-Process và khôi phục FPS/VSync."""
@@ -10006,94 +10172,71 @@ class MegDirectEngine:
         return {"ok": False, "openedChest": False, "pickedCount": 0}
 
     def claim_gremory_case_items(self) -> Dict[str, Any]:
-        """Tự động nhận toàn bộ vật phẩm / quà tặng đang lưu trong Hộp Quà Gremory Case (phím K) về hòm đồ chính."""
-        hwnd = self.get_hwnd()
-        if not hwnd and not self.is_ready:
+        """Tự động nhận toàn bộ vật phẩm / quà tặng đang lưu trong Hộp Quà Gremory Case (phím K) về hòm đồ chính (100% Frida Native, Zero-Mouse, không click bừa ra map)."""
+        if not self.is_ready:
+            try:
+                self.attach()
+                time.sleep(0.25)
+            except Exception:
+                pass
+        if not self.is_ready:
             return {"ok": False, "success": False, "claimed": 0, "error": "not_ready"}
 
-        # 1. Thử qua Frida Hook (0xFD85C0) nếu quà đã được đồng bộ sẵn trong RAM
-        if self.is_ready:
-            try:
-                res_str = self._call("claimGremoryCaseItems")
-                if res_str:
-                    res = json.loads(res_str) if isinstance(res_str, str) else res_str
+        # 1. Đọc trực tiếp RAM qua Frida Native Hook (RVA 0xFD85C0) nếu danh sách quà đã đồng bộ sẵn
+        last_res: Dict[str, Any] = {"ok": False, "success": False, "claimed": 0}
+        try:
+            res_str = self._call("claimGremoryCaseItems")
+            if res_str:
+                res = json.loads(res_str) if isinstance(res_str, str) else res_str
+                if isinstance(res, dict):
+                    last_res = res
                     if res.get("claimed", 0) > 0:
+                        res["method"] = "frida_native"
                         return res
-            except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi claimGremoryCaseItems via Frida (thử 1): {e}")
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi claimGremoryCaseItems via Frida (thử 1): {e}")
 
-        # 2. Mở Hộp Quà Gremory bằng phím 'K' (0x4B) để game gửi packet C1:4F:01 lên Server tải danh sách quà về client
+        # 2. Nếu RAM hiện có 0 món, bấm nhẹ phím 'K' (0x4B) ĐÚNG 1 LẦN (KHÔNG click chuột, KHÔNG bấm ESC trước)
+        #    để game client tự gửi packet đồng bộ danh sách Gremory Case từ Server về RAM, rồi đóng lại bằng phím 'K'
+        hwnd = self.get_hwnd()
+        opened_k = False
         if hwnd:
             try:
-                self.send_background_key(hwnd, 0x1B, duration_s=0.04)
-                time.sleep(0.15)
                 self.send_background_key(hwnd, 0x4B, duration_s=0.06)
+                opened_k = True
                 time.sleep(0.65)
             except Exception:
                 pass
 
-        # 3. Sau khi mở hộp K, thử lại nhận qua Frida Native Hook (RVA 0xFD85C0)
-        if self.is_ready:
-            for _ in range(2):
+        # 3. Đọc lại RAM thật sau khi đồng bộ (tuyệt đối KHÔNG fallback sang click chuột mù gây đi lung tung & báo ảo 5 món!)
+        try:
+            for attempt in range(2):
                 try:
                     res_str = self._call("claimGremoryCaseItems")
                     if res_str:
                         res = json.loads(res_str) if isinstance(res_str, str) else res_str
-                        if res.get("claimed", 0) > 0:
-                            if hwnd:
-                                time.sleep(0.2)
-                                self.send_background_key(hwnd, 0x1B, duration_s=0.05)
-                            return res
+                        if isinstance(res, dict):
+                            last_res = res
+                            if res.get("claimed", 0) > 0:
+                                res["method"] = "frida_native"
+                                return res
                 except Exception as e:
-                    _safe_log(f"[MegDirectEngine] Lỗi claimGremoryCaseItems via Frida (thử 2): {e}")
-                time.sleep(0.3)
-
-        # 4. Thao tác Phím K (Background PostMessage) an toàn 100%
-        if hwnd:
-            try:
-
-                cw, ch = 1024, 768
+                    _safe_log(f"[MegDirectEngine] Lỗi claimGremoryCaseItems via Frida (thử 2.{attempt + 1}): {e}")
+                if attempt == 0:
+                    time.sleep(0.30)
+        finally:
+            if opened_k and hwnd:
                 try:
-                    import ctypes.wintypes
-                    rect = ctypes.wintypes.RECT()
-                    if ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
-                        cw = max(800, rect.right - rect.left)
-                        ch = max(600, rect.bottom - rect.top)
+                    time.sleep(0.15)
+                    self.send_background_key(hwnd, 0x4B, duration_s=0.05)
                 except Exception:
                     pass
 
-                # Tọa độ nút 'Nhận quà' của các hàng item trong Gremory Case
-                base_rx = cw // 2 + int(175 * (cw / 1024.0))
-                start_ry = ch // 2 - int(115 * (ch / 768.0))
-                row_h = int(48 * (ch / 768.0))
-
-                claimed = 0
-                for row in range(5):
-                    btn_y = start_ry + row * row_h
-                    self.send_background_click(hwnd, base_rx, btn_y, duration_ms=40)
-                    time.sleep(0.18)
-                    self.send_background_key(hwnd, 0x0D, duration_s=0.04) # VK_RETURN
-                    time.sleep(0.12)
-                    self.send_background_key(hwnd, 0x20, duration_s=0.04) # VK_SPACE
-                    time.sleep(0.12)
-                    claimed += 1
-
-                # Click tiếp hàng đầu tiên (row 0) thêm 3 lần vì khi nhận xong thì các hàng dưới trôi lên hàng 0
-                for _ in range(3):
-                    self.send_background_click(hwnd, base_rx, start_ry, duration_ms=40)
-                    time.sleep(0.18)
-                    self.send_background_key(hwnd, 0x0D, duration_s=0.04)
-                    time.sleep(0.12)
-                    self.send_background_key(hwnd, 0x20, duration_s=0.04)
-                    time.sleep(0.12)
-
-                time.sleep(0.3)
-                self.send_background_key(hwnd, 0x1B, duration_s=0.05) # VK_ESCAPE
-                return {"ok": True, "success": True, "claimed": claimed, "method": "background_input"}
-            except Exception as e:
-                _safe_log(f"[MegDirectEngine] Lỗi background input claim Gremory: {e}")
-
-        return {"ok": False, "success": False, "claimed": 0, "error": "not_ready"}
+        if last_res.get("ok"):
+            last_res["claimed"] = int(last_res.get("claimed", 0) or 0)
+            last_res["method"] = "frida_native"
+            return last_res
+        return {"ok": False, "success": False, "claimed": 0, "error": last_res.get("reason") or last_res.get("error") or "sync_failed"}
 
     def scan_jewels_info(self) -> Dict[str, Any]:
         """Quét toàn bộ snapshot ngọc trong thùng đồ (chính & mở rộng) và hòm đồ."""
