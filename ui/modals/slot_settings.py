@@ -36,6 +36,14 @@ class SlotSettingsModal(ctk.CTkToplevel):
         self.transient(parent)
         self.grab_set()
 
+        # Áp dụng icon đồng bộ từ ứng dụng mẹ
+        if hasattr(parent, "_setup_window_icon"):
+            parent._setup_window_icon(self)
+            self.after(100, lambda: parent._setup_window_icon(self))
+        elif hasattr(parent, "_apply_window_icon"):
+            parent._apply_window_icon(self)
+            self.after(100, lambda: parent._apply_window_icon(self))
+
         self._build_ui()
 
     def _build_ui(self):

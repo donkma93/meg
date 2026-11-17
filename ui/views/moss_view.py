@@ -9,7 +9,7 @@ import time
 import customtkinter as ctk
 from ui.theme import Colors, Fonts, Radii
 from ui.components.icons import UiIconFactory
-from ui.components.shell import make_action_button
+from ui.components.shell import make_action_button, bind_mousewheel_to_scrollable
 from ui.components.dropdown import ModernDropdown
 
 try:
@@ -23,7 +23,7 @@ MOSS_CAT_OPTIONS: List[Tuple[str, int]] = [
     ("[ZEN] 1: Chùy & Trượng", 1),
     ("[ZEN] 2: Cung & Nỏ", 2),
     ("[ZEN] 3: Gậy Phép", 3),
-    ("[ZEN] 4: Khiên", 4),
+    ("[ZEN] 4: Khiên (Shields)", 4),
     ("[ZEN] 5: Trang Sức & Khác", 5),
     ("[NGỌC] 6: 2 Soul", 6),
     ("[NGỌC] 7: 10 Soul", 7),
@@ -189,8 +189,9 @@ class MossView(ctk.CTkFrame):
         self.moss_cat_var = ctk.StringVar(value=MOSS_CAT_OPTIONS[0][0])
         self.moss_cat_combo = ModernDropdown(
             right, values=[n for n, _ in MOSS_CAT_OPTIONS], variable=self.moss_cat_var,
-            width=150, height=24, fg_color=Colors.BG_SURFACE, border_color=Colors.BORDER_CARD,
+            width=160, height=26, fg_color=Colors.BG_SURFACE, border_color=Colors.BORDER_CARD,
             hover_color=Colors.BG_CARD_HOVER, font=Fonts.CAPTION,
+            popup_min_width=250,
         )
         self.moss_cat_combo.pack(side="left", padx=(0, 4), pady=6)
 
@@ -226,6 +227,7 @@ class MossView(ctk.CTkFrame):
 
         self.moss_scroll = ctk.CTkScrollableFrame(card, fg_color="transparent")
         self.moss_scroll.pack(fill="both", expand=True, padx=4, pady=4)
+        bind_mousewheel_to_scrollable(self.moss_scroll)
 
         for ctrl in self.controllers:
             self._create_moss_slot_row(ctrl)
@@ -283,8 +285,9 @@ class MossView(ctk.CTkFrame):
         cat_var = ctk.StringVar(value=moss_cat_name(int(getattr(ctrl, "moss_category", 0) or 0)))
         cat_combo = ModernDropdown(
             row, values=[n for n, _ in MOSS_CAT_OPTIONS], variable=cat_var,
-            width=168, height=24, fg_color=Colors.BG_CARD, border_color=Colors.BORDER_CARD,
+            width=170, height=26, fg_color=Colors.BG_CARD, border_color=Colors.BORDER_CARD,
             hover_color=Colors.BG_CARD_HOVER, font=Fonts.CAPTION,
+            popup_min_width=250,
             command=lambda val, s=i: self._on_cat_changed(s, val),
         )
         cat_combo.pack(side="left", padx=2)
@@ -410,6 +413,17 @@ class MossView(ctk.CTkFrame):
                 continue
             is_en = getattr(ctrl, "moss_enabled", True)
             name = getattr(ctrl, "char_name", "---") or "---"
+            if name == "---":
+                last_k = getattr(ctrl, "last_known_char_name", "")
+                if last_k and last_k != "---":
+                    name = last_k
+                    ctrl.char_name = last_k
+                elif hasattr(ctrl, "app") and hasattr(ctrl.app, "state_mgr"):
+                    s_data = ctrl.app.state_mgr.get_slot(i)
+                    if s_data.get("char_name") and s_data.get("char_name") != "---":
+                        name = s_data["char_name"]
+                        ctrl.char_name = name
+
             pid = getattr(ctrl, "assigned_pid", None)
             if el.get("char_lbl"):
                 el["char_lbl"].configure(

@@ -9,7 +9,8 @@ import customtkinter as ctk
 from ui.theme import Colors, Fonts
 from ui.components.icons import UiIconFactory
 from ui.components.cards import CompactSlotCard
-from ui.components.shell import ToolbarBar, make_action_button, SectionCard
+from ui.components.dropdown import ModernDropdown
+from ui.components.shell import ToolbarBar, make_action_button, bind_mousewheel_to_scrollable
 from ui.modals.slot_settings import SlotSettingsModal
 
 
@@ -27,13 +28,17 @@ class TrainSlotsView(ctk.CTkFrame):
         on_connect_all: Optional[Callable[[], None]] = None,
         on_assign_all: Optional[Callable[[], None]] = None,
         on_refresh_games: Optional[Callable[[], None]] = None,
-        on_arrange_windows: Optional[Callable[[], None]] = None,
+        on_arrange_windows: Optional[Callable[[Optional[str]], None]] = None,
         on_slot_pid_selected: Optional[Callable[[int, str], None]] = None,
         on_slot_profile_selected: Optional[Callable[[int, str], None]] = None,
         on_stack_jewels: Optional[Callable[[], None]] = None,
         on_devil_config: Optional[Callable[[], None]] = None,
         on_close_games: Optional[Callable[[], None]] = None,
         on_open_stat_dialog: Optional[Callable[[int], None]] = None,
+        on_add_slot: Optional[Callable[[], None]] = None,
+        on_remove_slot: Optional[Callable[[], None]] = None,
+        on_telegram_config: Optional[Callable[[], None]] = None,
+        on_import_accounts: Optional[Callable[[], None]] = None,
         **kwargs
     ):
         super().__init__(parent, fg_color="transparent", **kwargs)
@@ -52,58 +57,31 @@ class TrainSlotsView(ctk.CTkFrame):
         self.on_devil_config = on_devil_config
         self.on_close_games = on_close_games
         self.on_open_stat_dialog = on_open_stat_dialog
+        self.on_add_slot = on_add_slot
+        self.on_remove_slot = on_remove_slot
+        self.on_telegram_config = on_telegram_config
+        self.on_import_accounts = on_import_accounts
 
         self.cards: Dict[int, CompactSlotCard] = {}
         self.profile_options = CompactSlotCard.get_default_profile_options()
 
-        self._build_summary()
         self._build_toolbar()
         self._build_slots_list()
 
-    def _build_summary(self):
-        summary = ctk.CTkFrame(self, fg_color="transparent")
-        summary.pack(fill="x", padx=12, pady=(10, 4))
-
-        left = ctk.CTkFrame(summary, fg_color="transparent")
-        left.pack(side="left")
-
-        ctk.CTkLabel(
-            left,
-            text="Auto Train Control Deck",
-            font=Fonts.SECTION,
-            text_color=Colors.TEXT_MAIN
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            left,
-            text="Quản lý 10 slot · kết nối · gán PID · bật/tắt auto",
-            font=Fonts.CAPTION,
-            text_color=Colors.TEXT_DIM
-        ).pack(anchor="w")
-
-        right = ctk.CTkFrame(summary, fg_color="transparent")
-        right.pack(side="right")
-
-        self.lbl_slot_summary = ctk.CTkLabel(
-            right,
-            text="0 running · 0 connected · 10 slots",
-            font=Fonts.BODY_BOLD,
-            text_color=Colors.TEXT_MUTED
-        )
-        self.lbl_slot_summary.pack(side="right", pady=8)
-
     def _build_toolbar(self):
-        tb = ToolbarBar(self, height=50)
-        tb.pack(fill="x", padx=12, pady=(4, 8))
+        tb = ToolbarBar(self, height=44)
+        tb.pack(fill="x", padx=10, pady=(6, 6))
 
-        self.btn_connect_all = make_action_button(
+        # --- Nhóm 1: Nhận diện & Kết nối Game ---
+        self.btn_refresh = make_action_button(
             tb.left,
-            "Kết Nối Tất Cả",
-            self._handle_connect_all,
-            image=UiIconFactory.get("link", color=Colors.CYAN, size=(13, 13)),
-            tone="primary",
-            height=30,
+            "Làm Mới",
+            self._handle_refresh_games,
+            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(13, 13)),
+            tone="neutral",
+            height=28,
         )
-        self.btn_connect_all.pack(side="left", padx=(0, 6), pady=10)
+        self.btn_refresh.pack(side="left", padx=(0, 4), pady=7)
 
         self.btn_assign_all = make_action_button(
             tb.left,
@@ -111,42 +89,95 @@ class TrainSlotsView(ctk.CTkFrame):
             self._handle_assign_all,
             image=UiIconFactory.get("users", color=Colors.CYAN, size=(13, 13)),
             tone="primary",
-            height=30,
+            height=28,
         )
-        self.btn_assign_all.pack(side="left", padx=(0, 6), pady=10)
+        self.btn_assign_all.pack(side="left", padx=(0, 4), pady=7)
 
-        self.btn_refresh = make_action_button(
+        self.btn_connect_all = make_action_button(
             tb.left,
-            "Làm Mới",
-            self._handle_refresh_games,
-            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(13, 13)),
-            tone="neutral",
-            height=30,
+            "Kết Nối Tất Cả",
+            self._handle_connect_all,
+            image=UiIconFactory.get("link", color=Colors.CYAN, size=(13, 13)),
+            tone="primary",
+            height=28,
         )
-        self.btn_refresh.pack(side="left", padx=(0, 6), pady=10)
+        self.btn_connect_all.pack(side="left", padx=(0, 6), pady=7)
 
-        # Sắp xếp / Đóng Game nằm ở thanh sticky global — chỉ hiện ở đây nếu caller truyền callback
-        self.btn_arrange_windows = None
-        if self.on_arrange_windows:
-            self.btn_arrange_windows = make_action_button(
-                tb.left,
-                "Sắp Xếp",
-                self._handle_arrange_windows,
-                image=UiIconFactory.get("grid", color=Colors.PURPLE, size=(13, 13)),
-                tone="purple",
-                height=30,
-            )
-            self.btn_arrange_windows.pack(side="left", padx=(0, 6), pady=10)
+        # Separator
+        ctk.CTkFrame(tb.left, fg_color=Colors.BORDER_CARD, width=1, height=18).pack(side="left", padx=4, pady=13)
 
+        # --- Nhóm 2: Cửa sổ Multi-Client ---
+        self.arrange_var = ctk.StringVar(value="3x2")
+        self.arrange_combo = ModernDropdown(
+            tb.left,
+            values=["3x2", "2x2", "3x3", "4x2", "2x1", "1x2", "4x3"],
+            variable=self.arrange_var,
+            width=64,
+            height=28,
+            fg_color=Colors.BG_CARD,
+            border_color=Colors.BORDER_CARD,
+            hover_color=Colors.BG_CARD_HOVER,
+            font=Fonts.BODY_BOLD,
+        )
+        self.arrange_combo.pack(side="left", padx=(4, 4), pady=7)
+
+        self.btn_arrange_windows = make_action_button(
+            tb.left,
+            "Sắp Xếp",
+            self._handle_arrange_windows,
+            image=UiIconFactory.get("grid", color=Colors.PURPLE, size=(13, 13)),
+            tone="purple",
+            height=28,
+        )
+        self.btn_arrange_windows.pack(side="left", padx=(0, 4), pady=7)
+
+        self.btn_close_all_games = make_action_button(
+            tb.left,
+            "Đóng Game",
+            self._handle_close_games,
+            image=UiIconFactory.get("stop", color="#f87171", size=(13, 13)),
+            tone="danger",
+            height=28,
+        )
+        self.btn_close_all_games.pack(side="left", padx=(0, 6), pady=7)
+
+        # Separator
+        ctk.CTkFrame(tb.left, fg_color=Colors.BORDER_CARD, width=1, height=18).pack(side="left", padx=4, pady=13)
+
+        # --- Nhóm 3: Quản lý Slot ---
+        self.btn_add_slot = make_action_button(
+            tb.left,
+            "➕ Slot",
+            self._handle_add_slot,
+            image=UiIconFactory.get("plus", color="#4ade80", size=(12, 12)),
+            tone="success",
+            height=28,
+        )
+        self.btn_add_slot.pack(side="left", padx=(4, 4), pady=7)
+
+        self.btn_remove_slot = make_action_button(
+            tb.left,
+            "➖ Slot",
+            self._handle_remove_slot,
+            image=UiIconFactory.get("minus", color="#f87171", size=(12, 12)),
+            tone="danger",
+            height=28,
+        )
+        self.btn_remove_slot.pack(side="left", padx=(0, 6), pady=7)
+
+        # Separator
+        ctk.CTkFrame(tb.left, fg_color=Colors.BORDER_CARD, width=1, height=18).pack(side="left", padx=4, pady=13)
+
+        # --- Nhóm 4: Tiện ích Sự Kiện / Tools ---
         self.btn_stack_jewels = make_action_button(
             tb.left,
             "Gom Ngọc",
             self._handle_stack_jewels,
             image=UiIconFactory.get("gem", color=Colors.PURPLE, size=(13, 13)),
             tone="purple",
-            height=30,
+            height=28,
         )
-        self.btn_stack_jewels.pack(side="left", padx=(0, 6), pady=10)
+        self.btn_stack_jewels.pack(side="left", padx=(4, 4), pady=7)
 
         self.btn_devil_config = make_action_button(
             tb.left,
@@ -154,21 +185,41 @@ class TrainSlotsView(ctk.CTkFrame):
             self._handle_devil_config,
             image=UiIconFactory.get("fire", color="#f43f5e", size=(13, 13)),
             tone="fire",
-            height=30,
+            height=28,
         )
-        self.btn_devil_config.pack(side="left", padx=(0, 6), pady=10)
+        self.btn_devil_config.pack(side="left", padx=(0, 4), pady=7)
 
-        self.btn_close_all_games = None
-        if self.on_close_games:
-            self.btn_close_all_games = make_action_button(
+        if self.on_telegram_config:
+            self.btn_telegram = make_action_button(
                 tb.left,
-                "Đóng Game",
-                self._handle_close_games,
-                image=UiIconFactory.get("stop", color="#f87171", size=(13, 13)),
-                tone="danger",
-                height=30,
+                "📱 TG",
+                self.on_telegram_config,
+                tone="primary",
+                height=28,
             )
-            self.btn_close_all_games.pack(side="left", padx=(0, 6), pady=10)
+            self.btn_telegram.pack(side="left", padx=(0, 4), pady=7)
+
+        if self.on_import_accounts:
+            self.btn_import_accounts = make_action_button(
+                tb.left,
+                "Import TK",
+                self.on_import_accounts,
+                tone="ghost",
+                height=28,
+            )
+            self.btn_import_accounts.pack(side="left", padx=(0, 4), pady=7)
+
+        # --- Nhóm 5: Master Controls (Bên phải) ---
+        self.btn_master_stop = make_action_button(
+            tb.right,
+            "⏹ DỪNG TẤT CẢ",
+            lambda: self._handle_toggle_all(False),
+            image=UiIconFactory.get("stop", color="#ffffff", size=(12, 12)),
+            tone="danger",
+            width=118,
+            height=28,
+        )
+        self.btn_master_stop.pack(side="right", padx=(4, 0), pady=7)
 
         self.btn_master_run = make_action_button(
             tb.right,
@@ -176,62 +227,82 @@ class TrainSlotsView(ctk.CTkFrame):
             lambda: self._handle_toggle_all(True),
             image=UiIconFactory.get("play", color="#ffffff", size=(12, 12)),
             tone="success",
-            width=126,
-            height=30,
+            width=118,
+            height=28,
         )
-        self.btn_master_run.pack(side="right", padx=(4, 0), pady=10)
+        self.btn_master_run.pack(side="right", padx=(6, 4), pady=7)
 
-        self.btn_master_stop = make_action_button(
+        self.lbl_slot_summary = ctk.CTkLabel(
             tb.right,
-            "⏹ DỪNG TẤT CẢ",
-            lambda: self._handle_toggle_all(False),
-            image=UiIconFactory.get("stop", color="#ffffff", size=(12, 12)),
-            tone="danger",
-            width=126,
-            height=30,
+            text="0 running · 0 connected · 6 slots",
+            font=Fonts.BODY_BOLD,
+            text_color=Colors.TEXT_MUTED
         )
-        self.btn_master_stop.pack(side="right", padx=(0, 4), pady=10)
+        self.lbl_slot_summary.pack(side="right", padx=(0, 10), pady=7)
 
     def _build_slots_list(self):
-        deck = SectionCard(self, title=None)
-        deck.pack(fill="both", expand=True, padx=12, pady=(0, 10))
-        deck.configure(fg_color=Colors.BG_SURFACE_ELEVATED)
-
         self.scroll_frame = ctk.CTkScrollableFrame(
-            deck.body,
+            self,
             fg_color="transparent",
             corner_radius=0
         )
-        self.scroll_frame.pack(fill="both", expand=True)
+        self.scroll_frame.pack(fill="both", expand=True, padx=8, pady=(0, 6))
+        bind_mousewheel_to_scrollable(self.scroll_frame)
 
-        for i in range(1, 11):
-            card = CompactSlotCard(
-                self.scroll_frame,
-                slot_idx=i,
-                on_toggle_run=self._handle_toggle_slot,
-                on_open_settings=self._handle_open_settings,
-                on_change_process=self.on_slot_pid_selected,
-                on_change_profile=self.on_slot_profile_selected,
-                profile_options=self.profile_options
+        slot_indices = [c.slot_idx for c in self.controllers] if self.controllers else list(range(1, 11))
+        for i in slot_indices:
+            self._create_card(i)
+        self._update_summary_count()
+
+    def _create_card(self, i: int) -> CompactSlotCard:
+        card = CompactSlotCard(
+            self.scroll_frame,
+            slot_idx=i,
+            on_toggle_run=self._handle_toggle_slot,
+            on_open_settings=self._handle_open_settings,
+            on_change_process=self.on_slot_pid_selected,
+            on_change_profile=self.on_slot_profile_selected,
+            profile_options=self.profile_options
+        )
+        card.pack(fill="x", pady=2)
+        if hasattr(self, "_last_proc_options") and self._last_proc_options:
+            card.set_process_options(self._last_proc_options)
+        self.cards[i] = card
+        return card
+
+    def add_slot_card(self, slot_idx: int):
+        if slot_idx in self.cards:
+            return
+        self._create_card(slot_idx)
+        self._update_summary_count()
+
+    def remove_last_card(self):
+        if not self.cards:
+            return
+        last_idx = max(self.cards.keys())
+        card = self.cards.pop(last_idx, None)
+        if card:
+            try:
+                card.destroy()
+            except Exception:
+                pass
+        self._update_summary_count()
+
+    def _update_summary_count(self):
+        running = sum(1 for card in self.cards.values() if getattr(card, "_is_running", False))
+        connected = sum(1 for card in self.cards.values() if card.proc_var.get() not in ("--", "", "Chọn..."))
+        total = len(self.cards)
+        if hasattr(self, "lbl_slot_summary") and self.lbl_slot_summary:
+            self.lbl_slot_summary.configure(
+                text=f"🟢 {running}/{total} Đang chạy  ·  🔗 {connected}/{total} Đã nối"
             )
-            card.pack(fill="x", pady=3)
-            self.cards[i] = card
 
     def update_slots_data(self, dirty_slots: List[Dict[str, Any]]):
-        running = 0
-        connected = 0
         for s_data in dirty_slots:
             idx = s_data.get("slot_idx")
             if idx in self.cards:
                 self.cards[idx].update_state(s_data)
-        for card in self.cards.values():
-            if getattr(card, "_is_running", False):
-                running += 1
-            if card.proc_var.get() not in ("--", "", "Chọn..."):
-                connected += 1
-        self.lbl_slot_summary.configure(
-            text=f"{running} running · {connected} connected · {len(self.cards)} slots"
-        )
+        self._update_summary_count()
 
     def update_process_options_all(self, options: List[str]):
         new_opts = list(options or ["--"])
@@ -269,9 +340,22 @@ class TrainSlotsView(ctk.CTkFrame):
         if self.on_refresh_games:
             self.on_refresh_games()
 
+    def _handle_add_slot(self):
+        if self.on_add_slot:
+            self.on_add_slot()
+
+    def _handle_remove_slot(self):
+        if self.on_remove_slot:
+            self.on_remove_slot()
+
     def _handle_arrange_windows(self):
         if self.on_arrange_windows:
-            self.on_arrange_windows()
+            preset = getattr(self, "arrange_var", None)
+            val = preset.get().strip() if preset else "3x2"
+            try:
+                self.on_arrange_windows(val)
+            except TypeError:
+                self.on_arrange_windows()
 
     def _handle_stack_jewels(self):
         if self.on_stack_jewels:

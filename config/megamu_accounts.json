@@ -13,225 +13,22 @@
   },
   "accounts": [
     {
-      "username": "anhdontb",
-      "nickname": "anhdontb",
-      "character": "codedao",
+      "username": "anhdontb3",
+      "nickname": "anhdontb3",
+      "character": "laclac24",
       "characters_list": [
-        "codedao",
-        "trua1",
-        "toi1"
-      ],
-      "server": 30,
-      "enabled": true,
-      "source": "manual",
-      "password": "Nammothai3",
-      "preferred_slot": 1,
-      "token": "47169b8f1673524b972b1b1323b0814a",
-      "category": "Chỉ Moss",
-      "last_pid": null
-    },
-    {
-      "username": "anhdontb1",
-      "nickname": "anhdontb1",
-      "character": "toichaodon",
-      "characters_list": [
-        "toichaodon",
-        "trua2",
-        "toi2"
-      ],
-      "server": 4,
-      "enabled": true,
-      "source": "manual",
-      "password": "Nammothai3",
-      "token": "b2e3502fffb9e62616f23b5c8d8f3500",
-      "category": "Chỉ Moss",
-      "last_pid": 27460
-    },
-    {
-      "username": "dtn01",
-      "nickname": "dtn01",
-      "token": "b52b013b52edbd6cb971f185050548ae",
-      "character": "dtn01",
-      "characters_list": [
-        "dtn01"
-      ],
-      "server": 4,
-      "enabled": true,
-      "source": "registry",
-      "last_pid": 8720,
-      "password": "Nammothai3",
-      "category": "Chỉ Moss"
-    },
-    {
-      "username": "pvdon",
-      "nickname": "pvdon",
-      "token": "19454129cc0c0d8865b9d4891d2123ca",
-      "character": "DGeminiP",
-      "characters_list": [
-        "DGptPlus",
-        "DGeminiP"
-      ],
-      "server": 2,
-      "enabled": true,
-      "source": "registry",
-      "last_pid": 11340,
-      "password": "Nammothai3",
-      "category": "Chỉ Moss",
-      "preferred_slot": 1
-    },
-    {
-      "username": "dtn2026",
-      "nickname": "dtn2026",
-      "token": "4dbccff4777739739b08eafb2bc06da3",
-      "character": "dtn199x",
-      "characters_list": [
-        "dtn199x"
-      ],
-      "server": 4,
-      "enabled": true,
-      "source": "registry",
-      "password": "Nammothai3",
-      "last_pid": 476,
-      "category": "Chỉ Moss"
-    },
-    {
-      "username": "6sonquy",
-      "nickname": "viettv",
-      "token": "f76fbf22a5a2a750c0846dc3b4c4b304",
-      "character": "Rooneyy",
-      "characters_list": [
-        "Rooneyy"
-      ],
-      "server": 30,
-      "enabled": true,
-      "source": "registry",
-      "last_pid": 28868,
-      "password": "Nammothai3",
-      "category": "Chỉ Mirror",
-      "preferred_slot": 1
-    },
-    {
-      "username": "thuydon",
-      "nickname": "thuydon",
-      "character": "ELFTOP1v",
-      "characters_list": [
-        "ELFTOP1v"
-      ],
-      "server": 4,
-      "enabled": true,
-      "source": "manual",
-      "category": "Chỉ Moss",
-      "password": "Nammothai3",
-      "last_pid": 3176
-    },
-    {
-      "username": "thuynguyen",
-      "nickname": "thuynguyen",
-      "character": "EndGun",
-      "characters_list": [
-        "EndGun"
-      ],
-      "server": 30,
-      "enabled": true,
-      "source": "manual",
-      "category": "Chỉ Moss",
-      "password": "Nammothai3",
-      "last_pid": 19268
-    },
-    {
-      "username": "donnguyen",
-      "nickname": "donnguyen",
-      "character": "HiRW",
-      "characters_list": [
-        "HiRW",
-        "SpeedMoss"
-      ],
-      "server": 4,
-      "enabled": true,
-      "source": "manual",
-      "category": "Chỉ Moss",
-      "password": "Nammothai3",
-      "last_pid": 23532,
-      "token": "5ea7e3ce9e8179f11f16f56e177f80c2"
-    },
-    {
-      "username": "hanoi",
-      "nickname": "hanoi95",
-      "token": "98f8ec07a4ff7ea72683d2f78403b8c5",
-      "character": "VISlayer93",
-      "characters_list": [
-        "VISlayer93"
-      ],
-      "server": 30,
-      "enabled": true,
-      "source": "registry",
-      "last_pid": 8672,
-      "password": "Nammothai3",
-      "category": "Chỉ Mirror"
-    },
-    {
-      "username": "clario",
-      "nickname": "clario",
-      "token": "f012d98096855387491d45fa95368176",
-      "character": "GunApao",
-      "characters_list": [
-        "GunApao"
-      ],
-      "server": 3,
-      "enabled": true,
-      "source": "registry"
-    },
-    {
-      "username": "thaibinh07",
-      "nickname": "thaibinh07",
-      "token": "d857ec719230910a79f33bd5d5858e82",
-      "character": "HSmart",
-      "characters_list": [
-        "HSmart"
-      ],
-      "server": 3,
-      "enabled": true,
-      "source": "registry",
-      "category": "Chỉ Mirror",
-      "last_pid": 22248
-    },
-    {
-      "username": "hungyen34",
-      "nickname": "hungyen34",
-      "token": "cfece441cfdea56b3140fd97fd60c4b5",
-      "character": "donpvRW",
-      "characters_list": [
-        "donpvRW"
-      ],
-      "server": 3,
-      "enabled": true,
-      "source": "registry"
-    },
-    {
-      "username": "tomahoc01",
-      "nickname": "tomahoc01",
-      "token": "f68ec6d57e01ad9a96a038afc5007f21",
-      "character": "dlhoc01",
-      "characters_list": [
-        "dlhoc01"
-      ],
-      "server": 3,
-      "enabled": true,
-      "source": "registry"
-    },
-    {
-      "username": "thaibinh06",
-      "nickname": "thaibinh06",
-      "character": "Hface",
-      "characters_list": [
-        "Hface"
+        "laclac24",
+        "LacIac24",
+        "IacIac24",
+        "Iaclac24",
+        "attep"
       ],
       "server": 2,
       "enabled": true,
       "source": "manual",
-      "category": "Chỉ Mirror",
-      "password": "Nammothai3",
-      "last_pid": 27948
+      "category": "Chung",
+      "password": "1231235",
+      "last_pid": 16008
     },
     {
       "username": "thaibinh1",
@@ -240,31 +37,54 @@
       "characters_list": [
         "VgDongNhi"
       ],
-      "server": 30060,
+      "server": 30,
       "enabled": true,
       "source": "manual",
-      "category": "Chỉ Mirror",
+      "category": "Chung",
       "password": "Nammothai3",
-      "last_pid": 31668
+      "last_pid": 14828
     },
     {
-      "username": "sontop2018",
-      "nickname": "sontop2018",
-      "character": "AngelVN",
+      "username": "thaibinh06",
+      "nickname": "thaibinh06",
+      "character": "Hface",
       "characters_list": [
-        "YangXinh",
-        "KingVNE",
-        "BabyKitty",
-        "AngelVN",
-        "YangSan",
-        "Reus1993"
+        "Hface"
       ],
       "server": 30,
       "enabled": true,
       "source": "manual",
-      "category": "Chỉ Mirror",
-      "password": "1231235",
-      "last_pid": 2148
+      "category": "Chung",
+      "password": "Nammothai3",
+      "last_pid": 25612
+    },
+    {
+      "username": "thaibinh07",
+      "nickname": "thaibinh07",
+      "character": "HSmart",
+      "characters_list": [
+        "HSmart"
+      ],
+      "server": 3,
+      "enabled": true,
+      "source": "manual",
+      "category": "Chung",
+      "password": "Nammothai3",
+      "last_pid": 14252
+    },
+    {
+      "username": "hanoi",
+      "nickname": "hanoi",
+      "character": "VISlayer93",
+      "characters_list": [
+        "VISlayer93"
+      ],
+      "server": 2,
+      "enabled": true,
+      "source": "manual",
+      "category": "Chung",
+      "password": "Nammothai3",
+      "last_pid": 26308
     },
     {
       "username": "thaibinh17",
@@ -273,26 +93,12 @@
       "characters_list": [
         "SLayerVNI"
       ],
-      "server": 30,
-      "enabled": true,
-      "source": "manual",
-      "category": "Chỉ Mirror",
-      "password": "Nammothai3",
-      "last_pid": 32688
-    },
-    {
-      "username": "anhdontb3",
-      "nickname": "anhdontb3",
-      "character": "laclac24",
-      "characters_list": [
-        "laclac24"
-      ],
-      "server": 30,
+      "server": 7264,
       "enabled": true,
       "source": "manual",
       "category": "Chung",
-      "password": "1231235",
-      "last_pid": 13952
+      "password": "Nammothai3",
+      "last_pid": 7264
     }
   ]
 }

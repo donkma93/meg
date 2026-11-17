@@ -75,6 +75,7 @@ class Fonts:
     BODY = (FAMILY, 11)
     BODY_BOLD = (FAMILY, 11, "bold")
     CAPTION = (FAMILY, 10)
+    CAPTION_BOLD = (FAMILY, 10, "bold")
     BADGE = (FAMILY, 10, "bold")
     METRIC = (FAMILY, 12, "bold")
     MONO = ("Consolas", 10)

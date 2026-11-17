@@ -161,6 +161,9 @@ class BackgroundEngineSync:
 
                     # Kiểm tra PID còn sống không
                     if not psutil.pid_exists(pid):
+                        ctrl.assigned_pid = None
+                        ctrl.engine = None
+                        ctrl.char_name = "---"
                         self.state_mgr.update_slot_telemetry(
                             slot_idx=s_idx,
                             status="Game đã đóng",
@@ -186,7 +189,11 @@ class BackgroundEngineSync:
                         try:
                             live = ProcessMemoryReader.read_live_state(pid)
                             lvl = ProcessMemoryReader.read_character_level(pid)
+                            cname = getattr(ctrl, "char_name", "---")
+                            if not cname or cname == "---":
+                                cname = ProcessMemoryReader.read_character_name(pid) or "---"
                             p_info = {
+                                "name": cname,
                                 "level": lvl or 0,
                                 "tileX": live[2] if live and live[2] is not None else 0,
                                 "tileY": live[3] if live and live[3] is not None else 0,
@@ -208,6 +215,18 @@ class BackgroundEngineSync:
                         if not map_name and "mapId" in p_info:
                             mid = p_info.get("mapId", -1)
                             map_name = MAP_CATALOG.get(mid, f"Map {mid}") if mid >= 0 else "---"
+
+                        # Đồng bộ ngược vào controller để các tab Mirror, Moss đọc chính xác
+                        p_name = p_info.get("name")
+                        if p_name and p_name != "---":
+                            ctrl.char_name = p_name
+                            ctrl.last_known_char_name = p_name
+                        if lvl_str != "---":
+                            ctrl.level = lvl_str
+                        if coords_str != "--,--":
+                            ctrl.coords = coords_str
+                        if map_name != "---":
+                            ctrl.current_map = map_name
 
                         # Trạng thái Auto Train của worker
                         worker = getattr(ctrl, "worker", None)

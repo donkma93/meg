@@ -34,6 +34,10 @@ if sys.platform == "win32":
         ctypes.windll.winmm.timeBeginPeriod(1)
     except Exception:
         pass
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("megamu.auto.dashboard.v2")
+    except Exception:
+        pass
 
 from ui.theme import Colors, Fonts, Radii
 from ui.state import AppStateManager
@@ -132,6 +136,46 @@ except ImportError:
     updater = None
 
 
+def parse_slot_game_choice(val: str) -> Tuple[Optional[int], str, str]:
+    """
+    Trích xuất (pid, char_name, server_str) từ chuỗi dropdown tiến trình.
+    Hỗ trợ mọi định dạng:
+    - 'HSmart [Sv2] (PID 23376)' -> (23376, 'HSmart', 'Sv2')
+    - 'HSmart (PID 23376)' -> (23376, 'HSmart', '')
+    - 'HSmart [Sv2] (23376)' -> (23376, 'HSmart', 'Sv2')
+    - 'MEGAMU (PID 23376)' -> (23376, '', '')
+    - 'MEGAMU (23376)' -> (23376, '', '')
+    - '23376' -> (23376, '', '')
+    - '--' -> (None, '', '')
+    """
+    if not val or val in ("--", "Chọn...", ""):
+        return None, "", ""
+
+    import re
+    # 1. Tìm PID là số nguyên bên trong ngoặc hoặc số đứng một mình
+    m = re.search(r"(?:PID\s*[:#]?\s*)?(\d+)\s*\)", val)
+    if not m:
+        m = re.search(r"\b\d+\b", val)
+    if not m:
+        return None, "", ""
+    pid = int(m.group(1) if m.groups() else m.group(0))
+
+    # 2. Tìm tên nhân vật và server
+    raw_prefix = val.split("(")[0].strip()
+    c_name = ""
+    srv_str = ""
+    if "[" in raw_prefix and "]" in raw_prefix:
+        c_name = raw_prefix.split("[")[0].strip()
+        srv_str = raw_prefix.split("[")[1].split("]")[0].strip()
+    else:
+        c_name = raw_prefix.strip()
+
+    if c_name.upper().startswith("MEGAMU"):
+        c_name = ""
+
+    return pid, c_name, srv_str
+
+
 class DashboardAppOptimized(ctk.CTk):
     """Dashboard V2: modern card UI + zero-lag engine."""
 
@@ -165,6 +209,9 @@ class DashboardAppOptimized(ctk.CTk):
         ctk.set_appearance_mode("dark")
 
         self._setup_window_icon()
+        self.after(100, self._setup_window_icon)
+        self.after(300, self._setup_window_icon)
+        self.after(600, self._setup_window_icon)
 
         self.maps_list = get_map_names()
         self.slot_assignments = ConfigPersistenceManager.load_slot_assignments(DEFAULT_SLOTS)
@@ -221,9 +268,9 @@ class DashboardAppOptimized(ctk.CTk):
         self.cb_mirror_auto_prep_before = _BoolCheckboxProxy(bool(mirror_sched_cfg.get("auto_prep_before", True)))
         self.cb_moss_auto_schedule = _BoolCheckboxProxy(bool(moss_sched_cfg.get("auto_schedule", True)))
         self.cb_moss_auto_move_before = _BoolCheckboxProxy(bool(moss_sched_cfg.get("auto_move_before", True)))
-        self.mirror_snipe_delay_ms = 80
-        self.mirror_snipe_dur_s = 15.0
-        self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 5.0) or 5.0)
+        self.mirror_snipe_delay_ms = int(mirror_sched_cfg.get("interval_ms", 35) or 35)
+        self.mirror_snipe_dur_s = float(mirror_sched_cfg.get("max_duration_s", 15.0) or 15.0)
+        self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 2.0) or 2.0)
         self._last_moss_trigger_key = None
         self._last_moss_stop_key = None
         self._last_moss_move_key = None
@@ -299,11 +346,80 @@ class DashboardAppOptimized(ctk.CTk):
         self.append_mirror_log("🪞 Scheduler Mirror đã sẵn sàng (cổng :10 giờ chẵn).")
         self.append_moss_log("🎲 Scheduler Moss đã sẵn sàng (00:15 / 06:15 / 12:15 / 18:15).")
 
-    def _setup_window_icon(self):
+    def _setup_window_icon(self, target_win=None):
+        win = target_win or self
         try:
-            ico_p = ICON_FILE if ICON_FILE.exists() else (BASE_DIR / "megamu_dashboard_icon.ico")
+            ico_p = ICON_FILE if (hasattr(ICON_FILE, "exists") and ICON_FILE.exists()) else (BASE_DIR / "megamu_dashboard_icon.ico")
+            logo_p = LOGO_FILE if (hasattr(LOGO_FILE, "exists") and LOGO_FILE.exists()) else (BASE_DIR / "megamu_dashboard_logo.png")
+
+            # 1. Tự động đảm bảo file .ico chứa đầy đủ mọi kích thước chuẩn Windows
+            if logo_p.exists() and not ico_p.exists():
+                try:
+                    img = Image.open(str(logo_p)).convert("RGBA")
+                    max_dim = max(img.size)
+                    sq = Image.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
+                    sq.paste(img, ((max_dim - img.size[0]) // 2, (max_dim - img.size[1]) // 2), img)
+                    sq.save(
+                        str(ico_p),
+                        format="ICO",
+                        sizes=[(16, 16), (20, 20), (24, 24), (32, 32), (40, 40), (48, 48), (64, 64), (128, 128), (256, 256)]
+                    )
+                except Exception:
+                    pass
+
+            # 2. Áp dụng iconbitmap & wm_iconbitmap
             if ico_p.exists():
-                self.iconbitmap(str(ico_p))
+                try:
+                    win.iconbitmap(str(ico_p))
+                except Exception:
+                    pass
+                try:
+                    win.wm_iconbitmap(str(ico_p))
+                except Exception:
+                    pass
+
+            # 3. Áp dụng iconphoto với các kích thước chuẩn từ logo
+            img_src = logo_p if logo_p.exists() else (ico_p if ico_p.exists() else None)
+            if img_src:
+                try:
+                    base_img = Image.open(str(img_src)).convert("RGBA")
+                    max_dim = max(base_img.size)
+                    sq = Image.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
+                    sq.paste(base_img, ((max_dim - base_img.size[0]) // 2, (max_dim - base_img.size[1]) // 2), base_img)
+
+                    icons_list = [
+                        ImageTk.PhotoImage(sq.resize((s, s), Image.Resampling.LANCZOS))
+                        for s in [16, 24, 32, 48, 64, 128, 256]
+                    ]
+                    win._tk_icons = icons_list
+                    win.iconphoto(True, *icons_list)
+                except Exception:
+                    pass
+
+            # 4. Gửi trực tiếp HICON qua Win32 API WM_SETICON lên HWND và Wrapper HWND
+            if ico_p.exists() and sys.platform == "win32":
+                try:
+                    user32 = ctypes.windll.user32
+                    IMAGE_ICON = 1
+                    LR_LOADFROMFILE = 0x00000010
+                    LR_DEFAULTSIZE = 0x00000040
+                    WM_SETICON = 0x0080
+                    ICON_SMALL = 0
+                    ICON_BIG = 1
+
+                    hicon_big = user32.LoadImageW(None, str(ico_p.resolve()), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
+                    hicon_small = user32.LoadImageW(None, str(ico_p.resolve()), IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+
+                    inner_hwnd = win.winfo_id()
+                    wrapper_hwnd = user32.GetParent(inner_hwnd) or inner_hwnd
+
+                    for h in (inner_hwnd, wrapper_hwnd):
+                        if hicon_big:
+                            user32.SendMessageW(h, WM_SETICON, ICON_BIG, hicon_big)
+                        if hicon_small:
+                            user32.SendMessageW(h, WM_SETICON, ICON_SMALL, hicon_small)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -440,116 +556,9 @@ class DashboardAppOptimized(ctk.CTk):
         ).pack(side="right", padx=6, pady=10)
 
     def _build_global_toolbar(self):
-        """Thanh công cụ sticky dưới nav — dùng chung mọi tab."""
-        self.global_toolbar = ctk.CTkFrame(
-            self,
-            fg_color=Colors.BG_SURFACE,
-            height=46,
-            corner_radius=0,
-            border_width=1,
-            border_color=Colors.BORDER_SUBTLE,
-        )
-        self.global_toolbar.pack(fill="x", side="top")
-        self.global_toolbar.pack_propagate(False)
-
-        left = ctk.CTkFrame(self.global_toolbar, fg_color="transparent")
-        left.pack(side="left", fill="y", padx=12)
-
-        ctk.CTkLabel(
-            left,
-            text="🪟 Cửa sổ game",
-            font=Fonts.BODY_BOLD,
-            text_color=Colors.TEXT_MUTED
-        ).pack(side="left", padx=(0, 8), pady=12)
-
-        self.arrange_var = ctk.StringVar(value="3x2")
-        self.arrange_combo = ModernDropdown(
-            left,
-            values=["2x2", "3x2", "3x3", "4x2", "2x1", "1x2", "4x3"],
-            variable=self.arrange_var,
-            width=72,
-            height=28,
-            fg_color=Colors.BG_CARD,
-            border_color=Colors.BORDER_CARD,
-            hover_color=Colors.BG_CARD_HOVER,
-            font=Fonts.BODY_BOLD,
-        )
-        self.arrange_combo.pack(side="left", padx=(0, 6), pady=9)
-
-        make_action_button(
-            left,
-            "Sắp xếp",
-            self._on_global_arrange_clicked,
-            image=UiIconFactory.get("grid", color=Colors.PURPLE, size=(13, 13)),
-            tone="purple",
-            height=28,
-            width=96,
-        ).pack(side="left", padx=(0, 6), pady=9)
-
-        make_action_button(
-            left,
-            "Đóng Game",
-            self.close_all_games,
-            image=UiIconFactory.get("stop", color="#f87171", size=(13, 13)),
-            tone="danger",
-            height=28,
-            width=108,
-        ).pack(side="left", padx=(0, 6), pady=9)
-
-        # Separator
-        ctk.CTkFrame(left, fg_color=Colors.BORDER_CARD, width=1, height=22).pack(side="left", padx=8, pady=12)
-
-        make_action_button(
-            left,
-            "Làm mới PID",
-            self.refresh_games,
-            image=UiIconFactory.get("refresh", color="#cbd5e1", size=(13, 13)),
-            tone="neutral",
-            height=28,
-            width=110,
-        ).pack(side="left", padx=(0, 6), pady=9)
-
-        make_action_button(
-            left,
-            "Gán toàn bộ",
-            self.assign_all,
-            image=UiIconFactory.get("users", color=Colors.CYAN, size=(13, 13)),
-            tone="primary",
-            height=28,
-            width=110,
-        ).pack(side="left", padx=(0, 6), pady=9)
-
-        ctk.CTkFrame(left, fg_color=Colors.BORDER_CARD, width=1, height=22).pack(side="left", padx=8, pady=12)
-
-        make_action_button(
-            left, "Devil", self.open_devil_global_config_dialog,
-            image=UiIconFactory.get("fire", color="#f43f5e", size=(13, 13)),
-            tone="fire", height=28, width=78,
-        ).pack(side="left", padx=(0, 6), pady=9)
-        make_action_button(
-            left, "📱 TG", self.open_mirror_telegram_settings_dialog,
-            tone="primary", height=28, width=64,
-        ).pack(side="left", padx=(0, 6), pady=9)
-        if hasattr(self, "import_accounts_from_registry_ui"):
-            make_action_button(
-                left, "Import TK", self.import_accounts_from_registry_ui,
-                tone="ghost", height=28, width=88,
-            ).pack(side="left", padx=(0, 6), pady=9)
-
-        right = ctk.CTkFrame(self.global_toolbar, fg_color="transparent")
-        right.pack(side="right", fill="y", padx=12)
-
-        self.lbl_global_hint = ctk.CTkLabel(
-            right,
-            text="Logic meg_gui đã gắn · cửa sổ / Devil / Telegram dùng chung",
-            font=Fonts.CAPTION,
-            text_color=Colors.TEXT_DIM
-        )
-        self.lbl_global_hint.pack(side="right", pady=14)
-
-    def _on_global_arrange_clicked(self):
-        preset = self.arrange_var.get().strip() or "3x2"
-        self.arrange_windows_by_preset(preset)
+        """Thanh công cụ sticky đã được tích hợp trực tiếp vào thanh điều khiển của Auto Train để tối giản giao diện."""
+        self.global_toolbar = None
+        self.lbl_global_hint = None
 
     def _build_body_views(self):
         self.body_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -567,13 +576,17 @@ class DashboardAppOptimized(ctk.CTk):
             on_connect_all=self.connect_all,
             on_assign_all=self.assign_all,
             on_refresh_games=self.refresh_games,
-            on_arrange_windows=None,
+            on_arrange_windows=self.arrange_windows_by_preset,
             on_slot_pid_selected=self.on_slot_pid_selected,
             on_slot_profile_selected=self.on_slot_profile_selected,
             on_stack_jewels=self.stack_all_jewels,
             on_devil_config=self.open_devil_global_config_dialog,
-            on_close_games=None,
-            on_open_stat_dialog=self.open_slot_profile_editor
+            on_close_games=self.close_all_games,
+            on_open_stat_dialog=self.open_slot_profile_editor,
+            on_add_slot=self.add_new_slot,
+            on_remove_slot=self.remove_last_slot,
+            on_telegram_config=getattr(self, "open_mirror_telegram_settings_dialog", None),
+            on_import_accounts=getattr(self, "import_accounts_from_registry_ui", None),
         )
         self.train_view.grid(row=0, column=0, sticky="nsew")
 
@@ -637,14 +650,14 @@ class DashboardAppOptimized(ctk.CTk):
             on_claim_gremory=self.claim_all_gremory_case_items,
             on_move_lugard=self.move_all_to_event_map,
             on_check_tickets=self.check_all_mirror_tickets,
-            on_prepare_mirror=self.prepare_all_mirror_event if hasattr(self, "prepare_all_mirror_event") else None,
-            on_click_mirror_npc=self.click_all_mirror_npc if hasattr(self, "click_all_mirror_npc") else None,
-            on_stop_mirror=self.stop_all_mirror_auto if hasattr(self, "stop_all_mirror_auto") else None,
+            on_prepare_mirror=getattr(self, "prepare_all_mirror_event", None),
+            on_click_mirror_npc=getattr(self, "click_all_mirror_npc", None),
+            on_stop_mirror=getattr(self, "stop_all_mirror_auto", None),
             on_toggle_participant=lambda s, en: self.toggle_event_participant("mirror", s, en),
             on_save_schedule=lambda opts: self.save_event_schedule("mirror", opts),
             on_toggle_telegram=self._on_events_telegram_toggle,
-            on_telegram_settings=self.open_mirror_telegram_settings_dialog,
-            on_snipe_slot=self.manual_snipe_mirror_slot if hasattr(self, "manual_snipe_mirror_slot") else None,
+            on_telegram_settings=getattr(self, "open_mirror_telegram_settings_dialog", None),
+            on_snipe_slot=getattr(self, "manual_snipe_mirror_slot", None),
         )
         self.mirror_view.grid(row=0, column=0, sticky="nsew")
 
@@ -722,6 +735,24 @@ class DashboardAppOptimized(ctk.CTk):
         if tab_id == "autologin" and hasattr(self, "sync_autologin_table_values"):
             try:
                 self.sync_autologin_table_values()
+            except Exception:
+                pass
+        elif tab_id == "mirror" and hasattr(self, "mirror_view") and self.mirror_view:
+            try:
+                self.mirror_view.refresh_rows()
+                self.trigger_mirror_ticket_scan()
+            except Exception:
+                pass
+        elif tab_id == "moss" and hasattr(self, "moss_view") and self.moss_view:
+            try:
+                self.moss_view.refresh_moss_rows()
+            except Exception:
+                pass
+        elif tab_id == "train" and hasattr(self, "train_view") and self.train_view:
+            try:
+                all_data = self.state_mgr.get_all_slots_data()
+                if all_data:
+                    self.train_view.update_slots_data(all_data)
             except Exception:
                 pass
 
@@ -872,12 +903,55 @@ class DashboardAppOptimized(ctk.CTk):
 
     def connect_all(self):
         self.log_message("🔗 Đang kiểm tra và kết nối lại các Slot...", "INFO")
-        threading.Thread(target=self._worker_connect_all, daemon=True).start()
+        threading.Thread(target=self._worker_connect_all, daemon=True, name="ConnectAllWorker").start()
 
     def _worker_connect_all(self):
-        for ctrl in self.controllers:
-            if ctrl.assigned_pid:
-                ctrl.reconnect_if_needed()
+        try:
+            self.refresh_games()
+            living_pids = set(getattr(self, "detected_games", {}).keys())
+            connected_count = 0
+            reconnected_count = 0
+
+            for ctrl in self.controllers:
+                try:
+                    # Slot bị mất kết nối (PID đã chết)
+                    if ctrl.assigned_pid and ctrl.assigned_pid not in living_pids:
+                        if hasattr(ctrl, "reconnect_game") and ctrl.reconnect_game():
+                            reconnected_count += 1
+                        elif hasattr(ctrl, "reconnect_if_needed") and ctrl.reconnect_if_needed():
+                            reconnected_count += 1
+                    # Slot có PID đang sống
+                    elif ctrl.assigned_pid and ctrl.assigned_pid in living_pids:
+                        if not (ctrl.engine and ctrl.engine.is_ready):
+                            ctrl.attach_pid(ctrl.assigned_pid)
+                        connected_count += 1
+                    # Slot chưa có PID nhưng đã từng gắn nhân vật
+                    elif not ctrl.assigned_pid and getattr(ctrl, "last_known_char_name", None):
+                        if hasattr(ctrl, "reconnect_game") and ctrl.reconnect_game():
+                            reconnected_count += 1
+                        elif hasattr(ctrl, "reconnect_if_needed") and ctrl.reconnect_if_needed():
+                            reconnected_count += 1
+                except Exception as e_slot:
+                    self.log_message(f"[Slot {ctrl.slot_idx:02d}] Lỗi kết nối: {e_slot}", "WARNING")
+
+            total = connected_count + reconnected_count
+            if reconnected_count > 0:
+                self.log_message(f"🔗 Kết nối tất cả: Đã kết nối lại thành công {reconnected_count} slot bị mất kết nối (Tổng: {total}).", "SUCCESS")
+            elif total > 0:
+                self.log_message(f"🔗 Kết nối tất cả: Đã kết nối thành công {total} slot.", "SUCCESS")
+            else:
+                self.log_message("🔗 Kết nối tất cả: Không tìm thấy tiến trình MEGAMU nào để kết nối.", "WARNING")
+
+            self.state_mgr.global_dirty = True
+            if hasattr(self, "update_header_stats"):
+                self.update_header_stats()
+            if hasattr(self, "mirror_view") and self.mirror_view:
+                self.mirror_view.refresh_rows()
+                self.trigger_mirror_ticket_scan()
+            if hasattr(self, "moss_view") and self.moss_view:
+                self.moss_view.refresh_moss_rows()
+        except Exception as e:
+            self.log_message(f"Lỗi connect_all: {e}", "ERROR")
 
     def assign_all(self):
         self.log_message("👥 Đang tự động gán tiến trình MEGAMU vào các ô Slot trống...", "INFO")
@@ -895,10 +969,35 @@ class DashboardAppOptimized(ctk.CTk):
                 break
             ctrl = target_slots.pop(0)
             ctrl.attach_pid(pid)
+            title = games.get(pid, "")
+            _, t_name, srv_str = parse_slot_game_choice(title)
+            if not t_name and character_name_from_window_title:
+                t_name = character_name_from_window_title(title)
+            if t_name and t_name != "---":
+                ctrl.char_name = t_name
+                ctrl.last_known_char_name = t_name
+            if srv_str:
+                ctrl.server_name = srv_str if srv_str.startswith("Sv") else f"Sv{srv_str}"
+            self.state_mgr.update_slot_telemetry(
+                ctrl.slot_idx,
+                assigned_pid=pid,
+                char_name=ctrl.char_name,
+                server=getattr(ctrl, "server_name", "---"),
+                status="Đã kết nối"
+            )
             count += 1
 
         self.log_message(f"Đã gán thành công {count} tài khoản vào các Slot.", "SUCCESS")
         self.state_mgr.global_dirty = True
+        if hasattr(self, "mirror_view") and self.mirror_view:
+            self.mirror_view.refresh_rows()
+            self.trigger_mirror_ticket_scan()
+        if hasattr(self, "moss_view") and self.moss_view:
+            self.moss_view.refresh_moss_rows()
+        if hasattr(self, "train_view") and self.train_view:
+            all_data = self.state_mgr.get_all_slots_data()
+            if all_data:
+                self.train_view.update_slots_data(all_data)
 
     def refresh_games(self):
         self.log_message("🔄 Đang quét lại danh sách tiến trình MEGAMU...", "INFO")
@@ -906,18 +1005,94 @@ class DashboardAppOptimized(ctk.CTk):
 
     def on_slot_pid_selected(self, slot_idx: int, val: str):
         ctrl = self.controllers[slot_idx - 1]
-        if val in ("--", "Chọn...", ""):
+        pid, c_name, srv_str = parse_slot_game_choice(val)
+
+        if pid is None:
             ctrl.assigned_pid = None
             ctrl.engine = None
-            self.state_mgr.update_slot_telemetry(slot_idx, assigned_pid=None, status="Chưa kết nối", char_name="---")
+            ctrl.char_name = "---"
+            self.state_mgr.update_slot_telemetry(
+                slot_idx,
+                assigned_pid=None,
+                status="Chưa kết nối",
+                char_name="---",
+                level="---",
+                coords="--,--"
+            )
+            self.state_mgr.global_dirty = True
+            if hasattr(self, "mirror_view") and self.mirror_view:
+                self.mirror_view.refresh_rows()
+            if hasattr(self, "moss_view") and self.moss_view:
+                self.moss_view.refresh_moss_rows()
+            if hasattr(self, "train_view") and self.train_view:
+                self.train_view.update_slots_data([self.state_mgr.get_slot(slot_idx)])
+            self.log_message(f"[Slot {slot_idx:02d}] Đã hủy gán PID.", "INFO")
             return
+
         try:
-            if "(" in val and ")" in val:
-                pid_str = val.rsplit("(", 1)[1].replace(")", "").strip()
-                pid = int(pid_str)
-                ctrl.attach_pid(pid)
-        except Exception:
-            pass
+            # Nhả PID nếu đang được gán ở slot khác để tránh xung đột
+            for other_c in self.controllers:
+                if other_c.slot_idx != slot_idx and other_c.assigned_pid == pid:
+                    other_c.assigned_pid = None
+                    other_c.engine = None
+                    other_c.char_name = "---"
+                    self.state_mgr.update_slot_telemetry(
+                        other_c.slot_idx,
+                        assigned_pid=None,
+                        status="Chưa kết nối",
+                        char_name="---",
+                        level="---",
+                        coords="--,--"
+                    )
+                    self.log_message(f"[Slot {other_c.slot_idx:02d}] Đã nhả PID {pid} để chuyển sang Slot #{slot_idx:02d}.", "INFO")
+                    if hasattr(self, "train_view") and self.train_view:
+                        self.train_view.update_slots_data([self.state_mgr.get_slot(other_c.slot_idx)])
+
+            ok = ctrl.attach_pid(pid)
+            if c_name and c_name != "---":
+                ctrl.char_name = c_name
+                ctrl.last_known_char_name = c_name
+            if srv_str:
+                ctrl.server_name = srv_str if srv_str.startswith("Sv") else f"Sv{srv_str}"
+
+            self.state_mgr.update_slot_telemetry(
+                slot_idx=slot_idx,
+                assigned_pid=pid,
+                char_name=ctrl.char_name,
+                server=getattr(ctrl, "server_name", "---"),
+                status="Đã kết nối" if ok else "Đang kết nối..."
+            )
+            self.state_mgr.global_dirty = True
+            if hasattr(self, "update_header_stats"):
+                self.update_header_stats()
+
+            self.log_message(f"[Slot {slot_idx:02d}] Đã gán PID {pid} ({ctrl.char_name}).", "SUCCESS")
+
+            if hasattr(self, "mirror_view") and self.mirror_view:
+                self.mirror_view.refresh_rows()
+                self.trigger_mirror_ticket_scan(slot_idx)
+            if hasattr(self, "moss_view") and self.moss_view:
+                self.moss_view.refresh_moss_rows()
+            if hasattr(self, "train_view") and self.train_view:
+                self.train_view.update_slots_data([self.state_mgr.get_slot(slot_idx)])
+        except Exception as e:
+            self.log_message(f"[Slot {slot_idx:02d}] Lỗi khi gán PID ({val}): {e}", "ERROR")
+
+    def trigger_mirror_ticket_scan(self, slot_idx: Optional[int] = None):
+        """Quét số lượng vé Mirror trên nền và hiển thị trực tiếp lên bảng Mirror."""
+        def _scan_worker():
+            targets = [self.controllers[slot_idx - 1]] if (slot_idx and 1 <= slot_idx <= len(self.controllers)) else self.controllers
+            for ctrl in targets:
+                try:
+                    if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                        t_info = ctrl.check_mirror_ticket()
+                        ctrl.cached_mirror_ticket_info = t_info
+                        if hasattr(self, "mirror_view") and self.mirror_view:
+                            self.after(0, lambda s=ctrl.slot_idx, inf=t_info: self.mirror_view.update_slot_ticket_info(s, inf))
+                        time.sleep(0.04)
+                except Exception:
+                    pass
+        threading.Thread(target=_scan_worker, daemon=True, name="MirrorTicketScan").start()
 
     def on_slot_profile_selected(self, slot_idx: int, val: str):
         ctrl = self.controllers[slot_idx - 1]
@@ -952,10 +1127,28 @@ class DashboardAppOptimized(ctk.CTk):
         self.log_message(f"[Slot {slot_idx:02d}] Cấu hình đã được lưu thành công.", "SUCCESS")
 
     def stack_all_jewels(self):
-        self.log_message("💎 Bắt đầu gom ngọc tự động cho toàn bộ slot kết nối...", "INFO")
-        for ctrl in self.controllers:
-            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
-                threading.Thread(target=ctrl.auto_stack_jewels, daemon=True).start()
+        if getattr(self, "_stack_all_in_progress", False):
+            self.log_message("⏳ Đang trong tiến trình gom ngọc, vui lòng đợi đợt gom hiện tại hoàn tất...", "WARNING")
+            return
+        self._stack_all_in_progress = True
+
+        def _worker():
+            try:
+                active_ctrls = [c for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)]
+                if not active_ctrls:
+                    self.log_message("⚠️ Không có slot nào đang kết nối game để gom ngọc.", "WARNING")
+                    return
+                self.log_message(f"💎 Bắt đầu gom ngọc cho {len(active_ctrls)} slot kết nối...", "INFO")
+                for ctrl in active_ctrls:
+                    try:
+                        ctrl.auto_stack_jewels()
+                    except Exception as e:
+                        self.log_message(f"[Slot {ctrl.slot_idx:02d}] Lỗi gom ngọc: {e}", "WARNING")
+                self.log_message("✅ Hoàn tất gom ngọc cho toàn bộ slot kết nối.", "SUCCESS")
+            finally:
+                self._stack_all_in_progress = False
+
+        threading.Thread(target=_worker, daemon=True, name="StackAllJewelsWorker").start()
 
     def close_all_games(self):
         if not messagebox.askyesno("Xác nhận", "Bạn có chắc chắn muốn đóng toàn bộ các cửa sổ game MEGAMU?"):
@@ -972,56 +1165,35 @@ class DashboardAppOptimized(ctk.CTk):
         self.engine_sync.trigger_scan_now()
 
     def arrange_windows_default(self):
-        self.arrange_windows_by_preset("3x2")
+        self.arrange_windows_by_preset("auto")
 
-    def arrange_windows_by_preset(self, preset: str):
-        try:
-            import win32gui
-            import win32con
-        except ImportError:
-            self.log_message("Thiếu thư viện win32gui để sắp xếp cửa sổ.", "WARNING")
-            return
+    def arrange_windows_by_preset(self, preset: Optional[str] = "3x2"):
+        """Sắp xếp tất cả cửa sổ game MEGAMU theo lưới chuẩn bằng MEGAMUWindowManager (pure ctypes, không phụ thuộc win32gui)."""
+        target_layout = preset or "auto"
+        if hasattr(self, "train_view") and hasattr(self.train_view, "layout_combo"):
+            combo_val = self.train_view.layout_combo.get()
+            if combo_val and combo_val not in ("Tự động", "auto"):
+                target_layout = combo_val
 
-        pids = [c.assigned_pid for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)]
-        if not pids:
-            pids = list(self.detected_games.keys())
-        if not pids:
-            self.log_message("Không có cửa sổ MEGAMU nào đang mở để sắp xếp.", "WARNING")
-            return
+        if hasattr(self, "execute_window_arrangement"):
+            res = self.execute_window_arrangement(layout=target_layout)
+            return res
 
-        layout = {
-            "2x2": (2, 2), "3x2": (3, 2), "3x3": (3, 3), "4x2": (4, 2),
-            "2x1": (2, 1), "1x2": (1, 2), "4x3": (4, 3),
-        }
-        cols, rows = layout.get(preset, (3, 2))
-
-        u32 = ctypes.windll.user32
-        sw = u32.GetSystemMetrics(0)
-        sh = u32.GetSystemMetrics(1) - 40
-        w = sw // cols
-        h = sh // rows
-
-        hwnds = []
-
-        def enum_cb(h, _):
-            if win32gui.IsWindowVisible(h):
-                txt = win32gui.GetWindowText(h)
-                if "megamu" in txt.lower():
-                    hwnds.append(h)
-            return True
-
-        win32gui.EnumWindows(enum_cb, None)
-        for i, hwnd in enumerate(hwnds[:cols * rows]):
-            r_idx = i // cols
-            c_idx = i % cols
-            x = c_idx * w
-            y = r_idx * h
-            try:
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                win32gui.MoveWindow(hwnd, x, y, w, h, True)
-            except Exception:
-                pass
-        self.log_message(f"📐 Đã sắp xếp {len(hwnds)} cửa sổ theo lưới {preset}.", "SUCCESS")
+        cfg = ConfigPersistenceManager.load_window_arrangement_config()
+        res = MEGAMUWindowManager.arrange_windows(
+            layout=target_layout,
+            custom_cols=cfg.get("custom_cols", 2),
+            custom_rows=cfg.get("custom_rows", 2),
+            monitor_idx=cfg.get("monitor_idx", 0),
+            margin=cfg.get("margin", 0),
+            controllers=self.controllers
+        )
+        msg = res.get("msg", "")
+        if res.get("ok"):
+            self.log_message(f"📐 {msg}", "SUCCESS")
+        else:
+            self.log_message(f"⚠️ {msg}", "WARNING")
+        return res
 
     def trigger_mirror_snipe(self):
         """Cướp cổng Mirror — dùng luồng đầy đủ của meg_gui (turbo + khóa event key)."""
@@ -1033,6 +1205,122 @@ class DashboardAppOptimized(ctk.CTk):
             for ctrl in self.controllers:
                 if ctrl.assigned_pid and getattr(ctrl, "mirror_enabled", True):
                     threading.Thread(target=ctrl.start_mirror_turbo_sniping, daemon=True).start()
+
+    def trigger_all_mirror_lifecycle(self):
+        """Kích hoạt chu trình chiến đấu bên trong Double Goer cho các tài khoản ĐÃ TÍCH CHỌN."""
+        cnt = 0
+        for ctrl in self.controllers:
+            if not getattr(ctrl, "mirror_enabled", True):
+                continue
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                cnt += 1
+                threading.Thread(target=ctrl.run_mirror_in_dungeon_lifecycle, kwargs={"force": True}, daemon=True).start()
+        if cnt == 0:
+            self.append_mirror_log("⚠️ Chưa có tài khoản nào được chọn kết nối để kích hoạt chu trình Double Goer!")
+        else:
+            self.append_mirror_log(f"⚔️ Đang kích hoạt chu trình: Đợi Safe Zone -> Phút :16 ra bãi -> Bật Helper -> Săn 3 Box quà cho {cnt} tài khoản...")
+
+    def enter_all_mirror(self):
+        """Gửi lệnh vào cửa Double Goer cho các tài khoản ĐÃ TÍCH CHỌN."""
+        def _enterer():
+            cnt = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "mirror_enabled", True):
+                    continue
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    ctrl.enter_mirror()
+                    cnt += 1
+                    time.sleep(0.08)
+            self.after(0, lambda: self.append_mirror_log(f"🚪 Đã gửi lệnh vào cửa Double Goer cho {cnt} tài khoản đã chọn!"))
+        threading.Thread(target=_enterer, daemon=True).start()
+
+    def claim_all_gremory_case_items(self):
+        """Tự động lôi quà phím 'K' (Gremory Case) cho các tài khoản ĐÃ TÍCH CHỌN."""
+        def _worker():
+            self.append_mirror_log("🎁 [Gremory Case] Bắt đầu tự động lôi quà phím 'K' cho các tài khoản đã chọn...")
+            total_claimed = 0
+            for s_i, c in enumerate(self.controllers, 1):
+                if not getattr(c, "mirror_enabled", True):
+                    continue
+                if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                    try:
+                        eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
+                        if eng:
+                            res = eng.claim_gremory_case_items()
+                            cnt = res.get("claimed", 0)
+                            total_claimed += cnt
+                            if cnt > 0:
+                                self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] 🏆 ĐÃ LÔI THÀNH CÔNG {cnt} MÓN QUÀ TỪ PHÍM 'K' VÀO HÒM ĐỒ!")
+                            else:
+                                self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ℹ️ Hộp Quà Phím 'K' sạch quà (không có quà tồn).")
+                    except Exception as e:
+                        self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ⚠️ Lỗi lôi quà phím 'K': {e}")
+            self.append_mirror_log(f"🏁 [Gremory Case] Hoàn tất quá trình lôi quà! Tổng cộng đã nhận: {total_claimed} món quà.")
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def move_all_to_event_map(self):
+        """Di chuyển ĐỒNG THỜI (Parallel Multi-threading) các tài khoản ĐÃ TÍCH CHỌN tới Event Map (Lugard)."""
+        selected_ctrls = [
+            ctrl for ctrl in self.controllers
+            if getattr(ctrl, "mirror_enabled", True) and ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid)
+        ]
+        if not selected_ctrls:
+            self.append_mirror_log("⚠️ Không có tài khoản Mirror đã chọn nào đang kết nối!")
+            return
+
+        cnt = len(selected_ctrls)
+        self.append_mirror_log(f"🚶 [Đồng thời] Đang chuyển Event Map song song cho {cnt} tài khoản...")
+        for ctrl in selected_ctrls:
+            threading.Thread(
+                target=ctrl.move_to_event_map,
+                name=f"MirrorMoveSlot_{ctrl.slot_idx}",
+                daemon=True
+            ).start()
+
+    def check_all_mirror_tickets(self):
+        """Kiểm tra vé Mirror cho toàn bộ tài khoản ĐÃ TÍCH CHỌN và cập nhật UI."""
+        def _checker():
+            self.after(0, lambda: self.append_mirror_log("🔍 Đang kiểm tra vé Mirror trên các tài khoản đã chọn (ô 12 - 203)..."))
+            total_connected = 0
+            has_ticket_count = 0
+            for ctrl in self.controllers:
+                if not getattr(ctrl, "mirror_enabled", True):
+                    continue
+                if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                    total_connected += 1
+                    t_info = ctrl.check_mirror_ticket()
+                    # Cập nhật nhãn vé trên hàng slot
+                    if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "update_slot_ticket_info"):
+                        self.after(0, lambda s=ctrl.slot_idx, inf=t_info: self.mirror_view.update_slot_ticket_info(s, inf))
+
+                    if t_info.get("hasTicket"):
+                        has_ticket_count += 1
+                        details = t_info.get("details", [])
+                        main_slots = [d["slot"] for d in details if not d.get("isExtended")]
+                        ext_slots = [d["slot"] for d in details if d.get("isExtended")]
+                        loc_parts = []
+                        if main_slots:
+                            loc_parts.append(f"Chính: {main_slots}")
+                        if ext_slots:
+                            loc_parts.append(f"Phụ: {ext_slots}")
+                        loc_desc = " | ".join(loc_parts) if loc_parts else f"ô {t_info.get('slots', [])}"
+                        self.after(0, lambda c=ctrl, inf=t_info, ld=loc_desc: self.append_mirror_log(
+                            f"  -> [Slot {c.slot_idx:02d} - {c.char_name}] 🎟️ Có {inf.get('count')} vé ({ld})"
+                        ))
+                    elif t_info.get("hasOnlySign"):
+                        signs_str = ", ".join(str(s) for s in t_info.get("signs", []))
+                        self.after(0, lambda c=ctrl, ss=signs_str: self.append_mirror_log(
+                            f"  -> [Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Chỉ có Mảnh Ghép Sign of Dimensions tại ô [{ss}]"
+                        ))
+                    else:
+                        self.after(0, lambda c=ctrl: self.append_mirror_log(
+                            f"  -> [Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ KHÔNG CÓ VÉ MIRROR (ô 12-203 trống)!"
+                        ))
+                    time.sleep(0.05)
+            self.after(0, lambda tc=total_connected, ht=has_ticket_count: self.append_mirror_log(
+                f"📊 Kết quả kiểm tra: {ht}/{tc} tài khoản có vé sẵn sàng."
+            ))
+        threading.Thread(target=_checker, daemon=True).start()
 
     def trigger_moss_merchant(self):
         """Bắt đầu Auto Moss cho các slot đã chọn."""
@@ -1098,13 +1386,19 @@ class DashboardAppOptimized(ctk.CTk):
             pass
 
     def get_mirror_snipe_delay(self) -> int:
-        return max(15, min(1000, int(getattr(self, "mirror_snipe_delay_ms", 80) or 80)))
+        if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_snipe_delay"):
+            return self.mirror_view.get_snipe_delay()
+        return max(15, min(1000, int(getattr(self, "mirror_snipe_delay_ms", 35) or 35)))
 
     def get_mirror_snipe_dur(self) -> float:
+        if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_snipe_dur"):
+            return self.mirror_view.get_snipe_dur()
         return max(3.0, min(120.0, float(getattr(self, "mirror_snipe_dur_s", 15.0) or 15.0)))
 
     def get_mirror_prefire_sec(self) -> float:
-        return max(0.0, min(30.0, float(getattr(self, "mirror_prefire_sec", 5.0) or 5.0)))
+        if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_prefire_sec"):
+            return self.mirror_view.get_prefire_sec()
+        return max(0.0, min(30.0, float(getattr(self, "mirror_prefire_sec", 2.0) or 2.0)))
 
     def get_mirror_schedule_config(self) -> Dict[str, Any]:
         self._sync_event_checkbox_proxies_from_view()
@@ -1114,6 +1408,8 @@ class DashboardAppOptimized(ctk.CTk):
             "auto_lifecycle": bool(self.cb_mirror_auto_lifecycle.get()),
             "auto_gremory": bool(self.cb_mirror_auto_gremory.get()),
             "prefire_sec": self.get_mirror_prefire_sec(),
+            "interval_ms": self.get_mirror_snipe_delay(),
+            "max_duration_s": self.get_mirror_snipe_dur(),
             "selected_slots": [c.slot_idx for c in self.controllers if getattr(c, "mirror_enabled", True)],
         }
 
@@ -1232,25 +1528,13 @@ class DashboardAppOptimized(ctk.CTk):
         elif action == "junk_dialog":
             self.open_junk_disposal_dialog()
         elif action == "move_all":
-            if hasattr(self, "move_all_to_moss_elbeland"):
-                self.move_all_to_moss_elbeland()
-            else:
-                self._run_on_selected_moss("move_to_moss_elbeland", "🚶 Đã gửi lệnh về NPC Moss")
+            self.move_all_to_moss_elbeland()
         elif action == "open_all":
-            if hasattr(self, "open_all_moss_npc"):
-                self.open_all_moss_npc()
-            else:
-                self._run_on_selected_moss("open_moss_npc", "🚪 Đã gửi lệnh mở NPC Moss")
+            self.open_all_moss_npc()
         elif action == "close_all":
-            if hasattr(self, "close_all_moss_dialogs"):
-                self.close_all_moss_dialogs()
-            else:
-                self._run_on_selected_moss("close_moss_dialog", "🚪 Đã gửi lệnh đóng NPC Moss")
+            self.close_all_moss_dialogs()
         elif action == "unlock_all":
-            if hasattr(self, "unlock_all_moss_inventories"):
-                self.unlock_all_moss_inventories()
-            else:
-                self._run_on_selected_moss("unlock_and_close_inventory", "🔓 Đã mở khóa thùng đồ")
+            self.unlock_all_moss_inventories()
         elif action == "prepare_mirror":
             if hasattr(self, "prepare_all_mirror_event"):
                 self.prepare_all_mirror_event()
@@ -1263,23 +1547,102 @@ class DashboardAppOptimized(ctk.CTk):
             else:
                 self.append_mirror_log("⚠️ click_all_mirror_npc chưa khả dụng.")
 
-    def _run_on_selected_moss(self, method_name: str, ok_label: str):
-        def _work():
-            cnt = 0
-            for ctrl in self._iter_selected_moss_controllers():
-                fn = getattr(ctrl, method_name, None)
-                if not fn:
-                    continue
-                try:
-                    fn()
-                    cnt += 1
-                    time.sleep(0.05)
-                except Exception as e:
-                    self.after(0, lambda c=ctrl, err=e: self.append_moss_log(
-                        f"[Slot {c.slot_idx:02d}] ❌ {method_name}: {err}"
-                    ))
-            self.after(0, lambda: self.append_moss_log(f"{ok_label} cho {cnt} tài khoản đã chọn."))
-        threading.Thread(target=_work, daemon=True).start()
+    def move_all_to_moss_elbeland(self):
+        """Di chuyển ĐỒNG THỜI (Parallel Multi-threading) tất cả tài khoản Moss đã chọn về Elbeland tới NPC Moss (22, 225)."""
+        selected_ctrls = list(self._iter_selected_moss_controllers())
+        if not selected_ctrls:
+            self.append_moss_log("⚠️ Không có tài khoản Moss đã chọn nào đang kết nối!")
+            return
+
+        cnt = len(selected_ctrls)
+        self.append_moss_log(f"🚶 [Đồng thời] Bắt đầu phát lệnh di chuyển song song về NPC Moss (Elbeland 22, 225) cho {cnt} tài khoản...")
+
+        for ctrl in selected_ctrls:
+            threading.Thread(
+                target=ctrl.move_to_moss_elbeland,
+                name=f"MossMoveSlot_{ctrl.slot_idx}",
+                daemon=True
+            ).start()
+
+    def open_all_moss_npc(self):
+        """Gửi lệnh mở giao diện NPC Moss ĐỒNG THỜI cho các tài khoản Moss đã chọn."""
+        selected_ctrls = list(self._iter_selected_moss_controllers())
+        if not selected_ctrls:
+            self.append_moss_log("⚠️ Không có tài khoản Moss đã chọn nào đang kết nối!")
+            return
+
+        cnt = len(selected_ctrls)
+        self.append_moss_log(f"🚪 [Đồng thời] Đang gửi lệnh mở NPC Moss song song cho {cnt} tài khoản...")
+        for ctrl in selected_ctrls:
+            threading.Thread(
+                target=ctrl.open_moss_npc,
+                name=f"MossOpenSlot_{ctrl.slot_idx}",
+                daemon=True
+            ).start()
+
+    def close_all_moss_dialogs(self):
+        """Đóng bảng NPC Moss ĐỒNG THỜI cho các tài khoản Moss đã chọn."""
+        selected_ctrls = list(self._iter_selected_moss_controllers())
+        if not selected_ctrls:
+            return
+        for ctrl in selected_ctrls:
+            threading.Thread(
+                target=ctrl.close_moss_dialog,
+                name=f"MossCloseSlot_{ctrl.slot_idx}",
+                daemon=True
+            ).start()
+        self.append_moss_log(f"🚪 Đã gửi lệnh đóng bảng Moss cho {len(selected_ctrls)} tài khoản.")
+
+    def unlock_all_moss_inventories(self):
+        """Mở khóa kẹt thùng đồ ĐỒNG THỜI cho các tài khoản Moss đã chọn."""
+        selected_ctrls = list(self._iter_selected_moss_controllers())
+        if not selected_ctrls:
+            return
+        for ctrl in selected_ctrls:
+            threading.Thread(
+                target=ctrl.unlock_and_close_inventory,
+                name=f"MossUnlockSlot_{ctrl.slot_idx}",
+                daemon=True
+            ).start()
+        self.append_moss_log(f"🔓 Đã gửi lệnh mở khóa kẹt cho {len(selected_ctrls)} tài khoản.")
+
+    def _run_on_selected_moss(self, method_name: str, ok_label: str, parallel: bool = True):
+        selected_ctrls = list(self._iter_selected_moss_controllers())
+        if not selected_ctrls:
+            self.append_moss_log("⚠️ Không có tài khoản Moss đã chọn nào đang kết nối!")
+            return
+
+        if parallel:
+            def _runner(c):
+                fn = getattr(c, method_name, None)
+                if fn:
+                    try:
+                        fn()
+                    except Exception as e:
+                        self.after(0, lambda ctrl=c, err=e: self.append_moss_log(
+                            f"[Slot {ctrl.slot_idx:02d}] ❌ {method_name}: {err}"
+                        ))
+
+            for ctrl in selected_ctrls:
+                threading.Thread(target=_runner, args=(ctrl,), daemon=True).start()
+            self.after(0, lambda: self.append_moss_log(f"⚡ [Đồng thời] {ok_label} cho {len(selected_ctrls)} tài khoản đã chọn."))
+        else:
+            def _work():
+                cnt = 0
+                for ctrl in selected_ctrls:
+                    fn = getattr(ctrl, method_name, None)
+                    if not fn:
+                        continue
+                    try:
+                        fn()
+                        cnt += 1
+                        time.sleep(0.05)
+                    except Exception as e:
+                        self.after(0, lambda c=ctrl, err=e: self.append_moss_log(
+                            f"[Slot {c.slot_idx:02d}] ❌ {method_name}: {err}"
+                        ))
+                self.after(0, lambda: self.append_moss_log(f"{ok_label} cho {cnt} tài khoản đã chọn."))
+            threading.Thread(target=_work, daemon=True).start()
 
     def _iter_selected_moss_controllers(self):
         for ctrl in self.controllers:
@@ -1399,6 +1762,8 @@ class DashboardAppOptimized(ctk.CTk):
         dlg.configure(fg_color=Colors.BG_ROOT)
         dlg.transient(self)
         dlg.grab_set()
+        self._setup_window_icon(dlg)
+        dlg.after(100, lambda: self._setup_window_icon(dlg))
 
         ctk.CTkLabel(
             dlg, text="🧹 DỌN RÁC HÒM ĐỒ (đọc RVA)",
@@ -1556,19 +1921,25 @@ class DashboardAppOptimized(ctk.CTk):
                     self.cb_mirror_auto_lifecycle.set(bool(opts.get("auto_lifecycle", True)))
                 if "auto_gremory" in opts:
                     self.cb_mirror_auto_gremory.set(bool(opts.get("auto_gremory", True)))
-                if hasattr(self, "on_toggle_mirror_auto_schedule"):
-                    self.on_toggle_mirror_auto_schedule()
-                else:
-                    selected = [c.slot_idx for c in self.controllers if getattr(c, "mirror_enabled", True)]
-                    ConfigPersistenceManager.save_mirror_schedule_config(
-                        auto_schedule=opts.get("auto_schedule", True),
-                        auto_prep_before=opts.get("auto_prep_before", True),
-                        auto_lifecycle=opts.get("auto_lifecycle", True),
-                        auto_gremory=opts.get("auto_gremory", True),
-                        prefire_sec=self.get_mirror_prefire_sec(),
-                        selected_slots=selected,
-                    )
-                    self.append_mirror_log("Đã lưu lịch Mirror.")
+                if "prefire_sec" in opts:
+                    self.mirror_prefire_sec = float(opts["prefire_sec"])
+                if "interval_ms" in opts:
+                    self.mirror_snipe_delay_ms = int(opts["interval_ms"])
+                if "max_duration_s" in opts:
+                    self.mirror_snipe_dur_s = float(opts["max_duration_s"])
+
+                selected = [c.slot_idx for c in self.controllers if getattr(c, "mirror_enabled", True)]
+                ConfigPersistenceManager.save_mirror_schedule_config(
+                    auto_schedule=opts.get("auto_schedule", True),
+                    auto_prep_before=opts.get("auto_prep_before", True),
+                    auto_lifecycle=opts.get("auto_lifecycle", True),
+                    auto_gremory=opts.get("auto_gremory", True),
+                    prefire_sec=self.get_mirror_prefire_sec(),
+                    interval_ms=self.get_mirror_snipe_delay(),
+                    max_duration_s=self.get_mirror_snipe_dur(),
+                    selected_slots=selected,
+                )
+                self.append_mirror_log(f"Đã lưu cấu hình Mirror (Bắn trước: {self.get_mirror_prefire_sec():.1f}s, Chu kỳ: {self.get_mirror_snipe_delay()}ms).")
             else:
                 if "auto_schedule" in opts:
                     self.cb_moss_auto_schedule.set(bool(opts.get("auto_schedule", True)))
@@ -1622,6 +1993,8 @@ class DashboardAppOptimized(ctk.CTk):
             dialog.configure(fg_color=Colors.BG_ROOT)
             dialog.transient(self)
             dialog.grab_set()
+            self._setup_window_icon(dialog)
+            dialog.after(100, lambda: self._setup_window_icon(dialog))
 
             pad = ctk.CTkFrame(dialog, fg_color="transparent")
             pad.pack(fill="both", expand=True, padx=20, pady=18)
@@ -1710,6 +2083,8 @@ class DashboardAppOptimized(ctk.CTk):
         dlg.configure(fg_color=Colors.BG_ROOT)
         dlg.transient(self)
         dlg.grab_set()
+        self._setup_window_icon(dlg)
+        dlg.after(100, lambda: self._setup_window_icon(dlg))
 
         pad = ctk.CTkFrame(dlg, fg_color="transparent")
         pad.pack(fill="both", expand=True, padx=18, pady=16)
@@ -1886,6 +2261,17 @@ class DashboardAppOptimized(ctk.CTk):
         self.state_mgr.update_slot_telemetry(slot_idx, is_running=is_on)
 
     def update_slot_ui_telemetry(self, slot_idx: int, name: str, lvl: str, coords: str, points: Optional[int] = None, class_code: Optional[str] = None, server: Optional[str] = None, resets: Optional[int] = None):
+        if 1 <= slot_idx <= len(self.controllers):
+            ctrl = self.controllers[slot_idx - 1]
+            if name and name != "---":
+                ctrl.char_name = name
+                ctrl.last_known_char_name = name
+            if lvl and lvl != "---":
+                ctrl.level = lvl
+            if coords and coords != "--,--":
+                ctrl.coords = coords
+            if server and server != "---":
+                ctrl.server_name = server
         self.state_mgr.update_slot_telemetry(
             slot_idx=slot_idx,
             char_name=name,
@@ -1897,11 +2283,55 @@ class DashboardAppOptimized(ctk.CTk):
             resets=resets
         )
 
+    def _bind_pid_to_slot_ui(self, ctrl, pid: int, char_name: str):
+        """Gán PID vào SlotController và cập nhật giao diện Dashboard."""
+        try:
+            ctrl.attach_pid(pid)
+            if char_name and char_name != "(Mặc định)":
+                ctrl.char_name = char_name
+                ctrl.last_known_char_name = char_name
+            self.update_slot_ui_telemetry(ctrl.slot_idx, ctrl.char_name, ctrl.level, ctrl.coords, server=ctrl.server_name)
+            self.state_mgr.update_slot_telemetry(ctrl.slot_idx, assigned_pid=pid, char_name=ctrl.char_name)
+            self.state_mgr.global_dirty = True
+            if hasattr(self, "update_header_stats"):
+                self.update_header_stats()
+            self.log_message(f"[Slot {ctrl.slot_idx:02d}] Đã gán PID {pid} ({ctrl.char_name}) và kích hoạt telemetry!", "SUCCESS")
+            # Đồng bộ ngay sang Mirror & Moss View
+            if hasattr(self, "mirror_view") and self.mirror_view:
+                self.after(0, self.mirror_view.refresh_rows)
+                self.trigger_mirror_ticket_scan(ctrl.slot_idx)
+            if hasattr(self, "moss_view") and self.moss_view:
+                self.after(0, self.moss_view.refresh_moss_rows)
+        except Exception:
+            pass
+
+    bind_pid_to_slot_ui = _bind_pid_to_slot_ui
+
     def stream_slot_coords(self, slot_idx: int, coords: str, server: str = ""):
         self.state_mgr.update_slot_telemetry(slot_idx, coords=coords, server=server)
 
     def update_header_stats(self):
         self._update_header_stats_internal()
+
+    def _on_acc_toggle(self, acc: Dict[str, Any], enabled: bool):
+        acc["enabled"] = bool(enabled)
+        if self.account_mgr:
+            self.account_mgr.save_accounts()
+
+    def _on_acc_srv_change(self, acc: Dict[str, Any], srv_text: str):
+        try:
+            s_num = int(srv_text.replace("Server ", "").strip())
+            acc["server"] = s_num
+            if self.account_mgr:
+                self.account_mgr.save_accounts()
+            try:
+                from meg_account_manager import configure_megamu_registry_for_server
+                configure_megamu_registry_for_server(s_num, acc.get("username", ""), acc.get("character", ""))
+            except Exception:
+                pass
+            self.append_autologin_log(f"⚙️ [Account: {acc.get('username')}] Đã chuyển mục tiêu sang Server {s_num} (đã ghi Registry)")
+        except Exception:
+            pass
 
     def open_update_dialog(self):
         self.check_for_updates_ui(manual=True)
@@ -1935,33 +2365,131 @@ class DashboardAppOptimized(ctk.CTk):
             pass
 
     def create_slot_row(self, slot_idx: int):
-        """Shim: bản optimized dùng TrainSlotsView cố định 10 slot — không dựng row động."""
-        return
+        """Tạo card slot mới trong TrainSlotsView (tương thích các hàm tự động thêm slot)."""
+        if hasattr(self, "train_view") and self.train_view:
+            self.train_view.add_slot_card(slot_idx)
 
     def add_new_slot(self):
-        """Thêm slot mới nếu còn hạn mức (giữ tương thích batch Auto Login)."""
+        """Thêm slot mới nếu còn hạn mức License (tối đa MAX_SLOTS)."""
         lic_data = license_client.load_license_data() if license_client else {}
         is_valid = license_client.is_license_valid() if license_client else False
         max_allowed = int(lic_data.get("max_slots", 5 if not is_valid else 10))
         cur_count = len(self.controllers)
         if cur_count >= max_allowed or cur_count >= MAX_SLOTS:
-            msg = f"Đã đạt giới hạn {min(max_allowed, MAX_SLOTS)} slot."
+            if not is_valid:
+                msg = f"Chế độ dùng thử mặc định chỉ hỗ trợ tối đa {max_allowed} tài khoản!\nVui lòng kích hoạt Bản Quyền để thêm tài khoản."
+            else:
+                msg = f"Gói bản quyền hiện tại của bạn cho phép tối đa {max_allowed} tài khoản.\nVui lòng liên hệ nâng cấp gói bản quyền để mở thêm Slot."
             self.log_message(msg, "WARNING")
             try:
-                messagebox.showinfo("Giới hạn slot", msg)
+                messagebox.showinfo("Giới Hạn Bản Quyền", msg)
             except Exception:
                 pass
             return
+
         new_slot_idx = cur_count + 1
         default_profile = 1
         self.slot_assignments[new_slot_idx] = default_profile
         try:
-            ConfigPersistenceManager.save_slot_assignment(new_slot_idx, default_profile)
+            ConfigPersistenceManager.save_all_slot_assignments(self.slot_assignments)
         except Exception:
             pass
+
         ctrl = SlotController(new_slot_idx, self, default_profile=default_profile)
         self.controllers.append(ctrl)
-        self.log_message(f"Đã thêm Slot #{new_slot_idx:02d}.", "SUCCESS")
+
+        # 1. Thêm UI card vào TrainSlotsView
+        if hasattr(self, "train_view") and self.train_view:
+            self.train_view.add_slot_card(new_slot_idx)
+
+        # 2. Thêm UI row vào MirrorView
+        if hasattr(self, "mirror_view") and self.mirror_view:
+            if hasattr(self.mirror_view, "_create_row"):
+                try:
+                    self.mirror_view._create_row(ctrl)
+                except Exception:
+                    pass
+
+        # 3. Thêm UI row vào MossView
+        if hasattr(self, "moss_view") and self.moss_view:
+            if hasattr(self.moss_view, "_create_moss_slot_row"):
+                try:
+                    self.moss_view._create_moss_slot_row(ctrl)
+                except Exception:
+                    pass
+
+        self.update_header_stats()
+        self.log_message(f"➕ Đã thêm Account Slot #{new_slot_idx:02d} thành công (Hiện có {len(self.controllers)} slot).", "SUCCESS")
+
+    def remove_last_slot(self):
+        """Xóa slot tài khoản cuối cùng."""
+        if len(self.controllers) <= 1:
+            self.log_message("Không thể xóa: Cần giữ lại ít nhất 1 tài khoản.", "WARNING")
+            try:
+                messagebox.showwarning("Cảnh Báo", "Cần giữ lại ít nhất 1 tài khoản trong danh sách.")
+            except Exception:
+                pass
+            return
+
+        last_idx = len(self.controllers)
+        ctrl = self.controllers.pop()
+
+        # Dừng auto và ngắt kết nối an toàn nếu đang chạy
+        if ctrl.worker and ctrl.worker.running:
+            ctrl.stop_auto(reason=f"Người dùng bấm nút Xóa Slot #{last_idx:02d}", trigger_by="MANUAL")
+        if hasattr(ctrl, "stop_moss"):
+            ctrl.stop_moss()
+        if hasattr(ctrl, "stop_mirror_auto"):
+            ctrl.stop_mirror_auto()
+        if hasattr(ctrl, "stop_mirror_turbo_sniping"):
+            ctrl.stop_mirror_turbo_sniping()
+        if ctrl.engine:
+            try:
+                ctrl.engine.detach()
+            except Exception:
+                pass
+
+        # Xóa khỏi slot_assignments và lưu lại file
+        self.slot_assignments.pop(last_idx, None)
+        try:
+            ConfigPersistenceManager.save_all_slot_assignments(self.slot_assignments)
+        except Exception:
+            pass
+
+        # 1. Xóa UI card trong TrainSlotsView
+        if hasattr(self, "train_view") and self.train_view:
+            self.train_view.remove_last_card()
+
+        # 2. Xóa UI row trong MirrorView
+        if hasattr(self, "mirror_view") and self.mirror_view:
+            if hasattr(self.mirror_view, "mirror_ui_elements"):
+                el_mir = self.mirror_view.mirror_ui_elements.pop(last_idx, None)
+                if el_mir and el_mir.get("row_frame"):
+                    try:
+                        el_mir["row_frame"].destroy()
+                    except Exception:
+                        pass
+            if hasattr(self.mirror_view, "mirror_cb_vars"):
+                self.mirror_view.mirror_cb_vars.pop(last_idx, None)
+            if hasattr(self.mirror_view, "_update_badge"):
+                self.mirror_view._update_badge()
+
+        # 3. Xóa UI row trong MossView
+        if hasattr(self, "moss_view") and self.moss_view:
+            if hasattr(self.moss_view, "moss_ui_elements"):
+                el_m = self.moss_view.moss_ui_elements.pop(last_idx, None)
+                if el_m and el_m.get("row_frame"):
+                    try:
+                        el_m["row_frame"].destroy()
+                    except Exception:
+                        pass
+            if hasattr(self.moss_view, "moss_cb_vars"):
+                self.moss_view.moss_cb_vars.pop(last_idx, None)
+            if hasattr(self.moss_view, "_update_moss_badge"):
+                self.moss_view._update_moss_badge()
+
+        self.update_header_stats()
+        self.log_message(f"➖ Đã xóa Slot #{last_idx:02d} thành công (Còn lại {len(self.controllers)} slot).", "INFO")
 
     def _background_scan_games(self):
         """Quét tiến trình MEGAMU — ưu tiên dữ liệu từ engine_sync, tránh EnumWindows dày."""
@@ -2056,9 +2584,15 @@ _EXCLUDE_BIND = {
     "trigger_mirror_snipe",
     "trigger_moss_merchant",
     "stop_all_moss",
+    "move_all_to_moss_elbeland",
+    "open_all_moss_npc",
+    "close_all_moss_dialogs",
+    "unlock_all_moss_inventories",
+    "move_all_to_event_map",
     "save_event_schedule",
     "create_slot_row",
     "add_new_slot",
+    "remove_last_slot",
     "arrange_windows_by_preset",
     "arrange_windows_default",
     "close_all_games",
@@ -2333,9 +2867,29 @@ print(f"[meg_gui_optimized] Bound {_bound_count} DashboardApp methods + {len(_SH
 
 
 def main():
-    app = DashboardAppOptimized()
-    app.protocol("WM_DELETE_WINDOW", app.on_closing)
-    app.mainloop()
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("megamu.auto.dashboard.v2")
+        except Exception:
+            pass
+    app = None
+    try:
+        app = DashboardAppOptimized()
+        app.protocol("WM_DELETE_WINDOW", app.on_closing)
+        app.mainloop()
+    except (KeyboardInterrupt, SystemExit):
+        print("\n[INFO] Đã nhận tín hiệu dừng (Ctrl+C). Đang đóng ứng dụng an toàn...")
+        if app is not None:
+            try:
+                app.on_closing()
+            except Exception:
+                try:
+                    app.destroy()
+                except Exception:
+                    pass
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import time
 import customtkinter as ctk
 from ui.theme import Colors, Fonts, Radii
 from ui.components.icons import UiIconFactory
-from ui.components.shell import make_action_button
+from ui.components.shell import make_action_button, bind_mousewheel_to_scrollable
 
 
 class MirrorView(ctk.CTkFrame):
@@ -137,7 +137,7 @@ class MirrorView(ctk.CTkFrame):
     def _build_schedule_row(self):
         row = ctk.CTkFrame(
             self, fg_color=Colors.BG_CARD, border_width=1,
-            border_color=Colors.BORDER_CARD, corner_radius=Radii.SM, height=34
+            border_color=Colors.BORDER_CARD, corner_radius=Radii.SM, height=36
         )
         row.pack(fill="x", padx=10, pady=(0, 4))
         row.pack_propagate(False)
@@ -156,11 +156,45 @@ class MirrorView(ctk.CTkFrame):
             ctk.CTkCheckBox(
                 inner, text=text, variable=var, font=Fonts.CAPTION,
                 checkbox_width=14, checkbox_height=14, command=cmd
-            ).pack(side="left", padx=(0, 10), pady=6)
+            ).pack(side="left", padx=(0, 8), pady=7)
+
+        right = ctk.CTkFrame(row, fg_color="transparent")
+        right.pack(side="right", fill="y", padx=8)
 
         make_action_button(
-            row, "⚙️ Bot", self._handle_telegram_settings, tone="ghost", height=24, width=52
-        ).pack(side="right", padx=8, pady=5)
+            right, "⚙️ Bot", self._handle_telegram_settings, tone="ghost", height=24, width=52
+        ).pack(side="right", padx=(4, 0), pady=6)
+
+        ctk.CTkLabel(right, text="s", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="right", padx=(2, 6))
+        self.entry_snipe_dur = ctk.CTkEntry(
+            right, width=38, height=24, font=Fonts.CAPTION, justify="center",
+            fg_color=Colors.BG_SURFACE, border_color=Colors.BORDER_CARD
+        )
+        self.entry_snipe_dur.insert(0, "15")
+        self.entry_snipe_dur.pack(side="right", padx=0, pady=6)
+        ctk.CTkLabel(right, text="Tối đa:", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="right", padx=(6, 2))
+
+        ctk.CTkLabel(right, text="ms", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="right", padx=(2, 6))
+        self.entry_snipe_delay = ctk.CTkEntry(
+            right, width=38, height=24, font=Fonts.CAPTION, justify="center",
+            fg_color=Colors.BG_SURFACE, border_color=Colors.BORDER_CARD
+        )
+        self.entry_snipe_delay.insert(0, "35")
+        self.entry_snipe_delay.pack(side="right", padx=0, pady=6)
+        ctk.CTkLabel(right, text="Chu kỳ:", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="right", padx=(6, 2))
+
+        ctk.CTkLabel(right, text="s", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="right", padx=(2, 6))
+        self.entry_prefire_sec = ctk.CTkEntry(
+            right, width=42, height=24, font=Fonts.BADGE, justify="center",
+            fg_color=Colors.BG_SURFACE, border_color=Colors.PURPLE, text_color=Colors.PURPLE
+        )
+        self.entry_prefire_sec.insert(0, "2.0")
+        self.entry_prefire_sec.pack(side="right", padx=0, pady=6)
+        ctk.CTkLabel(right, text="⚡ Bắn trước:", font=Fonts.BADGE, text_color=Colors.PURPLE).pack(side="right", padx=(6, 2))
+
+        for entry in (self.entry_prefire_sec, self.entry_snipe_delay, self.entry_snipe_dur):
+            entry.bind("<FocusOut>", lambda e: self._emit_schedule())
+            entry.bind("<Return>", lambda e: self._emit_schedule())
 
     def _build_slot_table(self, parent):
         card = ctk.CTkFrame(
@@ -180,13 +214,14 @@ class MirrorView(ctk.CTkFrame):
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
         for title, w in (
-            ("Tham gia", 90), ("#", 36), ("Nhân vật / PID", 240),
-            ("Trạng thái", 120), ("", 90),
+            ("Tham gia", 75), ("#", 32), ("Nhân vật / PID", 210),
+            ("Vé Mirror", 125), ("Trạng thái", 115), ("", 80),
         ):
             ctk.CTkLabel(hdr, text=title, width=w, anchor="w", font=Fonts.BADGE, text_color=Colors.TEXT_MUTED).pack(side="left", padx=4, pady=3)
 
         self.mirror_scroll = ctk.CTkScrollableFrame(card, fg_color="transparent")
         self.mirror_scroll.pack(fill="both", expand=True, padx=4, pady=4)
+        bind_mousewheel_to_scrollable(self.mirror_scroll)
 
         for ctrl in self.controllers:
             self._create_row(ctrl)
@@ -227,21 +262,27 @@ class MirrorView(ctk.CTkFrame):
         var = ctk.BooleanVar(value=is_en)
         self.mirror_cb_vars[i] = var
         cb = ctk.CTkCheckBox(
-            row, text="Đi", variable=var, width=90,
+            row, text="Đi", variable=var, width=75,
             font=Fonts.CAPTION, text_color=Colors.PURPLE if is_en else Colors.TEXT_DIM,
             checkbox_width=14, checkbox_height=14,
             command=lambda s=i, v=var: self._on_enabled(s, v.get())
         )
         cb.pack(side="left", padx=(6, 2), pady=5)
 
-        ctk.CTkLabel(row, text=f"{i:02d}", width=36, anchor="w", font=Fonts.BODY_BOLD, text_color=Colors.CYAN).pack(side="left", padx=2)
+        ctk.CTkLabel(row, text=f"{i:02d}", width=32, anchor="w", font=Fonts.BODY_BOLD, text_color=Colors.CYAN).pack(side="left", padx=2)
 
         char_disp = f"● {ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "⚪ Chưa kết nối"
         char_lbl = ctk.CTkLabel(
-            row, text=char_disp, width=240, anchor="w", font=Fonts.CAPTION,
+            row, text=char_disp, width=210, anchor="w", font=Fonts.CAPTION,
             text_color=Colors.TEXT_MAIN if (ctrl.assigned_pid and is_en) else Colors.TEXT_DIM
         )
         char_lbl.pack(side="left", padx=4)
+
+        # Cột Vé Mirror
+        ticket_lbl = ctk.CTkLabel(
+            row, text="🎟️ -- vé", width=125, anchor="w", font=Fonts.CAPTION, text_color=Colors.PURPLE
+        )
+        ticket_lbl.pack(side="left", padx=4)
 
         if not is_en:
             st_text, st_color = "⛔ Bỏ qua", Colors.TEXT_DIM
@@ -249,7 +290,7 @@ class MirrorView(ctk.CTkFrame):
             st_text, st_color = "🟢 Sẵn sàng", Colors.GREEN
         else:
             st_text, st_color = "⚪ Chưa gán", Colors.TEXT_DIM
-        status_lbl = ctk.CTkLabel(row, text=st_text, width=120, anchor="w", font=Fonts.CAPTION, text_color=st_color)
+        status_lbl = ctk.CTkLabel(row, text=st_text, width=115, anchor="w", font=Fonts.CAPTION, text_color=st_color)
         status_lbl.pack(side="left", padx=4)
 
         btn = make_action_button(row, "⚡ Cướp", lambda s=i: self._handle_snipe_slot(s), tone="primary", height=24, width=72)
@@ -257,7 +298,7 @@ class MirrorView(ctk.CTkFrame):
 
         self.mirror_ui_elements[i] = {
             "row_frame": row, "cb_enabled": cb, "char_lbl": char_lbl,
-            "status_lbl": status_lbl, "btn_snipe": btn,
+            "ticket_lbl": ticket_lbl, "status_lbl": status_lbl, "btn_snipe": btn,
         }
 
     # ---- log ----
@@ -297,10 +338,23 @@ class MirrorView(ctk.CTkFrame):
     def apply_schedule_config(self, mirror_cfg: Optional[Dict[str, Any]] = None):
         if not mirror_cfg:
             return
-        self.var_mirror_auto.set(bool(mirror_cfg.get("auto_schedule", True)))
-        self.var_mirror_lifecycle.set(bool(mirror_cfg.get("auto_lifecycle", True)))
-        self.var_mirror_gremory.set(bool(mirror_cfg.get("auto_gremory", True)))
-        self.var_mirror_prep.set(bool(mirror_cfg.get("auto_prep_before", True)))
+        sched = mirror_cfg.get("schedule", mirror_cfg)
+        self.var_mirror_auto.set(bool(sched.get("auto_schedule", True)))
+        self.var_mirror_lifecycle.set(bool(sched.get("auto_lifecycle", True)))
+        self.var_mirror_gremory.set(bool(sched.get("auto_gremory", True)))
+        self.var_mirror_prep.set(bool(sched.get("auto_prep_before", True)))
+        if hasattr(self, "entry_prefire_sec"):
+            pf = float(sched.get("prefire_sec", 2.0) or 2.0)
+            self.entry_prefire_sec.delete(0, "end")
+            self.entry_prefire_sec.insert(0, f"{pf:.1f}".rstrip('0').rstrip('.') if pf != int(pf) else str(int(pf)))
+        if hasattr(self, "entry_snipe_delay"):
+            dl = int(sched.get("interval_ms", 35) or 35)
+            self.entry_snipe_delay.delete(0, "end")
+            self.entry_snipe_delay.insert(0, str(dl))
+        if hasattr(self, "entry_snipe_dur"):
+            dr = float(sched.get("max_duration_s", 15.0) or 15.0)
+            self.entry_snipe_dur.delete(0, "end")
+            self.entry_snipe_dur.insert(0, f"{dr:.0f}")
 
     def update_mirror_data(self, mirror: Dict[str, Any]):
         self.update_countdown(
@@ -329,6 +383,17 @@ class MirrorView(ctk.CTkFrame):
                 continue
             is_en = getattr(ctrl, "mirror_enabled", True)
             name = getattr(ctrl, "char_name", "---") or "---"
+            if name == "---":
+                last_k = getattr(ctrl, "last_known_char_name", "")
+                if last_k and last_k != "---":
+                    name = last_k
+                    ctrl.char_name = last_k
+                elif hasattr(ctrl, "app") and hasattr(ctrl.app, "state_mgr"):
+                    s_data = ctrl.app.state_mgr.get_slot(i)
+                    if s_data.get("char_name") and s_data.get("char_name") != "---":
+                        name = s_data["char_name"]
+                        ctrl.char_name = name
+
             pid = getattr(ctrl, "assigned_pid", None)
             if el.get("char_lbl"):
                 el["char_lbl"].configure(
@@ -344,7 +409,31 @@ class MirrorView(ctk.CTkFrame):
                     el["status_lbl"].configure(text="⚪ Chưa gán", text_color=Colors.TEXT_DIM)
             if el.get("row_frame"):
                 el["row_frame"].configure(fg_color=Colors.BG_SURFACE if is_en else "#0c1018")
+            if hasattr(ctrl, "cached_mirror_ticket_info"):
+                self.update_slot_ticket_info(i, getattr(ctrl, "cached_mirror_ticket_info", None))
         self._update_badge()
+
+    def update_slot_ticket_info(self, slot_idx: int, t_info: Optional[Dict[str, Any]] = None):
+        """Cập nhật nhãn số lượng vé Mirror cho một slot cụ thể."""
+        el = self.mirror_ui_elements.get(slot_idx)
+        if not el or not el.get("ticket_lbl") or not el["ticket_lbl"].winfo_exists():
+            return
+        lbl = el["ticket_lbl"]
+        if not t_info:
+            lbl.configure(text="🎟️ -- vé", text_color=Colors.TEXT_MUTED)
+            return
+
+        cnt = int(t_info.get("count", 0) or 0)
+        has_ticket = bool(t_info.get("hasTicket"))
+        has_only_sign = bool(t_info.get("hasOnlySign"))
+        signs = t_info.get("signs", [])
+
+        if has_ticket and cnt > 0:
+            lbl.configure(text=f"🎟️ {cnt} vé", text_color=Colors.CYAN)
+        elif has_only_sign:
+            lbl.configure(text=f"🧩 Mảnh ({len(signs)})", text_color=Colors.AMBER)
+        else:
+            lbl.configure(text="❌ 0 vé", text_color="#f87171")
 
     @staticmethod
     def _format_seconds(sec: int) -> str:
@@ -385,7 +474,28 @@ class MirrorView(ctk.CTkFrame):
                 "auto_lifecycle": self.var_mirror_lifecycle.get(),
                 "auto_gremory": self.var_mirror_gremory.get(),
                 "auto_prep_before": self.var_mirror_prep.get(),
+                "prefire_sec": self.get_prefire_sec(),
+                "interval_ms": self.get_snipe_delay(),
+                "max_duration_s": self.get_snipe_dur(),
             })
+
+    def get_prefire_sec(self) -> float:
+        try:
+            return max(0.0, min(30.0, float(self.entry_prefire_sec.get().strip())))
+        except Exception:
+            return 2.0
+
+    def get_snipe_delay(self) -> int:
+        try:
+            return max(15, min(1000, int(self.entry_snipe_delay.get().strip())))
+        except Exception:
+            return 35
+
+    def get_snipe_dur(self) -> float:
+        try:
+            return max(3.0, min(120.0, float(self.entry_snipe_dur.get().strip())))
+        except Exception:
+            return 15.0
 
     def _handle_trigger_mirror(self):
         if self.on_trigger_mirror:

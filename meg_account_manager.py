@@ -84,6 +84,11 @@ def configure_megamu_registry_for_server(server: int = 3, username: str = "", ch
             settings["LastServerPort"] = port
             settings["LastServerLabel"] = label
             settings["AutoSelectServer"] = True
+            # QUAN TRỌNG: AutoSelectAccount và AutoSelectCharacter phải là False
+            # để khi mở nhiều tài khoản cùng lúc, các cửa sổ không tự động cướp tài khoản/nhân vật của nhau
+            # qua Registry dùng chung của Windows. Việc đăng nhập chính xác 100% do Frida Hook thực thi!
+            settings["AutoSelectAccount"] = False
+            settings["AutoSelectCharacter"] = False
             if username:
                 settings["LastUsername"] = username
             if character and character != "(Mặc định)":
@@ -578,16 +583,20 @@ class AccountManager:
                 stage = status.get("stage", "")
 
                 # Đọc danh sách nhân vật ngay khi game tải xong Lobby (Scene 3)
-                chars = eng.get_autologin_characters()
+                chars = eng.get_autologin_characters() if hasattr(eng, "get_autologin_characters") else []
                 if chars and not chars_synced:
                     chars_synced = True
-                    char_names = [c["name"] for c in chars if c.get("name")]
-                    if char_names:
-                        acc["characters_list"] = char_names
-                        if not acc.get("character") or acc.get("character") not in char_names:
-                            acc["character"] = char_names[0]
-                        self.save_accounts()
-                        _log(f"📋 [PID {pid} - {username}] Đã nhận diện {len(char_names)} nhân vật từ Game: [{', '.join(char_names)}]. Tự động chọn và vào thẳng nhân vật '{acc['character']}'...")
+                    login_acc = eng.get_autologin_account() if hasattr(eng, "get_autologin_account") else ""
+                    if login_acc and username and login_acc.lower() != username.lower():
+                        _log(f"⚠️ [PID {pid}] Bỏ qua cập nhật nhân vật: Cửa sổ này đang mở tài khoản '{login_acc}', không phải '{username}'.")
+                    else:
+                        char_names = [c["name"] for c in chars if c.get("name")]
+                        if char_names:
+                            acc["characters_list"] = char_names
+                            if not acc.get("character") or acc.get("character") not in char_names:
+                                acc["character"] = char_names[0]
+                            self.save_accounts()
+                            _log(f"📋 [PID {pid} - {username}] Đã nhận diện {len(char_names)} nhân vật từ Game: [{', '.join(char_names)}]. Tự động chọn và vào thẳng nhân vật '{acc['character']}'...")
 
                 if status.get("submitted") or status.get("done"):
                     submitted = True

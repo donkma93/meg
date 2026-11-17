@@ -178,6 +178,11 @@ class AppStateManager:
         with self.state_lock:
             return dict(self.slots.get(slot_idx, {}))
 
+    def get_all_slots_data(self) -> List[Dict[str, Any]]:
+        """Lấy toàn bộ dữ liệu của tất cả các slot hiện tại."""
+        with self.state_lock:
+            return [dict(self.slots[idx]) for idx in sorted(self.slots.keys())]
+
     # --------------------------------------------------------------------------
     # QUẢN LÝ NHẬT KÝ HỆ THỐNG THEO LÔ (BATCHED LOGS)
     # --------------------------------------------------------------------------

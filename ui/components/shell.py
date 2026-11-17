@@ -193,3 +193,45 @@ def make_action_button(
     if width is not None:
         kwargs["width"] = width
     return ctk.CTkButton(parent, **kwargs)
+
+
+def bind_mousewheel_to_scrollable(scrollable_frame, step: int = 2):
+    """
+    Kích hoạt cuộn chuột (MouseWheel) mượt mà cho CTkScrollableFrame trên Windows/macOS/Linux.
+    Hoạt động xuyên suốt trên toàn bộ frame và mọi widget con (cards, buttons, labels, frames...)
+    bằng cách phát hiện tọa độ con trỏ chuột khi người dùng lăn bánh xe.
+    """
+    canvas = getattr(scrollable_frame, "_parent_canvas", None)
+    if not canvas:
+        return
+
+    def _on_mousewheel(event):
+        try:
+            if not scrollable_frame.winfo_exists() or not canvas.winfo_exists():
+                return
+            if not scrollable_frame.winfo_viewable():
+                return
+            x, y = scrollable_frame.winfo_pointerxy()
+            rx = scrollable_frame.winfo_rootx()
+            ry = scrollable_frame.winfo_rooty()
+            rw = scrollable_frame.winfo_width()
+            rh = scrollable_frame.winfo_height()
+            if rx <= x <= rx + rw and ry <= y <= ry + rh:
+                if hasattr(event, "delta") and event.delta:
+                    direction = -1 if event.delta > 0 else 1
+                    canvas.yview_scroll(direction * step, "units")
+                elif hasattr(event, "num"):
+                    if event.num == 4:
+                        canvas.yview_scroll(-step, "units")
+                    elif event.num == 5:
+                        canvas.yview_scroll(step, "units")
+        except Exception:
+            pass
+
+    try:
+        scrollable_frame.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+        scrollable_frame.bind_all("<Button-4>", _on_mousewheel, add="+")
+        scrollable_frame.bind_all("<Button-5>", _on_mousewheel, add="+")
+    except Exception:
+        pass
+

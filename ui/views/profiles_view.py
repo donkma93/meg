@@ -9,6 +9,7 @@ import customtkinter as ctk
 from ui.theme import Colors, Fonts
 from ui.components.icons import UiIconFactory
 from ui.components.dropdown import ModernDropdown
+from ui.components.shell import bind_mousewheel_to_scrollable
 
 PROFILE_NAMES = [f"Config {i}" for i in range(1, 11)]
 
@@ -180,6 +181,7 @@ class ProfilesConfigView(ctk.CTkFrame):
         # Khung cuộn 10 dòng
         scroll = ctk.CTkScrollableFrame(container, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=6, pady=6)
+        bind_mousewheel_to_scrollable(scroll)
 
         self.editor_rows = []
         map_options = [""] + self.maps_list

@@ -136,6 +136,10 @@ DEFAULT_OFFSETS = {
     "mlogin_set_state": "0x1C33070",
     "auto_select_character": "0xEC6020",
     "unit_select_character": "0x111C0F0",
+    "unit_entry_character": "0x11203D0",
+    "connect_server_select": "0x11F2A50",
+    "get_helper_ui": "0x107EF80",
+    "input_field_set_text": "0x46C8EB0",
     "mirror_enter": "0xF94450",
     "mirror_enter_alt": "0xF94B00",
     "mirror_npc_click": "0xF927B0",
@@ -890,6 +894,38 @@ try {
         nativeUnitSelectCharacter = new NativeFunction(baseAddr.add(uscOff), 'void', ['int', 'pointer']);
     }
 } catch (eUSC) {}
+
+var nativeUnitEntryCharacter = null;
+try {
+    var uecOff = off('__UNIT_ENTRY_CHARACTER__');
+    if (!uecOff.isNull()) {
+        nativeUnitEntryCharacter = new NativeFunction(baseAddr.add(uecOff), 'void', ['int', 'pointer']);
+    }
+} catch (eUEC) {}
+
+var nativeConnectServerSelect = null;
+try {
+    var cssOff = off('__CONNECT_SERVER_SELECT__');
+    if (!cssOff.isNull()) {
+        nativeConnectServerSelect = new NativeFunction(baseAddr.add(cssOff), 'void', ['int']);
+    }
+} catch (eCSS) {}
+
+var nativeGetHelperUI = null;
+try {
+    var ghuOff = off('__GET_HELPER_UI__');
+    if (!ghuOff.isNull()) {
+        nativeGetHelperUI = new NativeFunction(baseAddr.add(ghuOff), 'pointer', []);
+    }
+} catch (eGHU) {}
+
+var nativeInputField_set_text = null;
+try {
+    var ifstOff = off('__INPUT_FIELD_SET_TEXT__');
+    if (!ifstOff.isNull()) {
+        nativeInputField_set_text = new NativeFunction(baseAddr.add(ifstOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eIFST) {}
 
 var nativeMLoginSubmit = null;
 try {
@@ -3026,32 +3062,132 @@ try {
                         return;
                     }
 
-                    // Scene 3 (Character Lobby): ĐANG Ở MÀN HÌNH CHỌN NHÂN VẬT -> CHỌN NHÂN VẬT
+                    // Scene 3 (Character Lobby): ĐANG Ở MÀN HÌNH CHỌN NHÂN VẬT -> ĐỌC DANH SÁCH & VÀO THẲNG NHÂN VẬT
                     if (sceneType === 3) {
-                        if (!pal.charSelected && pal.character) {
+                        pal.inLobbyFrames = (pal.inLobbyFrames || 0) + 1;
+                        var foundChars = [];
+                        var uAcc = null;
+                        if (nativeGetUserAccount !== null) {
+                            try { uAcc = nativeGetUserAccount(); } catch (eGUA) {}
+                        }
+
+                        if (uAcc !== null && !uAcc.isNull()) {
+                            try {
+                                var info = uAcc.add(0x20).readPointer();
+                                if (!info.isNull()) {
+                                    var charsList = info.add(0x30).readPointer();
+                                    if (!charsList.isNull()) {
+                                        var count = charsList.add(0x18).readS32();
+                                        if (count > 0) {
+                                            var itemsArr = charsList.add(0x10).readPointer();
+                                            if (!itemsArr.isNull()) {
+                                                for (var cIdx = 0; cIdx < count; cIdx++) {
+                                                    var cInfo = itemsArr.add(0x20 + cIdx * 8).readPointer();
+                                                    if (!cInfo.isNull()) {
+                                                        var sNum = cInfo.add(0x18).readS32();
+                                                        var nPtr = cInfo.add(0x20).readPointer();
+                                                        var cName = "";
+                                                        if (!nPtr.isNull()) {
+                                                            var nLen = nPtr.add(0x10).readS32();
+                                                            if (nLen > 0) {
+                                                                cName = nPtr.add(0x14).readUtf16String(nLen);
+                                                            }
+                                                        }
+                                                        var cLvl = cInfo.add(0x28).readS32();
+                                                        var cCls = cInfo.add(0x30).readS32();
+                                                        if (cName) {
+                                                            foundChars.push({ slot: sNum, name: cName, level: cLvl, classCode: cCls, namePtr: nPtr });
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (eReadChars) {}
+                        }
+
+                        // Nếu danh sách nhân vật chưa load xong từ GameServer (count == 0): đợi thêm
+                        if (foundChars.length === 0) {
+                            if (pal.inLobbyFrames % 30 === 0) {
+                                send({ type: "autologin_status", ok: false, stage: "waiting_character_list", scene: 3, account: pal.account });
+                            }
+                            return;
+                        }
+
+                        // Báo cáo danh sách nhân vật đọc được về Python
+                        if (!pal.charsReported) {
+                            pal.charsReported = true;
+                            send({
+                                type: "autologin_characters_found",
+                                account: pal.account,
+                                characters: foundChars.map(function(c) { return { slot: c.slot, name: c.name, level: c.level, classCode: c.classCode }; })
+                            });
+                        }
+
+                        // Lựa chọn nhân vật mục tiêu:
+                        var targetEntry = null;
+                        var reqChar = (pal.character || "").trim().toLowerCase();
+                        if (reqChar && reqChar !== "(mặc định)") {
+                            for (var k = 0; k < foundChars.length; k++) {
+                                if (foundChars[k].name.toLowerCase() === reqChar) {
+                                    targetEntry = foundChars[k];
+                                    break;
+                                }
+                            }
+                        }
+                        if (!targetEntry && foundChars.length > 0) {
+                            targetEntry = foundChars[0];
+                        }
+
+                        // Gửi gói tin chọn nhân vật & vào thẳng game (gửi lại mỗi 20 frames nếu chưa vào Scene 4)
+                        if (targetEntry && (!pal.charSelected || pal.inLobbyFrames % 20 === 0)) {
                             pal.charSelected = true;
+                            pal.selectedCharName = targetEntry.name;
                             try {
                                 var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
-                                var chrStr = il2cpp_string_new(Memory.allocUtf8String(pal.character));
-                                var selOk = false;
+                                var chrStr = targetEntry.namePtr ? targetEntry.namePtr : il2cpp_string_new(Memory.allocUtf8String(targetEntry.name));
+
                                 if (nativeAutoSelectCharacter !== null && nativeGetAutoLogin !== null) {
                                     var al = nativeGetAutoLogin();
                                     if (!al.isNull()) {
-                                        selOk = nativeAutoSelectCharacter(al, accStr, chrStr);
+                                        nativeAutoSelectCharacter(al, accStr, chrStr);
                                     }
                                 }
-                                if (!selOk && nativeUnitSelectCharacter !== null) {
-                                    nativeUnitSelectCharacter(0, chrStr);
+
+                                if (nativeUnitSelectCharacter !== null) {
+                                    nativeUnitSelectCharacter(targetEntry.slot, chrStr);
                                 }
-                            } catch (eChar) {}
-                            autoLoginLastStatus = { done: false, submitted: true, stage: "selected_character", scene: sceneType, account: pal.account, character: pal.character };
-                            send({ type: "autologin_status", ok: true, stage: "selected_character", scene: sceneType, account: pal.account, character: pal.character });
+
+                                if (typeof nativeUnitEntryCharacter !== 'undefined' && nativeUnitEntryCharacter !== null) {
+                                    nativeUnitEntryCharacter(targetEntry.slot, chrStr);
+                                }
+                            } catch (eSel) {}
+
+                            autoLoginLastStatus = {
+                                done: false,
+                                submitted: true,
+                                stage: "selected_character",
+                                scene: 3,
+                                account: pal.account,
+                                character: targetEntry.name,
+                                slot: targetEntry.slot
+                            };
+                            send({
+                                type: "autologin_status",
+                                ok: true,
+                                stage: "selected_character",
+                                scene: 3,
+                                account: pal.account,
+                                character: targetEntry.name,
+                                slot: targetEntry.slot
+                            });
                         }
                         return;
                     }
 
                     // Scene 2 (Login screen - MLoginUI):
-                    // Cấu hình AutoLogin singleton đúng 1 LẦN DUY NHẤT (Ghi trực tiếp struct không gọi LOLGHCBECAE)
+                    // Đảm bảo AutoLogin KHÔNG ở trạng thái QuickSwitch (QuickSwitchServerValue phải bằng -1)
                     if (!pal.configured) {
                         pal.configured = true;
                         var al = null;
@@ -3060,15 +3196,13 @@ try {
                         }
                         if (al !== null && !al.isNull()) {
                             try {
-                                var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
-                                var chrStr = il2cpp_string_new(Memory.allocUtf8String(pal.character));
                                 al.add(0x20).writeU8(0);
                                 al.add(0x21).writeU8(0);
                                 al.add(0x22).writeU8(0);
                                 al.add(0x23).writeU8(0);
-                                al.add(0x24).writeS32(pal.server);
-                                al.add(0x28).writePointer(accStr);
-                                al.add(0x30).writePointer(chrStr);
+                                al.add(0x24).writeS32(-1); // QUAN TRỌNG: -1 để MLoginUI không bị ép vào State 1 (Loading)
+                                al.add(0x28).writePointer(ptr(0));
+                                al.add(0x30).writePointer(ptr(0));
                             } catch (eAL) {}
                         }
                     }
@@ -3093,15 +3227,154 @@ try {
                         }
                     } catch (eType) {}
 
-                    // Nếu MLoginUI.Instance đã sẵn sàng và chưa submit:
-                    if (mLoginInst !== null && !mLoginInst.isNull() && !pal.submitted && pal.frames > 30) {
+                    if (mLoginInst === null || mLoginInst.isNull()) {
+                        return;
+                    }
+
+                    // Đọc CurrentState của MLoginUI (offset 0x24):
+                    // 0: None, 1: Loading, 2: Login, 3: ServerList, 4: LoginForm, 5: AccountList, 6: OAuthLoading, 7: OAuthList
+                    var currState = -1;
+                    try {
+                        currState = mLoginInst.add(0x24).readS32();
+                    } catch (eCS) {}
+
+                    // Kiểm tra và tự động đóng modal cảnh báo (nếu có dialog HelperUI như "No access" / "Your account does not have permission")
+                    try {
+                        if (nativeGetHelperUI !== null) {
+                            var helper = nativeGetHelperUI();
+                            if (helper !== null && !helper.isNull()) {
+                                var curDialog = helper.add(0x78).readPointer();
+                                if (!curDialog.isNull()) {
+                                    var okBtn = curDialog.add(0x40).readPointer();
+                                    if (!okBtn.isNull() && nativeUnityEvent_Invoke !== null) {
+                                        var onClick = okBtn.add(0x100).readPointer();
+                                        if (!onClick.isNull()) {
+                                            nativeUnityEvent_Invoke(onClick);
+                                            send({ type: "log", msg: "Phát hiện hộp thoại thông báo game (Quyền phòng / Thông báo). Đã tự động nhấn OK." });
+                                        }
+                                    }
+                                    // Nếu vừa bị từ chối quyền vào phòng (No access): tự động hạ về Server 1 (Free / Public) và cho phép kết nối lại!
+                                    if (pal.server && pal.server !== 1) {
+                                        send({ type: "log", msg: "Tài khoản không có quyền vào Server " + pal.server + ". Đang tự động chuyển hướng kết nối sang Server 1 (Public Free)..." });
+                                        pal.server = 1;
+                                        pal.serverConnected = false;
+                                        try {
+                                            if (nativeMLoginSetState !== null) {
+                                                nativeMLoginSetState(mLoginInst, 3);
+                                            }
+                                        } catch (eSt3) {}
+                                    }
+                                }
+                            }
+                        }
+                    } catch (eDlg) {}
+
+                    // Nếu game đang ở State 1 (Loading) hoặc 0 (None):
+                    // Game đang tải tài nguyên / kết nối web API ban đầu -> KIÊN NHẪN ĐỢI
+                    if (currState <= 1) {
+                        autoLoginLastStatus = { done: false, submitted: pal.submitted, stage: "waiting_login_ui", state: currState, frames: pal.frames, account: pal.account };
+                        if (pal.frames % 60 === 0) {
+                            send({ type: "autologin_status", ok: false, stage: "waiting_login_ui", state: currState, frames: pal.frames, account: pal.account });
+                        }
+                        // Nếu bị kẹt ở Loading State 1 quá 180 frames (3s) sau khi đã cố kết nối server, đưa về ServerList (State 3) để thử lại
+                        if (pal.serverConnected && pal.frames > 180 && currState === 1) {
+                            try {
+                                if (nativeMLoginSetState !== null) {
+                                    nativeMLoginSetState(mLoginInst, 3);
+                                    pal.serverConnected = false;
+                                }
+                            } catch (eUnstick) {}
+                        }
+                        return;
+                    }
+
+                    // Nếu game ở trạng thái ServerList (State 3): Tự động chọn server mục tiêu (mặc định Server 1 cho mọi tài khoản)
+                    if (currState === 3 && !pal.serverConnected) {
+                        pal.serverConnected = true;
+                        var targetSrv = (pal.server && parseInt(pal.server) >= 1) ? parseInt(pal.server) : 1;
+                        try {
+                            if (nativeConnectServerSelect !== null) {
+                                nativeConnectServerSelect(targetSrv);
+                            } else if (nativeGetCSConnection !== null && nativeCSConnect !== null) {
+                                var cs = nativeGetCSConnection();
+                                if (!cs.isNull()) {
+                                    nativeCSConnect(cs, targetSrv);
+                                }
+                            }
+                            if (nativeMLoginSetState !== null) {
+                                nativeMLoginSetState(mLoginInst, 1);
+                            }
+                        } catch (eSrv) {}
+                        autoLoginLastStatus = { done: false, submitted: true, stage: "connecting_server", server: targetSrv, account: pal.account };
+                        send({ type: "autologin_status", ok: true, stage: "connecting_server", server: targetSrv, account: pal.account });
+                        return;
+                    }
+
+                    // Khi game đã nạp xong (currState >= 2) và chưa submit:
+                    if (!pal.submitted) {
                         var accStr = il2cpp_string_new(Memory.allocUtf8String(pal.account));
 
-                        // 1. Trường hợp có Mật khẩu: Đăng nhập bằng WebAPI Form Submit
-                        if (pal.password && nativeMLoginSubmit !== null) {
-                            pal.submitted = true;
+                        // 1. Trường hợp có Mật khẩu: Đăng nhập bằng WebAPI Form Submit và UI Automation
+                        if (pal.password && (nativeMLoginSubmit !== null || nativeUnityEvent_Invoke !== null)) {
+                            // Đảm bảo UI chuyển sang LoginForm panel (State 4)
+                            if (currState !== 4) {
+                                try {
+                                    if (nativeMLoginSetState !== null) {
+                                        nativeMLoginSetState(mLoginInst, 4);
+                                    }
+                                } catch (eSt4) {}
+                                return; // Chờ 1 frame để Unity kích hoạt Panel và các InputField
+                            }
+
                             var pwdStr = il2cpp_string_new(Memory.allocUtf8String(pal.password));
-                            nativeMLoginSubmit(mLoginInst, accStr, pwdStr, 1);
+                            var uInput = ptr(0);
+                            var pInput = ptr(0);
+                            try {
+                                uInput = mLoginInst.add(0x98).readPointer();
+                                pInput = mLoginInst.add(0xA0).readPointer();
+                            } catch (eInp) {}
+
+                            // Nếu các ô InputField chưa sẵn sàng thì đợi frame sau
+                            if (uInput.isNull() || pInput.isNull()) {
+                                return;
+                            }
+
+                            pal.submitted = true;
+
+                            // Điền text vào InputField và tick nhớ mật khẩu
+                            try {
+                                if (nativeInputField_set_text !== null) {
+                                    nativeInputField_set_text(uInput, accStr);
+                                    nativeInputField_set_text(pInput, pwdStr);
+                                }
+                                uInput.add(0x180).writePointer(accStr);
+                                pInput.add(0x180).writePointer(pwdStr);
+
+                                var remToggle = mLoginInst.add(0xA8).readPointer();
+                                if (!remToggle.isNull()) {
+                                    remToggle.add(0x120).writeU8(1);
+                                }
+                            } catch (eFill) {}
+
+                            // Kích hoạt Event Enter Button hoặc gọi direct native submit
+                            var clickedEnter = false;
+                            try {
+                                var enterBtn = mLoginInst.add(0xB0).readPointer();
+                                if (!enterBtn.isNull() && nativeUnityEvent_Invoke !== null) {
+                                    var onClick = enterBtn.add(0x100).readPointer();
+                                    if (!onClick.isNull()) {
+                                        nativeUnityEvent_Invoke(onClick);
+                                        clickedEnter = true;
+                                    }
+                                }
+                            } catch (eBtn) {}
+
+                            if (!clickedEnter && nativeMLoginSubmit !== null) {
+                                try {
+                                    nativeMLoginSubmit(mLoginInst, accStr, pwdStr, 1);
+                                } catch (eSub) {}
+                            }
+
                             autoLoginLastStatus = { done: false, submitted: true, stage: "submitted_password", account: pal.account };
                             send({ type: "autologin_status", ok: true, stage: "submitted_password", account: pal.account });
                             return;
@@ -3136,7 +3409,8 @@ try {
                                 try {
                                     var cs = nativeGetCSConnection();
                                     if (!cs.isNull()) {
-                                        nativeCSConnect(cs, -1);
+                                        var targetSrv = (pal.server && parseInt(pal.server) >= 1) ? parseInt(pal.server) : 1;
+                                        nativeCSConnect(cs, targetSrv);
                                     }
                                 } catch (eCS) {}
                             }
@@ -3832,8 +4106,22 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     var opts = (optionsObj && typeof optionsObj === "object") ? optionsObj : {};
     var itemSlot = -1;
     if (slot !== undefined && slot !== null && parseInt(slot) >= 0) {
-        itemSlot = parseInt(slot);
-    } else {
+        var sCandidate = parseInt(slot);
+        try {
+            var itemsArr = getInventoryItemsArray();
+            if (itemsArr !== null && !itemsArr.isNull()) {
+                var testPtr = itemsArr.add(0x20 + sCandidate * 8).readPointer();
+                if (!testPtr.isNull()) {
+                    var idx = readItemIndex(testPtr);
+                    var chk = checkMirrorItem(testPtr, idx);
+                    if (chk.isTicket) {
+                        itemSlot = sCandidate;
+                    }
+                }
+            }
+        } catch (eVer) {}
+    }
+    if (itemSlot < 0) {
         itemSlot = findMirrorTicketSlotSmart();
     }
 
@@ -7290,7 +7578,10 @@ rpc.exports = {
                 token: tok,
                 configured: false,
                 submitted: false,
+                serverConnected: false,
                 charSelected: false,
+                charsReported: false,
+                inLobbyFrames: 0,
                 frames: 0,
                 done: false
             };
@@ -7679,6 +7970,10 @@ class MegDirectEngine:
             "__MLOGIN_SET_STATE__": str(self.offsets.get("mlogin_set_state") or DEFAULT_OFFSETS.get("mlogin_set_state", "0x1C33070")),
             "__AUTO_SELECT_CHARACTER__": str(self.offsets.get("auto_select_character") or DEFAULT_OFFSETS.get("auto_select_character", "0xEC6020")),
             "__UNIT_SELECT_CHARACTER__": str(self.offsets.get("unit_select_character") or DEFAULT_OFFSETS.get("unit_select_character", "0x111C0F0")),
+            "__UNIT_ENTRY_CHARACTER__": str(self.offsets.get("unit_entry_character") or DEFAULT_OFFSETS.get("unit_entry_character", "0x11203D0")),
+            "__CONNECT_SERVER_SELECT__": str(self.offsets.get("connect_server_select") or DEFAULT_OFFSETS.get("connect_server_select", "0x11F2A50")),
+            "__GET_HELPER_UI__": str(self.offsets.get("get_helper_ui") or DEFAULT_OFFSETS.get("get_helper_ui", "0x107EF80")),
+            "__INPUT_FIELD_SET_TEXT__": str(self.offsets.get("input_field_set_text") or DEFAULT_OFFSETS.get("input_field_set_text", "0x46C8EB0")),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -7733,6 +8028,17 @@ class MegDirectEngine:
                         if callable(cb):
                             try:
                                 cb(payload)
+                            except Exception:
+                                pass
+                    elif p_type == "autologin_status":
+                        self.last_autologin_status = payload
+                    elif p_type == "autologin_characters_found":
+                        self.last_autologin_characters = payload.get("characters", [])
+                        self.last_autologin_account = payload.get("account", "")
+                        cb = getattr(self, "on_autologin_characters", None)
+                        if callable(cb):
+                            try:
+                                cb(payload.get("account", ""), payload.get("characters", []))
                             except Exception:
                                 pass
         except Exception:
@@ -7888,10 +8194,13 @@ class MegDirectEngine:
                     return fn(*args)
             except Exception as e:
                 err_str = str(e).lower()
-                if "unable to find method" not in err_str:
+                is_closed = any(k in err_str for k in ("detached", "destroyed", "script is destroyed", "closed", "transport is closing"))
+                if not is_closed and "unable to find method" not in err_str:
                     _safe_log(f"[MegDirectEngine] RPC _call '{func_name}' error: {e}")
+                elif is_closed:
+                    _safe_log(f"[MegDirectEngine] Game client (PID {self.pid}) đã đóng hoặc ngắt kết nối.")
                 # Nếu RPC lỗi do script bị mất, đánh dấu cần gắn lại
-                if "detached" in err_str or "destroyed" in err_str or "script is destroyed" in err_str:
+                if is_closed:
                     self.is_ready = False
                     self.script = None
                     self.session = None
@@ -9236,47 +9545,34 @@ class MegDirectEngine:
         total_moved = 0
         details = []
 
-        # 2. Vòng lặp gom ngọc tuần tự theo từng loại ngọc
-        max_passes = 5
-        for pass_idx in range(max_passes):
-            moves_this_pass = 0
-
-            for j_type in COMBINABLE_TYPES:
-                if stop_check and stop_check():
-                    _log("⚠️ Tiến trình gom ngọc nhận lệnh dừng.")
-                    break
-
-                step_cnt = 0
-                while step_cnt < 40:
-                    if stop_check and stop_check():
-                        break
-                    res = self.stack_jewel_step(j_type)
-                    if not res.get("ok") or not res.get("moved"):
-                        break
-
-                    moves_this_pass += 1
-                    total_moved += 1
-                    step_cnt += 1
-                    details.append(res)
-
-                    st_name = res.get("storage", loc_str)
-                    j_name = res.get("name", j_type)
-                    f_slot = res.get("fromSlot", 0)
-                    t_slot = res.get("toSlot", 0)
-                    f_cnt = res.get("fromCount", 1)
-                    t_cnt = res.get("toCount", 1)
-                    tot = res.get("targetTotal", t_cnt + f_cnt)
-
-                    _log(f"💎 [{st_name}] Gom {j_name}: ô {f_slot} ({f_cnt}v) ➔ ô {t_slot} ({t_cnt}v) -> {min(100, tot)}/100v")
-                    time.sleep(0.35)
-
-            if moves_this_pass == 0 or (stop_check and stop_check()):
-                break
+        # 2. Gọi native Frida autoStackJewels gom 1 lượt duy nhất, không lặp vô tận
+        try:
+            res_str = self._call("autoStackJewels")
+            if res_str:
+                res = json.loads(res_str) if isinstance(res_str, str) else res_str
+                if isinstance(res, dict) and res.get("ok"):
+                    total_moved = res.get("moved", 0)
+                    details = res.get("details", [])
+                    for d in details:
+                        st_name = d.get("storage", loc_str)
+                        j_name = d.get("name", d.get("type", "Ngọc"))
+                        f_slot = d.get("fromSlot", 0)
+                        t_slot = d.get("toSlot", 0)
+                        f_cnt = d.get("amount", 1)
+                        tot = d.get("targetTotal", 100)
+                        _log(f"💎 [{st_name}] Gom {j_name}: ô {f_slot} ➔ ô {t_slot} ({f_cnt}v) -> {min(100, tot)}/100v")
+        except Exception as e:
+            _safe_log(f"[AutoStackJewels] Lỗi gọi autoStackJewels: {e}")
 
         # 3. Quét snapshot kết quả sau khi gom
         final_snap = self.scan_jewels_info()
         final_counts = final_snap.get("counts", counts) if final_snap.get("ok") else counts
         final_total = final_snap.get("totalJewels", total_jewels) if final_snap.get("ok") else total_jewels
+
+        if total_moved > 0:
+            _log(f"✅ Hoàn tất gom ngọc: Đã gộp thành công {total_moved} lượt ngọc lẻ.")
+        else:
+            _log("✅ Hoàn tất: Các ô ngọc đã gọn gàng, không cần dồn thêm.")
 
         return {
             "ok": True,
@@ -9601,8 +9897,21 @@ class MegDirectEngine:
                 pass
         return -1
 
+    def get_server_code(self) -> int:
+        """Đọc Server Code thực tế mà game MEGAMU đang kết nối từ bộ nhớ RAM (GSConnection/CSConnection)."""
+        if self.is_ready:
+            try:
+                res = self._call("getServerCode")
+                if res:
+                    return int(res)
+            except Exception:
+                pass
+        return 0
+
     def get_autologin_status(self) -> Dict[str, Any]:
         """Lấy trạng thái thực thi AutoLogin trên Unity Main Thread."""
+        if hasattr(self, "last_autologin_status") and self.last_autologin_status:
+            return self.last_autologin_status
         if self.is_ready:
             try:
                 res = self._call("getAutoLoginStatus")
@@ -9611,6 +9920,14 @@ class MegDirectEngine:
             except Exception as e:
                 pass
         return {"done": False, "submitted": False, "stage": "disconnected"}
+
+    def get_autologin_characters(self) -> List[Dict[str, Any]]:
+        """Lấy danh sách các nhân vật đọc được từ bộ nhớ khi login vào Scene 3 (Lobby)."""
+        return getattr(self, "last_autologin_characters", [])
+
+    def get_autologin_account(self) -> str:
+        """Lấy tên tài khoản tương ứng với danh sách nhân vật vừa đọc được."""
+        return getattr(self, "last_autologin_account", "")
 
     def detach(self):
         """

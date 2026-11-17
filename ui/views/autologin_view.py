@@ -11,6 +11,8 @@ import tkinter as tk
 import customtkinter as ctk
 from ui.theme import Colors, Fonts
 from ui.components.icons import UiIconFactory
+from ui.components.dropdown import ModernDropdown
+from ui.components.shell import bind_mousewheel_to_scrollable
 
 class CompactAccountCard(ctk.CTkFrame):
     """Thẻ tài khoản phẳng tối giản, hiện đại, hiển thị 2 dòng thông tin gọn gàng và cập nhật In-Place 100%."""
@@ -29,6 +31,8 @@ class CompactAccountCard(ctk.CTkFrame):
         on_delete: Optional[Callable[[str], None]] = None,
         on_copy_username: Optional[Callable[[str], None]] = None,
         on_prompt_change_category: Optional[Callable[[Dict[str, Any]], None]] = None,
+        on_change_server: Optional[Callable[[Dict[str, Any], str], None]] = None,
+        on_change_slot: Optional[Callable[[Dict[str, Any], str], None]] = None,
         **kwargs
     ):
         super().__init__(
@@ -52,6 +56,8 @@ class CompactAccountCard(ctk.CTkFrame):
         self.on_delete = on_delete
         self.on_copy_username = on_copy_username
         self.on_prompt_change_category = on_prompt_change_category
+        self.on_change_server = on_change_server
+        self.on_change_slot = on_change_slot
 
         self._last_state_key = (False, None, None, None, None)
         self._is_online = False
@@ -125,14 +131,20 @@ class CompactAccountCard(ctk.CTkFrame):
         self.col_srv.pack_propagate(False)
 
         srv_val = int(self.account.get("server", 3))
-        self.srv_lbl = ctk.CTkLabel(
+        self.srv_var = ctk.StringVar(value=f"Server {srv_val}")
+        self.srv_combo = ModernDropdown(
             self.col_srv,
-            text=f"Server {srv_val}",
-            font=Fonts.BODY_BOLD,
-            text_color=Colors.PURPLE,
-            anchor="w"
+            values=[f"Server {k}" for k in range(1, 9)],
+            variable=self.srv_var,
+            width=96,
+            height=24,
+            fg_color=Colors.BG_SURFACE,
+            border_color=Colors.BORDER_CARD,
+            hover_color=Colors.BG_CARD_HOVER,
+            font=Fonts.CAPTION,
+            command=self._handle_change_server
         )
-        self.srv_lbl.pack(fill="x", pady=(2, 0))
+        self.srv_combo.pack(anchor="w", pady=(1, 2))
 
         pref_slot = self.account.get("preferred_slot")
         slot_disp = f"Gán: Slot #{pref_slot:02d}" if (pref_slot and pref_slot > 0) else "Gán: Tự động"
@@ -305,8 +317,8 @@ class CompactAccountCard(ctk.CTkFrame):
 
             if live_srv and live_srv > 0:
                 srv_txt = f"Server {live_srv}"
-                if self.srv_lbl.winfo_exists() and self.srv_lbl.cget("text") != srv_txt:
-                    self.srv_lbl.configure(text=srv_txt)
+                if hasattr(self, "srv_var") and self.srv_var.get() != srv_txt:
+                    self.srv_var.set(srv_txt)
 
             if live_slot:
                 slot_txt = f"Gán: {live_slot}"
@@ -317,8 +329,14 @@ class CompactAccountCard(ctk.CTkFrame):
             return False
 
     def _bind_context_menu(self):
-        for w in (self, self.stt_lbl, self.user_lbl, self.char_lbl, self.srv_lbl, self.slot_lbl, self.cat_lbl, self.status_lbl):
-            w.bind("<Button-3>", self._show_context_menu)
+        ctx_targets = [self, self.stt_lbl, self.user_lbl, self.char_lbl, self.slot_lbl, self.cat_lbl, self.status_lbl]
+        if hasattr(self, "srv_combo"):
+            ctx_targets.append(self.srv_combo)
+        for w in ctx_targets:
+            try:
+                w.bind("<Button-3>", self._show_context_menu)
+            except Exception:
+                pass
 
     def _show_context_menu(self, event):
         try:
@@ -374,8 +392,19 @@ class CompactAccountCard(ctk.CTkFrame):
             pass
 
     def _handle_toggle(self):
+        val = bool(self.cb_var.get())
+        self.account["enabled"] = val
         if self.on_toggle_enabled:
-            self.on_toggle_enabled(self.account, self.cb_var.get())
+            self.on_toggle_enabled(self.account, val)
+
+    def _handle_change_server(self, new_val: str):
+        try:
+            s_num = int(new_val.replace("Server ", "").strip())
+            self.account["server"] = s_num
+        except Exception:
+            pass
+        if self.on_change_server:
+            self.on_change_server(self.account, new_val)
 
     def _handle_launch(self):
         if self.on_launch:
@@ -598,7 +627,39 @@ class AutoLoginView(ctk.CTkFrame):
             corner_radius=2,
             command=self._handle_delete_selected
         )
-        self.btn_del_selected.pack(side="left", padx=(0, 8))
+        self.btn_del_selected.pack(side="left", padx=(0, 6))
+
+        self.btn_select_all = ctk.CTkButton(
+            r1_left,
+            text="✓ Tất Cả",
+            font=Fonts.CAPTION,
+            fg_color=Colors.BG_SURFACE,
+            hover_color=Colors.BG_CARD_HOVER,
+            border_width=1,
+            border_color=Colors.BORDER_CARD,
+            text_color=Colors.CYAN,
+            width=62,
+            height=28,
+            corner_radius=2,
+            command=lambda: self.select_all_accounts(True)
+        )
+        self.btn_select_all.pack(side="left", padx=(0, 4))
+
+        self.btn_deselect_all = ctk.CTkButton(
+            r1_left,
+            text="☐ Bỏ Chọn",
+            font=Fonts.CAPTION,
+            fg_color=Colors.BG_SURFACE,
+            hover_color=Colors.BG_CARD_HOVER,
+            border_width=1,
+            border_color=Colors.BORDER_CARD,
+            text_color=Colors.TEXT_MUTED,
+            width=68,
+            height=28,
+            corner_radius=2,
+            command=lambda: self.select_all_accounts(False)
+        )
+        self.btn_deselect_all.pack(side="left", padx=(0, 8))
 
         ctk.CTkFrame(r1_left, fg_color=Colors.BORDER_CARD, width=1, height=18).pack(side="left", padx=(0, 8))
 
@@ -740,7 +801,7 @@ class AutoLoginView(ctk.CTkFrame):
         """Khung cuộn chứa danh sách các thẻ tài khoản phẳng."""
         self.scroll_table = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
         self.scroll_table.pack(fill="both", expand=True, padx=8, pady=(0, 4))
-        self._setup_smooth_scroll()
+        bind_mousewheel_to_scrollable(self.scroll_table)
         self._bind_drag_scroll()
 
         self.empty_lbl = ctk.CTkLabel(
@@ -750,27 +811,6 @@ class AutoLoginView(ctk.CTkFrame):
             text_color=Colors.TEXT_DIM,
             justify="center"
         )
-
-    def _setup_smooth_scroll(self):
-        """Gán cuộn chuột mượt mà 60fps qua bind_all khi chuột di chuyển vào vùng bảng cuộn (Zero-Lag, không đệ quy)."""
-        try:
-            self.scroll_table.bind("<Enter>", lambda e: self.scroll_table.bind_all("<MouseWheel>", self._on_smooth_mousewheel), add="+")
-            self.scroll_table.bind("<Leave>", lambda e: self.scroll_table.unbind_all("<MouseWheel>"), add="+")
-        except Exception:
-            pass
-
-    def _on_smooth_mousewheel(self, event):
-        """Cuộn mượt mà với bước nhảy tự nhiên (1 thẻ / lần lăn chuột)."""
-        try:
-            if not hasattr(self, "scroll_table") or not hasattr(self.scroll_table, "_parent_canvas"):
-                return
-            canvas = self.scroll_table._parent_canvas
-            # delta = 120 trên Windows -> bước nhảy -60px (khoảng 1 thẻ)
-            step = -int(event.delta / 2)
-            canvas.yview_scroll(step, "units")
-            return "break"
-        except Exception:
-            pass
 
     def _bind_drag_scroll(self):
         """Hỗ trợ kéo rê canvas bằng chuột giữa (Middle Mouse Drag)."""
@@ -837,6 +877,15 @@ class AutoLoginView(ctk.CTkFrame):
                 card.account = acc
                 card.stt = idx + 1
                 card.stt_lbl.configure(text=f"#{idx+1:02d}")
+                card.cb_var.set(acc.get("enabled", True))
+                srv_val = int(acc.get("server", 3))
+                if hasattr(card, "srv_var"):
+                    card.srv_var.set(f"Server {srv_val}")
+                c_name = acc.get("character") or "(Mặc định)"
+                card.char_lbl.configure(text=f"NV: {c_name}")
+                pref_slot = acc.get("preferred_slot")
+                slot_disp = f"Gán: Slot #{pref_slot:02d}" if (pref_slot and pref_slot > 0) else "Gán: Tự động"
+                card.slot_lbl.configure(text=slot_disp)
             else:
                 card = CompactAccountCard(
                     self.scroll_table,
@@ -850,7 +899,9 @@ class AutoLoginView(ctk.CTkFrame):
                     on_edit=self.on_edit_account,
                     on_delete=self.on_delete_account,
                     on_copy_username=self._copy_username,
-                    on_prompt_change_category=self.on_prompt_change_category
+                    on_prompt_change_category=self.on_prompt_change_category,
+                    on_change_server=self.on_change_server,
+                    on_change_slot=self.on_change_slot
                 )
                 self.cards[u_name] = card
 
@@ -860,6 +911,19 @@ class AutoLoginView(ctk.CTkFrame):
                 del self.cards[u]
 
         self._apply_filters()
+        self._update_stats_label()
+
+    def select_all_accounts(self, select: bool = True):
+        """Chọn tất cả hoặc bỏ chọn tất cả tài khoản trong nhóm đang hiển thị ngoài UI."""
+        cur_cat = self.current_category
+        for card in self.cards.values():
+            acc = card.account
+            a_cat = (acc.get("category") or "Chung").strip()
+            if cur_cat == "Tất cả" or a_cat.lower() == cur_cat.lower():
+                card.cb_var.set(select)
+                card.account["enabled"] = select
+                if card.on_toggle_enabled:
+                    card.on_toggle_enabled(card.account, select)
         self._update_stats_label()
 
     def update_account_state(

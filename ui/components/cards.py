@@ -271,13 +271,21 @@ class CompactSlotCard(ctk.CTkFrame):
             srv = state.get("server", "---")
 
             if pid:
-                c_tag = f"[{class_code}] " if class_code else ""
-                disp_proc = f"{c_tag}{c_name} ({pid})" if c_name != "---" else f"MEGAMU ({pid})"
+                matched_opt = None
+                for opt in getattr(self, "process_options", []):
+                    if f"({pid})" in opt or f"(PID {pid})" in opt or opt.endswith(f"{pid})"):
+                        matched_opt = opt
+                        break
+                if matched_opt:
+                    disp_proc = matched_opt
+                else:
+                    c_tag = f"[{class_code}] " if class_code else ""
+                    disp_proc = f"{c_tag}{c_name} (PID {pid})" if (c_name and c_name != "---") else f"MEGAMU (PID {pid})"
                 if self.proc_var.get() != disp_proc:
                     self.proc_var.set(disp_proc)
-            elif c_name and c_name != "---":
-                if self.proc_var.get() != c_name:
-                    self.proc_var.set(c_name)
+            else:
+                if self.proc_var.get() != "--":
+                    self.proc_var.set("--")
 
             cfg_name = state.get("profile")
             if cfg_name and self.preset_var.get() != cfg_name:

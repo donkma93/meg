@@ -4,7 +4,9 @@
     "auto_prep_before": true,
     "auto_lifecycle": true,
     "auto_gremory": true,
-    "prefire_sec": 7.0,
+    "prefire_sec": 4.0,
+    "interval_ms": 35,
+    "max_duration_s": 15.0,
     "interval_hours": 2,
     "prep_minutes_before": 5,
     "times": [
@@ -30,9 +32,7 @@
     5,
     6,
     7,
-    8,
-    9,
-    10
+    8
   ],
   "combat_spots": {
     "GunApao": [
@@ -326,6 +326,14 @@
     "AngelVN_SE": [
       188,
       70
+    ],
+    "Hsmart": [
+      68,
+      180
+    ],
+    "Hsmart_NW": [
+      68,
+      180
     ]
   },
   "telegram": {
@@ -336,6 +344,6 @@
     "enabled": true,
     "notify_enter": true,
     "notify_exit": true,
-    "updated_at": "2026-11-16 13:20:11"
+    "updated_at": "2026-11-16 21:08:30"
   }
 }
