@@ -104,7 +104,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.6.1"
+APP_VERSION = "v1.6.2"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"

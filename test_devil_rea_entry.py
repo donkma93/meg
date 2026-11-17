@@ -79,7 +79,7 @@ class TestDevilReaEntry(unittest.TestCase):
         self.assertIn("var wireSlot = (actualSlot + 12) & 0xFF;", code)
 
         # Kiểm tra tính toán enterDsLevel đúng theo cấp độ nhân vật (TableEventEntryLevel)
-        self.assertIn("var enterDsLevel = (dsLevel >= 0 && dsLevel <= 6) ? dsLevel : 0;", code)
+        self.assertIn("var enterDsLevel = (charLvl >= 400 || dsLevel >= 6) ? 6 : ((dsLevel !== undefined && dsLevel !== null && dsLevel >= 0) ? dsLevel : 0);", code)
 
         # Kiểm tra packet 0x90, 0x1E, 0xC2
         self.assertIn("[0xC1, 0x05, 0x90, lvl, wireSlot]", code)

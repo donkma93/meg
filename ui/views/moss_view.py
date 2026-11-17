@@ -118,26 +118,30 @@ class MossView(ctk.CTkFrame):
 
     def _build_status_strip(self):
         strip = ctk.CTkFrame(
-            self, fg_color=Colors.BG_CARD, border_width=1,
+            self, fg_color="#0a101d", border_width=1,
             border_color="#14532d", corner_radius=Radii.SM, height=42
         )
         strip.pack(fill="x", padx=10, pady=(8, 4))
         strip.pack_propagate(False)
 
-        ctk.CTkLabel(strip, text="🎲 MOSS", font=Fonts.BODY_BOLD, text_color=Colors.GREEN).pack(side="left", padx=(10, 8), pady=8)
+        # Huy hiệu Moss Merchant nổi bật
+        badge = ctk.CTkFrame(strip, fg_color="#064e3b", corner_radius=Radii.XS, height=26)
+        badge.pack(side="left", padx=(10, 8), pady=8)
+        badge.pack_propagate(False)
+        ctk.CTkLabel(badge, text="🎲 MOSS MERCHANT", font=("Segoe UI", 10, "bold"), text_color="#34d399").pack(padx=8, expand=True)
 
         self.lbl_moss_countdown = ctk.CTkLabel(
-            strip, text="00:00:00", font=("Segoe UI", 16, "bold"), text_color=Colors.GREEN, width=78
+            strip, text="00:00:00", font=("Segoe UI", 16, "bold"), text_color="#22c55e", width=82
         )
-        self.lbl_moss_countdown.pack(side="left", padx=(0, 8))
+        self.lbl_moss_countdown.pack(side="left", padx=(0, 10))
 
-        self.lbl_moss_status = ctk.CTkLabel(strip, text="Chờ sự kiện", font=Fonts.BADGE, text_color=Colors.TEXT_MUTED)
-        self.lbl_moss_status.pack(side="left", padx=(0, 10))
+        self.lbl_moss_status = ctk.CTkLabel(strip, text="● Chờ sự kiện", font=Fonts.BODY_BOLD, text_color=Colors.TEXT_MUTED)
+        self.lbl_moss_status.pack(side="left", padx=(0, 12))
 
-        self.lbl_moss_next = ctk.CTkLabel(strip, text="Đợt kế: --:15", font=Fonts.CAPTION, text_color=Colors.TEXT_DIM)
+        self.lbl_moss_next = ctk.CTkLabel(strip, text="🕒 Đợt kế: 00:15 / 06:15 / 12:15 / 18:15", font=Fonts.CAPTION, text_color=Colors.TEXT_DIM)
         self.lbl_moss_next.pack(side="left")
 
-        self.lbl_moss_count_badge = ctk.CTkLabel(strip, text="0/0 slot", font=Fonts.BODY_BOLD, text_color=Colors.AMBER)
+        self.lbl_moss_count_badge = ctk.CTkLabel(strip, text="🟢 0/0 slot tham gia", font=Fonts.BODY_BOLD, text_color=Colors.AMBER)
         self.lbl_moss_count_badge.pack(side="right", padx=12)
 
     def _build_tools_row(self):
@@ -151,45 +155,50 @@ class MossView(ctk.CTkFrame):
         left = ctk.CTkFrame(bar, fg_color="transparent")
         left.pack(side="left", fill="y", padx=6)
 
-        make_action_button(left, "▶️ Quay", self._handle_trigger_moss, tone="success", height=28, width=78).pack(side="left", padx=2, pady=6)
-        make_action_button(left, "⏹ Dừng", self._handle_stop_moss, tone="danger", height=28, width=72).pack(side="left", padx=2, pady=6)
-        make_action_button(left, "🔍 Phân tích", self._handle_analyze_moss, tone="primary", height=28, width=90).pack(side="left", padx=2, pady=6)
-        make_action_button(left, "🧹 Dọn", self._handle_junk_dialog, tone="purple", height=28, width=68).pack(side="left", padx=2, pady=6)
-        make_action_button(left, "💰 Silvia", self._handle_sell_moss, tone="success", height=28, width=78).pack(side="left", padx=2, pady=6)
-        make_action_button(left, "🗑️ Ném", self._handle_clean_moss, tone="danger", height=28, width=64).pack(side="left", padx=2, pady=6)
+        make_action_button(left, "QUAY TẤT CẢ", self._handle_trigger_moss, image=UiIconFactory.get("play", color="#ffffff", size=(12, 12)), tone="success", height=28, width=120).pack(side="left", padx=(2, 4), pady=6)
+        make_action_button(left, "DỪNG TẤT CẢ", self._handle_stop_moss, image=UiIconFactory.get("stop", color="#ffffff", size=(11, 11)), tone="danger", height=28, width=115).pack(side="left", padx=(0, 6), pady=6)
 
-        make_action_button(bar, "🛠️ Tiện ích ▾", self._show_batch_tools_menu, tone="ghost", height=28, width=100).pack(side="right", padx=8, pady=6)
+        ctk.CTkFrame(left, fg_color=Colors.BORDER_CARD, width=1, height=18).pack(side="left", padx=4, pady=11)
+
+        make_action_button(left, "Phân Tích Hòm", self._handle_analyze_moss, image=UiIconFactory.get("search", color=Colors.CYAN, size=(13, 13)), tone="primary", height=28, width=118).pack(side="left", padx=(0, 4), pady=6)
+        make_action_button(left, "Dọn Hòm Đồ", self._handle_junk_dialog, image=UiIconFactory.get("party", color="#c084fc", size=(13, 13)), tone="neutral", height=28, width=105).pack(side="left", padx=(0, 4), pady=6)
+        make_action_button(left, "Bán Silvia", self._handle_sell_moss, image=UiIconFactory.get("gem", color="#fbbf24", size=(13, 13)), tone="neutral", height=28, width=98).pack(side="left", padx=(0, 4), pady=6)
+        make_action_button(left, "Ném Rác", self._handle_clean_moss, image=UiIconFactory.get("close", color="#f87171", size=(13, 13)), tone="neutral", height=28, width=90).pack(side="left", padx=(0, 4), pady=6)
+
+        make_action_button(bar, "🛠 Tiện Ích Khác ▾", self._show_batch_tools_menu, tone="ghost", height=28, width=130).pack(side="right", padx=8, pady=6)
 
     def _build_schedule_row(self):
         row = ctk.CTkFrame(
-            self, fg_color=Colors.BG_CARD, border_width=1,
+            self, fg_color="#0b1322", border_width=1,
             border_color=Colors.BORDER_CARD, corner_radius=Radii.SM, height=36
         )
-        row.pack(fill="x", padx=10, pady=(0, 4))
+        row.pack(fill="x", padx=10, pady=(0, 6))
         row.pack_propagate(False)
 
         left = ctk.CTkFrame(row, fg_color="transparent")
-        left.pack(side="left", fill="y", padx=6)
+        left.pack(side="left", fill="y", padx=8)
 
         for text, var, cmd in (
-            ("🎰 Tự quay", self.var_moss_auto, self._emit_schedule),
-            ("🚶 Tới NPC", self.var_moss_move, self._emit_schedule),
-            ("🧹 Tự dọn", self.var_moss_auto_clean, self._emit_moss_batch_flags),
-            ("👕 Đồ rác", self.var_moss_clean_equip, self._emit_moss_batch_flags),
+            ("Tự quay theo giờ", self.var_moss_auto, self._emit_schedule),
+            ("Tới NPC Moss", self.var_moss_move, self._emit_schedule),
+            ("Tự dọn hòm", self.var_moss_auto_clean, self._emit_moss_batch_flags),
+            ("Ném đồ rác", self.var_moss_clean_equip, self._emit_moss_batch_flags),
         ):
             ctk.CTkCheckBox(
                 left, text=text, variable=var, font=Fonts.CAPTION,
                 checkbox_width=14, checkbox_height=14, command=cmd,
-                text_color="#f87171" if var is self.var_moss_auto_clean else Colors.TEXT_MAIN
-            ).pack(side="left", padx=(0, 8), pady=6)
+                text_color=Colors.TEXT_MAIN
+            ).pack(side="left", padx=(0, 10), pady=6)
 
         right = ctk.CTkFrame(row, fg_color="transparent")
-        right.pack(side="right", fill="y", padx=6)
+        right.pack(side="right", fill="y", padx=8)
+
+        ctk.CTkLabel(right, text="Cài nhanh toàn bộ:", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="left", padx=(0, 6), pady=6)
 
         self.moss_cat_var = ctk.StringVar(value=MOSS_CAT_OPTIONS[0][0])
         self.moss_cat_combo = ModernDropdown(
             right, values=[n for n, _ in MOSS_CAT_OPTIONS], variable=self.moss_cat_var,
-            width=160, height=26, fg_color=Colors.BG_SURFACE, border_color=Colors.BORDER_CARD,
+            width=180, height=24, fg_color=Colors.BG_SURFACE, border_color=Colors.BORDER_CARD,
             hover_color=Colors.BG_CARD_HOVER, font=Fonts.CAPTION,
             popup_min_width=250,
         )
@@ -200,33 +209,53 @@ class MossView(ctk.CTkFrame):
             right, textvariable=self.moss_delay_var, width=48, height=24,
             fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, font=Fonts.CAPTION, justify="center"
         ).pack(side="left", padx=(0, 4), pady=6)
-        make_action_button(right, "Áp dụng", self._handle_apply_batch, tone="primary", height=24, width=72).pack(side="left", padx=(0, 4), pady=6)
-        make_action_button(right, "All", lambda: self._set_all(True), tone="ghost", height=24, width=40).pack(side="left", padx=(0, 2), pady=6)
-        make_action_button(right, "None", lambda: self._set_all(False), tone="ghost", height=24, width=48).pack(side="left", pady=6)
+        make_action_button(right, "Áp Dụng", self._handle_apply_batch, tone="primary", height=24, width=72).pack(side="left", padx=(0, 4), pady=6)
+        make_action_button(right, "Chọn Hết", lambda: self._set_all(True), tone="ghost", height=24, width=68).pack(side="left", padx=(0, 2), pady=6)
+        make_action_button(right, "Bỏ Hết", lambda: self._set_all(False), tone="ghost", height=24, width=62).pack(side="left", pady=6)
 
     def _build_table(self, parent):
         card = ctk.CTkFrame(
-            parent, fg_color=Colors.BG_CARD, border_width=1,
-            border_color=Colors.BORDER_CARD, corner_radius=Radii.SM
+            parent, fg_color="#0a101d", border_width=1,
+            border_color="#1e293b", corner_radius=Radii.SM
         )
         card.grid(row=0, column=0, sticky="nsew", pady=(0, 4))
 
-        tools = ctk.CTkFrame(card, fg_color=Colors.BG_SURFACE, height=28, corner_radius=0)
+        tools = ctk.CTkFrame(card, fg_color="#0e172a", height=30, corner_radius=0)
         tools.pack(fill="x")
         tools.pack_propagate(False)
-        ctk.CTkLabel(tools, text="Tài khoản Moss", font=Fonts.BODY_BOLD, text_color=Colors.TEXT_MAIN).pack(side="left", padx=10, pady=3)
+        ctk.CTkLabel(tools, text="DANH SÁCH TÀI KHOẢN MOSS", font=Fonts.BODY_BOLD, text_color=Colors.CYAN).pack(side="left", padx=10, pady=4)
 
-        hdr = ctk.CTkFrame(card, fg_color=Colors.BG_HEADER, height=26, corner_radius=0)
+        # Hairline
+        ctk.CTkFrame(card, fg_color="#1e293b", height=1, corner_radius=0).pack(fill="x")
+
+        # Table Header liền khối
+        hdr = ctk.CTkFrame(card, fg_color="#0e172a", height=30, corner_radius=0)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
-        for title, w in (
-            ("Slot", 78), ("Nhân vật / PID", 160), ("Vật phẩm quay", 170),
-            ("Delay", 64), ("Quay", 58), ("Trạng thái", 90), ("", 110),
-        ):
-            ctk.CTkLabel(hdr, text=title, width=w, anchor="w", font=Fonts.BADGE, text_color=Colors.TEXT_MUTED).pack(side="left", padx=3, pady=3)
 
-        self.moss_scroll = ctk.CTkScrollableFrame(card, fg_color="transparent")
-        self.moss_scroll.pack(fill="both", expand=True, padx=4, pady=4)
+        # Cột Thao tác bên phải
+        ctk.CTkLabel(hdr, text="Thao tác", width=110, anchor="center", font=Fonts.BADGE, text_color="#94a3b8").pack(side="right", padx=(2, 8))
+
+        # Các cột bên trái
+        def _add_th(title, w, anchor="w", padx=4):
+            ctk.CTkLabel(hdr, text=title, width=w, anchor=anchor, font=Fonts.BADGE, text_color="#94a3b8").pack(side="left", padx=padx)
+            ctk.CTkFrame(hdr, fg_color="#182234", width=1, height=14).pack(side="left", pady=8)
+
+        ctk.CTkFrame(hdr, fg_color="transparent", width=2).pack(side="left")
+        _add_th("Slot", 58, anchor="center", padx=2)
+        _add_th("Nhân vật / PID", 180, anchor="w", padx=4)
+        _add_th("Vật phẩm quay (Category)", 220, anchor="w", padx=4)
+        _add_th("Delay (ms)", 75, anchor="center", padx=2)
+        _add_th("Đã quay", 65, anchor="center", padx=2)
+        _add_th("Trạng thái", 110, anchor="w", padx=4)
+
+        ctk.CTkFrame(hdr, fg_color="transparent").pack(side="left", fill="both", expand=True)
+
+        # Hairline giữa Header và thân bảng
+        ctk.CTkFrame(card, fg_color="#1e293b", height=1, corner_radius=0).pack(fill="x")
+
+        self.moss_scroll = ctk.CTkScrollableFrame(card, fg_color="transparent", corner_radius=0)
+        self.moss_scroll.pack(fill="both", expand=True)
         bind_mousewheel_to_scrollable(self.moss_scroll)
 
         for ctrl in self.controllers:
@@ -235,110 +264,133 @@ class MossView(ctk.CTkFrame):
 
     def _build_log_panel(self, parent):
         log_card = ctk.CTkFrame(
-            parent, fg_color=Colors.BG_CARD, border_width=1,
-            border_color=Colors.BORDER_CARD, corner_radius=Radii.SM, height=150
+            parent, fg_color="#0a101d", border_width=1,
+            border_color="#1e293b", corner_radius=Radii.SM, height=140
         )
         log_card.grid(row=1, column=0, sticky="nsew")
         log_card.pack_propagate(False)
 
-        head = ctk.CTkFrame(log_card, fg_color=Colors.BG_SURFACE, height=28, corner_radius=0)
+        head = ctk.CTkFrame(log_card, fg_color="#0e172a", height=28, corner_radius=0)
         head.pack(fill="x")
         head.pack_propagate(False)
-        ctk.CTkLabel(head, text="📋 Nhật ký Moss", font=Fonts.BODY_BOLD, text_color=Colors.TEXT_MAIN).pack(side="left", padx=10, pady=3)
-        make_action_button(head, "Xóa", self.clear_log, tone="ghost", height=22, width=48).pack(side="right", padx=8, pady=3)
+        ctk.CTkLabel(head, text="📋 NHẬT KÝ SỰ KIỆN MOSS", font=Fonts.BODY_BOLD, text_color=Colors.CYAN).pack(side="left", padx=10, pady=3)
+        make_action_button(head, "Xóa Log", self.clear_log, tone="ghost", height=22, width=64).pack(side="right", padx=8, pady=3)
+
+        ctk.CTkFrame(log_card, fg_color="#1e293b", height=1, corner_radius=0).pack(fill="x")
 
         self.log_box = ctk.CTkTextbox(
             log_card, font=Fonts.MONO, fg_color=Colors.BG_INPUT,
             text_color=Colors.TEXT_MAIN, border_width=0, wrap="word"
         )
-        self.log_box.pack(fill="both", expand=True, padx=6, pady=(0, 6))
+        self.log_box.pack(fill="both", expand=True, padx=6, pady=4)
         self.log_box.configure(state="disabled")
 
     def _create_moss_slot_row(self, ctrl):
         i = ctrl.slot_idx
         is_en = getattr(ctrl, "moss_enabled", True)
+        base_bg = "#0c1424" if i % 2 == 1 else "#0f192c"
         row = ctk.CTkFrame(
             self.moss_scroll,
-            fg_color=Colors.BG_SURFACE if is_en else "#0c1018",
-            height=34, corner_radius=Radii.SM
+            fg_color=base_bg if is_en else "#080c14",
+            height=32, corner_radius=0, border_width=0
         )
-        row.pack(fill="x", pady=1)
+        row.pack(fill="x", pady=0)
         row.pack_propagate(False)
 
+        # Hairline 1px dưới đáy hàng để tạo lưới bảng chuẩn
+        ctk.CTkFrame(row, fg_color="#152033", height=1, corner_radius=0).pack(fill="x", side="bottom")
+
+        # Ghim Thao tác bên phải trước tiên (110px)
+        action = ctk.CTkFrame(row, fg_color="transparent")
+        action.pack(side="right", padx=(2, 8))
+
+        running = bool(getattr(ctrl, "moss_running", False))
+        btn_toggle = ctk.CTkButton(
+            action,
+            text="⏹ Dừng" if running else "▶ Quay",
+            width=62, height=24, corner_radius=Radii.XS, font=Fonts.CAPTION,
+            fg_color=Colors.ROSE if running else Colors.GREEN,
+            hover_color=Colors.ROSE_HOVER if running else Colors.GREEN_HOVER,
+            command=lambda s=i: self._on_toggle_slot_auto(s)
+        )
+        btn_toggle.pack(side="left", padx=(0, 4))
+
+        btn_more = ctk.CTkButton(
+            action, text="⋯", width=28, height=24, corner_radius=Radii.XS,
+            fg_color="#1e293b", hover_color="#334155",
+            border_width=1, border_color="#334155", font=Fonts.BODY_BOLD,
+            command=lambda s=i: self._show_row_menu(s)
+        )
+        btn_more.pack(side="left")
+
+        # Cột 1: Checkbox Slot (58px, căn giữa)
         var = ctk.BooleanVar(value=is_en)
         self.moss_cb_vars[i] = var
+        cb_f = ctk.CTkFrame(row, fg_color="transparent", width=58)
+        cb_f.pack(side="left", padx=2)
+        cb_f.pack_propagate(False)
+
         cb = ctk.CTkCheckBox(
-            row, text=f"S{i:02d}", variable=var, width=78,
-            font=Fonts.CAPTION, text_color=Colors.AMBER if is_en else Colors.TEXT_DIM,
+            cb_f, text=f"S{i:02d}", variable=var, width=50,
+            font=("Segoe UI", 9, "bold"), text_color=Colors.AMBER if is_en else Colors.TEXT_DIM,
             checkbox_width=14, checkbox_height=14,
             command=lambda s=i, v=var: self._on_moss_enabled(s, v.get())
         )
-        cb.pack(side="left", padx=(4, 2), pady=5)
+        cb.pack(side="left", padx=4)
 
+        # Cột 2: Nhân vật / PID (180px, căn trái)
         char_disp = f"● {ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "⚪ Chưa kết nối"
         char_lbl = ctk.CTkLabel(
-            row, text=char_disp, width=160, anchor="w", font=Fonts.CAPTION,
+            row, text=char_disp, width=180, anchor="w", font=("Segoe UI", 10),
             text_color=Colors.TEXT_MAIN if (ctrl.assigned_pid and is_en) else Colors.TEXT_DIM
         )
-        char_lbl.pack(side="left", padx=2)
+        char_lbl.pack(side="left", padx=4)
 
+        # Cột 3: Vật phẩm quay Category (Dropdown 220px)
         cat_var = ctk.StringVar(value=moss_cat_name(int(getattr(ctrl, "moss_category", 0) or 0)))
         cat_combo = ModernDropdown(
             row, values=[n for n, _ in MOSS_CAT_OPTIONS], variable=cat_var,
-            width=170, height=26, fg_color=Colors.BG_CARD, border_color=Colors.BORDER_CARD,
+            width=220, height=24, fg_color=Colors.BG_CARD, border_color=Colors.BORDER_CARD,
             hover_color=Colors.BG_CARD_HOVER, font=Fonts.CAPTION,
             popup_min_width=250,
             command=lambda val, s=i: self._on_cat_changed(s, val),
         )
-        cat_combo.pack(side="left", padx=2)
+        cat_combo.pack(side="left", padx=4)
 
-        delay_f = ctk.CTkFrame(row, fg_color="transparent", width=64)
+        # Cột 4: Delay ms (75px, căn giữa)
+        delay_f = ctk.CTkFrame(row, fg_color="transparent", width=75)
         delay_f.pack(side="left", padx=2)
+        delay_f.pack_propagate(False)
+
         delay_entry = ctk.CTkEntry(
-            delay_f, width=44, height=24, font=Fonts.CAPTION, justify="center",
+            delay_f, width=52, height=24, font=Fonts.CAPTION, justify="center",
             fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD
         )
         delay_entry.insert(0, str(int(getattr(ctrl, "moss_delay_ms", 1000) or 1000)))
-        delay_entry.pack(side="left")
+        delay_entry.pack(expand=True)
         delay_entry.bind("<FocusOut>", lambda e, s=i: self._on_delay_changed(s))
         delay_entry.bind("<Return>", lambda e, s=i: self._on_delay_changed(s))
 
+        # Cột 5: Đã quay (65px, căn giữa)
         rolls = int(getattr(ctrl, "moss_rolls_count", 0) or 0)
         rolls_lbl = ctk.CTkLabel(
-            row, text=f"{rolls}", width=58, anchor="center", font=Fonts.CAPTION,
+            row, text=f"{rolls}", width=65, anchor="center", font=Fonts.CAPTION,
             text_color=Colors.GREEN if rolls > 0 else Colors.TEXT_DIM
         )
         rolls_lbl.pack(side="left", padx=2)
 
+        # Cột 6: Trạng thái (110px, căn trái)
         if not is_en:
             st_text, st_color = "⛔ Bỏ qua", Colors.TEXT_DIM
         elif ctrl.assigned_pid:
             st_text, st_color = "🟢 Sẵn sàng", Colors.GREEN
         else:
             st_text, st_color = "⚪ Chưa gán", Colors.TEXT_DIM
-        status_lbl = ctk.CTkLabel(row, text=st_text, width=90, anchor="center", font=Fonts.CAPTION, text_color=st_color)
-        status_lbl.pack(side="left", padx=2)
+        status_lbl = ctk.CTkLabel(row, text=st_text, width=110, anchor="w", font=Fonts.CAPTION, text_color=st_color)
+        status_lbl.pack(side="left", padx=4)
 
-        action = ctk.CTkFrame(row, fg_color="transparent", width=110)
-        action.pack(side="left", padx=2)
-        running = bool(getattr(ctrl, "moss_running", False))
-        btn_toggle = ctk.CTkButton(
-            action,
-            text="⏹" if running else "▶️",
-            width=48, height=24, corner_radius=Radii.SM, font=Fonts.CAPTION,
-            fg_color=Colors.ROSE if running else Colors.GREEN,
-            hover_color=Colors.ROSE_HOVER if running else Colors.GREEN_HOVER,
-            command=lambda s=i: self._on_toggle_slot_auto(s)
-        )
-        btn_toggle.pack(side="left", padx=(0, 3))
-
-        btn_more = ctk.CTkButton(
-            action, text="⋯", width=28, height=24, corner_radius=Radii.SM,
-            fg_color=Colors.BG_CARD, hover_color=Colors.BG_CARD_HOVER,
-            border_width=1, border_color=Colors.BORDER_CARD, font=Fonts.BODY_BOLD,
-            command=lambda s=i: self._show_row_menu(s)
-        )
-        btn_more.pack(side="left")
+        # Đệm co giãn linh hoạt ở giữa
+        ctk.CTkFrame(row, fg_color="transparent").pack(side="left", fill="both", expand=True)
 
         self.moss_ui_elements[i] = {
             "row_frame": row, "cb_enabled": cb, "char_lbl": char_lbl,
@@ -436,13 +488,13 @@ class MossView(ctk.CTkFrame):
             running = bool(getattr(ctrl, "moss_running", False))
             if el.get("btn_toggle"):
                 el["btn_toggle"].configure(
-                    text="⏹" if running else "▶️",
+                    text="⏹ Dừng" if running else "▶ Quay",
                     fg_color=Colors.ROSE if running else Colors.GREEN,
                     hover_color=Colors.ROSE_HOVER if running else Colors.GREEN_HOVER,
                 )
             if el.get("status_lbl"):
                 if running:
-                    el["status_lbl"].configure(text="🎲 Quay", text_color=Colors.AMBER)
+                    el["status_lbl"].configure(text="🎲 Đang quay", text_color=Colors.AMBER)
                 elif not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua", text_color=Colors.TEXT_DIM)
                 elif pid:
@@ -450,7 +502,13 @@ class MossView(ctk.CTkFrame):
                 else:
                     el["status_lbl"].configure(text="⚪ Chưa gán", text_color=Colors.TEXT_DIM)
             if el.get("row_frame"):
-                el["row_frame"].configure(fg_color=Colors.BG_SURFACE if is_en else "#0c1018")
+                base_bg = "#0c1424" if i % 2 == 1 else "#0f192c"
+                if running:
+                    el["row_frame"].configure(fg_color="#1c160c")
+                elif not is_en:
+                    el["row_frame"].configure(fg_color="#080c14")
+                else:
+                    el["row_frame"].configure(fg_color=base_bg)
         self._update_moss_badge()
 
     @staticmethod
@@ -469,8 +527,9 @@ class MossView(ctk.CTkFrame):
 
     def _on_moss_enabled(self, slot_idx: int, enabled: bool):
         el = self.moss_ui_elements.get(slot_idx)
+        base_bg = "#0c1424" if slot_idx % 2 == 1 else "#0f192c"
         if el and el.get("row_frame"):
-            el["row_frame"].configure(fg_color=Colors.BG_SURFACE if enabled else "#0c1018")
+            el["row_frame"].configure(fg_color=base_bg if enabled else "#080c14")
         if el and el.get("cb_enabled"):
             el["cb_enabled"].configure(text_color=Colors.AMBER if enabled else Colors.TEXT_DIM)
         if self.on_toggle_participant:
@@ -481,8 +540,8 @@ class MossView(ctk.CTkFrame):
         total = len(self.controllers)
         sel = sum(1 for c in self.controllers if getattr(c, "moss_enabled", True))
         self.lbl_moss_count_badge.configure(
-            text=f"{sel}/{total} slot",
-            text_color=Colors.AMBER if sel else Colors.TEXT_DIM
+            text=f"🟢 {sel}/{total} slot tham gia",
+            text_color=Colors.GREEN if sel else Colors.TEXT_DIM
         )
 
     def _emit_schedule(self):

@@ -1,8 +1,8 @@
 {
-    "enabled": true,
+    "enabled": false,
     "leader_slot": 1,
     "party_pass": "1234",
     "auto_re_pass": true,
-    "auto_reconnect": true,
+    "auto_reconnect": false,
     "sync_interval_sec": 6.0
 }
