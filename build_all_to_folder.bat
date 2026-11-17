@@ -122,39 +122,9 @@ if exist "%BUILD_DIST%" rmdir /s /q "%BUILD_DIST%" >nul 2>&1
 
 python -m PyInstaller ^
     --noconfirm ^
-    --onefile ^
-    --windowed ^
-    --name="MEGAMU Auto Train Dashboard" ^
-    --icon="%~dp0megamu_dashboard_icon.ico" ^
-    --uac-admin ^
-    --collect-all="customtkinter" ^
-    --add-data="map_commands.json;." ^
-    --add-data="megamu_dashboard_icon.ico;." ^
-    --add-data="megamu_dashboard_logo.png;." ^
-    --add-binary="meg_license_bridge.dll;." ^
-    --add-data="config\autotrain_profiles.json;config" ^
-    --add-data="config\autotrain_megamu_config.json;config" ^
-    --add-data="config\slot_assignments.json;config" ^
-    --add-data="config\ui_settings.json;config" ^
-    --add-data="config\moss_slots_config.json;config" ^
-    --add-data="config\event_slots_config.json;config" ^
-    --add-data="config\maps.ini;config" ^
-    --hidden-import="PIL" ^
-    --hidden-import="PIL.Image" ^
-    --hidden-import="PIL.ImageTk" ^
-    --hidden-import="darkdetect" ^
-    --hidden-import="psutil" ^
-    --hidden-import="frida" ^
-    --hidden-import="meg_direct_engine" ^
-    --hidden-import="meg_auto_worker" ^
-    --hidden-import="license_client" ^
-    --hidden-import="updater" ^
-    --hidden-import="meg_account_manager" ^
-    --hidden-import="meg_navigator" ^
-    --hidden-import="meg_trash_cleaner" ^
     --distpath="%BUILD_DIST%" ^
     --workpath="%BUILD_TEMP%" ^
-    "meg_gui.py"
+    "build_meg_optimized.spec"
 
 if errorlevel 1 (
     color 0c

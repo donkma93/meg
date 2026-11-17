@@ -858,6 +858,15 @@ class DashboardAppOptimized(ctk.CTk):
                 if now - getattr(self, "_last_autologin_sync_ts", 0) >= 1.2:
                     self._last_autologin_sync_ts = now
                     self.sync_autologin_table_values()
+
+            # Định kỳ 300s (5 phút) kích hoạt thu gom rác trên Main UI Thread để giải phóng cyclic refs của Tkinter/Tcl
+            if now - getattr(self, "_last_ui_gc_ts", 0) >= 300.0:
+                self._last_ui_gc_ts = now
+                try:
+                    import gc
+                    gc.collect()
+                except Exception:
+                    pass
         except Exception:
             pass
 

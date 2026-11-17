@@ -108,6 +108,9 @@ def run_nuitka_build():
         "--include-package-data=customtkinter",
         "--include-package=PIL",
         "--include-package=frida",
+        "--include-package=ui",
+        "--include-package=services",
+        "--include-module=meg_gui",
         "--include-module=meg_direct_engine",
         "--include-module=meg_auto_worker",
         "--include-module=license_client",
@@ -138,7 +141,7 @@ def run_nuitka_build():
         if maps_ini.exists():
             cmd.append("--include-data-file=config/maps.ini=config/maps.ini")
 
-    cmd.append("meg_gui.py")
+    cmd.append("meg_gui_optimized.py")
 
     log("Dang khoi chay qua trinh bien dich C++ Onefile voi Nuitka...")
     log("Tien hanh dong goi 1 FILE .EXE DUY NHAT va loai bo sach se file rac Qt6...")

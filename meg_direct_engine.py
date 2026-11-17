@@ -7715,6 +7715,19 @@ class MegDirectEngine:
                 del cls._instances[pid]
 
     @classmethod
+    def prune_dead_engines(cls):
+        """Dọn dẹp triệt để các session Frida của những tiến trình PID game đã tắt (chống rò rỉ RAM)."""
+        import psutil
+        with cls._pool_lock:
+            dead_pids = [p for p in list(cls._instances.keys()) if not psutil.pid_exists(p)]
+            for p in dead_pids:
+                try:
+                    cls._instances[p].detach()
+                except Exception:
+                    pass
+                cls._instances.pop(p, None)
+
+    @classmethod
     def cleanup_all(cls):
         with cls._pool_lock:
             for pid, eng in list(cls._instances.items()):

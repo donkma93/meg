@@ -577,6 +577,18 @@ class ProcessMemoryReader:
     _coord_needle = "Coord(".encode("utf-16le")
     _coord_regex = re.compile(r"Coord\((\d{1,3}),\s*(\d{1,3})\)")
 
+    @classmethod
+    def prune_dead_pids(cls):
+        """Xóa cache module base & coord regions của những PID game đã đóng (chống rò rỉ RAM)."""
+        if not psutil:
+            return
+        dead_mods = [p for p in list(cls._module_cache.keys()) if not psutil.pid_exists(p)]
+        for p in dead_mods:
+            cls._module_cache.pop(p, None)
+        dead_coords = [p for p in list(cls._cached_coord_regions.keys()) if not psutil.pid_exists(p)]
+        for p in dead_coords:
+            cls._cached_coord_regions.pop(p, None)
+
     @staticmethod
     def get_module_base(pid: int, module_name: str = "GameAssembly.dll") -> Optional[int]:
         if pid in ProcessMemoryReader._module_cache:

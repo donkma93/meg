@@ -161,6 +161,11 @@ class BackgroundEngineSync:
 
                     # Kiểm tra PID còn sống không
                     if not psutil.pid_exists(pid):
+                        if MegDirectEngine:
+                            try:
+                                MegDirectEngine.release_engine(pid)
+                            except Exception:
+                                pass
                         ctrl.assigned_pid = None
                         ctrl.engine = None
                         ctrl.char_name = "---"
@@ -259,6 +264,10 @@ class BackgroundEngineSync:
             if now - last_gc >= 120.0:
                 last_gc = now
                 try:
+                    if MegDirectEngine:
+                        MegDirectEngine.prune_dead_engines()
+                    if ProcessMemoryReader:
+                        ProcessMemoryReader.prune_dead_pids()
                     gc.collect()
                 except Exception:
                     pass
