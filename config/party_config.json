@@ -1,8 +1,42 @@
 {
-    "enabled": false,
+    "enabled": true,
+    "mode": "custom",
     "leader_slot": 1,
     "party_pass": "1234",
     "auto_re_pass": true,
-    "auto_reconnect": false,
-    "sync_interval_sec": 6.0
+    "auto_reconnect": true,
+    "sync_interval_sec": 6.0,
+    "parties": [
+        {
+            "id": 1,
+            "name": "PT 1",
+            "leader_slot": 1,
+            "member_slots": [
+                2,
+                3,
+                4,
+                5
+            ],
+            "party_pass": "1234"
+        },
+        {
+            "id": 2,
+            "name": "PT 2",
+            "leader_slot": 6,
+            "member_slots": [
+                7,
+                8,
+                9,
+                10
+            ],
+            "party_pass": "1234"
+        },
+        {
+            "id": 3,
+            "name": "PT 3",
+            "leader_slot": 2,
+            "member_slots": [],
+            "party_pass": "1234"
+        }
+    ]
 }

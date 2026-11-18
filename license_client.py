@@ -39,19 +39,22 @@ def get_real_app_dir() -> Path:
     onefile_dir = os.environ.get("NUITKA_ONEFILE_DIRECTORY")
     if onefile_dir and Path(onefile_dir).is_dir():
         return Path(onefile_dir).resolve()
-    # 3. sys.argv[0] nếu không nằm trong Temp
-    if sys.argv and sys.argv[0]:
+    # 3. Khi đóng gói exe (frozen): ưu tiên sys.executable hoặc sys.argv[0]
+    if getattr(sys, "frozen", False) or "__compiled__" in globals():
         try:
-            cand = Path(sys.argv[0]).resolve().parent
+            cand = Path(sys.executable).resolve().parent
             if cand.is_dir() and "temp" not in str(cand).lower():
                 return cand
         except Exception:
             pass
-    # 4. Fallback
-    if getattr(sys, "frozen", False) or "__compiled__" in globals():
-        cand = Path(sys.executable).resolve().parent
-        if "temp" not in str(cand).lower():
-            return cand
+        if sys.argv and sys.argv[0]:
+            try:
+                cand = Path(sys.argv[0]).resolve().parent
+                if cand.is_dir() and "temp" not in str(cand).lower():
+                    return cand
+            except Exception:
+                pass
+    # 4. Khi chạy mã nguồn Python: thư mục chứa file license_client.py
     return Path(__file__).resolve().parent
 
 BASE_DIR = get_real_app_dir()
@@ -82,26 +85,26 @@ def find_bridge_dll_path() -> Optional[Path]:
     """
     candidates = [
         # 1. Thư mục thật của app (nơi đặt file .exe)
-        BASE_DIR / "meg_license_bridge.dll",
-        BASE_DIR / "_internal" / "meg_license_bridge.dll",
+        (BASE_DIR / "meg_license_bridge.dll").resolve(),
+        (BASE_DIR / "_internal" / "meg_license_bridge.dll").resolve(),
         # 2. Thư mục giải nén nội bộ của Nuitka Onefile (nơi chứa DLL nhúng trong .exe)
-        Path(sys.executable).resolve().parent / "meg_license_bridge.dll",
-        Path(sys.executable).resolve().parent / "native_bin" / "meg_license_bridge.dll",
+        (Path(sys.executable).resolve().parent / "meg_license_bridge.dll").resolve(),
+        (Path(sys.executable).resolve().parent / "native_bin" / "meg_license_bridge.dll").resolve(),
         # 3. Thư mục mã nguồn / module
-        Path(__file__).resolve().parent / "meg_license_bridge.dll",
+        (Path(__file__).resolve().parent / "meg_license_bridge.dll").resolve(),
         # 4. Thư mục làm việc hiện tại
-        Path.cwd() / "meg_license_bridge.dll",
+        (Path.cwd() / "meg_license_bridge.dll").resolve(),
         # 5. Thư mục Temp hệ thống
-        Path(os.environ.get("TEMP", os.environ.get("TMP", ""))) / "meg_license_bridge.dll",
+        (Path(os.environ.get("TEMP", os.environ.get("TMP", ""))) / "meg_license_bridge.dll").resolve(),
     ]
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        candidates.insert(0, Path(meipass) / "meg_license_bridge.dll")
+        candidates.insert(0, (Path(meipass) / "meg_license_bridge.dll").resolve())
 
     for p in candidates:
         try:
             if p.is_file() and p.stat().st_size > 10000:
-                return p
+                return p.resolve()
         except Exception:
             pass
 
@@ -109,7 +112,7 @@ def find_bridge_dll_path() -> Optional[Path]:
     if _embedded_bridge:
         try:
             # 1. Ưu tiên ghi ra bên cạnh file .exe
-            target = BASE_DIR / "meg_license_bridge.dll"
+            target = (BASE_DIR / "meg_license_bridge.dll").resolve()
             if _embedded_bridge.extract_to(target) and target.is_file():
                 return target
         except Exception:
@@ -117,7 +120,7 @@ def find_bridge_dll_path() -> Optional[Path]:
         try:
             # 2. Dự phòng ghi ra Temp nếu BASE_DIR bị cấm ghi
             temp_dir = Path(os.environ.get("TEMP", os.environ.get("TMP", ".")))
-            target_temp = temp_dir / "meg_license_bridge.dll"
+            target_temp = (temp_dir / "meg_license_bridge.dll").resolve()
             if _embedded_bridge.extract_to(target_temp) and target_temp.is_file():
                 return target_temp
         except Exception:
@@ -125,7 +128,7 @@ def find_bridge_dll_path() -> Optional[Path]:
 
     return None
 
-BRIDGE_DLL_FILE = find_bridge_dll_path() or (BASE_DIR / "meg_license_bridge.dll")
+BRIDGE_DLL_FILE = find_bridge_dll_path() or (BASE_DIR / "meg_license_bridge.dll").resolve()
 
 def _get_ssl_context():
     try:
@@ -150,6 +153,7 @@ def _get_native_bridge(force_reload: bool = False):
 
     dll_path = find_bridge_dll_path()
     if dll_path:
+        dll_path = dll_path.resolve()
         BRIDGE_DLL_FILE = dll_path
         try:
             try:
@@ -263,6 +267,9 @@ def get_machine_hwid() -> str:
 
     return "THIẾU_MEG_LICENSE_BRIDGE_DLL"
 
+# Alias tương thích ngược
+get_hwid = get_machine_hwid
+
 _license_lock = threading.Lock()
 _cached_license_data: Dict[str, Any] = {}
 _cached_license_mtime: float = 0.0
@@ -347,7 +354,7 @@ def _http_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         "license_key": cleaned_key,
         "hwid": hwid,
         "machine_name": os.environ.get("COMPUTERNAME", "PC"),
-        "client_version": "v1.6.1",
+        "client_version": "v1.6.3",
         "product_code": "megamu-navigator"
     }).encode("utf-8")
 
@@ -387,7 +394,7 @@ def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         srv_bytes = srv.encode("utf-8")
         key_bytes = cleaned_key.encode("utf-8")
         prod_bytes = b"megamu-navigator"
-        ver_bytes = b"v1.6.1"
+        ver_bytes = b"v1.6.3"
         ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 8192)
         res_str = out_buf.value.decode("utf-8")
         if res_str:
@@ -472,7 +479,7 @@ def _http_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
     payload = json.dumps({
         "license_key": str(key).strip(),
         "hwid": hwid,
-        "client_version": "v1.6.1"
+        "client_version": "v1.6.3"
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=payload, headers=BROWSER_HEADERS)
@@ -529,7 +536,7 @@ def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
         out_buf = ctypes.create_string_buffer(8192)
         srv_bytes = srv.encode("utf-8")
         key_bytes = str(key).encode("utf-8")
-        ver_bytes = b"v1.6.1"
+        ver_bytes = b"v1.6.3"
         ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
         res_str = out_buf.value.decode("utf-8")
         if res_str:

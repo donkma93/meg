@@ -901,12 +901,14 @@ class DashboardAppOptimized(ctk.CTk):
         num_conn = sum(1 for c in self.controllers if c.assigned_pid and c.assigned_pid in self.detected_games)
         num_auto = sum(1 for c in self.controllers if c.worker and c.worker.running)
         lic_str = license_client.get_license_display_text() if license_client else "Free"
+        lic_valid = license_client.is_license_valid() if license_client else False
         short_lic = (lic_str[:18] + "…") if len(lic_str) > 19 else lic_str
 
         self.chip_games.set_value(str(num_games), "info" if num_games else "neutral")
         self.chip_conn.set_value(str(num_conn), "ok" if num_conn else "neutral")
         self.chip_auto.set_value(str(num_auto), "warn" if num_auto else "neutral")
-        self.chip_license.set_value(short_lic, "ok" if "valid" in lic_str.lower() or "ok" in lic_str.lower() or "còn" in lic_str.lower() else "neutral")
+        lic_tone = "ok" if lic_valid else ("danger" if "🔒" in lic_str else "neutral")
+        self.chip_license.set_value(short_lic, lic_tone)
         self.footer_stats_lbl.configure(
             text=f"Total: {len(self.controllers)} slots · Connected: {num_conn} · Running: {num_auto} · Games: {num_games}"
         )
