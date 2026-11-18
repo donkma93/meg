@@ -99,6 +99,8 @@ class BackgroundEngineSync:
     # LUỒNG 1: QUÉT TIẾN TRÌNH & THU THẬP THÔNG TIN TIÊU ĐỀ
     # --------------------------------------------------------------------------
     def _game_scan_loop(self):
+        # Chờ 0.5s để Main UI Thread dựng xong giao diện ban đầu
+        time.sleep(0.5)
         while self.running:
             try:
                 games = enumerate_megamu_processes()
@@ -149,6 +151,8 @@ class BackgroundEngineSync:
     def _telemetry_loop(self):
         import gc
         last_gc = time.time()
+        # Chờ 0.8s để Main UI Thread hoàn tất khởi tạo ban đầu
+        time.sleep(0.8)
 
         while self.running:
             try:
@@ -272,7 +276,7 @@ class BackgroundEngineSync:
                 except Exception:
                     pass
 
-            time.sleep(0.3)
+            time.sleep(0.5)
 
     # --------------------------------------------------------------------------
     # LUỒNG 3: TÍNH TOÁN SỰ KIỆN DOUBLE GOER (MIRROR) & MOSS ĐẾM NGƯỢC

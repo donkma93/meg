@@ -214,9 +214,7 @@ class DashboardAppOptimized(ctk.CTk):
         ctk.set_appearance_mode("dark")
 
         self._setup_window_icon()
-        self.after(100, self._setup_window_icon)
         self.after(300, self._setup_window_icon)
-        self.after(600, self._setup_window_icon)
 
         self.maps_list = get_map_names()
         self.slot_assignments = ConfigPersistenceManager.load_slot_assignments(DEFAULT_SLOTS)
@@ -323,9 +321,9 @@ class DashboardAppOptimized(ctk.CTk):
         self._build_footer()
 
         # Apply schedule checkboxes from disk + sync proxies
-        if hasattr(self, "mirror_view"):
+        if hasattr(self, "mirror_view") and self.mirror_view:
             self.mirror_view.apply_schedule_config(mirror_sched_cfg)
-        if hasattr(self, "moss_view"):
+        if hasattr(self, "moss_view") and self.moss_view:
             self.moss_view.apply_schedule_config(moss_sched_cfg)
             self.moss_view.apply_moss_flags_from_controllers()
         self._sync_event_checkbox_proxies_from_view()
@@ -335,22 +333,22 @@ class DashboardAppOptimized(ctk.CTk):
             state_mgr=self.state_mgr
         )
         self.engine_sync.start()
-        self.after(200, self._ui_heartbeat)
+        self.after(350, self._ui_heartbeat)
 
-        # Scheduler vào cổng Mirror / Moss (giống meg_gui)
-        self.after(1000, self._periodic_moss_scheduler)
-        self.after(1000, self._periodic_mirror_scheduler)
+        # Scheduler vào cổng Mirror / Moss - dời nhẹ sau 3-4s để UI khởi động mượt tuyệt đối
+        self.after(3000, self._periodic_moss_scheduler)
+        self.after(3500, self._periodic_mirror_scheduler)
 
         # Telegram telemetry monitor + license monitor (nếu đã bind từ DashboardApp)
         if hasattr(self, "_monitor_mirror_telemetry_for_telegram"):
-            self.after(5000, self._monitor_mirror_telemetry_for_telegram)
+            self.after(8000, self._monitor_mirror_telemetry_for_telegram)
         if hasattr(self, "_periodic_license_monitor"):
             self.after(60_000, self._periodic_license_monitor)
 
-        # License check in background
-        threading.Thread(target=self._verify_license_async, daemon=True).start()
+        # License check & update check in background (chạy sau 1.5s và 3.5s để không tranh chấp CPU lúc khởi động)
+        self.after(1500, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
         if hasattr(self, "_check_update_async"):
-            threading.Thread(target=self._check_update_async, daemon=True).start()
+            self.after(3500, lambda: threading.Thread(target=self._check_update_async, daemon=True).start())
 
         self.log_message("🚀 MEGAMU Dashboard V2 (Zero-Lag) đã khởi động.", "SUCCESS")
         self.log_message(f"Điều khiển {len(self.controllers)} slots · logic DashboardApp đã gắn vào shell mới.", "INFO")
@@ -612,117 +610,21 @@ class DashboardAppOptimized(ctk.CTk):
             if card:
                 card.set_point_state(getattr(c, "auto_add_point", False))
 
-        self.profiles_view = ProfilesConfigView(
-            self.body_container,
-            maps_list=self.maps_list,
-            config_persistence_mgr=ConfigPersistenceManager,
-            on_profile_saved=self._on_profile_saved,
-            on_log=self.log_message
-        )
-        self.profiles_view.grid(row=0, column=0, sticky="nsew")
-
+        # Zero-Lag Optimization: Khởi tạo lười (Lazy Deferred Views)
+        # Chỉ render TrainSlotsView ngay khi khởi động. Các tab khác chỉ tạo khi người dùng click
+        # hoặc được âm thầm tạo trước lúc nhàn rỗi (idle), giúp app mở lên SIÊU TỐC (< 1 giây).
+        self.profiles_view = None
         self.autologin_view = None
-        if self.account_mgr:
-            try:
-                self.autologin_view = AutoLoginView(
-                    self.body_container,
-                    account_mgr=self.account_mgr,
-                    controllers=self.controllers,
-                    on_launch_all=self.batch_launch_all_accounts,
-                    on_close_all=self.on_click_close_games_ui,
-                    on_add_account=self.open_add_account_dialog,
-                    on_delete_selected=self.delete_selected_accounts_ui,
-                    on_change_exe=self.choose_exe_path_dialog,
-                    on_arrange_layout=self._on_arrange_preset_selected,
-                    on_launch_single=self.launch_single_account_ui,
-                    on_send_login=self.send_login_to_slot_ui,
-                    on_close_single=self.close_single_account_game,
-                    on_edit_account=self.open_edit_account_dialog,
-                    on_delete_account=self.delete_account_ui,
-                    on_toggle_account=self._on_acc_toggle,
-                    on_change_category=self._on_acc_cat_change,
-                    on_change_character=self._on_acc_char_change,
-                    on_change_server=self._on_acc_srv_change,
-                    on_change_slot=self._on_acc_slot_change,
-                    on_prompt_add_category=self.prompt_add_new_category,
-                    on_prompt_change_category=self.prompt_change_account_category,
-                    on_filter_category=self.select_autologin_category,
-                )
-                self.autologin_view.grid(row=0, column=0, sticky="nsew")
-
-                # Thuộc tính tương thích ngược với logic Auto Login của meg_gui
-                self.btn_autologin_all = self.autologin_view.btn_launch_all
-                self.btn_autologin_close = self.autologin_view.btn_close_all
-                self.lbl_autologin_exe = self.autologin_view.lbl_exe
-                self.autologin_status_lbl = self.autologin_view.status_lbl
-                self.autologin_delay_var = self.autologin_view.delay_var
-                self.autologin_log_txt = self.autologin_view.log_txt
-                self._autologin_table_initialized = True
-            except Exception as e_al:
-                self.log_message(f"Lỗi khởi tạo AutoLoginView: {e_al}", "WARNING")
-                import traceback
-                self.log_message(traceback.format_exc(), "ERROR")
-
-        self.mirror_view = MirrorView(
-            self.body_container,
-            controllers=self.controllers,
-            on_trigger_mirror=self.trigger_mirror_snipe,
-            on_enter_mirror=self.enter_all_mirror,
-            on_mirror_lifecycle=self.trigger_all_mirror_lifecycle,
-            on_claim_gremory=self.claim_all_gremory_case_items,
-            on_move_lugard=self.move_all_to_event_map,
-            on_check_tickets=self.check_all_mirror_tickets,
-            on_prepare_mirror=getattr(self, "prepare_all_mirror_event", None),
-            on_click_mirror_npc=getattr(self, "click_all_mirror_npc", None),
-            on_stop_mirror=getattr(self, "stop_all_mirror_auto", None),
-            on_toggle_participant=lambda s, en: self.toggle_event_participant("mirror", s, en),
-            on_save_schedule=lambda opts: self.save_event_schedule("mirror", opts),
-            on_toggle_telegram=self._on_events_telegram_toggle,
-            on_telegram_settings=getattr(self, "open_mirror_telegram_settings_dialog", None),
-            on_snipe_slot=getattr(self, "manual_snipe_mirror_slot", None),
-        )
-        self.mirror_view.grid(row=0, column=0, sticky="nsew")
-
-        self.moss_view = MossView(
-            self.body_container,
-            controllers=self.controllers,
-            on_trigger_moss=self.trigger_moss_merchant,
-            on_stop_moss=self.stop_all_moss,
-            on_toggle_participant=lambda s, en: self.toggle_event_participant("moss", s, en),
-            on_save_schedule=lambda opts: self.save_event_schedule("moss", opts),
-            on_apply_moss_batch=self.apply_moss_batch_settings,
-            on_clean_moss=self.clean_all_moss_inventories,
-            on_sell_moss=self.sell_all_moss_inventories,
-            on_analyze_moss=self.analyze_all_moss_inventories,
-            on_open_junk_dialog=self.open_junk_disposal_dialog,
-            on_moss_slot_category=self.on_moss_slot_category_changed,
-            on_moss_slot_delay=self.on_moss_slot_delay_changed,
-            on_toggle_moss_slot=self.toggle_moss_slot_auto,
-            on_moss_row_action=self.on_moss_row_action,
-            on_moss_batch_tool=self.on_moss_batch_tool,
-        )
-        self.moss_view.grid(row=0, column=0, sticky="nsew")
-
-        # Alias tương thích ngược cho code/shim còn gọi events_view
-        self.events_view = self.moss_view
-
-        # Sync Telegram checkbox from loaded config
-        try:
-            tg_on = bool(getattr(self.telegram_config, "enabled", False)) if self.telegram_config else False
-            self.mirror_view.var_mirror_telegram.set(tg_on)
-            self.cb_mirror_telegram_notify.set(tg_on)
-        except Exception:
-            pass
-
-        self.logs_view = LogsAndToolsView(
-            self.body_container,
-            on_arrange_windows=None,
-            on_clear_logs=lambda: self.log_message("Nhật ký đã được làm sạch.", "INFO")
-        )
-        self.logs_view.grid(row=0, column=0, sticky="nsew")
+        self.mirror_view = None
+        self.moss_view = None
+        self.events_view = None
+        self.logs_view = None
 
         self.train_view.lift()
         self._update_tab_button_visuals("train")
+
+        # Sau 2.5s khi giao diện chính đã hiển thị mượt mà, âm thầm tải trước từng view phụ
+        self.after(2500, self._idle_preload_views)
 
     def _build_footer(self):
         self.footer_frame = ctk.CTkFrame(self, fg_color=Colors.BG_FOOTER, height=28, corner_radius=0)
@@ -779,15 +681,190 @@ class DashboardAppOptimized(ctk.CTk):
                 pass
 
     def _get_view_by_id(self, tab_id: str):
-        return {
-            "train": getattr(self, "train_view", None),
-            "profiles": getattr(self, "profiles_view", None),
-            "autologin": getattr(self, "autologin_view", None),
-            "mirror": getattr(self, "mirror_view", None),
-            "moss": getattr(self, "moss_view", None),
-            "events": getattr(self, "moss_view", None),  # legacy alias
-            "logs": getattr(self, "logs_view", None),
-        }.get(tab_id)
+        if tab_id == "train":
+            return getattr(self, "train_view", None)
+        elif tab_id == "profiles":
+            return self._ensure_profiles_view()
+        elif tab_id == "autologin":
+            return self._ensure_autologin_view()
+        elif tab_id == "mirror":
+            return self._ensure_mirror_view()
+        elif tab_id in ("moss", "events"):
+            return self._ensure_moss_view()
+        elif tab_id == "logs":
+            return self._ensure_logs_view()
+        return None
+
+    def _ensure_profiles_view(self):
+        if self.profiles_view is not None:
+            return self.profiles_view
+        try:
+            self.profiles_view = ProfilesConfigView(
+                self.body_container,
+                maps_list=self.maps_list,
+                config_persistence_mgr=ConfigPersistenceManager,
+                on_profile_saved=self._on_profile_saved,
+                on_log=self.log_message
+            )
+            self.profiles_view.grid(row=0, column=0, sticky="nsew")
+            if self.active_tab_name == "profiles":
+                self.profiles_view.lift()
+        except Exception as e:
+            self.log_message(f"Lỗi tạo ProfilesConfigView: {e}", "WARNING")
+        return self.profiles_view
+
+    def _ensure_autologin_view(self):
+        if self.autologin_view is not None:
+            return self.autologin_view
+        if not self.account_mgr:
+            return None
+        try:
+            self.autologin_view = AutoLoginView(
+                self.body_container,
+                account_mgr=self.account_mgr,
+                controllers=self.controllers,
+                on_launch_all=self.batch_launch_all_accounts,
+                on_close_all=self.on_click_close_games_ui,
+                on_add_account=self.open_add_account_dialog,
+                on_delete_selected=self.delete_selected_accounts_ui,
+                on_change_exe=self.choose_exe_path_dialog,
+                on_arrange_layout=self._on_arrange_preset_selected,
+                on_launch_single=self.launch_single_account_ui,
+                on_send_login=self.send_login_to_slot_ui,
+                on_close_single=self.close_single_account_game,
+                on_edit_account=self.open_edit_account_dialog,
+                on_delete_account=self.delete_account_ui,
+                on_toggle_account=self._on_acc_toggle,
+                on_change_category=self._on_acc_cat_change,
+                on_change_character=self._on_acc_char_change,
+                on_change_server=self._on_acc_srv_change,
+                on_change_slot=self._on_acc_slot_change,
+                on_prompt_add_category=self.prompt_add_new_category,
+                on_prompt_change_category=self.prompt_change_account_category,
+                on_filter_category=self.select_autologin_category,
+            )
+            self.autologin_view.grid(row=0, column=0, sticky="nsew")
+
+            # Thuộc tính tương thích ngược với logic Auto Login của meg_gui
+            self.btn_autologin_all = self.autologin_view.btn_launch_all
+            self.btn_autologin_close = self.autologin_view.btn_close_all
+            self.lbl_autologin_exe = self.autologin_view.lbl_exe
+            self.autologin_status_lbl = self.autologin_view.status_lbl
+            self.autologin_delay_var = self.autologin_view.delay_var
+            self.autologin_log_txt = self.autologin_view.log_txt
+            self._autologin_table_initialized = True
+            if self.active_tab_name == "autologin":
+                self.autologin_view.lift()
+        except Exception as e_al:
+            self.log_message(f"Lỗi khởi tạo AutoLoginView: {e_al}", "WARNING")
+        return self.autologin_view
+
+    def _ensure_mirror_view(self):
+        if self.mirror_view is not None:
+            return self.mirror_view
+        try:
+            self.mirror_view = MirrorView(
+                self.body_container,
+                controllers=self.controllers,
+                on_trigger_mirror=self.trigger_mirror_snipe,
+                on_enter_mirror=self.enter_all_mirror,
+                on_mirror_lifecycle=self.trigger_all_mirror_lifecycle,
+                on_claim_gremory=self.claim_all_gremory_case_items,
+                on_move_lugard=self.move_all_to_event_map,
+                on_check_tickets=self.check_all_mirror_tickets,
+                on_prepare_mirror=getattr(self, "prepare_all_mirror_event", None),
+                on_click_mirror_npc=getattr(self, "click_all_mirror_npc", None),
+                on_stop_mirror=getattr(self, "stop_all_mirror_auto", None),
+                on_toggle_participant=lambda s, en: self.toggle_event_participant("mirror", s, en),
+                on_save_schedule=lambda opts: self.save_event_schedule("mirror", opts),
+                on_toggle_telegram=self._on_events_telegram_toggle,
+                on_telegram_settings=getattr(self, "open_mirror_telegram_settings_dialog", None),
+                on_snipe_slot=getattr(self, "manual_snipe_mirror_slot", None),
+            )
+            self.mirror_view.grid(row=0, column=0, sticky="nsew")
+            mirror_sched_cfg = ConfigPersistenceManager.load_mirror_schedule_config()
+            self.mirror_view.apply_schedule_config(mirror_sched_cfg)
+            try:
+                tg_on = bool(getattr(self.telegram_config, "enabled", False)) if self.telegram_config else False
+                self.mirror_view.var_mirror_telegram.set(tg_on)
+            except Exception:
+                pass
+            if self.active_tab_name == "mirror":
+                self.mirror_view.lift()
+        except Exception as em:
+            self.log_message(f"Lỗi khởi tạo MirrorView: {em}", "WARNING")
+        return self.mirror_view
+
+    def _ensure_moss_view(self):
+        if self.moss_view is not None:
+            return self.moss_view
+        try:
+            self.moss_view = MossView(
+                self.body_container,
+                controllers=self.controllers,
+                on_trigger_moss=self.trigger_moss_merchant,
+                on_stop_moss=self.stop_all_moss,
+                on_toggle_participant=lambda s, en: self.toggle_event_participant("moss", s, en),
+                on_save_schedule=lambda opts: self.save_event_schedule("moss", opts),
+                on_apply_moss_batch=self.apply_moss_batch_settings,
+                on_clean_moss=self.clean_all_moss_inventories,
+                on_sell_moss=self.sell_all_moss_inventories,
+                on_analyze_moss=self.analyze_all_moss_inventories,
+                on_open_junk_dialog=self.open_junk_disposal_dialog,
+                on_moss_slot_category=self.on_moss_slot_category_changed,
+                on_moss_slot_delay=self.on_moss_slot_delay_changed,
+                on_toggle_moss_slot=self.toggle_moss_slot_auto,
+                on_moss_row_action=self.on_moss_row_action,
+                on_moss_batch_tool=self.on_moss_batch_tool,
+            )
+            self.moss_view.grid(row=0, column=0, sticky="nsew")
+            self.events_view = self.moss_view
+            moss_sched_cfg = ConfigPersistenceManager.load_moss_schedule_config()
+            self.moss_view.apply_schedule_config(moss_sched_cfg)
+            self.moss_view.apply_moss_flags_from_controllers()
+            if self.active_tab_name in ("moss", "events"):
+                self.moss_view.lift()
+        except Exception as emo:
+            self.log_message(f"Lỗi khởi tạo MossView: {emo}", "WARNING")
+        return self.moss_view
+
+    def _ensure_logs_view(self):
+        if self.logs_view is not None:
+            return self.logs_view
+        try:
+            self.logs_view = LogsAndToolsView(
+                self.body_container,
+                on_arrange_windows=None,
+                on_clear_logs=lambda: self.log_message("Nhật ký đã được làm sạch.", "INFO")
+            )
+            self.logs_view.grid(row=0, column=0, sticky="nsew")
+            if self.active_tab_name == "logs":
+                self.logs_view.lift()
+        except Exception as el:
+            self.log_message(f"Lỗi khởi tạo LogsAndToolsView: {el}", "WARNING")
+        return self.logs_view
+
+    def _idle_preload_views(self):
+        """Âm thầm nạp trước từng view phụ lúc CPU rảnh để khi chuyển tab mượt tức thì."""
+        if not self.running:
+            return
+        try:
+            if self.profiles_view is None:
+                self._ensure_profiles_view()
+                self.after(600, self._idle_preload_views)
+            elif self.mirror_view is None:
+                self._ensure_mirror_view()
+                self.after(600, self._idle_preload_views)
+            elif self.moss_view is None:
+                self._ensure_moss_view()
+                self.after(600, self._idle_preload_views)
+            elif self.autologin_view is None:
+                self._ensure_autologin_view()
+                self.after(600, self._idle_preload_views)
+            elif self.logs_view is None:
+                self._ensure_logs_view()
+        except Exception:
+            pass
 
     def _on_profile_saved(self, profile_idx: int):
         if hasattr(self, "train_view"):
@@ -796,8 +873,9 @@ class DashboardAppOptimized(ctk.CTk):
     def open_slot_profile_editor(self, slot_idx: int):
         ctrl = self.controllers[slot_idx - 1]
         p_idx = getattr(ctrl, "profile_index", 1)
-        if hasattr(self, "profiles_view"):
-            self.profiles_view.load_profile_into_editor(p_idx)
+        pv = self._ensure_profiles_view()
+        if pv:
+            pv.load_profile_into_editor(p_idx)
         self.switch_tab("profiles")
 
     def _update_tab_button_visuals(self, active_id: str):

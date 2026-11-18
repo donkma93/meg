@@ -55,7 +55,7 @@ class PartyManager:
         self.config: Dict[str, Any] = dict(DEFAULT_PARTY_CONFIG)
         self.load_config()
 
-        self._last_tick_time: float = 0.0
+        self._last_tick_time: float = time.time() + 5.0  # Chờ 5s sau khi mở app mới tick kiểm tra party, tránh lag startup
         self._is_syncing: bool = False
         self._sync_lock = threading.Lock()
 
