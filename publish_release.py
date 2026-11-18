@@ -168,17 +168,24 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Nâng cấp quan trọng trong bản {version}:
-- **Nâng Cấp Toàn Diện Hệ Thống Devil Square (Chuẩn 7 Tầng MEGAMU & Vé Master):**
-  - **Phân loại vé chuẩn xác 7 tầng**: Tương thích 100% cơ chế 7 tầng Devil Square của MEGAMU (DS 1 đến DS 7). Tự động phân loại vé thường (+1..+6) và Vé Master (+7/Master Ticket) tương ứng chính xác theo cấp độ và trạng thái Master của nhân vật.
-  - **Triệt tiêu hoàn toàn Popup lỗi cấp độ**: Loại bỏ tận gốc tình trạng nhân vật cấp thấp giữ nhầm vé Master gây popup "You don't have a ticket for your level", đảm bảo quy trình tự động vào sự kiện thông suốt.
-  - **REA Zero-Confirm Devil Entry**: Tự động hook `TableEventEntryLevel` và bypass hộp thoại xác nhận khi vào Devil Square, vào cổng tức thì với độ trễ tối thiểu khi cổng mở.
-  - **Tự động mở Popup trạng thái**: Tự động kích hoạt thông báo "Entrance is currently closed" trực quan khi nhân vật đã sẵn sàng nhưng sự kiện chưa tới giờ.
+- **Tự Động Ghép Nhiều Party Độc Lập (Auto Multi-PT System):**
+  - **Cơ chế tự động chia nhóm 5 acc**: Hệ thống tự động phân chia toàn bộ dàn tài khoản theo quy tắc 5 acc/nhóm (Slot 1–5 vào PT 1, Slot 6–10 vào PT 2, Slot 11–15 vào PT 3...).
+  - **Chủ PT độc lập từng nhóm**: Cho phép tự do chỉ định Chủ PT riêng biệt cho từng nhóm (ví dụ PT 1 chủ Slot 2, PT 2 chủ Slot 8), hệ thống tự động hoán đổi vai trò và bảo lưu vĩnh viễn cấu hình.
+  - **Giám sát thời gian thực RAM IL2CPP**: Hiển thị bảng Roster trực quan trạng thái trong nhóm (`👑 Chủ PT`, `👥 TV PT`, `🟢 Đã vào PT`, `⚪ Chưa vào PT`).
+  - **Tự động mời và hồi phục (Heartbeat Heal)**: Tự động di chuyển sang map Chủ nhóm, bắt tay bằng Direct Engine Native Hook (Packet C1:40) và tự động mời lại khi nhân vật chết, chuyển map hoặc relogin.
 
-- **Kế thừa toàn diện các tính năng Promax của v1.5.9:**
-  - Khắc phục triệt để lỗi crash `tcl86t.dll` (0xc0000005) bằng Thread-Safe Dispatching và Font/Tooltip caching.
-  - Đột phá bán đồ rác Moss tại NPC Silvia với wire packet opcode `0xF9` (mã hóa XOR 0xCB).
-  - Giao diện Auto Moss Promax UI/UX, hỗ trợ menu chuột phải và thanh công cụ tiện ích nhanh.
-  - Tích hợp hệ thống thông báo Telegram sự kiện Double Goer và Crash Tracer 3 lớp.
+- **Hệ Thống License Client C++ Native Bridge:**
+  - Chuẩn hóa đường dẫn nạp DLL tuyệt đối, loại bỏ hoàn toàn lỗi thiếu file DLL trên các môi trường chạy khác nhau.
+  - Đồng bộ alias `get_hwid()` và trạng thái hiển thị bản quyền Pro (Vĩnh viễn) trên giao diện.
+
+- **Mirror Turbo Burst & Zero-Confirm:**
+  - Tối ưu hóa chu kỳ quét và gửi packet liên tục, triệt tiêu độ trễ chuyển map và gom đồ.
+  - Tự động nhận thưởng Gremory Case (phím K) Native Hook.
+
+- **Kế thừa toàn diện các tính năng Promax:**
+  - Phân loại vé Devil Square chuẩn 7 tầng MEGAMU và vé Master.
+  - Tự động bán đồ rác Moss tại NPC Silvia với wire packet opcode 0xF9 (mã hóa XOR 0xCB).
+  - Khắc phục triệt để crash GUI bằng Thread-Safe Dispatching và Font/Tooltip caching.
 """
 
     release = create_or_get_release(token, version, title, body)
@@ -212,6 +219,7 @@ if __name__ == "__main__":
 
     existing_map = {a["name"]: a["id"] for a in release.get("assets", [])}
 
+    # 1. Tai len file thuc thi Portable .exe
     if exe_file and exe_file.exists():
         if "MEGAMU.Auto.Train.Dashboard.exe" in existing_map:
             delete_asset(token, existing_map["MEGAMU.Auto.Train.Dashboard.exe"])
@@ -222,6 +230,24 @@ if __name__ == "__main__":
     else:
         print(f"[!] Khong tim thay file exe trong Release_MEGAMU hay Release_MEGAMU_Secure")
 
+    # 2. Tai len file cai dat Installer Setup .exe neu co
+    clean_v = version.lstrip("vV")
+    installer_candidates = [
+        BASE_DIR / "dist_installer" / f"MEGAMU_AutoTrain_Setup_{version}.exe",
+        BASE_DIR / "dist_installer" / f"MEGAMU_AutoTrain_Setup_v{clean_v}.exe",
+        BASE_DIR / "dist_installer" / f"MEGAMU_AutoTrain_Setup_{clean_v}.exe"
+    ]
+    for inst_cand in installer_candidates:
+        if inst_cand.exists():
+            if inst_cand.name in existing_map:
+                delete_asset(token, existing_map[inst_cand.name])
+            try:
+                upload_asset(token, upload_url, inst_cand, inst_cand.name, "application/vnd.microsoft.portable-executable")
+            except Exception as e:
+                print(f"[*] Thong bao asset installer: {e}")
+            break
+
+    # 3. Tai len file nen .zip
     if zip_file.exists():
         if zip_file.name in existing_map:
             delete_asset(token, existing_map[zip_file.name])
