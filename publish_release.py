@@ -68,6 +68,23 @@ def create_or_get_release(token: str, tag_name: str, release_title: str, release
         with _urlopen_with_retry(req) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             print(f"[OK] Da ton tai Release cho tag {tag_name} (ID: {data['id']})")
+            try:
+                patch_url = f"https://api.github.com/repos/{REPO}/releases/{data['id']}"
+                patch_payload = {
+                    "name": release_title,
+                    "body": release_body
+                }
+                patch_req = urllib.request.Request(
+                    patch_url,
+                    data=json.dumps(patch_payload).encode("utf-8"),
+                    headers={**headers, "Content-Type": "application/json"},
+                    method="PATCH"
+                )
+                with _urlopen_with_retry(patch_req) as p_resp:
+                    data = json.loads(p_resp.read().decode("utf-8"))
+                    print(f"[OK] Da cap nhat Release body & title moi tren GitHub!")
+            except Exception as ep:
+                print(f"[!] Khong the update body release: {ep}")
             return data
     except urllib.error.HTTPError as e:
         if e.code != 404:
@@ -181,6 +198,12 @@ if __name__ == "__main__":
 - **Mirror Turbo Burst & Zero-Confirm:**
   - Tối ưu hóa chu kỳ quét và gửi packet liên tục, triệt tiêu độ trễ chuyển map và gom đồ.
   - Tự động nhận thưởng Gremory Case (phím K) Native Hook.
+
+- **Giao Diện & Cơ Chế Cập Nhật Tự Động (Auto Updater UI):**
+  - Tích hợp cửa sổ `UpdateModal` trực quan: so sánh phiên bản hiện tại vs mới nhất, xem ghi chú phát hành, thanh tiến trình tải xuống realtime.
+  - Tự động thay thế tệp .exe và khởi động lại phiên bản mới an toàn, không lo lock tiến trình.
+  - Tự động kiểm tra bản mới ngầm và báo hiệu trực quan `🔥 Có bản mới!` ngay trên thanh Header.
+  - Ưu tiên cập nhật trực tiếp file Dashboard và cung cấp nút mở tải bộ cài đặt trên trình duyệt.
 
 - **Kế thừa toàn diện các tính năng Promax:**
   - Phân loại vé Devil Square chuẩn 7 tầng MEGAMU và vé Master.

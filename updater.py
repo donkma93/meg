@@ -115,9 +115,11 @@ def check_for_updates(current_version: str = "v1.6.3") -> Dict[str, Any]:
                     res_data["release_notes"] = highest_rel.get("body", "Có bản cập nhật mới từ hệ thống.")
                     res_data["release_url"] = highest_rel.get("html_url", GITHUB_RELEASES_PAGE)
 
-                    # Ưu tiên tìm asset file .exe trước để cập nhật trực tiếp
+                    # Ưu tiên tìm asset file .exe của dashboard trước (không phải installer) để cập nhật trực tiếp
                     assets = highest_rel.get("assets", [])
-                    exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".exe")), None)
+                    exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".exe") and not any(k in a.get("name", "").lower() for k in ("setup", "installer"))), None)
+                    if not exe_ast:
+                        exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".exe")), None)
                     if not exe_ast:
                         exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".zip")), None)
                     if exe_ast:
@@ -139,7 +141,9 @@ def check_for_updates(current_version: str = "v1.6.3") -> Dict[str, Any]:
                     res_data["release_notes"] = data.get("body", "Có bản cập nhật mới từ hệ thống.")
                     res_data["release_url"] = data.get("html_url", GITHUB_RELEASES_PAGE)
                     assets = data.get("assets", [])
-                    exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".exe")), None)
+                    exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".exe") and not any(k in a.get("name", "").lower() for k in ("setup", "installer"))), None)
+                    if not exe_ast:
+                        exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".exe")), None)
                     if not exe_ast:
                         exe_ast = next((a for a in assets if a.get("name", "").lower().endswith(".zip")), None)
                     if exe_ast:
@@ -310,11 +314,15 @@ def get_current_executable_path() -> Path:
         except Exception:
             pass
 
-    # 7. Fallback: Tìm file MEGAMU Auto Train Dashboard.exe trong thư mục hiện tại hoặc Release_MEGAMU_Secure
+    # 7. Fallback: Tìm file MEGAMU Auto Train Dashboard.exe trong thư mục hiện tại hoặc Release_MEGAMU / Release_MEGAMU_Secure
     base = Path(__file__).resolve().parent
     cand_local = base / "MEGAMU Auto Train Dashboard.exe"
     if cand_local.is_file():
         return cand_local.resolve()
+
+    cand_rel = base / "Release_MEGAMU" / "MEGAMU Auto Train Dashboard.exe"
+    if cand_rel.is_file():
+        return cand_rel.resolve()
 
     cand_sec = base / "Release_MEGAMU_Secure" / "MEGAMU Auto Train Dashboard.exe"
     if cand_sec.is_file():

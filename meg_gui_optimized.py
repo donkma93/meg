@@ -53,6 +53,7 @@ from ui.views.moss_view import MossView, moss_cat_id, moss_cat_name
 from ui.views.logs_view import LogsAndToolsView
 from ui.modals.slot_settings import SlotSettingsModal
 from ui.modals.party_modal import PartySettingsModal
+from ui.modals.update_modal import UpdateModal
 from services.party_manager import PartyManager
 from ui.engine_sync import BackgroundEngineSync, enumerate_megamu_processes
 
@@ -282,6 +283,10 @@ class DashboardAppOptimized(ctk.CTk):
         self._last_moss_move_key = None
         self._last_mirror_event_snipe_key = None
         self._last_mirror_cache_key = None
+        self.btn_update = None
+        self.update_info = None
+        self._update_modal_instance = None
+        self.is_update_mandatory = False
 
         # Entry giả lập cho get_mirror_snipe_delay/dur/prefire của meg_gui (nếu bị bind)
         class _FakeEntry:
@@ -500,10 +505,11 @@ class DashboardAppOptimized(ctk.CTk):
             right_h, "📋 Nhật ký", lambda: self.switch_tab("logs"),
             tone="ghost", width=92, height=30
         ).pack(side="right", padx=3, pady=17)
-        make_action_button(
+        self.btn_update = make_action_button(
             right_h, "🔄 Cập nhật", lambda: self.check_for_updates_ui(manual=True),
             tone="ghost", width=96, height=30
-        ).pack(side="right", padx=3, pady=17)
+        )
+        self.btn_update.pack(side="right", padx=3, pady=17)
         make_action_button(
             right_h, "🔑 License", self.open_license_dialog,
             tone="primary", width=96, height=30
@@ -2115,26 +2121,120 @@ class DashboardAppOptimized(ctk.CTk):
         except Exception:
             pass
 
+    def _check_update_async(self):
+        """Kiểm tra cập nhật ngầm sau khi khởi động giao diện."""
+        import time
+        time.sleep(3)
+        if not updater:
+            return
+        try:
+            res = updater.check_for_updates(APP_VERSION)
+            if res.get("has_update"):
+                self.update_info = res
+                latest = res.get("latest_version", "?")
+                def _notify():
+                    if hasattr(self, "btn_update") and self.btn_update:
+                        self.btn_update.configure(
+                            text=f"🔥 Có bản {latest}!",
+                            fg_color="#ea580c",
+                            hover_color="#c2410c",
+                            text_color="#ffffff",
+                            border_color="#f97316"
+                        )
+                    self.log_message(f"🔔 Phát hiện phiên bản mới {latest}! Bấm nút 'Cập nhật' trên Header để nâng cấp.", "WARN")
+                self.after(0, _notify)
+        except Exception:
+            pass
+
     def check_for_updates_ui(self, manual: bool = False):
-        def worker():
+        """Xử lý sự kiện kiểm tra và hiển thị hộp thoại cập nhật phiên bản mới."""
+        if self.update_info and self.update_info.get("has_update"):
+            self.open_update_dialog(self.update_info)
+            return
+
+        if manual and hasattr(self, "btn_update") and self.btn_update:
+            self.btn_update.configure(text="⏳ Kiểm tra...", state="disabled")
+
+        def _worker():
             try:
                 if not updater:
-                    self.after(0, lambda: messagebox.showinfo("Cập nhật", "Module updater chưa khả dụng."))
+                    def _err_no_updater():
+                        if hasattr(self, "btn_update") and self.btn_update:
+                            self.btn_update.configure(text="🔄 Cập nhật", state="normal")
+                        if manual:
+                            messagebox.showinfo("Cập nhật", "Mô-đun kiểm tra cập nhật (updater) chưa khả dụng.")
+                    self.after(0, _err_no_updater)
                     return
+
                 res = updater.check_for_updates(APP_VERSION)
                 has_update = bool(res.get("has_update")) if isinstance(res, dict) else False
-                if has_update:
-                    latest = res.get("latest_version", "?")
-                    notes = res.get("notes") or res.get("changelog") or ""
-                    msg = f"Có bản mới: {latest}\n\n{notes}"
-                    self.after(0, lambda: messagebox.showinfo("Cập nhật", msg))
-                elif manual:
-                    self.after(0, lambda: messagebox.showinfo("Cập nhật", f"Bạn đang dùng bản mới nhất ({APP_VERSION})."))
-            except Exception as e:
-                if manual:
-                    self.after(0, lambda: messagebox.showerror("Cập nhật", str(e)))
 
-        threading.Thread(target=worker, daemon=True).start()
+                def _done():
+                    if hasattr(self, "btn_update") and self.btn_update:
+                        self.btn_update.configure(state="normal")
+
+                    if has_update:
+                        self.update_info = res
+                        latest = res.get("latest_version", "?")
+                        if hasattr(self, "btn_update") and self.btn_update:
+                            self.btn_update.configure(
+                                text=f"🔥 Có bản {latest}!",
+                                fg_color="#ea580c",
+                                hover_color="#c2410c",
+                                text_color="#ffffff",
+                                border_color="#f97316"
+                            )
+                        self.open_update_dialog(res)
+                    else:
+                        if hasattr(self, "btn_update") and self.btn_update:
+                            self.btn_update.configure(
+                                text="🔄 Cập nhật",
+                                fg_color="#181c26",
+                                hover_color="#242b3a",
+                                text_color="#34d399",
+                                border_color="#059669"
+                            )
+                        if manual:
+                            messagebox.showinfo(
+                                "Kiểm tra Cập nhật",
+                                f"Bạn đang sử dụng phiên bản mới nhất ({APP_VERSION}).\nKhông có bản cập nhật mới nào."
+                            )
+
+                self.after(0, _done)
+
+            except Exception as e:
+                def _on_error():
+                    if hasattr(self, "btn_update") and self.btn_update:
+                        self.btn_update.configure(text="🔄 Cập nhật", state="normal")
+                    if manual:
+                        messagebox.showerror(
+                            "Kiểm tra Cập nhật",
+                            f"Không thể kiểm tra cập nhật:\n{e}\n\nVui lòng kiểm tra lại kết nối mạng."
+                        )
+                self.after(0, _on_error)
+
+        threading.Thread(target=_worker, name="CheckUpdateUIWorker", daemon=True).start()
+
+    def open_update_dialog(self, update_info: Optional[Dict[str, Any]] = None):
+        """Mở cửa sổ Modal Cập Nhật Phiên Bản Mới (UpdateModal)."""
+        if hasattr(self, "_update_modal_instance") and self._update_modal_instance and self._update_modal_instance.winfo_exists():
+            self._update_modal_instance.lift()
+            self._update_modal_instance.focus_force()
+            return
+
+        info = update_info or self.update_info
+        if not info or not info.get("has_update"):
+            self.check_for_updates_ui(manual=True)
+            return
+
+        try:
+            self._update_modal_instance = UpdateModal(
+                parent=self,
+                update_info=info,
+                current_version=APP_VERSION
+            )
+        except Exception as e:
+            messagebox.showerror("Cập nhật", f"Không mở được hộp thoại cập nhật: {e}")
 
     def open_devil_global_config_dialog(self):
         """Mở cửa sổ cấu hình tập trung cho tính năng Auto Devil Square (DS)."""
@@ -3096,9 +3196,6 @@ class DashboardAppOptimized(ctk.CTk):
         except Exception:
             pass
 
-    def open_update_dialog(self):
-        self.check_for_updates_ui(manual=True)
-
     def on_closing(self):
         self.running = False
         if hasattr(self, "engine_sync"):
@@ -3370,6 +3467,8 @@ _EXCLUDE_BIND = {
     "save_slot_settings",
     "open_license_dialog",
     "check_for_updates_ui",
+    "open_update_dialog",
+    "_check_update_async",
     "open_devil_global_config_dialog",
     "show_help",
 }
