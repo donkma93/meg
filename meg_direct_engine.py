@@ -9572,6 +9572,10 @@ class MegDirectEngine:
             pass
         return False
 
+    def direct_move(self, target_x: int, target_y: int, bypass_angle: float = 0.0) -> bool:
+        """Alias cho move_to để hỗ trợ gọi di chuyển trực tiếp an toàn."""
+        return self.move_to(target_x, target_y, bypass_angle=bypass_angle)
+
     def move_to(self, target_x: int, target_y: int, bypass_angle: float = 0.0) -> bool:
         """Kích hoạt di chuyển tới tọa độ (target_x, target_y).
         1. Ưu tiên Frida Native Hook nếu có (Unity Navmesh).

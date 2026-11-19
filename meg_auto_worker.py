@@ -263,6 +263,7 @@ class AutoTrainWorker:
         self.coords_callback = coords_callback
         self.config = config or {}
         self.slot_idx = slot_idx
+        self.char_name = self.config.get("char_name") or ""
 
         # Core Direct Native Engine
         self.core = MegDirectEngine.get_engine(pid)
@@ -1601,11 +1602,12 @@ class AutoTrainWorker:
                 self.last_py = py
                 time.sleep(0.12)
             except Exception as e:
+                c_name = getattr(self, "char_name", "") or self.config.get("char_name") or "N/A"
                 log_thread_exception(
                     source=f"AutoWorker-{self.pid}",
                     exc=e,
                     thread_name=f"Slot{self.slot_idx:02d}_AutoTrainWorker",
-                    details=f"Slot: {self.slot_idx}, PID: {self.pid}, Char: {self.char_name or 'N/A'}"
+                    details=f"Slot: {self.slot_idx}, PID: {self.pid}, Char: {c_name}"
                 )
                 self._log(f"Lỗi vòng lặp worker: {e} -> Xem chi tiết tại auto_crash_trace.log", "ERROR")
                 time.sleep(0.5)

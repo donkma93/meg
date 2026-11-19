@@ -14,6 +14,7 @@ import sys
 import json
 import time
 import ctypes
+import signal
 import threading
 from typing import Optional, List, Dict, Tuple, Any
 
@@ -625,6 +626,9 @@ class DashboardAppOptimized(ctk.CTk):
 
         # Sau 2.5s khi giao diện chính đã hiển thị mượt mà, âm thầm tải trước từng view phụ
         self.after(2500, self._idle_preload_views)
+
+        # Cho phép Python nhận tín hiệu SIGINT (Ctrl+C) ngay lập tức trên Windows
+        self._check_signals()
 
     def _build_footer(self):
         self.footer_frame = ctk.CTkFrame(self, fg_color=Colors.BG_FOOTER, height=28, corner_radius=0)
@@ -3273,11 +3277,57 @@ class DashboardAppOptimized(ctk.CTk):
         except Exception:
             pass
 
+    def report_callback_exception(self, exc, val, tb):
+        """Xử lý ngoại lệ trong Tkinter callback.
+        Bắt phím Ctrl+C (KeyboardInterrupt) để thoát chương trình sạch sẽ, không ném traceback đỏ ra terminal."""
+        if issubclass(exc, (KeyboardInterrupt, SystemExit)):
+            print("\n[INFO] Đã nhận tín hiệu dừng (Ctrl+C). Đang đóng ứng dụng an toàn...")
+            self.on_closing()
+            return
+        try:
+            super().report_callback_exception(exc, val, tb)
+        except Exception:
+            import traceback
+            traceback.print_exception(exc, val, tb)
+
+    def _check_signals(self):
+        """Định kỳ đánh thức Tkinter để Python nhận tín hiệu SIGINT (Ctrl+C) ngay lập tức trên Windows."""
+        if getattr(self, "running", True) and not getattr(self, "_is_closing", False):
+            self.after(250, self._check_signals)
+
     def on_closing(self):
+        if getattr(self, "_is_closing", False):
+            return
+        self._is_closing = True
         self.running = False
+        self.moss_running = False
+
         if hasattr(self, "engine_sync"):
-            self.engine_sync.stop()
-        self.destroy()
+            try:
+                self.engine_sync.stop()
+            except Exception:
+                pass
+
+        if hasattr(self, "controllers"):
+            for ctrl in self.controllers:
+                try:
+                    if hasattr(ctrl, "stop_moss"):
+                        ctrl.stop_moss()
+                    if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                        ctrl.stop_auto(reason="Người dùng đóng chương trình Dashboard", trigger_by="MANUAL")
+                except Exception:
+                    pass
+            for ctrl in self.controllers:
+                if ctrl.engine:
+                    try:
+                        ctrl.engine.detach()
+                    except Exception:
+                        pass
+
+        try:
+            self.destroy()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # AUTO LOGIN SHIMS (tương thích DashboardApp của meg_gui)
@@ -3813,6 +3863,24 @@ def main():
         except Exception:
             pass
     app = None
+
+    def sigint_handler(signum, frame):
+        print("\n[INFO] Đã nhận tín hiệu dừng (Ctrl+C). Đang đóng ứng dụng an toàn...")
+        if app is not None:
+            try:
+                app.on_closing()
+            except Exception:
+                try:
+                    app.destroy()
+                except Exception:
+                    pass
+        sys.exit(0)
+
+    try:
+        signal.signal(signal.SIGINT, sigint_handler)
+    except Exception:
+        pass
+
     try:
         app = DashboardAppOptimized()
         app.protocol("WM_DELETE_WINDOW", app.on_closing)

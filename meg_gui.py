@@ -104,7 +104,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.6.3"
+APP_VERSION = "v1.6.4"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -15594,6 +15594,19 @@ class DashboardApp(ctk.CTk):
                     pass
         except Exception:
             pass
+
+    def report_callback_exception(self, exc, val, tb):
+        """Xử lý ngoại lệ trong Tkinter callback.
+        Bắt phím Ctrl+C (KeyboardInterrupt) để thoát chương trình sạch sẽ, không ném traceback ra terminal."""
+        if issubclass(exc, (KeyboardInterrupt, SystemExit)):
+            print("\n[INFO] Đã nhận tín hiệu dừng (Ctrl+C). Đang đóng ứng dụng an toàn...")
+            self.on_closing()
+            return
+        try:
+            super().report_callback_exception(exc, val, tb)
+        except Exception:
+            import traceback
+            traceback.print_exception(exc, val, tb)
 
     def on_closing(self):
         self.running = False
