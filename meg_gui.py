@@ -1805,7 +1805,10 @@ class ConfigPersistenceManager:
             "poll_interval": 0.55,
             "reset_confirm_seconds": 1.5,
             "map_command_retry_delay": 4.5,
-            "map_verify_unknown_timeout": 6.0
+            "map_verify_unknown_timeout": 6.0,
+            "evade_on_kill": True,
+            "evade_safe_map": "lorencia",
+            "evade_cooldown_minutes": 10.0
         }
 
     @classmethod
@@ -2078,6 +2081,10 @@ class ConfigPersistenceManager:
                     raw_int_val = sched.get("interval_ms", sched.get("snipe_interval_ms", 10))
                     raw_int = int(raw_int_val) if raw_int_val is not None else 10
                     raw_dur = float(sched.get("max_duration_s", 15.0) or 15.0)
+                    raw_stag_val = sched.get("stagger_ms", 0)
+                    raw_stag = int(raw_stag_val) if raw_stag_val is not None else 0
+                    raw_offset_val = sched.get("clock_offset_ms", 0.0)
+                    raw_offset = float(raw_offset_val) if raw_offset_val is not None else 0.0
                     return {
                         "auto_schedule": bool(sched.get("auto_schedule", True)),
                         "auto_prep_before": bool(sched.get("auto_prep_before", True)),
@@ -2087,6 +2094,8 @@ class ConfigPersistenceManager:
                         "prefire_sec": raw_pf,
                         "interval_ms": raw_int,
                         "snipe_interval_ms": raw_int,
+                        "stagger_ms": raw_stag,
+                        "clock_offset_ms": raw_offset,
                         "max_duration_s": raw_dur,
                         "selected_slots": sel
                     }
@@ -2101,6 +2110,8 @@ class ConfigPersistenceManager:
                 "prefire_sec": 2.0,
                 "interval_ms": 10,
                 "snipe_interval_ms": 10,
+                "stagger_ms": 0,
+                "clock_offset_ms": 0.0,
                 "max_duration_s": 15.0,
                 "selected_slots": None
             }
@@ -2117,6 +2128,8 @@ class ConfigPersistenceManager:
         interval_ms: Optional[int] = None,
         max_duration_s: float = 15.0,
         zero_confirm: bool = True,
+        stagger_ms: int = 0,
+        clock_offset_ms: float = 0.0,
     ):
         """Lưu cấu hình Lịch Trình Auto Double Goer / Mirror kèm danh sách tài khoản được chọn."""
         if isinstance(auto_schedule, dict):
@@ -2129,6 +2142,8 @@ class ConfigPersistenceManager:
             iv_val = cfg_dict.get("interval_ms", cfg_dict.get("snipe_interval_ms", 10))
             interval_ms = int(iv_val) if iv_val is not None else 10
             max_duration_s = cfg_dict.get("max_duration_s", 15.0)
+            stagger_ms = int(cfg_dict.get("stagger_ms", 0) or 0)
+            clock_offset_ms = float(cfg_dict.get("clock_offset_ms", 0.0) or 0.0)
             if selected_slots is None and "selected_slots" in cfg_dict:
                 selected_slots = cfg_dict["selected_slots"]
             auto_schedule = cfg_dict.get("auto_schedule", True)
@@ -2151,6 +2166,8 @@ class ConfigPersistenceManager:
                     "prefire_sec": float(prefire_sec),
                     "interval_ms": int(interval_ms),
                     "snipe_interval_ms": int(interval_ms),
+                    "stagger_ms": int(stagger_ms),
+                    "clock_offset_ms": float(clock_offset_ms),
                     "max_duration_s": float(max_duration_s),
                     "interval_hours": 2,
                     "prep_minutes_before": 5,
@@ -3672,7 +3689,7 @@ class SlotController:
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland..."
             ))
-            eng.send_chat("/move Elbeland")
+            eng.send_chat("/m Elbeland")
             time.sleep(2.0)
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."
@@ -4331,7 +4348,7 @@ class SlotController:
 
             if need_warp:
                 self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland..."))
-                eng.send_chat("/move Elbeland")
+                eng.send_chat("/m Elbeland")
                 time.sleep(1.8)
 
             self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."))
@@ -10220,6 +10237,41 @@ class DashboardApp(ctk.CTk):
         except Exception:
             return 10
 
+    def get_mirror_stagger_ms(self) -> int:
+        try:
+            if hasattr(self, "mirror_stagger_ms_entry") and self.mirror_stagger_ms_entry:
+                return max(0, min(100, int(self.mirror_stagger_ms_entry.get().strip())))
+        except Exception:
+            pass
+        return 0
+
+    def record_mirror_net_telemetry(self, r_code: int, rtt_ms: float = 0.0, server_open_epoch_ms: Optional[float] = None):
+        """Cập nhật thống kê telemetry mạng RTT và học delta clock offset với server."""
+        try:
+            rtt_val = float(rtt_ms or 0.0)
+            if not hasattr(self, "_mirror_last_rtt_ms") or self._mirror_last_rtt_ms < 0:
+                self._mirror_last_rtt_ms = rtt_val
+            elif rtt_val > 0:
+                self._mirror_last_rtt_ms = self._mirror_last_rtt_ms * 0.6 + rtt_val * 0.4
+
+            if server_open_epoch_ms is not None:
+                srv_ms = float(server_open_epoch_ms)
+                last_sched = float(getattr(self, "_last_scheduled_gate_open_epoch_ms", 0.0) or 0.0)
+                if last_sched > 0:
+                    delta = last_sched - srv_ms
+                    # Lọc ngoại lai: chỉ học khi lệch trong khoảng [-8000ms, +8000ms]
+                    if abs(delta) <= 8000.0:
+                        self._mirror_clock_offset_ms = delta
+
+            if hasattr(self, "lbl_mirror_net_calib") and self.lbl_mirror_net_calib:
+                txt = f"RTT: {self._mirror_last_rtt_ms:.1f}ms | Offset: {getattr(self, '_mirror_clock_offset_ms', 0.0):.1f}ms"
+                try:
+                    self.lbl_mirror_net_calib.configure(text=txt)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def get_mirror_zero_confirm(self) -> bool:
         try:
             if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_zero_confirm"):
@@ -10696,20 +10748,20 @@ class DashboardApp(ctk.CTk):
         zero_confirm = self.get_mirror_zero_confirm() if hasattr(self, "get_mirror_zero_confirm") else True
 
         def _runner():
-            detected = getattr(self, "detected_games", {})
+            detected = self.__dict__.get("detected_games", {})
             active_ctrls = [
                 c for c in self.controllers
                 if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid)
                 and (not detected or c.assigned_pid in detected)
-                and not getattr(c, "mirror_sniping", False)
-                and not getattr(c, "_mirror_dungeon_running", False)
+                and (getattr(c, "mirror_sniping", False) is not True)
+                and (getattr(c, "_mirror_dungeon_running", False) is not True)
             ]
             # Lọc bỏ các tài khoản đã vào bên trong map Double Goer
             unentered_ctrls = []
             for c in active_ctrls:
                 try:
-                    eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
-                    if eng and eng.is_mirror_event_map():
+                    eng = getattr(c, "engine", None) or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
+                    if eng and (eng.is_mirror_event_map() is True):
                         continue
                 except Exception:
                     pass
@@ -10724,14 +10776,17 @@ class DashboardApp(ctk.CTk):
             results = []
             res_lock = threading.Lock()
             barrier = threading.Barrier(len(unentered_ctrls)) if len(unentered_ctrls) > 1 else None
+            stagger_step = self.get_mirror_stagger_ms() if hasattr(self, "get_mirror_stagger_ms") else 0
 
             def _start_ctrl(c, idx_order):
+                stagger_offset = idx_order * stagger_step
+                slot_target_ms = (int(target_open_epoch_ms) + stagger_offset) if target_open_epoch_ms else 0
                 ok = c.start_mirror_turbo_sniping(
                     interval_ms=delay_ms,
                     max_duration_s=dur_s,
                     barrier=barrier,
-                    start_at_epoch_ms=int(target_open_epoch_ms or 0),
-                    stagger_ms=0,
+                    start_at_epoch_ms=slot_target_ms,
+                    stagger_ms=stagger_offset,
                     zero_confirm=zero_confirm,
                 )
                 if ok:
@@ -13521,7 +13576,6 @@ class DashboardApp(ctk.CTk):
                             break
                         if step == 4 and not in_ev:
                             eng.send_chat("/m ev")
-                            eng.send_chat("/warp ev")
                     except Exception:
                         pass
                 if not in_ev:

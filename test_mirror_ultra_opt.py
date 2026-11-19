@@ -464,15 +464,15 @@ class TestMirrorUltraOptimization(unittest.TestCase):
 
     def test_offsets_sync_and_placeholders_resolved(self):
         required_offsets = {
-            "mirror_enter_recv": "0xF92350",
-            "set_target_framerate": "0x458B5A0",
-            "get_target_framerate": "0x458B550",
-            "set_vsync_count": "0x459FDF0",
-            "get_vsync_count": "0x459FDA0",
-            "pkt_enc_nikini": "0x120D1F0",
-            "pkt_enc_ngjg": "0x120D930",
-            "socket_send_err": "0x4285F20",
-            "unity_get_time": "0x45D60B0",
+            "mirror_enter_recv": "0x100C180",
+            "set_target_framerate": "0x45E4B80",
+            "get_target_framerate": "0x45E4B30",
+            "set_vsync_count": "0x45F94B0",
+            "get_vsync_count": "0x45F9460",
+            "pkt_enc_nikini": "0x126BC00",
+            "pkt_enc_ngjg": "0x126CA50",
+            "socket_send_err": "0x42DF670",
+            "unity_get_time": "0x462F900",
         }
         with open("megamu_offsets.json", "r", encoding="utf-8") as f:
             root_off = json.load(f)

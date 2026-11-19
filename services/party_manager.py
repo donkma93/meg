@@ -65,6 +65,9 @@ class PartyManager:
         # Cache RAM party info: {slot_idx: {"data": dict, "ts": float}}
         self._slot_party_cache: Dict[int, Dict[str, Any]] = {}
 
+        # Cooldown gửi lời mời party cho từng member: {member_name_lower: timestamp}
+        self._last_invite_times: Dict[str, float] = {}
+
     # --------------------------------------------------------------------------
     # CẤU HÌNH & LƯU TRỮ
     # --------------------------------------------------------------------------
@@ -495,9 +498,12 @@ class PartyManager:
             leader_x = leader_live[2] if leader_live else 0
             leader_y = leader_live[3] if leader_live else 0
 
-            # 1. Bật /re auto cho Leader nhóm
-            if leader_engine and hasattr(leader_engine, "set_party_auto_mode"):
-                leader_engine.set_party_auto_mode(password=password, enable=True)
+            # 1. Bật /re auto và Auto Confirm Party cho Leader nhóm
+            if leader_engine:
+                if hasattr(leader_engine, "set_auto_confirm_party"):
+                    leader_engine.set_auto_confirm_party(True)
+                if hasattr(leader_engine, "set_party_auto_mode"):
+                    leader_engine.set_party_auto_mode(password=password, enable=True)
             elif hasattr(leader_ctrl, "send_chat_command"):
                 cmd = f"/re auto {password}" if password else "/re auto"
                 leader_ctrl.send_chat_command(cmd)
@@ -526,25 +532,35 @@ class PartyManager:
                     or f"Slot_{m_slot}"
                 )
 
-                # Bật /re auto cho member
-                if m_engine and hasattr(m_engine, "set_party_auto_mode"):
-                    m_engine.set_party_auto_mode(password=password, enable=True)
+                # Bật /re auto và Auto Confirm Party cho member
+                if m_engine:
+                    if hasattr(m_engine, "set_auto_confirm_party"):
+                        m_engine.set_auto_confirm_party(True)
+                    if hasattr(m_engine, "set_party_auto_mode"):
+                        m_engine.set_party_auto_mode(password=password, enable=True)
                 elif hasattr(m_ctrl, "send_chat_command"):
                     cmd = f"/re auto {password}" if password else "/re auto"
                     m_ctrl.send_chat_command(cmd)
 
                 # Kiểm tra xem member đã ở trong party của Leader này chưa
                 m_party = ProcessMemoryReader.read_party_info(m_pid)
-                if m_party.get("in_party", False):
-                    m_lead = m_party.get("leader_name", "").strip().lower()
-                    if not leader_name or m_lead == leader_name.lower():
-                        already_in_count += 1
-                        continue
-                    else:
-                        # Member đang ở nhóm khác, rời nhóm cũ
-                        if m_engine and hasattr(m_engine, "send_chat"):
-                            m_engine.send_chat("/re off")
-                            time.sleep(0.4)
+                cur_lead_members = [
+                    m.get("name", "").strip().lower()
+                    for m in leader_party.get("members", [])
+                    if m.get("name")
+                ]
+                if (m_name and m_name.lower() in cur_lead_members) or (
+                    m_party.get("in_party", False) and (
+                        not leader_name or m_party.get("leader_name", "").strip().lower() == leader_name.lower()
+                    )
+                ):
+                    already_in_count += 1
+                    continue
+                elif m_party.get("in_party", False):
+                    # Member đang ở nhóm khác, rời nhóm cũ
+                    if m_engine and hasattr(m_engine, "send_chat"):
+                        m_engine.send_chat("/re off")
+                        time.sleep(0.4)
 
                 # Kiểm tra vị trí / Map của Member
                 m_live = ProcessMemoryReader.read_live_state(m_pid)
@@ -552,11 +568,13 @@ class PartyManager:
                 m_x = m_live[2] if m_live else 0
                 m_y = m_live[3] if m_live else 0
 
-                # Nếu khác map, member tự /move sang map của Leader
+                # Nếu khác map, member tự /m sang map của Leader
                 if leader_map_id is not None and m_map_id is not None and leader_map_id != m_map_id:
                     if leader_map_name and m_engine:
-                        logger.info(f"[AutoParty {p_name}] Di chuyển member {m_name} sang map {leader_map_name} của Leader {leader_name}...")
-                        m_engine.send_chat(f"/move {leader_map_name}")
+                        from meg_auto_worker import MapResolver
+                        move_cmd = MapResolver.get_instance().resolve(leader_map_name)
+                        logger.info(f"[AutoParty {p_name}] Di chuyển member {m_name} sang map {leader_map_name} ({move_cmd}) của Leader {leader_name}...")
+                        m_engine.send_chat(move_cmd)
                         time.sleep(2.0)
                         m_live = ProcessMemoryReader.read_live_state(m_pid)
                         if m_live:
@@ -706,10 +724,16 @@ class PartyManager:
 
             leader_party = ProcessMemoryReader.read_party_info(leader_pid)
             leader_member_count = leader_party.get("member_count", 0)
+            leader_in_pt = leader_party.get("in_party", False)
+            leader_members_names = [
+                m.get("name", "").strip().lower()
+                for m in leader_party.get("members", [])
+                if m.get("name")
+            ]
 
             # Nếu Leader đã đủ số thành viên mong đợi (1 Leader + len(member_slots)), không cần heal nhóm này
             total_expected = 1 + len(member_slots)
-            if leader_member_count >= total_expected and total_expected > 1:
+            if leader_in_pt and leader_member_count >= total_expected and total_expected > 1:
                 continue
 
             leader_name = (
@@ -731,6 +755,17 @@ class PartyManager:
                 if not m_ctrl or not getattr(m_ctrl, "assigned_pid", None):
                     continue
 
+                m_pid = getattr(m_ctrl, "assigned_pid", None)
+                m_name = (
+                    getattr(m_ctrl, "char_name", "")
+                    or ProcessMemoryReader.read_character_name(m_pid)
+                    or ""
+                )
+
+                # Nếu thành viên này ĐÃ CÓ trong danh sách thành viên của Leader -> đã trong PT, bỏ qua!
+                if m_name and m_name.lower() in leader_members_names:
+                    continue
+
                 m_info = self.read_slot_party_info(m_ctrl, max_cache_age=0.5, controllers=controllers)
                 # Nếu thành viên đang kết nối nhưng KHÔNG ở trong party hoặc đang ở party khác
                 if not m_info.get("in_party", False):
@@ -738,43 +773,61 @@ class PartyManager:
                 elif leader_name and m_info.get("leader_name", "").strip().lower() != leader_name.lower():
                     missing_members.append(m_ctrl)
 
-            if missing_members:
-                # 1. Đảm bảo Leader vẫn bật /re auto
-                if leader_engine and hasattr(leader_engine, "set_party_auto_mode"):
+            # NẾU TẤT CẢ THÀNH VIÊN ĐÃ TRONG PT VÀ KHÔNG THIẾU AI -> HOÀN TOÀN IM LẶNG, KHÔNG GỬI LỆNH HAY LOG NÀO!
+            if not missing_members:
+                continue
+
+            # 1. Đảm bảo Leader vẫn bật /re auto và Auto Confirm Party
+            if leader_engine:
+                if hasattr(leader_engine, "set_auto_confirm_party"):
+                    leader_engine.set_auto_confirm_party(True)
+                if hasattr(leader_engine, "set_party_auto_mode"):
                     leader_engine.set_party_auto_mode(password=password, enable=True)
 
-                # 2. Xử lý và mời các thành viên chưa có party của nhóm này
-                for m_ctrl in missing_members:
-                    m_pid = getattr(m_ctrl, "assigned_pid", None)
-                    if not m_pid:
-                        continue
+            # 2. Xử lý và mời các thành viên chưa có party của nhóm này
+            for m_ctrl in missing_members:
+                m_pid = getattr(m_ctrl, "assigned_pid", None)
+                if not m_pid:
+                    continue
 
-                    m_engine = getattr(m_ctrl, "engine", None)
-                    if not m_engine or not getattr(m_engine, "is_ready", False):
-                        m_engine = MegDirectEngine.get_engine(m_pid)
+                m_engine = getattr(m_ctrl, "engine", None)
+                if not m_engine or not getattr(m_engine, "is_ready", False):
+                    m_engine = MegDirectEngine.get_engine(m_pid)
 
-                    m_name = (
-                        getattr(m_ctrl, "char_name", "")
-                        or ProcessMemoryReader.read_character_name(m_pid)
-                        or ""
-                    )
+                m_name = (
+                    getattr(m_ctrl, "char_name", "")
+                    or ProcessMemoryReader.read_character_name(m_pid)
+                    or ""
+                )
 
-                    # Bật /re auto cho member
-                    if m_engine and hasattr(m_engine, "set_party_auto_mode"):
+                # Bật /re auto và Auto Confirm Party cho member
+                if m_engine:
+                    if hasattr(m_engine, "set_auto_confirm_party"):
+                        m_engine.set_auto_confirm_party(True)
+                    if hasattr(m_engine, "set_party_auto_mode"):
                         m_engine.set_party_auto_mode(password=password, enable=True)
 
-                    # Kiểm tra map
-                    m_live = ProcessMemoryReader.read_live_state(m_pid)
-                    m_map_id = m_live[0] if m_live else None
-                    if leader_map_id is not None and m_map_id is not None and leader_map_id != m_map_id:
-                        if leader_map_name and m_engine:
-                            m_engine.send_chat(f"/move {leader_map_name}")
-                            time.sleep(2.0)
-                            m_live = ProcessMemoryReader.read_live_state(m_pid)
+                # Kiểm tra map
+                m_live = ProcessMemoryReader.read_live_state(m_pid)
+                m_map_id = m_live[0] if m_live else None
+                if leader_map_id is not None and m_map_id is not None and leader_map_id != m_map_id:
+                    if leader_map_name and m_engine:
+                        from meg_auto_worker import MapResolver
+                        move_cmd = MapResolver.get_instance().resolve(leader_map_name)
+                        m_engine.send_chat(move_cmd)
+                        time.sleep(2.0)
+                        m_live = ProcessMemoryReader.read_live_state(m_pid)
 
-                    # Mời vào Party
-                    if leader_engine and hasattr(leader_engine, "invite_party_by_name") and m_name:
-                        res = leader_engine.invite_party_by_name(m_name)
-                        logger.info(f"[AutoParty Heal {p_name}] Tự động mời {m_name} vào nhóm {p_name}: {res}")
+                # Cooldown 12s mỗi thành viên tránh spam lời mời liên tục làm lag
+                now_inv = time.time()
+                m_key = m_name.lower() if m_name else str(m_slot)
+                if now_inv - self._last_invite_times.get(m_key, 0.0) < 12.0:
+                    continue
+                self._last_invite_times[m_key] = now_inv
 
-                    time.sleep(0.3)
+                # Mời vào Party
+                if leader_engine and hasattr(leader_engine, "invite_party_by_name") and m_name:
+                    res = leader_engine.invite_party_by_name(m_name)
+                    logger.info(f"[AutoParty Heal {p_name}] Tự động mời {m_name} vào nhóm {p_name}: {res}")
+
+                time.sleep(0.3)

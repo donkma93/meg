@@ -1467,19 +1467,19 @@ class ReaHunterApp(tk.Tk):
 
     def _do_warp(self, map_cmd: str, map_label: str):
         """Gửi lệnh chuyển bản đồ trực tiếp qua Win32 Message (không cần Frida)."""
-        self.log(f"Yêu cầu Warp tới {map_label} (/move {map_cmd})", "INFO")
+        self.log(f"Yêu cầu Warp tới {map_label} (/m {map_cmd})", "INFO")
         if not self.game_hwnd:
             if self.scanner and self.scanner.pid:
                 self._update_game_hwnd(self.scanner.pid)
 
         if self.game_hwnd:
             user32 = ctypes.windll.user32
-            # Gửi Enter mở chat -> gõ /move <map> -> Enter gửi
+            # Gửi Enter mở chat -> gõ /m <map> -> Enter gửi
             user32.PostMessageW(self.game_hwnd, WM_KEYDOWN, VK_RETURN, 0)
             time.sleep(0.06)
             user32.PostMessageW(self.game_hwnd, WM_KEYUP, VK_RETURN, 0)
             time.sleep(0.12)
-            cmd = f"/move {map_cmd}"
+            cmd = f"/m {map_cmd}"
             for c in cmd:
                 user32.PostMessageW(self.game_hwnd, WM_CHAR, ord(c), 0)
                 time.sleep(0.025)

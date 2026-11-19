@@ -2937,7 +2937,6 @@ class DashboardAppOptimized(ctk.CTk):
                             break
                         if step == 4 and not in_ev:
                             eng.send_chat("/m ev")
-                            eng.send_chat("/warp ev")
                     except Exception:
                         pass
                 if not in_ev:

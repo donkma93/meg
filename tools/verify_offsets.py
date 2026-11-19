@@ -33,6 +33,7 @@ FIELD_KEYS = {
     "gremory_instance_offset", "gremory_dict_offset",
     "item_mirror_ticket", "item_devil_ticket", "item_devil_ticket_master",
     "ui_location_frame", "location_helper_on", "location_helper_off",
+    "runtime_class_init",
 }
 
 

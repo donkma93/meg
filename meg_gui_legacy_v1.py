@@ -3570,7 +3570,7 @@ class SlotController:
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland..."
             ))
-            eng.send_chat("/move Elbeland")
+            eng.send_chat("/m Elbeland")
             time.sleep(2.0)
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."
@@ -4210,7 +4210,7 @@ class SlotController:
                 time.sleep(0.3)
 
             self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland..."))
-            eng.send_chat("/move Elbeland")
+            eng.send_chat("/m Elbeland")
 
             time.sleep(2.0)
             self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."))
@@ -14551,7 +14551,6 @@ class DashboardApp(ctk.CTk):
                             break
                         if step == 4 and not in_ev:
                             eng.send_chat("/m ev")
-                            eng.send_chat("/warp ev")
                     except Exception:
                         pass
                 if not in_ev:

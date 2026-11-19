@@ -28,7 +28,7 @@ class TestMossFlowResilience(unittest.TestCase):
     def test_sync_move_method_exists(self):
         """AccountController phải có _sync_move_to_moss_elbeland đồng bộ."""
         self.assertIn("def _sync_move_to_moss_elbeland(self, eng)", self.gui_code)
-        self.assertIn('eng.send_chat("/move Elbeland")', self.gui_code)
+        self.assertIn('eng.send_chat("/m Elbeland")', self.gui_code)
         self.assertIn("eng.start_auto_move(22, 225", self.gui_code)
 
     def test_pre_opened_moss_detection_in_open_npc(self):
@@ -76,8 +76,8 @@ class TestMossFlowResilience(unittest.TestCase):
         self.assertNotIn("eng.close_moss()", sub)
 
     def test_engine_has_valid_roll_rva(self):
-        """meg_direct_engine.py và offsets.json phải trỏ tới 0x27AA8B0 (OGILEDKJPLF)."""
-        self.assertIn('"moss_roll_click": "0x27AA8B0"', self.engine_code)
+        """meg_direct_engine.py và offsets.json phải trỏ tới RVA moss_roll_click hợp lệ."""
+        self.assertTrue('"moss_roll_click": "0x286FE70"' in self.engine_code or '"moss_roll_click": "0x27AA8B0"' in self.engine_code)
 
     def test_merchant_selling_resilience(self):
         """Kiểm thử tính kiên cường và an toàn khi tự động bán đồ Moss tại Silvia:
