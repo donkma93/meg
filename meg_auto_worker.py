@@ -329,7 +329,8 @@ class AutoTrainWorker:
         self.last_junk_clean_time = 0.0
         self.junk_clean_interval = max(30.0, float(self.config.get("junk_clean_interval", 60.0)))
 
-        # Xử lý Hồi sinh / Reset Level
+        # Xử lý Hồi sinh / Thời gian chờ ra bãi setup riêng cho từng nhân vật
+        self.respawn_delay = max(3.0, float(self.config.get("respawn_delay", 15.0)))
         self.respawn_until = 0.0
         self.respawn_armed = False
         self.reset_candidate_since = 0.0
@@ -978,7 +979,7 @@ class AutoTrainWorker:
                     time.sleep(self.poll_interval)
                     continue
 
-                # 1.2. Kiểm tra trạng thái chiến đấu / Bị người chơi khác PK (KILL)
+                # 1.2. Kiểm tra trạng thái tử vong / Bị quái đánh chết hoặc bị người chơi PK
                 if self.evade_on_kill:
                     try:
                         from meg_navigator import ProcessMemoryReader
@@ -991,21 +992,13 @@ class AutoTrainWorker:
                         if self.last_death_count is None:
                             self.last_death_count = cur_death_count
 
-                        # Phát hiện bị người chơi khác PK tiêu diệt
-                        # Điều kiện: Có tên Killer AND (đang chết HOẶC death_count tăng lên so với mốc trước)
-                        is_pk_event = False
-                        if cur_killer:
-                            if is_dead:
-                                is_pk_event = True
-                            elif cur_death_count > self.last_death_count:
-                                is_pk_event = True
+                        # Phát hiện tử vong (bị PK hoặc quái đánh chết)
+                        death_event_detected = (cur_death_count > self.last_death_count) or (is_dead and cur_death_count >= self.last_death_count)
 
-                        if is_pk_event and not self.is_evading_pk:
+                        if death_event_detected and not self.is_evading_pk and (now >= self.evade_until):
                             self.last_death_count = cur_death_count
                             self.is_evading_pk = True
-                            self.evade_killer_name = cur_killer
-                            self.evade_until = now + (self.evade_cooldown_minutes * 60.0)
-                            self.last_evade_map_retry = now
+                            self.evade_killer_name = cur_killer or ("Người chơi PK" if cur_killer else "Quái vật / Tử vong")
 
                             # Tắt MuHelper & ngừng di chuyển ngay lập tức
                             if self.core:
@@ -1017,68 +1010,76 @@ class AutoTrainWorker:
                                 except Exception:
                                     pass
 
-                            char_n = self.config.get("char_name") or ProcessMemoryReader.read_character_name(self.pid) or f"Slot {self.slot_idx}"
-                            cd_min_str = f"{self.evade_cooldown_minutes:.1f}" if self.evade_cooldown_minutes % 1 != 0 else f"{int(self.evade_cooldown_minutes)}"
+                            # Thời gian chờ ra bãi setup RIÊNG cho từng nhân vật / profile:
+                            cd_sec = max(3.0, float(self.respawn_delay))
+                            self.evade_until = now + cd_sec
+                            self.respawn_until = now + cd_sec
+                            self.last_evade_map_retry = now
+
+                            char_n = getattr(self, "char_name", "") or self.config.get("char_name") or f"Slot {self.slot_idx}"
+                            cd_sec_int = int(cd_sec)
+                            cd_str = f"{cd_sec_int}s" if cd_sec_int < 60 else f"{cd_sec_int // 60}p{cd_sec_int % 60}s"
                             resume_time_str = time.strftime('%H:%M:%S', time.localtime(self.evade_until))
 
                             self._log(
-                                f"🚨 [BỊ KILL / PK] Nhân vật '{char_n}' đã bị '{cur_killer}' tiêu diệt! (Tổng số lần chết: {cur_death_count})",
+                                f"🚨 [TỬ VONG / PK] Nhân vật '{char_n}' tử vong ({self.evade_killer_name})! (Tổng số lần chết: {cur_death_count})",
                                 "ERROR"
                             )
                             self._log(
-                                f"🛡️ [TỰ ĐỘNG NÉ AN TOÀN] Đang rút lui về Lorencia (/m {self.evade_safe_map}) để bảo vệ an toàn và tránh bị spawn-kill liên tục...",
+                                f"🛡️ [TỰ ĐỘNG VỀ LORENCIA] Rút lui về {self.evade_safe_map} an toàn và chờ hết thời gian setup {cd_str} (đến {resume_time_str}) trước khi tự động ra bãi...",
                                 "WARNING"
                             )
-                            self._log(
-                                f"⏳ [TẠM DỪNG AUTO] Tạm dừng trong {cd_min_str} phút (đến {resume_time_str}) trước khi tự động quay lại bãi train.",
-                                "INFO"
-                            )
 
-                            # Chờ 0.5s cho hồi sinh rồi gửi lệnh rút về Lorencia
-                            time.sleep(0.5)
+                            # Chờ 0.35s cho game hoàn tất animation tử vong rồi gửi lệnh rút về Lorencia
+                            time.sleep(0.35)
                             if self.core:
                                 self.core.send_chat(f"/m {self.evade_safe_map}")
                             self.arrived_at_spot = False
+                            self.current_stage_key = None
                             self.map_move_sent = False
                             self.map_wait_active = False
 
                         elif cur_death_count > self.last_death_count:
-                            # Chết do quái thông thường (không có Killer) -> chỉ cập nhật bộ đếm
                             self.last_death_count = cur_death_count
                     except Exception as e_pk:
                         pass
 
-                # 1.3. Quản lý trạng thái đang Né PK tại Lorencia
+                # 1.3. Quản lý trạng thái đang Chờ Hết Thời Gian Setup tại Lorencia
                 if self.is_evading_pk:
                     if now < self.evade_until:
                         rem_sec = int(max(0.0, self.evade_until - now))
                         rem_m = rem_sec // 60
                         rem_s = rem_sec % 60
-                        self._set_state(f"NÉ PK ({self.evade_killer_name}) - CHỜ {rem_m:02d}:{rem_s:02d}")
+                        self._set_state(f"CHỜ RA BÃI ({rem_m:02d}:{rem_s:02d})")
 
-                        # Đảm bảo MuHelper luôn TẮT khi đang né PK
-                        if self.core and (int(now) % 5 == 0):
+                        # Đảm bảo MuHelper luôn TẮT khi đang chờ setup
+                        if self.core and (int(now) % 3 == 0):
                             try:
                                 self.core.stop_helper()
+                                self.core.cancel_move()
                             except Exception:
                                 pass
 
-                        # Nếu nhân vật chưa ở safe map (Lorencia, mapId 0), gửi lại lệnh chuyển map định kỳ mỗi 15s
+                        # Nếu nhân vật chưa ở safe map (Lorencia, mapId 0), gửi lại lệnh chuyển map định kỳ mỗi 10s
                         safe_map_id = self.map_resolver.expected_map_id(self.evade_safe_map)
                         if safe_map_id is not None and current_map_id != safe_map_id:
-                            if now - self.last_evade_map_retry >= 15.0:
+                            if now - self.last_evade_map_retry >= 10.0:
                                 self.last_evade_map_retry = now
                                 self._log(f"Đang ở map {current_map_id}, tiếp tục gửi /m {self.evade_safe_map}...", "INFO")
                                 if self.core:
                                     self.core.send_chat(f"/m {self.evade_safe_map}")
 
-                        time.sleep(max(0.8, self.poll_interval))
+                        time.sleep(max(0.6, self.poll_interval))
                         continue
                     else:
-                        # Đã hết thời gian chờ cooldown an toàn!
+                        # ĐÃ HẾT THỜI GIAN SETUP CHO NHÂN VẬT!
                         self.is_evading_pk = False
+                        self.evade_killer_name = ""
+                        self.evade_until = 0.0
+                        self.respawn_until = 0.0
+
                         self._log(
-                            f"✅ [HẾT THỜI GIAN NÉ AN TOÀN] Đã qua {self.evade_cooldown_minutes} phút kể từ khi bị '{self.evade_killer_name}' PK. Tự động tiếp tục hành trình quay lại bãi train!",
+                            f"✅ [HẾT THỜI GIAN SETUP ({int(self.respawn_delay)}s)] Đã qua thời gian chờ an toàn. Tự động xuất phát quay lại bãi train ngay!",
                             "SUCCESS"
                         )
                         try:
@@ -1087,11 +1088,20 @@ class AutoTrainWorker:
                             self.last_death_count = dst.get("death_count", self.last_death_count)
                         except Exception:
                             pass
-                        # Reset lộ trình để di chuyển lại bãi
+
+                        # RESET TOÀN BỘ CÁC CỜ LỘ TRÌNH ĐỂ KÍCH HOẠT QUAY LẠI BÃI NGAY LẬP TỨC
                         self.current_stage_key = None
                         self.arrived_at_spot = False
                         self.map_move_sent = False
                         self.map_wait_active = False
+                        self.map_retry_count = 0
+                        self.map_sensor_trusted = False
+                        self.map_sensor_suspect = False
+                        self.map_command_sent_at = 0.0
+                        self.next_map_retry_at = 0.0
+                        self.last_move_issue = 0.0
+                        self.last_dist = None
+                        self._set_state("XUẤT PHÁT RA BÃI")
 
                 # 2. Xử lý trạng thái nhân vật chưa tải xong
                 if level <= 0:

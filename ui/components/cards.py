@@ -54,6 +54,7 @@ class CompactSlotCard(ctk.CTkFrame):
         on_open_point_config: Optional[Callable[[int], None]] = None,
         process_options: Optional[List[str]] = None,
         profile_options: Optional[List[str]] = None,
+        on_change_delay: Optional[Callable[[int, float], None]] = None,
         **kwargs
     ):
         self.base_bg = "#0c1424" if slot_idx % 2 == 1 else "#0f192c"
@@ -72,6 +73,7 @@ class CompactSlotCard(ctk.CTkFrame):
         self.on_change_profile = on_change_profile
         self.on_toggle_point = on_toggle_point
         self.on_open_point_config = on_open_point_config
+        self.on_change_delay = on_change_delay
         self.process_options = process_options or ["--"]
         self.profile_options = profile_options or self.get_default_profile_options()
 
@@ -248,6 +250,38 @@ class CompactSlotCard(ctk.CTkFrame):
             anchor="center"
         )
         self.srv_lbl.pack(side="left", padx=2)
+
+        # 8.5 Cột Chờ ra bãi (s) (width=80px)
+        self.delay_frame = ctk.CTkFrame(self, fg_color="transparent", width=80, height=24)
+        self.delay_frame.pack(side="left", padx=3)
+        self.delay_frame.pack_propagate(False)
+
+        self.delay_var = ctk.StringVar(value="15")
+        self.delay_entry = ctk.CTkEntry(
+            self.delay_frame,
+            textvariable=self.delay_var,
+            width=42,
+            height=22,
+            font=("Segoe UI", 10, "bold"),
+            fg_color="#0b1322",
+            border_color="#1e293b",
+            border_width=1,
+            justify="center",
+            text_color="#38bdf8"
+        )
+        self.delay_entry.pack(side="left", padx=(0, 2), pady=1)
+        self.delay_entry.bind("<Return>", self._handle_delay_changed)
+        self.delay_entry.bind("<FocusOut>", self._handle_delay_changed)
+
+        self.delay_unit_lbl = ctk.CTkLabel(
+            self.delay_frame,
+            text="giây",
+            font=("Segoe UI", 9),
+            text_color=Colors.TEXT_MUTED
+        )
+        self.delay_unit_lbl.pack(side="left")
+        attach_tooltip(self.delay_entry, f"Slot {self.slot_idx}: Thời gian chờ an toàn tại Lorencia trước khi ra lại bãi train (giây). Đổi số và nhấn Enter để lưu.")
+        attach_tooltip(self.delay_frame, f"Slot {self.slot_idx}: Thời gian chờ an toàn tại Lorencia trước khi ra lại bãi train (giây).")
 
         # 9. Cột Trạng thái (Chip 100px)
         self.status_chip = ctk.CTkFrame(self, fg_color=Colors.BG_CHIP, width=100, height=24, corner_radius=Radii.XS)
@@ -474,6 +508,36 @@ class CompactSlotCard(ctk.CTkFrame):
                 pt_on = bool(state["auto_add_point"])
                 if self._auto_add_point != pt_on:
                     self.set_point_state(pt_on)
+
+            # 10. Cập nhật Thời gian chờ ra bãi nếu có
+            if "respawn_delay" in state:
+                try:
+                    if self.focus_get() != getattr(self, "delay_entry", None):
+                        self.set_respawn_delay(state["respawn_delay"])
+                except Exception:
+                    self.set_respawn_delay(state["respawn_delay"])
+        except Exception:
+            pass
+
+    def set_respawn_delay(self, val: Any):
+        try:
+            sec = int(float(val))
+            if hasattr(self, "delay_var") and self.delay_var.get() != str(sec):
+                self.delay_var.set(str(sec))
+        except Exception:
+            pass
+
+    def _handle_delay_changed(self, event=None):
+        if not hasattr(self, "delay_var"):
+            return
+        val_str = self.delay_var.get().strip()
+        try:
+            val = float(val_str)
+            if val < 3.0:
+                val = 3.0
+                self.delay_var.set(str(int(val)))
+            if self.on_change_delay:
+                self.on_change_delay(self.slot_idx, val)
         except Exception:
             pass
 

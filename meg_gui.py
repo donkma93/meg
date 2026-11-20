@@ -1043,7 +1043,7 @@ I18N = {
         "col_status": "Trạng thái",
         "col_actions": "Thao tác",
         "edit_profile": "Sửa cấu hình:",
-        "pk_delay": "Thời gian chờ PK/Hồi sinh:",
+        "pk_delay": "Thời gian chờ ra bãi (giây):",
         "reload": "Tải lại",
         "save_profile": "Lưu cấu hình",
         "team_note": "Team mặc định: 1-5=C1, 6-10=C2, ... 46-50=C10. Có thể chọn cấu hình khác cho từng dòng.",
@@ -2284,7 +2284,8 @@ class ConfigPersistenceManager:
                                 "reset_level": int(conf.get("reset_level", 400)),
                                 "stat_mode": str(conf.get("stat_mode", "auto_class")),
                                 "custom_class": str(conf.get("custom_class", "")),
-                                "stat_ratio": conf.get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
+                                "stat_ratio": conf.get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}),
+                                "respawn_delay": float(conf.get("respawn_delay", 15.0))
                             }
                         except Exception:
                             pass
@@ -2305,13 +2306,16 @@ class ConfigPersistenceManager:
         reset_level: int = 400,
         stat_mode: str = "auto_class",
         custom_class: str = "",
-        stat_ratio: Optional[Dict[str, float]] = None
+        stat_ratio: Optional[Dict[str, float]] = None,
+        respawn_delay: Optional[float] = None
     ):
         """Lưu cấu hình Auto Devil, Reset & Cộng Point của riêng Slot slot_idx."""
         with cls._lock:
             cur = cls.load_event_configs()
             if stat_ratio is None:
                 stat_ratio = cur.get(slot_idx, {}).get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
+            if respawn_delay is None:
+                respawn_delay = cur.get(slot_idx, {}).get("respawn_delay", 15.0)
             cur[slot_idx] = {
                 "auto_devil": bool(auto_devil),
                 "devil_min_resets": int(devil_min_resets),
@@ -2322,7 +2326,8 @@ class ConfigPersistenceManager:
                 "reset_level": int(reset_level),
                 "stat_mode": str(stat_mode or "auto_class"),
                 "custom_class": str(custom_class or ""),
-                "stat_ratio": stat_ratio
+                "stat_ratio": stat_ratio,
+                "respawn_delay": float(respawn_delay)
             }
             try:
                 store = {"slots": {str(k): v for k, v in sorted(cur.items(), key=lambda x: int(x[0]))}}
@@ -2465,8 +2470,19 @@ class SlotController:
                 self.custom_class = str(s_evt.get("custom_class", ""))
                 if isinstance(s_evt.get("stat_ratio"), dict):
                     self.stat_ratio = s_evt["stat_ratio"]
+                if "respawn_delay" in s_evt:
+                    self.respawn_delay = max(3.0, float(s_evt["respawn_delay"]))
         except Exception:
             pass
+
+        if not hasattr(self, "respawn_delay"):
+            self.respawn_delay = 15.0
+            try:
+                p_cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
+                if "respawn_delay" in p_cfg:
+                    self.respawn_delay = max(3.0, float(p_cfg["respawn_delay"]))
+            except Exception:
+                pass
 
     def set_profile(self, profile_idx: int):
         """Thay đổi Profile và lưu ngay vào file JSON."""
@@ -2476,10 +2492,12 @@ class SlotController:
             return
         self.profile_index = new_idx
         ConfigPersistenceManager.save_slot_assignment(self.slot_idx, self.profile_index)
+        cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
+        if "respawn_delay" in cfg:
+            self.respawn_delay = max(3.0, float(cfg["respawn_delay"]))
 
         # Nếu đang chạy Auto, nạp config mới từ file và update worker trực tiếp
         if self.worker and self.worker.running:
-            cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
             if hasattr(self.worker, 'update_config'):
                 self.worker.update_config(cfg)
             self.app.log_message(
@@ -2742,6 +2760,7 @@ class SlotController:
         cfg["stat_mode"] = self.stat_mode
         cfg["custom_class"] = self.custom_class
         cfg["stat_ratio"] = self.stat_ratio
+        cfg["respawn_delay"] = getattr(self, "respawn_delay", cfg.get("respawn_delay", 15.0))
         cfg["class_profiles"] = ConfigPersistenceManager.load_class_stat_profiles()
         stages = cfg.get("stages", [])
         if not stages:
@@ -6392,7 +6411,8 @@ class DashboardApp(ctk.CTk):
             on_stack_jewels=self.stack_all_jewels,
             on_devil_config=self.open_devil_global_config_dialog,
             on_close_games=self.on_click_close_games_ui,
-            on_open_stat_dialog=self.open_slot_stat_ratio_dialog
+            on_open_stat_dialog=self.open_slot_stat_ratio_dialog,
+            on_slot_delay_changed=self.on_slot_delay_changed
         )
         self.train_view.pack(fill="both", expand=True)
 
@@ -6408,6 +6428,8 @@ class DashboardApp(ctk.CTk):
         for i in range(1, 11):
             if i in self.train_view.cards:
                 card = self.train_view.cards[i]
+                if i <= len(self.controllers):
+                    card.set_respawn_delay(getattr(self.controllers[i - 1], "respawn_delay", 15.0))
                 self.slot_ui_elements[i] = {
                     "row_frame": card,
                     "proc_var": card.proc_var,
@@ -7650,6 +7672,12 @@ class DashboardApp(ctk.CTk):
             # Chỉ cập nhật các worker đang chạy Config này nếu stages thực sự thay đổi
             if is_changed:
                 for ctrl in self.controllers:
+                    if ctrl.profile_index == idx:
+                        ctrl.respawn_delay = respawn
+                        if hasattr(self, "train_view") and hasattr(self.train_view, "cards"):
+                            card = self.train_view.cards.get(ctrl.slot_idx)
+                            if card:
+                                card.set_respawn_delay(respawn)
                     if ctrl.profile_index == idx and ctrl.worker and ctrl.worker.running:
                         if hasattr(ctrl.worker, 'update_config'):
                             ctrl.worker.update_config(cfg)
@@ -13382,10 +13410,59 @@ class DashboardApp(ctk.CTk):
             el = self.slot_ui_elements.get(slot_idx)
             if el and el.get("profile_var"):
                 el["profile_var"].set(f"Config {p_idx}")
+            if hasattr(self, "train_view") and hasattr(self.train_view, "cards"):
+                card = self.train_view.cards.get(slot_idx)
+                if card:
+                    card.set_respawn_delay(getattr(ctrl, "respawn_delay", 15.0))
             ConfigPersistenceManager.save_all_slot_assignments(self.slot_assignments)
             self.log_message(f"[Slot {slot_idx:02d}] Đã đổi tuyến đường sang: Config {p_idx}", "INFO")
         except Exception as e:
             self.log_message(f"[Slot {slot_idx:02d}] Lỗi đổi cấu hình: {e}", "ERROR")
+
+    def on_slot_delay_changed(self, slot_idx: int, val: float):
+        """Cập nhật và lưu thời gian chờ ra bãi cho slot riêng biệt."""
+        if slot_idx > len(self.controllers):
+            while len(self.controllers) < slot_idx:
+                self.add_new_slot()
+        if not (1 <= slot_idx <= len(self.controllers)):
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        val = max(3.0, float(val))
+        ctrl.respawn_delay = val
+        if ctrl.worker and ctrl.worker.running:
+            ctrl.worker.respawn_delay = val
+            if hasattr(ctrl.worker, "config") and isinstance(ctrl.worker.config, dict):
+                ctrl.worker.config["respawn_delay"] = val
+        p_idx = getattr(ctrl, "profile_index", slot_idx)
+        try:
+            cfg = ConfigPersistenceManager.load_single_profile(p_idx)
+            cfg["respawn_delay"] = val
+            ConfigPersistenceManager.save_single_profile(p_idx, cfg)
+        except Exception:
+            pass
+        try:
+            ConfigPersistenceManager.save_event_config(
+                slot_idx=ctrl.slot_idx,
+                auto_devil=ctrl.auto_devil,
+                devil_min_resets=ctrl.devil_min_resets,
+                devil_max_resets=ctrl.devil_max_resets,
+                devil_ticket_type=ctrl.devil_ticket_type,
+                auto_reset=ctrl.auto_reset,
+                auto_add_point=ctrl.auto_add_point,
+                reset_level=ctrl.reset_level,
+                stat_mode=ctrl.stat_mode,
+                custom_class=ctrl.custom_class,
+                stat_ratio=ctrl.stat_ratio,
+                respawn_delay=val
+            )
+        except Exception:
+            pass
+        if hasattr(self, "editor_respawn_var") and getattr(self, "current_editing_profile_idx", None) == p_idx:
+            try:
+                self.editor_respawn_var.set(str(int(val)))
+            except Exception:
+                pass
+        self.log_message(f"[Slot {slot_idx:02d}] Đã lưu thời gian chờ ra bãi: {val:.0f} giây (Config {p_idx}).", "SUCCESS")
 
     def on_slot_auto_toggle(self, slot_idx: int):
         if license_client and not license_client.is_license_valid():
@@ -14229,6 +14306,37 @@ class DashboardApp(ctk.CTk):
         ent_rs_lvl.insert(0, str(ctrl.reset_level or 400))
         ctk.CTkLabel(row_rs_lvl, text="(Mặc định: 400)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#64748b").pack(side="left")
 
+        # 2.5 Thời gian chờ ra bãi Section
+        delay_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
+        delay_card.pack(fill="x", pady=(0, 10), padx=4)
+
+        delay_header = ctk.CTkLabel(
+            delay_card,
+            text="⏳ THỜI GIAN CHỜ RA BÃI (SAU KHI CHẾT / BỊ PK)",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#38bdf8"
+        )
+        delay_header.pack(anchor="w", padx=12, pady=(8, 2))
+
+        delay_sub = ctk.CTkLabel(
+            delay_card,
+            text="Thời gian chờ an toàn tại Lorencia sau khi chết hoặc bị PK trước khi tự động di chuyển ra lại bãi train.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8",
+            wraplength=460,
+            justify="left"
+        )
+        delay_sub.pack(anchor="w", padx=12, pady=(0, 6))
+
+        row_delay = ctk.CTkFrame(delay_card, fg_color="transparent")
+        row_delay.pack(fill="x", padx=12, pady=(0, 10))
+
+        ctk.CTkLabel(row_delay, text="Chờ ra bãi:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left")
+        ent_delay = ctk.CTkEntry(row_delay, width=70, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), justify="center")
+        ent_delay.pack(side="left", padx=8)
+        ent_delay.insert(0, str(int(getattr(ctrl, "respawn_delay", 15))))
+        ctk.CTkLabel(row_delay, text="giây (Tối thiểu 3s)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#64748b").pack(side="left")
+
         # 3. Stat Ratio Section - THEO CLASS & TÙY CHỌN RIÊNG
         stat_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
         stat_card.pack(fill="x", pady=(0, 10), padx=4)
@@ -14521,6 +14629,26 @@ class DashboardApp(ctk.CTk):
                 ctrl.custom_class = sel_code
                 ctrl.stat_ratio = new_ratio
 
+                try:
+                    new_delay = float(ent_delay.get().strip() or 15)
+                    if new_delay < 3.0:
+                        new_delay = 3.0
+                except Exception:
+                    new_delay = 15.0
+                ctrl.respawn_delay = new_delay
+                if hasattr(self, "train_view") and hasattr(self.train_view, "cards"):
+                    card = self.train_view.cards.get(slot_idx)
+                    if card:
+                        card.set_respawn_delay(new_delay)
+
+                p_idx = getattr(ctrl, "profile_index", slot_idx)
+                try:
+                    cfg_prof = ConfigPersistenceManager.load_single_profile(p_idx)
+                    cfg_prof["respawn_delay"] = new_delay
+                    ConfigPersistenceManager.save_single_profile(p_idx, cfg_prof)
+                except Exception:
+                    pass
+
                 ConfigPersistenceManager.save_event_config(
                     slot_idx=slot_idx,
                     auto_devil=new_ds,
@@ -14532,10 +14660,12 @@ class DashboardApp(ctk.CTk):
                     reset_level=new_rs_lvl,
                     stat_mode=applied_mode,
                     custom_class=sel_code,
-                    stat_ratio=new_ratio
+                    stat_ratio=new_ratio,
+                    respawn_delay=new_delay
                 )
 
                 if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
+                    ctrl.worker.respawn_delay = new_delay
                     ctrl.worker.update_config({
                         "auto_devil": new_ds,
                         "devil_min_resets": d_min_rs,
@@ -14547,6 +14677,7 @@ class DashboardApp(ctk.CTk):
                         "stat_mode": applied_mode,
                         "custom_class": sel_code,
                         "stat_ratio": new_ratio,
+                        "respawn_delay": new_delay,
                         "min_add_points": new_min_pts,
                         "class_profiles": fresh_profiles
                     })

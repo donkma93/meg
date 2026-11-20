@@ -16,7 +16,8 @@
         "vit": 0.1,
         "ene": 0.0,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 60.0
     },
     "2": {
       "auto_devil": true,
@@ -34,7 +35,8 @@
         "vit": 0.1,
         "ene": 0.1,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 15.0
     },
     "3": {
       "auto_devil": true,
@@ -52,7 +54,8 @@
         "vit": 0.1,
         "ene": 0.1,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 15.0
     },
     "4": {
       "auto_devil": true,
@@ -70,7 +73,8 @@
         "vit": 0.1,
         "ene": 0.1,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 15.0
     },
     "5": {
       "auto_devil": true,
@@ -88,7 +92,8 @@
         "vit": 0.1,
         "ene": 0.1,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 15.0
     },
     "6": {
       "auto_devil": true,
@@ -106,7 +111,8 @@
         "vit": 0.1,
         "ene": 0.1,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 15.0
     },
     "7": {
       "auto_devil": true,
@@ -124,7 +130,8 @@
         "vit": 0.1,
         "ene": 0.1,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 15.0
     },
     "8": {
       "auto_devil": true,
@@ -142,7 +149,8 @@
         "vit": 0.1,
         "ene": 0.1,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 15.0
     },
     "9": {
       "auto_devil": true,
@@ -160,7 +168,8 @@
         "vit": 0.1,
         "ene": 0.1,
         "cmd": 0.0
-      }
+      },
+      "respawn_delay": 15.0
     }
   }
 }

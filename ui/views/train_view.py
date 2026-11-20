@@ -43,6 +43,7 @@ class TrainSlotsView(ctk.CTkFrame):
         on_telegram_config: Optional[Callable[[], None]] = None,
         on_import_accounts: Optional[Callable[[], None]] = None,
         on_party_config: Optional[Callable[[], None]] = None,
+        on_slot_delay_changed: Optional[Callable[[int, float], None]] = None,
         **kwargs
     ):
         super().__init__(parent, fg_color="transparent", **kwargs)
@@ -69,6 +70,7 @@ class TrainSlotsView(ctk.CTkFrame):
         self.on_telegram_config = on_telegram_config
         self.on_import_accounts = on_import_accounts
         self.on_party_config = on_party_config
+        self.on_slot_delay_changed = on_slot_delay_changed
 
         self.cards: Dict[int, CompactSlotCard] = {}
         self.profile_options = CompactSlotCard.get_default_profile_options()
@@ -386,6 +388,7 @@ class TrainSlotsView(ctk.CTkFrame):
         _add_th("Cấp độ / RS", 95, anchor="w", padx=4)
         _add_th("Bản đồ & Tọa độ", 155, anchor="w", padx=4)
         _add_th("Server", 45, anchor="center", padx=2)
+        _add_th("Chờ ra bãi", 80, anchor="center", padx=3)
         _add_th("Trạng thái", 100, anchor="w", padx=4)
 
         # Đệm co giãn linh hoạt ở giữa
@@ -404,13 +407,18 @@ class TrainSlotsView(ctk.CTkFrame):
             on_change_profile=self.on_slot_profile_selected,
             profile_options=self.profile_options,
             on_toggle_point=self.on_toggle_point,
-            on_open_point_config=self.on_open_point_config
+            on_open_point_config=self.on_open_point_config,
+            on_change_delay=self.on_slot_delay_changed
         )
         card.pack(fill="x", pady=0)
         if hasattr(self, "_last_proc_options") and self._last_proc_options:
             card.set_process_options(self._last_proc_options)
         self.cards[i] = card
         return card
+
+    def set_slot_respawn_delay(self, slot_idx: int, val: float):
+        if slot_idx in self.cards:
+            self.cards[slot_idx].set_respawn_delay(val)
 
     def add_slot_card(self, slot_idx: int):
         if slot_idx in self.cards:
