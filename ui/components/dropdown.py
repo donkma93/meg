@@ -1,25 +1,54 @@
 # -*- coding: utf-8 -*-
 """
-MEGAMU DASHBOARD - MODERN DROPDOWN COMPONENT
-Dropdown menu thông minh, phong cách phẳng hiện đại:
-- Tự động kiểm tra tràn màn hình (Screen overflow check) và nảy lên trên (Flip Upwards) nếu gần đáy màn hình.
-- Tự động cuộn mượt với thanh cuộn siêu mỏng 6px (Slim Scrollbar) hài hòa Dark Theme.
-- Chiều rộng bung thông minh (Smart popup width) giúp không bao giờ bị cắt chữ.
-- Phân nhóm danh mục trực quan (Group headers & dividers) cho các mục ZEN / NGỌC.
-- Trạng thái Active có checkmark nổi bật, viền phát sáng khi Dropdown đang mở.
-- Đồng bộ chuẩn giao diện Dark Mode Flat Design.
+MEGAMU DASHBOARD - MODERN DROPDOWN COMPONENT (PREMIUM FLAT DESIGN)
+Dropdown menu cao cấp phong cách Linear / macOS / Windows 11 Fluent:
+- Viền bo kín 100%, không bao giờ bị đứt nét hay hở góc.
+- Hiệu ứng Focus Ring 2px màu Cyan phát sáng liền mạch khi mở menu.
+- Cửa sổ danh sách bo góc mượt mà với Windows 11 DWM Rounded Corners.
+- Các mục thả xuống dạng viên nang (Floating Pills) với hiệu ứng hover mượt mà.
+- Mục được chọn hiển thị viên nang phát sáng kèm dấu tích checkmark '✓' màu Cyan.
+- Tính toán chiều cao chính xác tuyệt đối, KHÔNG BAO GIỜ bị cắt xén chữ hay mất dòng cuối.
+- Tự động lật thông minh lên trên (Flip Upwards) nếu gần đáy màn hình.
+- Phân nhóm danh mục trực quan cho các mục [ZEN] và [NGỌC].
+- Đóng popup an toàn khi click ra ngoài bằng Bind ID chuyên biệt.
 """
 
 import time
 import sys
 from typing import Optional, List, Callable, Any
+import tkinter as tk
 import customtkinter as ctk
 from ui.theme import Colors, Fonts
 from ui.components.icons import UiIconFactory
 
 
+# Hỗ trợ Windows DWM bo góc cửa sổ popup
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWCP_ROUND = 2
+
+
+def _apply_dwm_rounding(window):
+    """Kích hoạt bo tròn góc cửa sổ chuẩn Windows 11 DWM."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes, c_int, byref
+        hwnd = window.winfo_id()
+        dwmapi = ctypes.windll.dwmapi
+        val = c_int(DWMWCP_ROUND)
+        dwmapi.DwmSetWindowAttribute(
+            wintypes.HWND(hwnd),
+            c_int(DWMWA_WINDOW_CORNER_PREFERENCE),
+            byref(val),
+            ctypes.sizeof(val)
+        )
+    except Exception:
+        pass
+
+
 class ModernDropdown(ctk.CTkFrame):
-    """Dropdown menu hiện đại thông minh chống tràn màn hình với phong cách thiết kế cao cấp."""
+    """Dropdown menu hiện đại thông minh chống tràn màn hình với thiết kế cao cấp."""
 
     def __init__(
         self,
@@ -29,7 +58,7 @@ class ModernDropdown(ctk.CTkFrame):
         command: Optional[Callable[[str], Any]] = None,
         width: int = 140,
         height: int = 32,
-        font: Optional[ctk.CTkFont] = None,
+        font: Optional[Any] = None,
         fg_color: Optional[str] = None,
         border_color: Optional[str] = None,
         hover_color: Optional[str] = None,
@@ -65,19 +94,20 @@ class ModernDropdown(ctk.CTkFrame):
         self._base_border = base_border
         self._hover_bg = hover_color or Colors.BG_CARD_HOVER
         self._text_color = text_color or Colors.TEXT_MAIN
-        self._font = font or Fonts.CAPTION
+        self._font = font or Fonts.BODY_BOLD
         self._req_width = width
         self._req_height = height
-        self._popup_min_width = popup_min_width or 240
+        self._popup_min_width = popup_min_width or max(140, width)
         self._last_close_time = 0.0
         self.on_open = on_open
 
         self.values = list(values) if values else ["--"]
         self.variable = variable or ctk.StringVar(value=self.values[0] if self.values else "--")
         self.command = command
-        self._popup = None
+        self._popup: Optional[tk.Toplevel] = None
+        self._global_bind_id: Optional[str] = None
 
-        # Text hiển thị giá trị hiện tại
+        # Text hiển thị giá trị hiện tại (có padding để không đè viền)
         self._lbl = ctk.CTkLabel(
             self,
             text=self.variable.get(),
@@ -85,7 +115,7 @@ class ModernDropdown(ctk.CTkFrame):
             text_color=self._text_color,
             anchor="w"
         )
-        self._lbl.pack(side="left", fill="both", expand=True, padx=(8, 4))
+        self._lbl.pack(side="left", fill="both", expand=True, padx=(10, 4), pady=(2, 2))
 
         # Vector Icon Chevron Down
         self._chevron = ctk.CTkLabel(
@@ -93,7 +123,7 @@ class ModernDropdown(ctk.CTkFrame):
             text="",
             image=UiIconFactory.get("chevron_down", color="#94a3b8", size=(10, 10))
         )
-        self._chevron.pack(side="right", padx=(0, 8))
+        self._chevron.pack(side="right", padx=(0, 8), pady=(2, 2))
 
         # Đồng bộ khi biến StringVar thay đổi từ bên ngoài
         try:
@@ -110,11 +140,11 @@ class ModernDropdown(ctk.CTkFrame):
 
     def _on_enter(self):
         if not self._popup or not self._popup.winfo_exists():
-            self.configure(fg_color=self._hover_bg, border_color="#334155")
+            self.configure(fg_color=self._hover_bg, border_color="#38bdf8")
 
     def _on_leave(self):
         if not self._popup or not self._popup.winfo_exists():
-            self.configure(fg_color=self._base_fg, border_color=self._base_border)
+            self.configure(fg_color=self._base_fg, border_color=self._base_border, border_width=1)
 
     def _on_var_changed(self):
         val = self.variable.get() if self.variable else "--"
@@ -138,18 +168,37 @@ class ModernDropdown(ctk.CTkFrame):
         self._close_popup()
         self.update_idletasks()
 
-        # Hiệu ứng Active Focus cho trigger button
-        self.configure(border_color=Colors.BORDER_FOCUS, fg_color=self._hover_bg)
+        # Hiệu ứng Active Focus Ring 2px hoàn toàn kín, không hở góc
+        self.configure(border_width=2, border_color=Colors.BORDER_FOCUS, fg_color=self._hover_bg)
         try:
-            self._chevron.configure(image=UiIconFactory.get("chevron_down", color=Colors.CYAN, size=(10, 10)))
+            self._chevron.configure(image=UiIconFactory.get("chevron_up", color=Colors.CYAN, size=(10, 10)))
         except Exception:
             pass
 
+        num_items = len(self.values)
+        item_h = 28
+        item_spacing = 2
+        outer_pad = 14  # 6px top + 6px bottom + 2px border
+
+        # Kiểm tra danh mục phân nhóm (ZEN vs NGỌC)
+        has_zen = any("[ZEN]" in str(v) for v in self.values)
+        has_ngoc = any("[NGỌC]" in str(v) for v in self.values)
+        has_groups = has_zen and has_ngoc
+        header_extra = 60 if has_groups else 0
+
+        total_content_h = num_items * (item_h + item_spacing) + header_extra + outer_pad
+
+        # Nếu danh sách <= 10 items (như Config 1..10): Hiển thị TRỌN VẸN 100%, không cắt xén
+        # Nếu > 10 items: giới hạn tối đa 350px và bật cuộn mượt
+        needs_scroll = (total_content_h > 350 or num_items > 11)
+        h = min(350, total_content_h) if needs_scroll else total_content_h
+
+        # Tính toán tọa độ hiển thị (Floating gap 4px bên dưới trigger)
         rx = self.winfo_rootx()
-        ry = self.winfo_rooty() + self.winfo_height() + 3
+        ry = self.winfo_rooty() + self.winfo_height() + 4
         w = max(self.winfo_width(), self._req_width, self._popup_min_width)
 
-        # Kiểm tra tràn lề phải màn hình (Right screen bounds check)
+        # Kiểm tra tràn lề phải màn hình
         try:
             screen_w = self.winfo_screenwidth()
             if rx + w > screen_w - 12:
@@ -157,134 +206,174 @@ class ModernDropdown(ctk.CTkFrame):
         except Exception:
             pass
 
-        num_items = len(self.values)
-        item_h = 28
-
-        # Kiểm tra xem danh sách có phân nhóm (ZEN vs NGỌC) hay không
-        has_zen = any("[ZEN]" in str(v) for v in self.values)
-        has_ngoc = any("[NGỌC]" in str(v) for v in self.values)
-        has_groups = has_zen and has_ngoc
-        header_extra = 52 if has_groups else 0
-
-        total_content_h = num_items * (item_h + 2) + header_extra + 12
-        h = max(36, min(290, total_content_h))
-
-        # Kiểm tra tràn đáy màn hình (FLIP UPWARDS)
+        # Kiểm tra tràn đáy màn hình (FLIP UPWARDS nếu chạm đáy)
         try:
             screen_h = self.winfo_screenheight()
-            if ry + h > screen_h - 45:
-                # Nảy lên trên nút
-                ry = max(10, self.winfo_rooty() - h - 3)
+            if ry + h > screen_h - 40:
+                ry = max(10, self.winfo_rooty() - h - 4)
         except Exception:
             pass
 
-        self._popup = ctk.CTkToplevel(self)
+        # Tạo popup bằng Native Toplevel cực nhanh
+        self._popup = tk.Toplevel(self)
         self._popup.overrideredirect(True)
         self._popup.attributes("-topmost", True)
         self._popup.geometry(f"{w}x{h}+{rx}+{ry}")
+        self._popup.configure(bg="#0b1220")
 
-        outer = ctk.CTkFrame(
+        # Áp dụng Windows 11 DWM bo góc mượt mà
+        _apply_dwm_rounding(self._popup)
+
+        # Khung viền ngoài tinh tế (Subtle glowing border)
+        border_frame = tk.Frame(
             self._popup,
-            fg_color="#0e1626",
-            border_width=1,
-            border_color="#2b3b57",
-            corner_radius=8
+            bg="#0b1220",
+            highlightthickness=1,
+            highlightbackground="#243452",
+            highlightcolor="#38bdf8"
         )
-        outer.pack(fill="both", expand=True)
-
-        needs_scroll = (total_content_h > 290 or num_items > 7)
-        if needs_scroll:
-            container = ctk.CTkScrollableFrame(
-                outer,
-                fg_color="transparent",
-                scrollbar_fg_color="transparent",
-                scrollbar_button_color="#243149",
-                scrollbar_button_hover_color="#38bdf8",
-                corner_radius=0
-            )
-            try:
-                container._scrollbar.configure(width=6, corner_radius=3)
-            except Exception:
-                pass
-            container.pack(fill="both", expand=True, padx=3, pady=3)
-        else:
-            container = ctk.CTkFrame(outer, fg_color="transparent")
-            container.pack(fill="both", expand=True, padx=3, pady=3)
+        border_frame.pack(fill="both", expand=True)
 
         cur_val = self.variable.get() if self.variable else ""
-        current_group = None
+        font_family = self._font[0] if isinstance(self._font, (tuple, list)) else "Segoe UI"
+        font_size = 10
+        font_normal = (font_family, font_size)
+        font_active = (font_family, font_size, "bold")
 
-        font_family = self._font[0] if isinstance(self._font, tuple) else "Segoe UI"
-        font_active = (font_family, 10, "bold")
-        font_normal = (font_family, 10)
+        if needs_scroll:
+            canvas = tk.Canvas(border_frame, bg="#0b1220", highlightthickness=0, bd=0)
+            items_frame = tk.Frame(canvas, bg="#0b1220")
+            canvas_win = canvas.create_window((0, 0), window=items_frame, anchor="nw")
+
+            def _on_frame_cfg(event):
+                canvas.configure(scrollregion=canvas.bbox("all"))
+
+            def _on_canvas_cfg(event):
+                canvas.itemconfig(canvas_win, width=event.width)
+
+            items_frame.bind("<Configure>", _on_frame_cfg)
+            canvas.bind("<Configure>", _on_canvas_cfg)
+
+            def _on_wheel(event):
+                if hasattr(event, "delta") and event.delta:
+                    direction = -1 if event.delta > 0 else 1
+                    canvas.yview_scroll(direction * 2, "units")
+
+            canvas.bind("<MouseWheel>", _on_wheel)
+            items_frame.bind("<MouseWheel>", _on_wheel)
+            canvas.pack(fill="both", expand=True, padx=6, pady=6)
+            container = items_frame
+            wheel_target = canvas
+        else:
+            container = tk.Frame(border_frame, bg="#0b1220")
+            container.pack(fill="both", expand=True, padx=6, pady=6)
+            wheel_target = None
+
+        current_group = None
 
         for val in self.values:
             val_str = str(val)
 
-            # Tạo Header phân loại tự động nếu có nhóm ZEN / NGỌC
+            # Phân loại nhóm ZEN vs NGỌC
             if has_groups:
                 if "[ZEN]" in val_str and current_group != "zen":
                     current_group = "zen"
-                    hdr = ctk.CTkLabel(
+                    hdr = tk.Label(
                         container,
                         text="  💰  QUAY BẰNG ZEN (1M - 2M ZEN)",
                         font=(font_family, 9, "bold"),
-                        text_color="#f59e0b",
-                        anchor="w"
+                        fg="#f59e0b",
+                        bg="#0b1220",
+                        anchor="w",
+                        pady=4
                     )
-                    hdr.pack(fill="x", padx=6, pady=(3, 1))
+                    hdr.pack(fill="x", padx=4, pady=(2, 2))
                 elif "[NGỌC]" in val_str and current_group != "ngoc":
                     current_group = "ngoc"
-                    div = ctk.CTkFrame(container, height=1, fg_color="#1e293b")
-                    div.pack(fill="x", padx=6, pady=(5, 3))
-                    hdr = ctk.CTkLabel(
+                    div = tk.Frame(container, height=1, bg="#1e293b")
+                    div.pack(fill="x", padx=4, pady=(6, 4))
+                    hdr = tk.Label(
                         container,
                         text="  💎  QUAY BẰNG NGỌC (MUUN & HIẾM)",
                         font=(font_family, 9, "bold"),
-                        text_color="#c084fc",
-                        anchor="w"
+                        fg="#c084fc",
+                        bg="#0b1220",
+                        anchor="w",
+                        pady=4
                     )
-                    hdr.pack(fill="x", padx=6, pady=(1, 1))
+                    hdr.pack(fill="x", padx=4, pady=(2, 2))
 
             is_active = (val == cur_val)
-            if is_active:
-                btn_text = f"  ✓  {val}"
-                btn_fg = "#14243f"
-                btn_border = 1
-                border_c = "#2563eb"
-                txt_c = Colors.CYAN
-                btn_font = font_active
-            else:
-                btn_text = f"      {val}"
-                btn_fg = "transparent"
-                btn_border = 0
-                border_c = None
-                txt_c = "#e2e8f0"
-                btn_font = font_normal
+            item_bg = "#132746" if is_active else "#0b1220"
+            item_fg = Colors.CYAN if is_active else "#cbd5e1"
+            item_font = font_active if is_active else font_normal
+            prefix = " ✓ " if is_active else "   "
 
-            btn_kwargs = {
-                "master": container,
-                "text": btn_text,
-                "anchor": "w",
-                "height": item_h,
-                "corner_radius": 6,
-                "font": btn_font,
-                "fg_color": btn_fg,
-                "border_width": btn_border,
-                "hover_color": "#182338",
-                "text_color": txt_c,
-                "command": lambda v=val: self._on_select(v),
-            }
-            if border_c is not None:
-                btn_kwargs["border_color"] = border_c
+            # Từng mục thả xuống thiết kế dạng viên nang (Floating Pill)
+            row = tk.Frame(container, bg=item_bg, height=item_h, cursor="hand2")
+            row.pack(fill="x", pady=1)
+            row.pack_propagate(False)
 
-            btn = ctk.CTkButton(**btn_kwargs)
-            btn.pack(fill="x", padx=2, pady=1)
+            lbl_chk = tk.Label(
+                row,
+                text=prefix,
+                font=(font_family, font_size, "bold"),
+                fg=Colors.CYAN if is_active else "#475569",
+                bg=item_bg,
+                cursor="hand2"
+            )
+            lbl_chk.pack(side="left", padx=(6, 2))
 
-        # Lắng nghe click bên ngoài thông qua root toplevel
+            lbl_txt = tk.Label(
+                row,
+                text=val_str,
+                font=item_font,
+                fg=item_fg,
+                bg=item_bg,
+                anchor="w",
+                cursor="hand2"
+            )
+            lbl_txt.pack(side="left", fill="both", expand=True, padx=(0, 8))
+
+            # Hiệu ứng hover viên nang (Pill Hover Transition)
+            def _bind_item(r, chk, txt, v, active):
+                def _enter(e):
+                    if not active:
+                        r.configure(bg="#18243c")
+                        chk.configure(bg="#18243c")
+                        txt.configure(bg="#18243c", fg="#ffffff")
+                    else:
+                        r.configure(bg="#17355a")
+                        chk.configure(bg="#17355a")
+                        txt.configure(bg="#17355a")
+
+                def _leave(e):
+                    if not active:
+                        r.configure(bg="#0b1220")
+                        chk.configure(bg="#0b1220")
+                        txt.configure(bg="#0b1220", fg="#cbd5e1")
+                    else:
+                        r.configure(bg="#132746")
+                        chk.configure(bg="#132746")
+                        txt.configure(bg="#132746")
+
+                def _click(e):
+                    self._on_select(v)
+
+                for widget in (r, chk, txt):
+                    widget.bind("<Enter>", _enter)
+                    widget.bind("<Leave>", _leave)
+                    widget.bind("<Button-1>", _click)
+                    if wheel_target:
+                        widget.bind("<MouseWheel>", lambda e: wheel_target.yview_scroll(-1 if e.delta > 0 else 1, "units"))
+
+            _bind_item(row, lbl_chk, lbl_txt, val, is_active)
+
+        # Lắng nghe click bên ngoài an toàn (KHÔNG dùng unbind_all)
         try:
             top_win = self.winfo_toplevel()
-            self._popup.after(80, lambda: top_win.bind_all("<Button-1>", self._on_global_click, add="+"))
+            self._global_bind_id = top_win.bind("<Button-1>", self._on_global_click, add="+")
+            self._popup.bind("<Escape>", lambda e: self._close_popup())
         except Exception:
             pass
 
@@ -303,19 +392,23 @@ class ModernDropdown(ctk.CTkFrame):
 
     def _close_popup(self):
         self._last_close_time = time.time()
-        try:
-            top_win = self.winfo_toplevel()
-            top_win.unbind_all("<Button-1>")
-        except Exception:
-            pass
+        if self._global_bind_id:
+            try:
+                top_win = self.winfo_toplevel()
+                top_win.unbind("<Button-1>", self._global_bind_id)
+            except Exception:
+                pass
+            self._global_bind_id = None
+
         if self._popup:
             try:
                 self._popup.destroy()
             except Exception:
                 pass
             self._popup = None
-        # Khôi phục trạng thái viền và chevron
-        self.configure(fg_color=self._base_fg, border_color=self._base_border)
+
+        # Khôi phục trạng thái viền 1px và chevron
+        self.configure(border_width=1, fg_color=self._base_fg, border_color=self._base_border)
         try:
             self._chevron.configure(image=UiIconFactory.get("chevron_down", color="#94a3b8", size=(10, 10)))
         except Exception:
@@ -325,7 +418,10 @@ class ModernDropdown(ctk.CTkFrame):
         self.set(value)
         self._close_popup()
         if self.command:
-            self.command(value)
+            try:
+                self.command(value)
+            except Exception:
+                pass
 
     def set(self, value: str):
         self.variable.set(value)

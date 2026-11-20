@@ -97,6 +97,15 @@ class SlotSettingsModal(ctk.CTkToplevel):
         self.entry_y.insert(0, str(self.config.get("y", 125)))
         self.entry_y.pack(side="left")
 
+        row_delay = ctk.CTkFrame(body, fg_color="transparent")
+        row_delay.pack(fill="x", pady=(0, 12))
+
+        ctk.CTkLabel(row_delay, text="Chờ ra bãi:", font=Fonts.BODY, width=70, anchor="w").pack(side="left")
+        self.entry_delay = ctk.CTkEntry(row_delay, width=60, font=Fonts.BODY, fg_color=Colors.BG_INPUT, justify="center")
+        self.entry_delay.insert(0, str(int(self.config.get("respawn_delay", 15))))
+        self.entry_delay.pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(row_delay, text="giây (sau khi chết/PK)", font=Fonts.CAPTION, text_color=Colors.TEXT_MUTED).pack(side="left")
+
         # 2. Tự động bảo trì & Dọn rác
         ctk.CTkLabel(body, text="🛡️ TỰ ĐỘNG BẢO TRÌ NHÂN VẬT", font=Fonts.BADGE, text_color=Colors.CYAN).pack(anchor="w", pady=(4, 6))
 
@@ -191,10 +200,18 @@ class SlotSettingsModal(ctk.CTkToplevel):
         except Exception:
             x, y = 125, 125
 
+        try:
+            respawn_delay = float(self.entry_delay.get().strip() or 15)
+            if respawn_delay < 3.0:
+                respawn_delay = 3.0
+        except Exception:
+            respawn_delay = 15.0
+
         saved_data = {
             "map": self.map_var.get(),
             "x": x,
             "y": y,
+            "respawn_delay": respawn_delay,
             "auto_repair": self.auto_repair_var.get(),
             "auto_clean_trash": self.auto_clean_var.get(),
             "mirror_enabled": self.mirror_var.get(),

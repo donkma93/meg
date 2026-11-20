@@ -67,7 +67,10 @@
                         "x": 166,
                         "y": 200
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "2": {
@@ -90,7 +93,7 @@
                     {
                         "min_level": 1,
                         "max_level": 69,
-                        "map_name": "Noria",
+                        "map_name": "Lorencia",
                         "x": 117,
                         "y": 96
                     },
@@ -123,13 +126,23 @@
                         "y": 200
                     },
                     {
-                        "min_level": 400,
-                        "max_level": 400,
+                        "min_level": 55,
+                        "max_level": 55,
                         "map_name": "Arena",
                         "x": 67,
                         "y": 7
+                    },
+                    {
+                        "min_level": 400,
+                        "max_level": 1000,
+                        "map_name": "Noria",
+                        "x": 145,
+                        "y": 130
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "3": {
@@ -191,7 +204,10 @@
                         "x": 68,
                         "y": 6
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "4": {
@@ -253,7 +269,10 @@
                         "x": 90,
                         "y": 23
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "5": {
@@ -301,7 +320,10 @@
                         "x": 224,
                         "y": 12
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "6": {
@@ -349,14 +371,17 @@
                         "x": 210,
                         "y": 66
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "7": {
             "name": "Config 7",
             "config": {
                 "glide_speed": 3.5,
-                "respawn_delay": 15,
+                "respawn_delay": 60.0,
                 "map_load_delay": 1.8,
                 "level1_delay": 4.0,
                 "arrive_distance": 2.0,
@@ -390,7 +415,10 @@
                         "x": 236,
                         "y": 21
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "8": {
@@ -438,7 +466,10 @@
                         "x": 90,
                         "y": 23
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "9": {
@@ -486,7 +517,10 @@
                         "x": 15,
                         "y": 13
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         },
         "10": {
@@ -534,7 +568,10 @@
                         "x": 60,
                         "y": 115
                     }
-                ]
+                ],
+                "evade_on_kill": true,
+                "evade_safe_map": "lorencia",
+                "evade_cooldown_minutes": 10.0
             }
         }
     }

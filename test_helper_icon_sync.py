@@ -16,13 +16,13 @@ with open("config/megamu_offsets.json", "r", encoding="utf-8") as f:
     sub_cfg = json.load(f)
 
 expected_keys = {
-    "ui_location_frame": "0x80",
+    "ui_location_frame": "0x88",
     "location_helper_on": "0x60",
     "location_helper_off": "0x68",
-    "location_update_helper": "0x25A5750",
-    "helper_send_bf51": "0x277BDD0",
-    "helper_req_start": "0x27776F0",
-    "helper_req_stop": "0x277C760",
+    "location_update_helper": "0x26A2E80",
+    "helper_send_bf51": "0x472030",
+    "helper_req_start": "0x478B40",
+    "helper_req_stop": "0x469600",
 }
 
 for k, v in expected_keys.items():

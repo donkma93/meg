@@ -1,8 +1,21 @@
 {
-    "enabled": true,
+    "enabled": false,
+    "mode": "custom",
     "leader_slot": 1,
     "party_pass": "1234",
     "auto_re_pass": true,
-    "auto_reconnect": true,
-    "sync_interval_sec": 6.0
+    "auto_reconnect": false,
+    "sync_interval_sec": 6.0,
+    "parties": [
+        {
+            "id": 1,
+            "name": "PT 1",
+            "leader_slot": 1,
+            "member_slots": [
+                2
+            ],
+            "party_pass": "1234"
+        }
+    ],
+    "auto_confirm_party": true
 }

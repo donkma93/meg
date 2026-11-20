@@ -104,7 +104,7 @@ except ImportError:
 # HẰNG SỐ & ĐƯỜNG DẪN TỆP
 # ==============================================================================
 APP_NAME = "MEGAMU Auto Train Dashboard"
-APP_VERSION = "v1.6.1"
+APP_VERSION = "v1.6.4"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
 CURRENT_LICENSE = "Dùng thử"
@@ -1043,7 +1043,7 @@ I18N = {
         "col_status": "Trạng thái",
         "col_actions": "Thao tác",
         "edit_profile": "Sửa cấu hình:",
-        "pk_delay": "Thời gian chờ PK/Hồi sinh:",
+        "pk_delay": "Thời gian chờ ra bãi (giây):",
         "reload": "Tải lại",
         "save_profile": "Lưu cấu hình",
         "team_note": "Team mặc định: 1-5=C1, 6-10=C2, ... 46-50=C10. Có thể chọn cấu hình khác cho từng dòng.",
@@ -1805,7 +1805,10 @@ class ConfigPersistenceManager:
             "poll_interval": 0.55,
             "reset_confirm_seconds": 1.5,
             "map_command_retry_delay": 4.5,
-            "map_verify_unknown_timeout": 6.0
+            "map_verify_unknown_timeout": 6.0,
+            "evade_on_kill": True,
+            "evade_safe_map": "lorencia",
+            "evade_cooldown_minutes": 10.0
         }
 
     @classmethod
@@ -2075,21 +2078,43 @@ class ConfigPersistenceManager:
                     sched = data.get("schedule", {})
                     sel = data.get("selected_slots", None)
                     raw_pf = float(sched.get("prefire_sec", 2.0))
-                    raw_int = int(sched.get("interval_ms", 35) or 35)
+                    raw_int_val = sched.get("interval_ms", sched.get("snipe_interval_ms", 10))
+                    raw_int = int(raw_int_val) if raw_int_val is not None else 10
                     raw_dur = float(sched.get("max_duration_s", 15.0) or 15.0)
+                    raw_stag_val = sched.get("stagger_ms", 0)
+                    raw_stag = int(raw_stag_val) if raw_stag_val is not None else 0
+                    raw_offset_val = sched.get("clock_offset_ms", 0.0)
+                    raw_offset = float(raw_offset_val) if raw_offset_val is not None else 0.0
                     return {
                         "auto_schedule": bool(sched.get("auto_schedule", True)),
                         "auto_prep_before": bool(sched.get("auto_prep_before", True)),
                         "auto_lifecycle": bool(sched.get("auto_lifecycle", True)),
                         "auto_gremory": bool(sched.get("auto_gremory", True)),
+                        "zero_confirm": bool(sched.get("zero_confirm", True)),
                         "prefire_sec": raw_pf,
                         "interval_ms": raw_int,
+                        "snipe_interval_ms": raw_int,
+                        "stagger_ms": raw_stag,
+                        "clock_offset_ms": raw_offset,
                         "max_duration_s": raw_dur,
                         "selected_slots": sel
                     }
                 except Exception:
                     pass
-            return {"auto_schedule": True, "auto_prep_before": True, "auto_lifecycle": True, "auto_gremory": True, "prefire_sec": 2.0, "interval_ms": 35, "max_duration_s": 15.0, "selected_slots": None}
+            return {
+                "auto_schedule": True,
+                "auto_prep_before": True,
+                "auto_lifecycle": True,
+                "auto_gremory": True,
+                "zero_confirm": True,
+                "prefire_sec": 2.0,
+                "interval_ms": 10,
+                "snipe_interval_ms": 10,
+                "stagger_ms": 0,
+                "clock_offset_ms": 0.0,
+                "max_duration_s": 15.0,
+                "selected_slots": None
+            }
 
     @classmethod
     def save_mirror_schedule_config(
@@ -2100,8 +2125,11 @@ class ConfigPersistenceManager:
         auto_lifecycle: bool = True,
         auto_gremory: bool = True,
         selected_slots: Optional[List[int]] = None,
-        interval_ms: int = 35,
+        interval_ms: Optional[int] = None,
         max_duration_s: float = 15.0,
+        zero_confirm: bool = True,
+        stagger_ms: int = 0,
+        clock_offset_ms: float = 0.0,
     ):
         """Lưu cấu hình Lịch Trình Auto Double Goer / Mirror kèm danh sách tài khoản được chọn."""
         if isinstance(auto_schedule, dict):
@@ -2110,11 +2138,17 @@ class ConfigPersistenceManager:
             prefire_sec = cfg_dict.get("prefire_sec", 2.0)
             auto_lifecycle = cfg_dict.get("auto_lifecycle", True)
             auto_gremory = cfg_dict.get("auto_gremory", True)
-            interval_ms = cfg_dict.get("interval_ms", 35)
+            zero_confirm = cfg_dict.get("zero_confirm", True)
+            iv_val = cfg_dict.get("interval_ms", cfg_dict.get("snipe_interval_ms", 10))
+            interval_ms = int(iv_val) if iv_val is not None else 10
             max_duration_s = cfg_dict.get("max_duration_s", 15.0)
+            stagger_ms = int(cfg_dict.get("stagger_ms", 0) or 0)
+            clock_offset_ms = float(cfg_dict.get("clock_offset_ms", 0.0) or 0.0)
             if selected_slots is None and "selected_slots" in cfg_dict:
                 selected_slots = cfg_dict["selected_slots"]
             auto_schedule = cfg_dict.get("auto_schedule", True)
+        if interval_ms is None:
+            interval_ms = 10
         with cls._lock:
             try:
                 store = {}
@@ -2128,8 +2162,12 @@ class ConfigPersistenceManager:
                     "auto_prep_before": bool(auto_prep_before),
                     "auto_lifecycle": bool(auto_lifecycle),
                     "auto_gremory": bool(auto_gremory),
+                    "zero_confirm": bool(zero_confirm),
                     "prefire_sec": float(prefire_sec),
                     "interval_ms": int(interval_ms),
+                    "snipe_interval_ms": int(interval_ms),
+                    "stagger_ms": int(stagger_ms),
+                    "clock_offset_ms": float(clock_offset_ms),
                     "max_duration_s": float(max_duration_s),
                     "interval_hours": 2,
                     "prep_minutes_before": 5,
@@ -2246,7 +2284,8 @@ class ConfigPersistenceManager:
                                 "reset_level": int(conf.get("reset_level", 400)),
                                 "stat_mode": str(conf.get("stat_mode", "auto_class")),
                                 "custom_class": str(conf.get("custom_class", "")),
-                                "stat_ratio": conf.get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
+                                "stat_ratio": conf.get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0}),
+                                "respawn_delay": float(conf.get("respawn_delay", 15.0))
                             }
                         except Exception:
                             pass
@@ -2267,13 +2306,16 @@ class ConfigPersistenceManager:
         reset_level: int = 400,
         stat_mode: str = "auto_class",
         custom_class: str = "",
-        stat_ratio: Optional[Dict[str, float]] = None
+        stat_ratio: Optional[Dict[str, float]] = None,
+        respawn_delay: Optional[float] = None
     ):
         """Lưu cấu hình Auto Devil, Reset & Cộng Point của riêng Slot slot_idx."""
         with cls._lock:
             cur = cls.load_event_configs()
             if stat_ratio is None:
                 stat_ratio = cur.get(slot_idx, {}).get("stat_ratio", {"str": 0.4, "agi": 0.4, "vit": 0.1, "ene": 0.1, "cmd": 0.0})
+            if respawn_delay is None:
+                respawn_delay = cur.get(slot_idx, {}).get("respawn_delay", 15.0)
             cur[slot_idx] = {
                 "auto_devil": bool(auto_devil),
                 "devil_min_resets": int(devil_min_resets),
@@ -2284,7 +2326,8 @@ class ConfigPersistenceManager:
                 "reset_level": int(reset_level),
                 "stat_mode": str(stat_mode or "auto_class"),
                 "custom_class": str(custom_class or ""),
-                "stat_ratio": stat_ratio
+                "stat_ratio": stat_ratio,
+                "respawn_delay": float(respawn_delay)
             }
             try:
                 store = {"slots": {str(k): v for k, v in sorted(cur.items(), key=lambda x: int(x[0]))}}
@@ -2427,8 +2470,19 @@ class SlotController:
                 self.custom_class = str(s_evt.get("custom_class", ""))
                 if isinstance(s_evt.get("stat_ratio"), dict):
                     self.stat_ratio = s_evt["stat_ratio"]
+                if "respawn_delay" in s_evt:
+                    self.respawn_delay = max(3.0, float(s_evt["respawn_delay"]))
         except Exception:
             pass
+
+        if not hasattr(self, "respawn_delay"):
+            self.respawn_delay = 15.0
+            try:
+                p_cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
+                if "respawn_delay" in p_cfg:
+                    self.respawn_delay = max(3.0, float(p_cfg["respawn_delay"]))
+            except Exception:
+                pass
 
     def set_profile(self, profile_idx: int):
         """Thay đổi Profile và lưu ngay vào file JSON."""
@@ -2438,10 +2492,12 @@ class SlotController:
             return
         self.profile_index = new_idx
         ConfigPersistenceManager.save_slot_assignment(self.slot_idx, self.profile_index)
+        cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
+        if "respawn_delay" in cfg:
+            self.respawn_delay = max(3.0, float(cfg["respawn_delay"]))
 
         # Nếu đang chạy Auto, nạp config mới từ file và update worker trực tiếp
         if self.worker and self.worker.running:
-            cfg = ConfigPersistenceManager.load_single_profile(self.profile_index)
             if hasattr(self.worker, 'update_config'):
                 self.worker.update_config(cfg)
             self.app.log_message(
@@ -2704,6 +2760,7 @@ class SlotController:
         cfg["stat_mode"] = self.stat_mode
         cfg["custom_class"] = self.custom_class
         cfg["stat_ratio"] = self.stat_ratio
+        cfg["respawn_delay"] = getattr(self, "respawn_delay", cfg.get("respawn_delay", 15.0))
         cfg["class_profiles"] = ConfigPersistenceManager.load_class_stat_profiles()
         stages = cfg.get("stages", [])
         if not stages:
@@ -3651,7 +3708,7 @@ class SlotController:
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland..."
             ))
-            eng.send_chat("/move Elbeland")
+            eng.send_chat("/m Elbeland")
             time.sleep(2.0)
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."
@@ -4310,7 +4367,7 @@ class SlotController:
 
             if need_warp:
                 self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland..."))
-                eng.send_chat("/move Elbeland")
+                eng.send_chat("/m Elbeland")
                 time.sleep(1.8)
 
             self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."))
@@ -5450,8 +5507,16 @@ class SlotController:
         self.stop_mirror_activity()
         self.app.append_mirror_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏹️ Đã dừng Auto Double Goer.")
 
-    def start_mirror_turbo_sniping(self, interval_ms: int = 35, max_duration_s: float = 15.0, barrier: Optional[threading.Barrier] = None) -> bool:
-        """Kích hoạt chế độ Turbo Sniping (Spam Packet tốc độ cao) để cướp cổng Double Goer."""
+    def start_mirror_turbo_sniping(
+        self,
+        interval_ms: int = 10,
+        max_duration_s: float = 15.0,
+        barrier: Optional[threading.Barrier] = None,
+        start_at_epoch_ms: int = 0,
+        stagger_ms: int = 0,
+        zero_confirm: bool = True,
+    ) -> bool:
+        """Kích hoạt chế độ Turbo Sniping (Bắn liên tiếp Direct Socket + Zero-Confirm bỏ qua toàn bộ popup) để cướp cổng Double Goer."""
         if license_client and not license_client.has_license_module("mirror"):
             self.app.append_mirror_log(f"[Slot {self.slot_idx:02d}] ❌ Bản quyền chưa kích hoạt Module Mirror of Dimensions!")
             if barrier:
@@ -5527,39 +5592,72 @@ class SlotController:
 
         self.mirror_sniping = True
         self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=True)
-        self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms)", text_color="#c084fc")
+        zc_tag = " · Zero-Confirm" if zero_confirm else ""
+        self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms{zc_tag})", text_color="#c084fc")
 
-        # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, chạy trực tiếp trong RAM Game)
+        # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, Direct Socket + Zero-Confirm chạy trực tiếp trong RAM Game)
         native_started = False
-        if hasattr(eng, "start_native_mirror_turbo"):
+        turbo_opts = {
+            "directSocket": True,
+            "ackPaced": True,
+            "continuousBurst": True,
+            "zeroConfirm": bool(zero_confirm),
+            "suppressDialogs": bool(zero_confirm),
+            "staggerMs": int(stagger_ms or 0),
+        }
+        now_ms_py = int(time.time() * 1000)
+        use_arm = bool(start_at_epoch_ms and int(start_at_epoch_ms) > (now_ms_py + 10) and hasattr(eng, "arm_native_mirror_turbo"))
+
+        if hasattr(eng, "start_native_mirror_turbo") or use_arm:
             def _on_native_event(payload):
                 p_type = payload.get("type")
                 if p_type == "mirror_turbo_entered":
                     pkts = payload.get("packets", 0)
                     dur_ms = payload.get("elapsed", 0)
+                    sup_d = payload.get("suppressedDialogs", 0)
+                    sup_c = payload.get("suppressedConfirms", 0)
+                    sup_txt = f" | Đã bỏ qua {sup_d + sup_c} thông báo" if (sup_d + sup_c) > 0 else ""
                     self.mirror_sniping = False
                     self.cached_mirror_ticket_slot = -1
                     self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {pkts} packets (Native {dur_ms}ms)!"
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {pkts} packets (Native {dur_ms}ms{sup_txt})!"
                     ))
                     self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
                     # Kích hoạt ngay chu trình tự động trong map Double Goer (đợi hết giờ chuẩn bị -> bước ra khỏi Safe Zone -> bật Helper -> săn 3 rương)
                     self.run_mirror_in_dungeon_lifecycle(force=True)
                 elif p_type == "mirror_turbo_timeout":
                     pkts = payload.get("packets", 0)
+                    sup_d = payload.get("suppressedDialogs", 0)
+                    sup_c = payload.get("suppressedConfirms", 0)
+                    sup_txt = f" | Bỏ qua {sup_d + sup_c} popup" if (sup_d + sup_c) > 0 else ""
                     self.mirror_sniping = False
                     self.cached_mirror_ticket_slot = -1
                     self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {pkts} packets (Native)."
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {pkts} packets (Native{sup_txt})."
                     ))
                     self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
             eng.on_mirror_turbo_event = _on_native_event
 
-            res_nat = eng.start_native_mirror_turbo(slot=cached_slot, interval_ms=interval_ms, max_duration_ms=int(max_duration_s * 1000))
+            if use_arm:
+                res_nat = eng.arm_native_mirror_turbo(
+                    slot=cached_slot,
+                    interval_ms=interval_ms,
+                    max_duration_ms=int(max_duration_s * 1000),
+                    start_at_epoch_ms=int(start_at_epoch_ms),
+                    options=turbo_opts,
+                )
+            else:
+                res_nat = eng.start_native_mirror_turbo(
+                    slot=cached_slot,
+                    interval_ms=interval_ms,
+                    max_duration_ms=int(max_duration_s * 1000),
+                    options=turbo_opts,
+                )
             if res_nat.get("success"):
                 native_started = True
+                zc_desc = "Zero-Confirm BẬT (bỏ qua mọi thông báo)" if zero_confirm else "Zero-Confirm TẮT"
                 self.app.append_mirror_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU NATIVE TURBO SNIPING CƯỚP CỔNG (0ms IPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
+                    f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU NATIVE TURBO LIÊN TIẾP (DirectSocket 0ms IPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, {zc_desc}, Tối đa: {max_duration_s:.0f}s)"
                 )
             elif res_nat.get("error") == "no_ticket":
                 self.mirror_sniping = False
@@ -5571,8 +5669,13 @@ class SlotController:
                 return False
 
         if not native_started:
+            if hasattr(eng, "set_mirror_zero_confirm"):
+                try:
+                    eng.set_mirror_zero_confirm(bool(zero_confirm))
+                except Exception:
+                    pass
             self.app.append_mirror_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO SNIPING CƯỚP CỔNG (Fallback RPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Tối đa: {max_duration_s:.0f}s)"
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚡ BẮT ĐẦU TURBO LIÊN TIẾP (Fallback RPC, Vé ô {cached_slot}, Chu kỳ: {interval_ms}ms, Zero-Confirm={'BẬT' if zero_confirm else 'TẮT'}, Tối đa: {max_duration_s:.0f}s)"
             )
 
         def _sniper():
@@ -5580,10 +5683,13 @@ class SlotController:
             if native_started:
                 # Native In-Process đang tự bắn liên thanh 0ms IPC bên trong RAM game.
                 # Luồng Python chỉ giám sát fast_state trong RAM Python (Zero GIL/RPC contention)!
+                wait_limit = max_duration_s + 0.5
+                if use_arm and start_at_epoch_ms:
+                    wait_limit += max(0.0, (int(start_at_epoch_ms) - now_ms_py) / 1000.0)
                 while self.mirror_sniping:
                     time.sleep(0.2)
                     now = time.time()
-                    if (now - start_t) > (max_duration_s + 0.5):
+                    if (now - start_t) > wait_limit:
                         break
                     if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
                         break
@@ -5608,7 +5714,7 @@ class SlotController:
                 return
 
             # Fallback Python High-Speed Loop (nếu native in-process chưa khả dụng)
-            base_sleep = max(0.015, interval_ms / 1000.0)
+            base_sleep = max(0.005, interval_ms / 1000.0)
             packets_sent = 0
             check_interval = 4
             iter_cnt = 0
@@ -6305,7 +6411,8 @@ class DashboardApp(ctk.CTk):
             on_stack_jewels=self.stack_all_jewels,
             on_devil_config=self.open_devil_global_config_dialog,
             on_close_games=self.on_click_close_games_ui,
-            on_open_stat_dialog=self.open_slot_stat_ratio_dialog
+            on_open_stat_dialog=self.open_slot_stat_ratio_dialog,
+            on_slot_delay_changed=self.on_slot_delay_changed
         )
         self.train_view.pack(fill="both", expand=True)
 
@@ -6321,6 +6428,8 @@ class DashboardApp(ctk.CTk):
         for i in range(1, 11):
             if i in self.train_view.cards:
                 card = self.train_view.cards[i]
+                if i <= len(self.controllers):
+                    card.set_respawn_delay(getattr(self.controllers[i - 1], "respawn_delay", 15.0))
                 self.slot_ui_elements[i] = {
                     "row_frame": card,
                     "proc_var": card.proc_var,
@@ -7563,6 +7672,12 @@ class DashboardApp(ctk.CTk):
             # Chỉ cập nhật các worker đang chạy Config này nếu stages thực sự thay đổi
             if is_changed:
                 for ctrl in self.controllers:
+                    if ctrl.profile_index == idx:
+                        ctrl.respawn_delay = respawn
+                        if hasattr(self, "train_view") and hasattr(self.train_view, "cards"):
+                            card = self.train_view.cards.get(ctrl.slot_idx)
+                            if card:
+                                card.set_respawn_delay(respawn)
                     if ctrl.profile_index == idx and ctrl.worker and ctrl.worker.running:
                         if hasattr(ctrl.worker, 'update_config'):
                             ctrl.worker.update_config(cfg)
@@ -10146,9 +10261,54 @@ class DashboardApp(ctk.CTk):
 
     def get_mirror_snipe_delay(self) -> int:
         try:
-            return max(15, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
+            return max(0, min(1000, int(self.mirror_snipe_delay_entry.get().strip())))
         except Exception:
-            return 35
+            return 10
+
+    def get_mirror_stagger_ms(self) -> int:
+        try:
+            if hasattr(self, "mirror_stagger_ms_entry") and self.mirror_stagger_ms_entry:
+                return max(0, min(100, int(self.mirror_stagger_ms_entry.get().strip())))
+        except Exception:
+            pass
+        return 0
+
+    def record_mirror_net_telemetry(self, r_code: int, rtt_ms: float = 0.0, server_open_epoch_ms: Optional[float] = None):
+        """Cập nhật thống kê telemetry mạng RTT và học delta clock offset với server."""
+        try:
+            rtt_val = float(rtt_ms or 0.0)
+            if not hasattr(self, "_mirror_last_rtt_ms") or self._mirror_last_rtt_ms < 0:
+                self._mirror_last_rtt_ms = rtt_val
+            elif rtt_val > 0:
+                self._mirror_last_rtt_ms = self._mirror_last_rtt_ms * 0.6 + rtt_val * 0.4
+
+            if server_open_epoch_ms is not None:
+                srv_ms = float(server_open_epoch_ms)
+                last_sched = float(getattr(self, "_last_scheduled_gate_open_epoch_ms", 0.0) or 0.0)
+                if last_sched > 0:
+                    delta = last_sched - srv_ms
+                    # Lọc ngoại lai: chỉ học khi lệch trong khoảng [-8000ms, +8000ms]
+                    if abs(delta) <= 8000.0:
+                        self._mirror_clock_offset_ms = delta
+
+            if hasattr(self, "lbl_mirror_net_calib") and self.lbl_mirror_net_calib:
+                txt = f"RTT: {self._mirror_last_rtt_ms:.1f}ms | Offset: {getattr(self, '_mirror_clock_offset_ms', 0.0):.1f}ms"
+                try:
+                    self.lbl_mirror_net_calib.configure(text=txt)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def get_mirror_zero_confirm(self) -> bool:
+        try:
+            if hasattr(self, "mirror_view") and hasattr(self.mirror_view, "get_zero_confirm"):
+                return bool(self.mirror_view.get_zero_confirm())
+            if hasattr(self, "mirror_zero_confirm"):
+                return bool(self.mirror_zero_confirm)
+        except Exception:
+            pass
+        return True
 
     def get_mirror_snipe_dur(self) -> float:
         try:
@@ -10600,34 +10760,36 @@ class DashboardApp(ctk.CTk):
         self._ensure_mirror_auto_schedule_enabled_from_manual()
         delay_ms = self.get_mirror_snipe_delay()
         dur_s = self.get_mirror_snipe_dur()
+        zero_confirm = self.get_mirror_zero_confirm() if hasattr(self, "get_mirror_zero_confirm") else True
         threading.Thread(
             target=self.controllers[slot_idx - 1].start_mirror_turbo_sniping,
-            args=(delay_ms, dur_s),
+            kwargs={"interval_ms": delay_ms, "max_duration_s": dur_s, "zero_confirm": zero_confirm},
             daemon=True
         ).start()
 
-    def start_all_mirror_turbo_sniping(self, from_scheduler: bool = False):
-        """Kích hoạt Turbo Sniping đồng loạt cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror."""
+    def start_all_mirror_turbo_sniping(self, from_scheduler: bool = False, target_open_epoch_ms: int = 0):
+        """Kích hoạt Turbo Sniping đồng loạt (bắn liên tiếp + Zero-Confirm) cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror."""
         if not from_scheduler:
             self._ensure_mirror_auto_schedule_enabled_from_manual()
         delay_ms = self.get_mirror_snipe_delay()
         dur_s = self.get_mirror_snipe_dur()
+        zero_confirm = self.get_mirror_zero_confirm() if hasattr(self, "get_mirror_zero_confirm") else True
 
         def _runner():
-            detected = getattr(self, "detected_games", {})
+            detected = self.__dict__.get("detected_games", {})
             active_ctrls = [
                 c for c in self.controllers
                 if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid)
                 and (not detected or c.assigned_pid in detected)
-                and not getattr(c, "mirror_sniping", False)
-                and not getattr(c, "_mirror_dungeon_running", False)
+                and (getattr(c, "mirror_sniping", False) is not True)
+                and (getattr(c, "_mirror_dungeon_running", False) is not True)
             ]
             # Lọc bỏ các tài khoản đã vào bên trong map Double Goer
             unentered_ctrls = []
             for c in active_ctrls:
                 try:
-                    eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
-                    if eng and eng.is_mirror_event_map():
+                    eng = getattr(c, "engine", None) or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
+                    if eng and (eng.is_mirror_event_map() is True):
                         continue
                 except Exception:
                     pass
@@ -10642,15 +10804,25 @@ class DashboardApp(ctk.CTk):
             results = []
             res_lock = threading.Lock()
             barrier = threading.Barrier(len(unentered_ctrls)) if len(unentered_ctrls) > 1 else None
+            stagger_step = self.get_mirror_stagger_ms() if hasattr(self, "get_mirror_stagger_ms") else 0
 
-            def _start_ctrl(c):
-                ok = c.start_mirror_turbo_sniping(interval_ms=delay_ms, max_duration_s=dur_s, barrier=barrier)
+            def _start_ctrl(c, idx_order):
+                stagger_offset = idx_order * stagger_step
+                slot_target_ms = (int(target_open_epoch_ms) + stagger_offset) if target_open_epoch_ms else 0
+                ok = c.start_mirror_turbo_sniping(
+                    interval_ms=delay_ms,
+                    max_duration_s=dur_s,
+                    barrier=barrier,
+                    start_at_epoch_ms=slot_target_ms,
+                    stagger_ms=stagger_offset,
+                    zero_confirm=zero_confirm,
+                )
                 if ok:
                     with res_lock:
                         results.append(c.slot_idx)
 
-            for ctrl in unentered_ctrls:
-                t = threading.Thread(target=_start_ctrl, args=(ctrl,), daemon=True)
+            for idx_order, ctrl in enumerate(unentered_ctrls):
+                t = threading.Thread(target=_start_ctrl, args=(ctrl, idx_order), daemon=True)
                 threads.append(t)
                 t.start()
 
@@ -10659,8 +10831,9 @@ class DashboardApp(ctk.CTk):
 
             started = len(results)
             if started > 0:
+                zc_lbl = "Zero-Confirm BẬT" if zero_confirm else "Zero-Confirm TẮT"
                 self.after(0, lambda: self.append_mirror_log(
-                    f"⚡ ĐÃ KÍCH HOẠT CƯỚP CỔNG CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms, Tối đa {dur_s:.0f}s)!"
+                    f"⚡ ĐÃ KÍCH HOẠT TURBO LIÊN TIẾP CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms · {zc_lbl} · Tối đa {dur_s:.0f}s)!"
                 ))
             else:
                 self.after(0, lambda: self.append_mirror_log("⚠️ Không kích hoạt được tài khoản nào (thiếu vé hoặc lỗi kết nối)!"))
@@ -13237,10 +13410,59 @@ class DashboardApp(ctk.CTk):
             el = self.slot_ui_elements.get(slot_idx)
             if el and el.get("profile_var"):
                 el["profile_var"].set(f"Config {p_idx}")
+            if hasattr(self, "train_view") and hasattr(self.train_view, "cards"):
+                card = self.train_view.cards.get(slot_idx)
+                if card:
+                    card.set_respawn_delay(getattr(ctrl, "respawn_delay", 15.0))
             ConfigPersistenceManager.save_all_slot_assignments(self.slot_assignments)
             self.log_message(f"[Slot {slot_idx:02d}] Đã đổi tuyến đường sang: Config {p_idx}", "INFO")
         except Exception as e:
             self.log_message(f"[Slot {slot_idx:02d}] Lỗi đổi cấu hình: {e}", "ERROR")
+
+    def on_slot_delay_changed(self, slot_idx: int, val: float):
+        """Cập nhật và lưu thời gian chờ ra bãi cho slot riêng biệt."""
+        if slot_idx > len(self.controllers):
+            while len(self.controllers) < slot_idx:
+                self.add_new_slot()
+        if not (1 <= slot_idx <= len(self.controllers)):
+            return
+        ctrl = self.controllers[slot_idx - 1]
+        val = max(3.0, float(val))
+        ctrl.respawn_delay = val
+        if ctrl.worker and ctrl.worker.running:
+            ctrl.worker.respawn_delay = val
+            if hasattr(ctrl.worker, "config") and isinstance(ctrl.worker.config, dict):
+                ctrl.worker.config["respawn_delay"] = val
+        p_idx = getattr(ctrl, "profile_index", slot_idx)
+        try:
+            cfg = ConfigPersistenceManager.load_single_profile(p_idx)
+            cfg["respawn_delay"] = val
+            ConfigPersistenceManager.save_single_profile(p_idx, cfg)
+        except Exception:
+            pass
+        try:
+            ConfigPersistenceManager.save_event_config(
+                slot_idx=ctrl.slot_idx,
+                auto_devil=ctrl.auto_devil,
+                devil_min_resets=ctrl.devil_min_resets,
+                devil_max_resets=ctrl.devil_max_resets,
+                devil_ticket_type=ctrl.devil_ticket_type,
+                auto_reset=ctrl.auto_reset,
+                auto_add_point=ctrl.auto_add_point,
+                reset_level=ctrl.reset_level,
+                stat_mode=ctrl.stat_mode,
+                custom_class=ctrl.custom_class,
+                stat_ratio=ctrl.stat_ratio,
+                respawn_delay=val
+            )
+        except Exception:
+            pass
+        if hasattr(self, "editor_respawn_var") and getattr(self, "current_editing_profile_idx", None) == p_idx:
+            try:
+                self.editor_respawn_var.set(str(int(val)))
+            except Exception:
+                pass
+        self.log_message(f"[Slot {slot_idx:02d}] Đã lưu thời gian chờ ra bãi: {val:.0f} giây (Config {p_idx}).", "SUCCESS")
 
     def on_slot_auto_toggle(self, slot_idx: int):
         if license_client and not license_client.is_license_valid():
@@ -13431,7 +13653,6 @@ class DashboardApp(ctk.CTk):
                             break
                         if step == 4 and not in_ev:
                             eng.send_chat("/m ev")
-                            eng.send_chat("/warp ev")
                     except Exception:
                         pass
                 if not in_ev:
@@ -14085,6 +14306,37 @@ class DashboardApp(ctk.CTk):
         ent_rs_lvl.insert(0, str(ctrl.reset_level or 400))
         ctk.CTkLabel(row_rs_lvl, text="(Mặc định: 400)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#64748b").pack(side="left")
 
+        # 2.5 Thời gian chờ ra bãi Section
+        delay_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
+        delay_card.pack(fill="x", pady=(0, 10), padx=4)
+
+        delay_header = ctk.CTkLabel(
+            delay_card,
+            text="⏳ THỜI GIAN CHỜ RA BÃI (SAU KHI CHẾT / BỊ PK)",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#38bdf8"
+        )
+        delay_header.pack(anchor="w", padx=12, pady=(8, 2))
+
+        delay_sub = ctk.CTkLabel(
+            delay_card,
+            text="Thời gian chờ an toàn tại Lorencia sau khi chết hoặc bị PK trước khi tự động di chuyển ra lại bãi train.",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color="#94a3b8",
+            wraplength=460,
+            justify="left"
+        )
+        delay_sub.pack(anchor="w", padx=12, pady=(0, 6))
+
+        row_delay = ctk.CTkFrame(delay_card, fg_color="transparent")
+        row_delay.pack(fill="x", padx=12, pady=(0, 10))
+
+        ctk.CTkLabel(row_delay, text="Chờ ra bãi:", font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#cbd5e1").pack(side="left")
+        ent_delay = ctk.CTkEntry(row_delay, width=70, height=26, font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"), justify="center")
+        ent_delay.pack(side="left", padx=8)
+        ent_delay.insert(0, str(int(getattr(ctrl, "respawn_delay", 15))))
+        ctk.CTkLabel(row_delay, text="giây (Tối thiểu 3s)", font=ctk.CTkFont(family="Segoe UI", size=10), text_color="#64748b").pack(side="left")
+
         # 3. Stat Ratio Section - THEO CLASS & TÙY CHỌN RIÊNG
         stat_card = ctk.CTkFrame(content, fg_color="#141722", corner_radius=8, border_width=1, border_color="#242b3a")
         stat_card.pack(fill="x", pady=(0, 10), padx=4)
@@ -14377,6 +14629,26 @@ class DashboardApp(ctk.CTk):
                 ctrl.custom_class = sel_code
                 ctrl.stat_ratio = new_ratio
 
+                try:
+                    new_delay = float(ent_delay.get().strip() or 15)
+                    if new_delay < 3.0:
+                        new_delay = 3.0
+                except Exception:
+                    new_delay = 15.0
+                ctrl.respawn_delay = new_delay
+                if hasattr(self, "train_view") and hasattr(self.train_view, "cards"):
+                    card = self.train_view.cards.get(slot_idx)
+                    if card:
+                        card.set_respawn_delay(new_delay)
+
+                p_idx = getattr(ctrl, "profile_index", slot_idx)
+                try:
+                    cfg_prof = ConfigPersistenceManager.load_single_profile(p_idx)
+                    cfg_prof["respawn_delay"] = new_delay
+                    ConfigPersistenceManager.save_single_profile(p_idx, cfg_prof)
+                except Exception:
+                    pass
+
                 ConfigPersistenceManager.save_event_config(
                     slot_idx=slot_idx,
                     auto_devil=new_ds,
@@ -14388,10 +14660,12 @@ class DashboardApp(ctk.CTk):
                     reset_level=new_rs_lvl,
                     stat_mode=applied_mode,
                     custom_class=sel_code,
-                    stat_ratio=new_ratio
+                    stat_ratio=new_ratio,
+                    respawn_delay=new_delay
                 )
 
                 if ctrl.worker and ctrl.worker.running and hasattr(ctrl.worker, 'update_config'):
+                    ctrl.worker.respawn_delay = new_delay
                     ctrl.worker.update_config({
                         "auto_devil": new_ds,
                         "devil_min_resets": d_min_rs,
@@ -14403,6 +14677,7 @@ class DashboardApp(ctk.CTk):
                         "stat_mode": applied_mode,
                         "custom_class": sel_code,
                         "stat_ratio": new_ratio,
+                        "respawn_delay": new_delay,
                         "min_add_points": new_min_pts,
                         "class_profiles": fresh_profiles
                     })
@@ -15450,6 +15725,19 @@ class DashboardApp(ctk.CTk):
                     pass
         except Exception:
             pass
+
+    def report_callback_exception(self, exc, val, tb):
+        """Xử lý ngoại lệ trong Tkinter callback.
+        Bắt phím Ctrl+C (KeyboardInterrupt) để thoát chương trình sạch sẽ, không ném traceback ra terminal."""
+        if issubclass(exc, (KeyboardInterrupt, SystemExit)):
+            print("\n[INFO] Đã nhận tín hiệu dừng (Ctrl+C). Đang đóng ứng dụng an toàn...")
+            self.on_closing()
+            return
+        try:
+            super().report_callback_exception(exc, val, tb)
+        except Exception:
+            import traceback
+            traceback.print_exception(exc, val, tb)
 
     def on_closing(self):
         self.running = False

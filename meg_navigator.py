@@ -183,7 +183,7 @@ ensure_desktop_attached()
 # IL2CPP RVA & Offsets (GameAssembly.dll)
 # ==============================================================================
 
-GAME_TYPE_INFO_RVA = 0x553B900 # Đồng bộ megamu_offsets.json mới nhất
+GAME_TYPE_INFO_RVA = 0x55A4D00 # Đồng bộ megamu_offsets.json mới nhất
 KLASS_STATIC_FIELDS_OFFSET = 0xB8
 GAME_STATIC_INSTANCE_OFFSET = 0x8
 GAME_PLAYER_OFFSET = 0x208
@@ -203,8 +203,36 @@ AUTO_MOVE_WORKING_OFFSET = 0x4C0
 AUTO_MOVE_TYPE_OFFSET = 0x4C4
 AUTO_MOVE_HELPER_OFFSET = 0x4C8
 AUTO_MOVE_DEST_OFFSET = 0x4D0
-START_AUTO_MOVE_RVA = 0xB9A9C0
-STOP_AUTO_MOVE_RVA = 0xB98400
+START_AUTO_MOVE_RVA = 0xC43C50
+STOP_AUTO_MOVE_RVA = 0xC43E10
+
+def _load_navigator_offsets():
+    """Tự động đồng bộ các RVA quan trọng từ file cấu hình megamu_offsets.json."""
+    global GAME_TYPE_INFO_RVA, START_AUTO_MOVE_RVA, STOP_AUTO_MOVE_RVA
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base_dir, "megamu_offsets.json"),
+        os.path.join(base_dir, "config", "megamu_offsets.json"),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if "game_type_info" in data:
+                    v = data["game_type_info"]
+                    GAME_TYPE_INFO_RVA = int(v, 16) if isinstance(v, str) else int(v)
+                if "start_auto_move" in data:
+                    v = data["start_auto_move"]
+                    START_AUTO_MOVE_RVA = int(v, 16) if isinstance(v, str) else int(v)
+                if "stop_auto_move" in data:
+                    v = data["stop_auto_move"]
+                    STOP_AUTO_MOVE_RVA = int(v, 16) if isinstance(v, str) else int(v)
+                break
+            except Exception:
+                pass
+
+_load_navigator_offsets()
 
 # MuHelper (Auto Attack) Offsets
 PLAYER_HELPER_OFFSET = 0x1E0       # UserHelper inside _Player (LocalCharacterBody.Helper at 0x1E0)
@@ -231,6 +259,14 @@ PARTY_MEMBER_MANA_OFFSET = 0x2C     # float: ManaRate
 PARTY_MEMBER_HELPER_OFFSET = 0x30   # int32: HelperState
 PARTY_MEMBER_MAP_OFFSET = 0x38      # int32: Map
 PARTY_MEMBER_POS_OFFSET = 0x40      # Coord: X at +0x10, Y at +0x14
+
+# Combat & PK / Death Offsets (LocalCharacterBody)
+BODY_LIFE_OFFSET = 0x3C              # uint32: Life (HP hiện tại)
+BODY_MAX_LIFE_OFFSET = 0x40          # uint32: MaxLife (HP tối đa)
+BODY_IS_DEAD_OFFSET = 0x5C           # uint8: 1 = IsDead, 0 = Alive
+BODY_DEATH_COUNT_OFFSET = 0x504      # int32: DeathCount
+BODY_KILL_COUNT_OFFSET = 0x520       # int32: KillCount
+BODY_KILLER_NAME_OFFSET = 0x528      # pointer: KillerName (Il2CppString, rỗng nếu chết do quái)
 
 MAPS_DIR = os.path.dirname(os.path.abspath(__file__))
 MAPS_INI_PATH = os.path.join(MAPS_DIR, "maps.ini")
@@ -888,6 +924,89 @@ class ProcessMemoryReader:
             kernel32.CloseHandle(handle)
 
     @classmethod
+    def read_combat_death_status(cls, pid: int) -> Dict[str, Any]:
+        """
+        Đọc RAM IL2CPP thông tin HP, trạng thái sống/chết và thông tin kẻ giết (Killer / PK) từ LocalCharacterBody:
+          - 0x3C: uint Life (HP hiện tại)
+          - 0x40: uint MaxLife (HP tối đa)
+          - 0x5C: bool IsDead
+          - 0x504: int DeathCount
+          - 0x520: int KillCount
+          - 0x528: string KillerName (Tên nhân vật đã PK hạ gục; None hoặc rỗng nếu chết do quái)
+        Returns: {
+            "hp": int,
+            "max_hp": int,
+            "is_dead": bool,
+            "death_count": int,
+            "kill_count": int,
+            "killer_name": Optional[str],
+            "is_killed_by_player": bool
+        }
+        """
+        default_res = {
+            "hp": 0,
+            "max_hp": 0,
+            "is_dead": False,
+            "death_count": 0,
+            "kill_count": 0,
+            "killer_name": None,
+            "is_killed_by_player": False
+        }
+        handle = kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not handle:
+            return default_res
+
+        try:
+            base = cls.get_module_base(pid)
+            if not base:
+                return default_res
+
+            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            if not type_info:
+                return default_res
+
+            static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return default_res
+
+            game_instance = cls.read_ptr(handle, static_fields + GAME_STATIC_INSTANCE_OFFSET)
+            if not game_instance:
+                return default_res
+
+            player_ptr = cls.read_ptr(handle, game_instance + GAME_PLAYER_OFFSET)
+            if not player_ptr:
+                return default_res
+
+            hp = cls.read_u32(handle, player_ptr + BODY_LIFE_OFFSET)
+            max_hp = cls.read_u32(handle, player_ptr + BODY_MAX_LIFE_OFFSET)
+            is_dead = bool(cls.read_u8(handle, player_ptr + BODY_IS_DEAD_OFFSET))
+            death_count = cls.read_i32(handle, player_ptr + BODY_DEATH_COUNT_OFFSET)
+            kill_count = cls.read_i32(handle, player_ptr + BODY_KILL_COUNT_OFFSET)
+
+            killer_str_ptr = cls.read_ptr(handle, player_ptr + BODY_KILLER_NAME_OFFSET)
+            killer_name = None
+            if killer_str_ptr:
+                k_val = cls.read_il2cpp_string(handle, killer_str_ptr)
+                if k_val and k_val.strip():
+                    killer_name = k_val.strip()
+
+            is_killed_by_player = bool(killer_name)
+
+            return {
+                "hp": hp,
+                "max_hp": max_hp,
+                "is_dead": is_dead,
+                "death_count": death_count,
+                "kill_count": kill_count,
+                "killer_name": killer_name,
+                "is_killed_by_player": is_killed_by_player
+            }
+        except Exception:
+            return default_res
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
     def read_character_level(cls, pid: int) -> Optional[int]:
         r"""
         Đọc Level nhân vật thực tế hiện tại:
@@ -1236,6 +1355,11 @@ class ProcessMemoryReader:
             return False
         finally:
             kernel32.CloseHandle(handle)
+
+    @classmethod
+    def write_target_coord(cls, pid: int, target_x: int, target_y: int) -> bool:
+        """Alias ghi tọa độ đích vào RAM để hãm phanh hoặc định vị."""
+        return cls.write_auto_move_state(pid, target_x, target_y, helper=False)
 
     @classmethod
     def cancel_auto_move_state(cls, pid: int) -> bool:
@@ -2198,8 +2322,8 @@ class MegNavigator:
             self.toggle_auto_attack(log_callback=_log)
             time.sleep(0.5)
 
-        _log(f"[➔] Đang ở '{cur_map}' (Map ID {map_id}). Gửi lệnh '/move {clean_target}'...")
-        BackgroundInputSimulator.send_chat_command(self.hwnd, f"/move {clean_target}")
+        _log(f"[➔] Đang ở '{cur_map}' (Map ID {map_id}). Gửi lệnh '/m {clean_target}'...")
+        BackgroundInputSimulator.send_chat_command(self.hwnd, f"/m {clean_target}")
 
         start_time = time.time()
         while time.time() - start_time < max_wait_sec:

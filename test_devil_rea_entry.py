@@ -26,14 +26,14 @@ class TestDevilReaEntry(unittest.TestCase):
         with open(cfg_path, "r", encoding="utf-8") as f:
             cfg = json.load(f)
 
-        self.assertEqual(cfg.get("devil_closure_enter"), "0xF91530")
-        self.assertEqual(cfg.get("devil_closure_type_info"), "0x5553118")
-        self.assertEqual(cfg.get("devil_npc_click"), "0xF82E70")
-        self.assertEqual(cfg.get("devil_enter"), "0xF91530")
-        self.assertEqual(cfg.get("devil_enter_alt"), "0xF834C0")
-        self.assertEqual(cfg.get("devil_enter_1e"), "0xF75CF0")
-        self.assertEqual(cfg.get("table_event_entry_level"), "0xCEA9B0")
-        self.assertEqual(cfg.get("helper_ui_show_confirm"), "0x1BFFFB0")
+        self.assertEqual(cfg.get("devil_closure_enter"), "0xFED530")
+        self.assertEqual(cfg.get("devil_closure_type_info"), "0x55615E8")
+        self.assertEqual(cfg.get("devil_npc_click"), "0xFFDF30")
+        self.assertEqual(cfg.get("devil_enter"), "0xFED530")
+        self.assertEqual(cfg.get("devil_enter_alt"), "0xFED6A0")
+        self.assertEqual(cfg.get("devil_enter_1e"), "0xFED530")
+        self.assertEqual(cfg.get("table_event_entry_level"), "0xD82E90")
+        self.assertEqual(cfg.get("helper_ui_show_confirm"), "0x1CDBEB0")
         self.assertEqual(cfg.get("item_devil_ticket_master"), 6702)
         self.assertEqual(cfg.get("item_devil_ticket"), 7187)
 
@@ -42,13 +42,13 @@ class TestDevilReaEntry(unittest.TestCase):
         with open("meg_direct_engine.py", "r", encoding="utf-8") as f:
             code = f.read()
 
-        self.assertIn('"devil_closure_enter": "0xF91530"', code)
-        self.assertIn('"devil_closure_type_info": "0x5553118"', code)
-        self.assertIn('"devil_npc_click": "0xF82E70"', code)
-        self.assertIn('"devil_enter_alt": "0xF834C0"', code)
-        self.assertIn('"devil_enter_1e": "0xF75CF0"', code)
-        self.assertIn('"table_event_entry_level": "0xCEA9B0"', code)
-        self.assertIn('"helper_ui_show_confirm": "0x1BFFFB0"', code)
+        self.assertIn('"devil_closure_enter": "0xFED530"', code)
+        self.assertIn('"devil_closure_type_info": "0x55615E8"', code)
+        self.assertIn('"devil_npc_click": "0xFFDF30"', code)
+        self.assertIn('"devil_enter_alt": "0xFED6A0"', code)
+        self.assertIn('"devil_enter_1e": "0xFED530"', code)
+        self.assertIn('"table_event_entry_level": "0xD82E90"', code)
+        self.assertIn('"helper_ui_show_confirm": "0x1CDBEB0"', code)
 
     def test_frida_js_devil_closure_and_wire_slot(self):
         # 3. Kiểm tra mã JavaScript Frida trong meg_direct_engine.py
@@ -79,7 +79,7 @@ class TestDevilReaEntry(unittest.TestCase):
         self.assertIn("var wireSlot = (actualSlot + 12) & 0xFF;", code)
 
         # Kiểm tra tính toán enterDsLevel đúng theo cấp độ nhân vật (TableEventEntryLevel)
-        self.assertIn("var enterDsLevel = (dsLevel >= 0 && dsLevel <= 6) ? dsLevel : 0;", code)
+        self.assertIn("var enterDsLevel = (charLvl >= 400 || dsLevel >= 6) ? 6 : ((dsLevel !== undefined && dsLevel !== null && dsLevel >= 0) ? dsLevel : 0);", code)
 
         # Kiểm tra packet 0x90, 0x1E, 0xC2
         self.assertIn("[0xC1, 0x05, 0x90, lvl, wireSlot]", code)

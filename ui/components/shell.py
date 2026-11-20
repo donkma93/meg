@@ -149,10 +149,11 @@ class ToolbarBar(ctk.CTkFrame):
             **kwargs
         )
         self.pack_propagate(False)
-        self.left = ctk.CTkFrame(self, fg_color="transparent")
-        self.left.pack(side="left", fill="y", padx=10)
+        # Ghim vùng phải trước tiên để đảm bảo các nút Master Run/Stop luôn hiển thị ở mép phải
         self.right = ctk.CTkFrame(self, fg_color="transparent")
         self.right.pack(side="right", fill="y", padx=10)
+        self.left = ctk.CTkFrame(self, fg_color="transparent")
+        self.left.pack(side="left", fill="y", padx=10)
 
 
 def make_action_button(

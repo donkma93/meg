@@ -96,7 +96,7 @@ class MapResolver:
                 for item in data.get("maps", []):
                     display_name = str(item.get("name", "")).strip()
                     command = str(item.get("command", "")).strip()
-                    prefix = str(item.get("prefix", "/move")).strip() or "/move"
+                    prefix = str(item.get("prefix", "/m")).strip() or "/m"
                     static_map_id = None
                     try:
                         raw_id = item.get("map_id")
@@ -154,7 +154,7 @@ class MapResolver:
                                     self.display_names.append(name_str)
                                 if norm_n and norm_n not in self.aliases:
                                     clean_cmd = name_str.lower().replace(" ", "")
-                                    self.aliases[norm_n] = f"/move {clean_cmd}"
+                                    self.aliases[norm_n] = f"/m {clean_cmd}"
                             except Exception:
                                 pass
                     if "ALIASES" in cp:
@@ -165,7 +165,7 @@ class MapResolver:
                                 if cmd_clean.startswith("/"):
                                     self.aliases[norm_k] = cmd_clean
                                 else:
-                                    self.aliases[norm_k] = f"/move {cmd_clean}"
+                                    self.aliases[norm_k] = f"/m {cmd_clean}"
                                 norm_cmd = self._norm(cmd_clean)
                                 if norm_cmd in self.map_ids and norm_k not in self.map_ids:
                                     self.map_ids[norm_k] = self.map_ids[norm_cmd]
@@ -177,7 +177,7 @@ class MapResolver:
                             norm_p = self._norm(name_str)
                             if norm_p and norm_p not in self.aliases:
                                 clean_cmd = name_str.lower().replace(" ", "")
-                                self.aliases[norm_p] = f"/move {clean_cmd}"
+                                self.aliases[norm_p] = f"/m {clean_cmd}"
                     break
                 except Exception as e_ini:
                     print(f"[MapResolver] Lỗi đọc maps.ini: {e_ini}", flush=True)
@@ -217,15 +217,17 @@ class MapResolver:
             if norm in self.aliases:
                 cmd = self.aliases[norm]
             else:
-                cmd = f"/move {s}"
+                cmd = f"/m {s}"
+
+        # MEGAMU chỉ hỗ trợ chuẩn lệnh /m (hoàn toàn không hỗ trợ /warp hay /move)
+        if cmd.startswith("/warp "):
+            cmd = "/m " + cmd[6:]
+        elif cmd.startswith("/move "):
+            cmd = "/m " + cmd[6:]
 
         if alternate:
-            if cmd.startswith("/move "):
-                return "/warp " + cmd[6:]
-            elif cmd.startswith("/warp "):
-                return "/move " + cmd[6:]
-            elif cmd.startswith("/m "):
-                return "/warp " + cmd[3:]
+            # Luôn giữ chuẩn /m theo yêu cầu tuyệt đối của user, không bao giờ chuyển sang /move hay /warp
+            return cmd
         return cmd
 
     def expected_map_id(self, value: str) -> Optional[int]:
@@ -261,6 +263,7 @@ class AutoTrainWorker:
         self.coords_callback = coords_callback
         self.config = config or {}
         self.slot_idx = slot_idx
+        self.char_name = self.config.get("char_name") or ""
 
         # Core Direct Native Engine
         self.core = MegDirectEngine.get_engine(pid)
@@ -326,13 +329,26 @@ class AutoTrainWorker:
         self.last_junk_clean_time = 0.0
         self.junk_clean_interval = max(30.0, float(self.config.get("junk_clean_interval", 60.0)))
 
-        # Xử lý Hồi sinh / Reset Level
+        # Xử lý Hồi sinh / Thời gian chờ ra bãi setup riêng cho từng nhân vật
+        self.respawn_delay = max(3.0, float(self.config.get("respawn_delay", 15.0)))
         self.respawn_until = 0.0
         self.respawn_armed = False
         self.reset_candidate_since = 0.0
         self.invalid_level_logged = False
         self.state_text = ""
         self.out_of_range_logged = False
+
+        # Tự động né về Lorencia khi bị PK / KILL và tạm dừng auto an toàn
+        self.evade_on_kill = bool(self.config.get("evade_on_kill", True))
+        self.evade_safe_map = str(self.config.get("evade_safe_map", "lorencia")).strip().lower()
+        if not self.evade_safe_map:
+            self.evade_safe_map = "lorencia"
+        self.evade_cooldown_minutes = float(self.config.get("evade_cooldown_minutes", 10.0))
+        self.last_death_count: Optional[int] = None
+        self.is_evading_pk = False
+        self.evade_until = 0.0
+        self.evade_killer_name = ""
+        self.last_evade_map_retry = 0.0
 
         # Quản lý Đổi Map
         self.expected_map_id: Optional[int] = None
@@ -963,6 +979,130 @@ class AutoTrainWorker:
                     time.sleep(self.poll_interval)
                     continue
 
+                # 1.2. Kiểm tra trạng thái tử vong / Bị quái đánh chết hoặc bị người chơi PK
+                if self.evade_on_kill:
+                    try:
+                        from meg_navigator import ProcessMemoryReader
+                        death_st = ProcessMemoryReader.read_combat_death_status(self.pid)
+                        cur_death_count = death_st.get("death_count", 0)
+                        cur_killer = death_st.get("killer_name")
+                        is_dead = death_st.get("is_dead", False)
+
+                        # Khởi tạo mốc death count ban đầu khi worker vừa bật
+                        if self.last_death_count is None:
+                            self.last_death_count = cur_death_count
+
+                        # Phát hiện tử vong (bị PK hoặc quái đánh chết)
+                        death_event_detected = (cur_death_count > self.last_death_count) or (is_dead and cur_death_count >= self.last_death_count)
+
+                        if death_event_detected and not self.is_evading_pk and (now >= self.evade_until):
+                            self.last_death_count = cur_death_count
+                            self.is_evading_pk = True
+                            self.evade_killer_name = cur_killer or ("Người chơi PK" if cur_killer else "Quái vật / Tử vong")
+
+                            # Tắt MuHelper & ngừng di chuyển ngay lập tức
+                            if self.core:
+                                try:
+                                    self.core.stop_helper()
+                                    self.core.cancel_move()
+                                    if hasattr(self.core, "stop_auto_move"):
+                                        self.core.stop_auto_move()
+                                except Exception:
+                                    pass
+
+                            # Thời gian chờ ra bãi setup RIÊNG cho từng nhân vật / profile:
+                            cd_sec = max(3.0, float(self.respawn_delay))
+                            self.evade_until = now + cd_sec
+                            self.respawn_until = now + cd_sec
+                            self.last_evade_map_retry = now
+
+                            char_n = getattr(self, "char_name", "") or self.config.get("char_name") or f"Slot {self.slot_idx}"
+                            cd_sec_int = int(cd_sec)
+                            cd_str = f"{cd_sec_int}s" if cd_sec_int < 60 else f"{cd_sec_int // 60}p{cd_sec_int % 60}s"
+                            resume_time_str = time.strftime('%H:%M:%S', time.localtime(self.evade_until))
+
+                            self._log(
+                                f"🚨 [TỬ VONG / PK] Nhân vật '{char_n}' tử vong ({self.evade_killer_name})! (Tổng số lần chết: {cur_death_count})",
+                                "ERROR"
+                            )
+                            self._log(
+                                f"🛡️ [TỰ ĐỘNG VỀ LORENCIA] Rút lui về {self.evade_safe_map} an toàn và chờ hết thời gian setup {cd_str} (đến {resume_time_str}) trước khi tự động ra bãi...",
+                                "WARNING"
+                            )
+
+                            # Chờ 0.35s cho game hoàn tất animation tử vong rồi gửi lệnh rút về Lorencia
+                            time.sleep(0.35)
+                            if self.core:
+                                self.core.send_chat(f"/m {self.evade_safe_map}")
+                            self.arrived_at_spot = False
+                            self.current_stage_key = None
+                            self.map_move_sent = False
+                            self.map_wait_active = False
+
+                        elif cur_death_count > self.last_death_count:
+                            self.last_death_count = cur_death_count
+                    except Exception as e_pk:
+                        pass
+
+                # 1.3. Quản lý trạng thái đang Chờ Hết Thời Gian Setup tại Lorencia
+                if self.is_evading_pk:
+                    if now < self.evade_until:
+                        rem_sec = int(max(0.0, self.evade_until - now))
+                        rem_m = rem_sec // 60
+                        rem_s = rem_sec % 60
+                        self._set_state(f"CHỜ RA BÃI ({rem_m:02d}:{rem_s:02d})")
+
+                        # Đảm bảo MuHelper luôn TẮT khi đang chờ setup
+                        if self.core and (int(now) % 3 == 0):
+                            try:
+                                self.core.stop_helper()
+                                self.core.cancel_move()
+                            except Exception:
+                                pass
+
+                        # Nếu nhân vật chưa ở safe map (Lorencia, mapId 0), gửi lại lệnh chuyển map định kỳ mỗi 10s
+                        safe_map_id = self.map_resolver.expected_map_id(self.evade_safe_map)
+                        if safe_map_id is not None and current_map_id != safe_map_id:
+                            if now - self.last_evade_map_retry >= 10.0:
+                                self.last_evade_map_retry = now
+                                self._log(f"Đang ở map {current_map_id}, tiếp tục gửi /m {self.evade_safe_map}...", "INFO")
+                                if self.core:
+                                    self.core.send_chat(f"/m {self.evade_safe_map}")
+
+                        time.sleep(max(0.6, self.poll_interval))
+                        continue
+                    else:
+                        # ĐÃ HẾT THỜI GIAN SETUP CHO NHÂN VẬT!
+                        self.is_evading_pk = False
+                        self.evade_killer_name = ""
+                        self.evade_until = 0.0
+                        self.respawn_until = 0.0
+
+                        self._log(
+                            f"✅ [HẾT THỜI GIAN SETUP ({int(self.respawn_delay)}s)] Đã qua thời gian chờ an toàn. Tự động xuất phát quay lại bãi train ngay!",
+                            "SUCCESS"
+                        )
+                        try:
+                            from meg_navigator import ProcessMemoryReader
+                            dst = ProcessMemoryReader.read_combat_death_status(self.pid)
+                            self.last_death_count = dst.get("death_count", self.last_death_count)
+                        except Exception:
+                            pass
+
+                        # RESET TOÀN BỘ CÁC CỜ LỘ TRÌNH ĐỂ KÍCH HOẠT QUAY LẠI BÃI NGAY LẬP TỨC
+                        self.current_stage_key = None
+                        self.arrived_at_spot = False
+                        self.map_move_sent = False
+                        self.map_wait_active = False
+                        self.map_retry_count = 0
+                        self.map_sensor_trusted = False
+                        self.map_sensor_suspect = False
+                        self.map_command_sent_at = 0.0
+                        self.next_map_retry_at = 0.0
+                        self.last_move_issue = 0.0
+                        self.last_dist = None
+                        self._set_state("XUẤT PHÁT RA BÃI")
+
                 # 2. Xử lý trạng thái nhân vật chưa tải xong
                 if level <= 0:
                     if not self.invalid_level_logged:
@@ -1472,11 +1612,12 @@ class AutoTrainWorker:
                 self.last_py = py
                 time.sleep(0.12)
             except Exception as e:
+                c_name = getattr(self, "char_name", "") or self.config.get("char_name") or "N/A"
                 log_thread_exception(
                     source=f"AutoWorker-{self.pid}",
                     exc=e,
                     thread_name=f"Slot{self.slot_idx:02d}_AutoTrainWorker",
-                    details=f"Slot: {self.slot_idx}, PID: {self.pid}, Char: {self.char_name or 'N/A'}"
+                    details=f"Slot: {self.slot_idx}, PID: {self.pid}, Char: {c_name}"
                 )
                 self._log(f"Lỗi vòng lặp worker: {e} -> Xem chi tiết tại auto_crash_trace.log", "ERROR")
                 time.sleep(0.5)

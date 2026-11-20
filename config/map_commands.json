@@ -255,7 +255,7 @@
         "aida 1",
         "aida"
       ],
-      "prefix": "/move",
+      "prefix": "/m",
       "map_id": 33
     },
     {
@@ -265,7 +265,7 @@
         "aida2",
         "aida 2"
       ],
-      "prefix": "/move",
+      "prefix": "/m",
       "map_id": 33
     },
     {

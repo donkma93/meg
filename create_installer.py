@@ -32,12 +32,15 @@ def log(msg: str, tag: str = "INFO"):
 
 def find_iscc() -> Path:
     """Tìm đường dẫn Inno Setup Compiler (ISCC.exe)."""
+    local_app = os.environ.get("LOCALAPPDATA", "")
     candidates = [
         Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"),
         Path(r"C:\Program Files\Inno Setup 6\ISCC.exe"),
         Path(r"C:\Program Files (x86)\Inno Setup 5\ISCC.exe"),
         Path(r"C:\Program Files\Inno Setup 5\ISCC.exe"),
     ]
+    if local_app:
+        candidates.insert(0, Path(local_app) / "Programs" / "Inno Setup 6" / "ISCC.exe")
     # Kiểm tra trong PATH
     which_iscc = shutil.which("iscc")
     if which_iscc:
@@ -95,11 +98,21 @@ def prepare_staging_dir(build_dir: Path, staging_dir: Path):
         for item in src_cfg.glob("*"):
             if item.is_file():
                 # BẢO MẬT & QUYỀN RIÊNG TƯ:
-                # Không copy license.json cá nhân, tài khoản cá nhân, log, và offset nội bộ
+                # Không copy license.json cá nhân, tài khoản cá nhân, telegram token, log, và offset nội bộ
                 name_lower = item.name.lower()
-                if name_lower in ("license.json", "megamu_accounts.json", "megamu_offsets.json") or name_lower.endswith(".log"):
+                if name_lower in ("license.json", "megamu_accounts.json", "megamu_offsets.json", "telegram_config.json") or name_lower.endswith(".log"):
                     continue
-                shutil.copy2(item, staging_cfg / item.name)
+                dst_item = staging_cfg / item.name
+                if name_lower == "mirror_schedule_config.json":
+                    try:
+                        import json as _json
+                        mdata = _json.loads(item.read_text(encoding="utf-8"))
+                        mdata.pop("telegram", None)
+                        dst_item.write_text(_json.dumps(mdata, indent=2, ensure_ascii=False), encoding="utf-8")
+                        continue
+                    except Exception:
+                        pass
+                shutil.copy2(item, dst_item)
 
     log("Chuẩn bị dữ liệu staging hoàn tất (Đã loại bỏ tài khoản & license cá nhân).", "SUCCESS")
 

@@ -10,6 +10,7 @@ from ui.theme import Colors, Fonts
 from ui.components.icons import UiIconFactory
 from ui.components.dropdown import ModernDropdown
 from ui.components.shell import bind_mousewheel_to_scrollable
+from ui.components.tooltip import attach_tooltip
 
 PROFILE_NAMES = [f"Config {i}" for i in range(1, 11)]
 
@@ -99,7 +100,7 @@ class ProfilesConfigView(ctk.CTkFrame):
 
         ctk.CTkLabel(
             left_f,
-            text="⏳ Delay Hồi Sinh (giây):",
+            text="⏳ Thời Gian Chờ Ra Bãi (giây):",
             font=Fonts.BODY,
             text_color=Colors.TEXT_MUTED
         ).pack(side="left", padx=(4, 4), pady=12)
@@ -115,6 +116,7 @@ class ProfilesConfigView(ctk.CTkFrame):
             font=Fonts.BODY
         )
         self.respawn_entry.pack(side="left", padx=2, pady=10)
+        attach_tooltip(self.respawn_entry, "Khoảng thời gian (giây) nhân vật chờ an toàn tại Lorencia sau khi chết hoặc bị PK trước khi tự động di chuyển ra lại bãi train. Cấu hình riêng cho từng nhân vật/profile.")
 
         # Cột Phải: Nút Lưu & Tải Lại
         right_f = ctk.CTkFrame(tb, fg_color="transparent")

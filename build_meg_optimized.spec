@@ -46,6 +46,8 @@ hiddenimports = [
     'meg_navigator',
     'meg_trash_cleaner',
     'telegram_notifier',
+    'meg_crash_tracer',
+    'meg_rea_hunter',
 ]
 
 # Thu thập toàn bộ customtkinter, ui, và services

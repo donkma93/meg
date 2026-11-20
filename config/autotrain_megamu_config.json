@@ -62,5 +62,8 @@
       "x": 166,
       "y": 200
     }
-  ]
+  ],
+  "evade_on_kill": true,
+  "evade_safe_map": "lorencia",
+  "evade_cooldown_minutes": 10.0
 }

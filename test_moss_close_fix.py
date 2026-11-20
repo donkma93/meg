@@ -5,9 +5,9 @@ import os
 # Các RVA đã đối chiếu tận dump_current/dump.cs VÀ kiểm chứng trực tiếp trên
 # GameAssembly.dll đang cài (byte đầu hàm phải là prologue hợp lệ, không nằm giữa hàm khác).
 VERIFIED_MOSS_RVAS = {
-    "moss_send_roll": "0x23F8BE0",   # MossMerchantWindow.FOILGIOOHJL(int) - gửi packet quay
-    "moss_roll_click": "0x27AA8B0",  # MMossMerchantWindow.OGILEDKJPLF() - OnClick RollButton
-    "moss_select_cat": "0x27A8510",  # MMossMerchantWindow.IGGEKEFMNIJ(category)
+    "moss_send_roll": "0x24CB1C0",   # MossMerchantWindow.KPBDLHPOPGA(int) - gửi packet quay
+    "moss_roll_click": "0x286FE70",  # MMossMerchantWindow.FIHIAOJNMEE() - OnClick RollButton
+    "moss_select_cat": "0x2871370",  # MMossMerchantWindow.PDJCNHJMNGH(category)
 }
 
 # Các key điều khiển UI (Window.Show/Hide, Button.Press...) hiện vẫn là RVA của build CŨ.

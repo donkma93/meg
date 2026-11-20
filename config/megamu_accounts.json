@@ -28,7 +28,7 @@
       "source": "manual",
       "category": "Chung",
       "password": "1231235",
-      "last_pid": 16008
+      "last_pid": 22072
     },
     {
       "username": "thaibinh1",
@@ -37,12 +37,12 @@
       "characters_list": [
         "VgDongNhi"
       ],
-      "server": 30,
+      "server": 25,
       "enabled": true,
       "source": "manual",
       "category": "Chung",
       "password": "Nammothai3",
-      "last_pid": 14828
+      "last_pid": 19244
     },
     {
       "username": "thaibinh06",
@@ -93,7 +93,7 @@
       "characters_list": [
         "SLayerVNI"
       ],
-      "server": 7264,
+      "server": 2,
       "enabled": true,
       "source": "manual",
       "category": "Chung",

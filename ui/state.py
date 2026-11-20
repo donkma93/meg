@@ -46,7 +46,8 @@ class AppStateManager:
                 "class_code": "",
                 "profile": "Config 1",
                 "mirror_enabled": True,
-                "moss_enabled": True
+                "moss_enabled": True,
+                "auto_add_point": False
             }
             self._slot_dirty[i] = True
 
@@ -111,7 +112,8 @@ class AppStateManager:
         is_running: Optional[bool] = None,
         assigned_pid: Optional[int] = None,
         map: Optional[str] = None,
-        profile: Optional[str] = None
+        profile: Optional[str] = None,
+        auto_add_point: Optional[bool] = None
     ):
         """Cập nhật dữ liệu từ nền. Áp dụng State Diffing: Chỉ đánh dấu DIRTY khi có giá trị thay đổi."""
         if slot_idx not in self.slots:
@@ -159,6 +161,9 @@ class AppStateManager:
                 changed = True
             if profile is not None and s.get("profile") != profile:
                 s["profile"] = profile
+                changed = True
+            if auto_add_point is not None and s.get("auto_add_point") != auto_add_point:
+                s["auto_add_point"] = auto_add_point
                 changed = True
 
             if changed:
