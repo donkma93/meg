@@ -5,10 +5,12 @@ Quản lý cấu hình 10 Profile chặng train (Min/Max Level, Bản đồ, T�
 """
 
 from typing import Callable, Optional, Dict, Any, List
+import tkinter as tk
 import customtkinter as ctk
 from ui.theme import Colors, Fonts
 from ui.components.icons import UiIconFactory
 from ui.components.dropdown import ModernDropdown
+from ui.components.fast_widgets import FastCell, FastButton, FastEntry
 from ui.components.shell import bind_mousewheel_to_scrollable
 from ui.components.tooltip import attach_tooltip
 
@@ -189,31 +191,38 @@ class ProfilesConfigView(ctk.CTkFrame):
         map_options = [""] + self.maps_list
 
         for i in range(1, 11):
-            row = ctk.CTkFrame(scroll, fg_color=Colors.BG_SURFACE if i % 2 == 1 else "#0d131f", height=36, corner_radius=2)
+            row_bg = Colors.BG_SURFACE if i % 2 == 1 else "#0d131f"
+            row = tk.Frame(scroll, bg=row_bg, height=36, bd=0, highlightthickness=0)
             row.pack(fill="x", pady=2)
+            row.pack_propagate(False)
 
             # Cột 1: STT Chặng
-            ctk.CTkLabel(
+            FastCell(
                 row,
                 text=f"#{i:02d}",
                 width=60,
+                height=28,
+                bg=row_bg,
+                fg=Colors.CYAN,
                 font=Fonts.BADGE,
-                text_color=Colors.CYAN
+                anchor="center"
             ).pack(side="left", padx=4, pady=4)
 
             # Cột 2: Min LV
             min_var = ctk.StringVar(value="")
-            min_ent = ctk.CTkEntry(
+            min_ent = FastEntry(
                 row, textvariable=min_var, width=90, height=28,
-                fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, font=Fonts.BODY, justify="center"
+                fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, text_color=Colors.TEXT_MAIN,
+                font=Fonts.BODY, justify="center"
             )
             min_ent.pack(side="left", padx=4, pady=4)
 
             # Cột 3: Max LV
             max_var = ctk.StringVar(value="")
-            max_ent = ctk.CTkEntry(
+            max_ent = FastEntry(
                 row, textvariable=max_var, width=90, height=28,
-                fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, font=Fonts.BODY, justify="center"
+                fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, text_color=Colors.TEXT_MAIN,
+                font=Fonts.BODY, justify="center"
             )
             max_ent.pack(side="left", padx=4, pady=4)
 
@@ -234,28 +243,31 @@ class ProfilesConfigView(ctk.CTkFrame):
 
             # Cột 5: Tọa độ X
             x_var = ctk.StringVar(value="")
-            x_ent = ctk.CTkEntry(
+            x_ent = FastEntry(
                 row, textvariable=x_var, width=110, height=28,
-                fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, font=Fonts.BODY, justify="center"
+                fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, text_color=Colors.TEXT_MAIN,
+                font=Fonts.BODY, justify="center"
             )
             x_ent.pack(side="left", padx=4, pady=4)
 
             # Cột 6: Tọa độ Y
             y_var = ctk.StringVar(value="")
-            y_ent = ctk.CTkEntry(
+            y_ent = FastEntry(
                 row, textvariable=y_var, width=110, height=28,
-                fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, font=Fonts.BODY, justify="center"
+                fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, text_color=Colors.TEXT_MAIN,
+                font=Fonts.BODY, justify="center"
             )
             y_ent.pack(side="left", padx=4, pady=4)
 
             # Cột 7: Nút xóa trắng dòng
-            btn_clr = ctk.CTkButton(
+            btn_clr = FastButton(
                 row,
                 text="Xóa",
                 width=60,
                 height=26,
                 fg_color=Colors.BG_CARD,
                 hover_color="#450a0a",
+                border_color=Colors.BORDER_CARD,
                 text_color=Colors.TEXT_MUTED,
                 font=Fonts.CAPTION,
                 command=lambda m=min_var, mx=max_var, mp=map_var, x=x_var, y=y_var: self._clear_row(m, mx, mp, x, y)

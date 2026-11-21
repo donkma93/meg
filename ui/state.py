@@ -9,6 +9,9 @@ import threading
 from collections import deque
 from typing import Dict, Any, List, Optional, Tuple
 
+_UNSET = object()
+
+
 class AppStateManager:
     """Kho lưu trữ trạng thái trung tâm Reactive & Thread-safe cho toàn bộ Dashboard."""
     _instance = None
@@ -22,33 +25,37 @@ class AppStateManager:
                     cls._instance._init_state()
         return cls._instance
 
+    @staticmethod
+    def _make_default_slot(slot_idx: int) -> Dict[str, Any]:
+        return {
+            "slot_idx": slot_idx,
+            "assigned_pid": None,
+            "char_name": "---",
+            "level": "---",
+            "coords": "--,--",
+            "server": "---",
+            "status": "Chờ kết nối...",
+            "is_running": False,
+            "map": "---",
+            "spot": "(125, 125)",
+            "resets": 0,
+            "points": 0,
+            "master_points": 0,
+            "class_code": "",
+            "profile": "Config 1",
+            "mirror_enabled": True,
+            "moss_enabled": True,
+            "auto_add_point": False
+        }
+
     def _init_state(self):
         self.state_lock = threading.Lock()
         
-        # 1. Trạng thái 10 Slots Auto Train
+        # 1. Trạng thái Slots Auto Train (tự động mở rộng linh hoạt vượt 10 slot theo License)
         self.slots: Dict[int, Dict[str, Any]] = {}
         self._slot_dirty: Dict[int, bool] = {}
         for i in range(1, 11):
-            self.slots[i] = {
-                "slot_idx": i,
-                "assigned_pid": None,
-                "char_name": "---",
-                "level": "---",
-                "coords": "--,--",
-                "server": "---",
-                "status": "Chờ kết nối...",
-                "is_running": False,
-                "map": "---",
-                "spot": "(125, 125)",
-                "resets": 0,
-                "points": 0,
-                "master_points": 0,
-                "class_code": "",
-                "profile": "Config 1",
-                "mirror_enabled": True,
-                "moss_enabled": True,
-                "auto_add_point": False
-            }
+            self.slots[i] = self._make_default_slot(i)
             self._slot_dirty[i] = True
 
         # 2. Hàng đợi Log tập trung (Batched Queue)
@@ -95,6 +102,39 @@ class AppStateManager:
         self._accounts_dirty: Dict[str, bool] = {}
 
     # --------------------------------------------------------------------------
+    # QUẢN LÝ DANH SÁCH SLOT ĐỘNG (HỖ TRỢ 11..50+ SLOTS THEO LICENSE)
+    # --------------------------------------------------------------------------
+    def _ensure_slot_locked(self, slot_idx: int) -> Optional[Dict[str, Any]]:
+        if slot_idx is None or slot_idx < 1:
+            return None
+        if slot_idx not in self.slots:
+            self.slots[slot_idx] = self._make_default_slot(slot_idx)
+            self._slot_dirty[slot_idx] = True
+            self.header_stats["slots"] = len(self.slots)
+            self.header_dirty = True
+        return self.slots[slot_idx]
+
+    def ensure_slot(self, slot_idx: int) -> Dict[str, Any]:
+        """Đảm bảo slot_idx đã được đăng ký trong AppStateManager (Thread-safe)."""
+        with self.state_lock:
+            s = self._ensure_slot_locked(slot_idx)
+            return dict(s) if s is not None else {}
+
+    def sync_slots(self, slot_indices: List[int]):
+        """Đồng bộ danh sách slot từ controllers (tạo sẵn mọi slot >= 11 nếu có)."""
+        with self.state_lock:
+            for idx in slot_indices:
+                self._ensure_slot_locked(int(idx))
+
+    def remove_slot(self, slot_idx: int):
+        """Xóa trạng thái slot khỏi AppStateManager khi người dùng bấm - Slot."""
+        with self.state_lock:
+            self.slots.pop(slot_idx, None)
+            self._slot_dirty.pop(slot_idx, None)
+            self.header_stats["slots"] = len(self.slots)
+            self.header_dirty = True
+
+    # --------------------------------------------------------------------------
     # QUẢN LÝ DỮ LIỆU TELEMETRY SLOT (STATE DIFFING)
     # --------------------------------------------------------------------------
     def update_slot_telemetry(
@@ -110,17 +150,19 @@ class AppStateManager:
         class_code: Optional[str] = None,
         status: Optional[str] = None,
         is_running: Optional[bool] = None,
-        assigned_pid: Optional[int] = None,
+        assigned_pid: Any = _UNSET,
         map: Optional[str] = None,
         profile: Optional[str] = None,
         auto_add_point: Optional[bool] = None
     ):
-        """Cập nhật dữ liệu từ nền. Áp dụng State Diffing: Chỉ đánh dấu DIRTY khi có giá trị thay đổi."""
-        if slot_idx not in self.slots:
+        """Cập nhật dữ liệu từ nền. Tự động đăng ký slot > 10 nếu chưa có. State Diffing chỉ đánh dấu DIRTY khi có giá trị thay đổi."""
+        if slot_idx is None or slot_idx < 1:
             return
 
         with self.state_lock:
-            s = self.slots[slot_idx]
+            s = self._ensure_slot_locked(slot_idx)
+            if s is None:
+                return
             changed = False
 
             if char_name is not None and s["char_name"] != char_name:
@@ -153,7 +195,7 @@ class AppStateManager:
             if is_running is not None and s["is_running"] != is_running:
                 s["is_running"] = is_running
                 changed = True
-            if assigned_pid is not None and s["assigned_pid"] != assigned_pid:
+            if assigned_pid is not _UNSET and s["assigned_pid"] != assigned_pid:
                 s["assigned_pid"] = assigned_pid
                 changed = True
             if map is not None and s.get("map") != map:

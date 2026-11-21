@@ -6,11 +6,13 @@ Dense ops layout: thin countdown · tools · table · status log.
 
 from typing import Callable, Optional, Dict, Any, List, Tuple
 import time
+import tkinter as tk
 import customtkinter as ctk
 from ui.theme import Colors, Fonts, Radii
 from ui.components.icons import UiIconFactory
 from ui.components.shell import make_action_button, bind_mousewheel_to_scrollable
 from ui.components.dropdown import ModernDropdown
+from ui.components.fast_widgets import FastCell, FastButton, FastEntry, FastCheckBox
 
 try:
     from meg_gui import ModernActionMenu
@@ -289,64 +291,64 @@ class MossView(ctk.CTkFrame):
         i = ctrl.slot_idx
         is_en = getattr(ctrl, "moss_enabled", True)
         base_bg = "#0c1424" if i % 2 == 1 else "#0f192c"
-        row = ctk.CTkFrame(
-            self.moss_scroll,
-            fg_color=base_bg if is_en else "#080c14",
-            height=32, corner_radius=0, border_width=0
-        )
+        row_bg = base_bg if is_en else "#080c14"
+        row = tk.Frame(self.moss_scroll, bg=row_bg, height=32, bd=0, highlightthickness=0)
         row.pack(fill="x", pady=0)
         row.pack_propagate(False)
 
-        # Hairline 1px dưới đáy hàng để tạo lưới bảng chuẩn
-        ctk.CTkFrame(row, fg_color="#152033", height=1, corner_radius=0).pack(fill="x", side="bottom")
+        # Hairline 1px dưới đáy hàng
+        tk.Frame(row, bg="#152033", height=1, bd=0, highlightthickness=0).pack(fill="x", side="bottom")
 
         # Ghim Thao tác bên phải trước tiên (110px)
-        action = ctk.CTkFrame(row, fg_color="transparent")
+        action = tk.Frame(row, bg=row_bg, bd=0, highlightthickness=0)
         action.pack(side="right", padx=(2, 8))
 
         running = bool(getattr(ctrl, "moss_running", False))
-        btn_toggle = ctk.CTkButton(
+        btn_toggle = FastButton(
             action,
             text="⏹ Dừng" if running else "▶ Quay",
-            width=62, height=24, corner_radius=Radii.XS, font=Fonts.CAPTION,
+            width=62, height=24, font=Fonts.CAPTION,
             fg_color=Colors.ROSE if running else Colors.GREEN,
             hover_color=Colors.ROSE_HOVER if running else Colors.GREEN_HOVER,
+            border_color=Colors.ROSE if running else Colors.GREEN,
+            text_color="#ffffff",
             command=lambda s=i: self._on_toggle_slot_auto(s)
         )
         btn_toggle.pack(side="left", padx=(0, 4))
 
-        btn_more = ctk.CTkButton(
-            action, text="⋯", width=28, height=24, corner_radius=Radii.XS,
+        btn_more = FastButton(
+            action, text="⋯", width=28, height=24,
             fg_color="#1e293b", hover_color="#334155",
-            border_width=1, border_color="#334155", font=Fonts.BODY_BOLD,
+            border_color="#334155", text_color="#e2e8f0", font=Fonts.BODY_BOLD,
             command=lambda s=i: self._show_row_menu(s)
         )
         btn_more.pack(side="left")
 
-        # Cột 1: Checkbox Slot (58px, căn giữa)
+        # Cột 1: Checkbox Slot (58px)
         var = ctk.BooleanVar(value=is_en)
         self.moss_cb_vars[i] = var
-        cb_f = ctk.CTkFrame(row, fg_color="transparent", width=58)
+        cb_f = tk.Frame(row, bg=row_bg, width=58, height=26, bd=0, highlightthickness=0)
         cb_f.pack(side="left", padx=2)
         cb_f.pack_propagate(False)
 
-        cb = ctk.CTkCheckBox(
-            cb_f, text=f"S{i:02d}", variable=var, width=50,
-            font=("Segoe UI", 9, "bold"), text_color=Colors.AMBER if is_en else Colors.TEXT_DIM,
-            checkbox_width=14, checkbox_height=14,
+        cb = FastCheckBox(
+            cb_f, text=f"S{i:02d}", variable=var, width=54, height=24,
+            bg=row_bg, font=("Segoe UI", 9, "bold"),
+            text_color=Colors.AMBER if is_en else Colors.TEXT_DIM,
+            accent_color=Colors.AMBER,
             command=lambda s=i, v=var: self._on_moss_enabled(s, v.get())
         )
-        cb.pack(side="left", padx=4)
+        cb.pack(side="left", padx=2, pady=1)
 
         # Cột 2: Nhân vật / PID (180px, căn trái)
         char_disp = f"● {ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "⚪ Chưa kết nối"
-        char_lbl = ctk.CTkLabel(
-            row, text=char_disp, width=180, anchor="w", font=("Segoe UI", 10),
-            text_color=Colors.TEXT_MAIN if (ctrl.assigned_pid and is_en) else Colors.TEXT_DIM
+        char_lbl = FastCell(
+            row, text=char_disp, width=180, height=26, bg=row_bg, anchor="w", font=("Segoe UI", 10),
+            fg=Colors.TEXT_MAIN if (ctrl.assigned_pid and is_en) else Colors.TEXT_DIM
         )
         char_lbl.pack(side="left", padx=4)
 
-        # Cột 3: Vật phẩm quay Category (Dropdown 220px)
+        # Cột 3: Vật phẩm quay Category (Dropdown 220px - Zero-Canvas)
         cat_var = ctk.StringVar(value=moss_cat_name(int(getattr(ctrl, "moss_category", 0) or 0)))
         cat_combo = ModernDropdown(
             row, values=[n for n, _ in MOSS_CAT_OPTIONS], variable=cat_var,
@@ -358,13 +360,13 @@ class MossView(ctk.CTkFrame):
         cat_combo.pack(side="left", padx=4)
 
         # Cột 4: Delay ms (75px, căn giữa)
-        delay_f = ctk.CTkFrame(row, fg_color="transparent", width=75)
+        delay_f = tk.Frame(row, bg=row_bg, width=75, height=26, bd=0, highlightthickness=0)
         delay_f.pack(side="left", padx=2)
         delay_f.pack_propagate(False)
 
-        delay_entry = ctk.CTkEntry(
-            delay_f, width=52, height=24, font=Fonts.CAPTION, justify="center",
-            fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD
+        delay_entry = FastEntry(
+            delay_f, width=52, height=22, font=Fonts.CAPTION, justify="center",
+            fg_color=Colors.BG_INPUT, border_color=Colors.BORDER_CARD, text_color=Colors.TEXT_MAIN
         )
         delay_entry.insert(0, str(int(getattr(ctrl, "moss_delay_ms", 1000) or 1000)))
         delay_entry.pack(expand=True)
@@ -373,9 +375,9 @@ class MossView(ctk.CTkFrame):
 
         # Cột 5: Đã quay (65px, căn giữa)
         rolls = int(getattr(ctrl, "moss_rolls_count", 0) or 0)
-        rolls_lbl = ctk.CTkLabel(
-            row, text=f"{rolls}", width=65, anchor="center", font=Fonts.CAPTION,
-            text_color=Colors.GREEN if rolls > 0 else Colors.TEXT_DIM
+        rolls_lbl = FastCell(
+            row, text=f"{rolls}", width=65, height=26, bg=row_bg, anchor="center", font=Fonts.CAPTION,
+            fg=Colors.GREEN if rolls > 0 else Colors.TEXT_DIM
         )
         rolls_lbl.pack(side="left", padx=2)
 
@@ -386,18 +388,23 @@ class MossView(ctk.CTkFrame):
             st_text, st_color = "🟢 Sẵn sàng", Colors.GREEN
         else:
             st_text, st_color = "⚪ Chưa gán", Colors.TEXT_DIM
-        status_lbl = ctk.CTkLabel(row, text=st_text, width=110, anchor="w", font=Fonts.CAPTION, text_color=st_color)
+        status_lbl = FastCell(row, text=st_text, width=110, height=26, bg=row_bg, anchor="w", font=Fonts.CAPTION, fg=st_color)
         status_lbl.pack(side="left", padx=4)
 
-        # Đệm co giãn linh hoạt ở giữa
-        ctk.CTkFrame(row, fg_color="transparent").pack(side="left", fill="both", expand=True)
+        # Đệm co giãn linh hoạt ở giữa (Zero-Canvas)
+        spacer = tk.Frame(row, bg=row_bg, bd=0, highlightthickness=0)
+        spacer.pack(side="left", fill="both", expand=True)
 
         self.moss_ui_elements[i] = {
-            "row_frame": row, "cb_enabled": cb, "char_lbl": char_lbl,
+            "row_frame": row, "action_frame": action, "cb_frame": cb_f, "delay_frame": delay_f,
+            "spacer": spacer, "cb_enabled": cb, "char_lbl": char_lbl,
             "cat_var": cat_var, "cat_combo": cat_combo, "delay_entry": delay_entry,
             "rolls_lbl": rolls_lbl, "status_lbl": status_lbl,
-            "btn_toggle": btn_toggle, "btn_more": btn_more,
+            "btn_toggle": btn_toggle, "btn_more": btn_more, "_bg": row_bg,
         }
+        if not hasattr(self, "_moss_row_cache"):
+            self._moss_row_cache = {}
+        self._moss_row_cache.pop(i, None)
 
     # ---- log ----
     def append_log(self, text: str):
@@ -448,8 +455,26 @@ class MossView(ctk.CTkFrame):
         )
         self.refresh_moss_rows()
 
+    def _apply_moss_row_bg(self, el: Dict[str, Any], row_bg: str):
+        if el.get("_bg") == row_bg:
+            return
+        el["_bg"] = row_bg
+        for k in ("row_frame", "action_frame", "cb_frame", "delay_frame", "spacer"):
+            w = el.get(k)
+            if w:
+                w.configure(bg=row_bg)
+        for k in ("cb_enabled", "char_lbl", "rolls_lbl", "status_lbl"):
+            w = el.get(k)
+            if w and hasattr(w, "set_bg"):
+                w.set_bg(row_bg)
+
     def update_countdown(self, sec: int, is_open: bool, next_str: Optional[str] = None):
-        self.lbl_moss_countdown.configure(text=self._format_seconds(sec))
+        cd_txt = self._format_seconds(sec)
+        key = (cd_txt, is_open, next_str)
+        if getattr(self, "_countdown_cache", None) == key:
+            return
+        self._countdown_cache = key
+        self.lbl_moss_countdown.configure(text=cd_txt)
         if is_open:
             self.lbl_moss_status.configure(text="🎲 ĐANG MỞ", text_color=Colors.GREEN)
         else:
@@ -458,6 +483,8 @@ class MossView(ctk.CTkFrame):
             self.lbl_moss_next.configure(text=f"Đợt kế: {next_str}")
 
     def refresh_moss_rows(self):
+        if not hasattr(self, "_moss_row_cache"):
+            self._moss_row_cache = {}
         for ctrl in self.controllers:
             i = ctrl.slot_idx
             el = self.moss_ui_elements.get(i)
@@ -477,20 +504,35 @@ class MossView(ctk.CTkFrame):
                         ctrl.char_name = name
 
             pid = getattr(ctrl, "assigned_pid", None)
+            rolls = int(getattr(ctrl, "moss_rolls_count", 0) or 0)
+            running = bool(getattr(ctrl, "moss_running", False))
+            row_key = (is_en, name, pid, rolls, running)
+            if self._moss_row_cache.get(i) == row_key:
+                continue
+            self._moss_row_cache[i] = row_key
+
+            base_bg = "#0c1424" if i % 2 == 1 else "#0f192c"
+            if running:
+                row_bg = "#1c160c"
+            elif not is_en:
+                row_bg = "#080c14"
+            else:
+                row_bg = base_bg
+            self._apply_moss_row_bg(el, row_bg)
+
             if el.get("char_lbl"):
                 el["char_lbl"].configure(
                     text=f"● {name} ({pid})" if pid else "⚪ Chưa kết nối",
                     text_color=Colors.TEXT_MAIN if (pid and is_en) else Colors.TEXT_DIM
                 )
-            rolls = int(getattr(ctrl, "moss_rolls_count", 0) or 0)
             if el.get("rolls_lbl"):
                 el["rolls_lbl"].configure(text=f"{rolls}", text_color=Colors.GREEN if rolls > 0 else Colors.TEXT_DIM)
-            running = bool(getattr(ctrl, "moss_running", False))
             if el.get("btn_toggle"):
                 el["btn_toggle"].configure(
                     text="⏹ Dừng" if running else "▶ Quay",
                     fg_color=Colors.ROSE if running else Colors.GREEN,
                     hover_color=Colors.ROSE_HOVER if running else Colors.GREEN_HOVER,
+                    border_color=Colors.ROSE if running else Colors.GREEN,
                 )
             if el.get("status_lbl"):
                 if running:
@@ -501,14 +543,6 @@ class MossView(ctk.CTkFrame):
                     el["status_lbl"].configure(text="🟢 Sẵn sàng", text_color=Colors.GREEN)
                 else:
                     el["status_lbl"].configure(text="⚪ Chưa gán", text_color=Colors.TEXT_DIM)
-            if el.get("row_frame"):
-                base_bg = "#0c1424" if i % 2 == 1 else "#0f192c"
-                if running:
-                    el["row_frame"].configure(fg_color="#1c160c")
-                elif not is_en:
-                    el["row_frame"].configure(fg_color="#080c14")
-                else:
-                    el["row_frame"].configure(fg_color=base_bg)
         self._update_moss_badge()
 
     @staticmethod
@@ -528,10 +562,12 @@ class MossView(ctk.CTkFrame):
     def _on_moss_enabled(self, slot_idx: int, enabled: bool):
         el = self.moss_ui_elements.get(slot_idx)
         base_bg = "#0c1424" if slot_idx % 2 == 1 else "#0f192c"
-        if el and el.get("row_frame"):
-            el["row_frame"].configure(fg_color=base_bg if enabled else "#080c14")
-        if el and el.get("cb_enabled"):
-            el["cb_enabled"].configure(text_color=Colors.AMBER if enabled else Colors.TEXT_DIM)
+        if el:
+            self._apply_moss_row_bg(el, base_bg if enabled else "#080c14")
+            if el.get("cb_enabled"):
+                el["cb_enabled"].configure(text_color=Colors.AMBER if enabled else Colors.TEXT_DIM)
+        if hasattr(self, "_moss_row_cache"):
+            self._moss_row_cache.pop(slot_idx, None)
         if self.on_toggle_participant:
             self.on_toggle_participant(slot_idx, enabled)
         self._update_moss_badge()
@@ -539,6 +575,10 @@ class MossView(ctk.CTkFrame):
     def _update_moss_badge(self):
         total = len(self.controllers)
         sel = sum(1 for c in self.controllers if getattr(c, "moss_enabled", True))
+        key = (sel, total)
+        if getattr(self, "_badge_cache", None) == key:
+            return
+        self._badge_cache = key
         self.lbl_moss_count_badge.configure(
             text=f"🟢 {sel}/{total} slot tham gia",
             text_color=Colors.GREEN if sel else Colors.TEXT_DIM

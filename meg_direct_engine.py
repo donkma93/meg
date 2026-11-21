@@ -87,9 +87,10 @@ DEFAULT_OFFSETS = {
     "location_helper_on": "0x60",
     "location_helper_off": "0x68",
     "location_update_helper": "0x26A2E80",
-    "npc_talk": "0x10E0660",
-    "npc_close_talk": "0x10DC700",
-    "npc_click": "0x10E0660",
+    "npc_talk": "0x10E3010",
+    "npc_send_talk": "0x10E9C10",
+    "npc_close_talk": "0x10ECB60",
+    "npc_click": "0x10E3010",
     "get_config": "0x10D72F0",
     "get_user_2fa": "0x10D5080",
     "inv_trash_item": "0x0",
@@ -113,7 +114,7 @@ DEFAULT_OFFSETS = {
     "moss_roll_handler": "0x2872990",
     "moss_init": "0x2876A90",
     "moss_select_cat": "0x2871370",
-    "moss_send_roll": "0x24CB1C0",
+    "moss_send_roll": "0x24CE7B0",
     "moss_roll_click": "0x286FE70",
     "moss_window_close": "0x27ABAF0",
     "game_object_set_active": "0x46263E0",
@@ -488,7 +489,7 @@ var nativeMossSendRoll = null;
 try {
     var msrOff = off('__MOSS_SEND_ROLL__');
     if (!msrOff.isNull()) {
-        nativeMossSendRoll = new NativeFunction(baseAddr.add(msrOff), 'void', ['int32']);
+        nativeMossSendRoll = new NativeFunction(baseAddr.add(msrOff), 'void', ['int32', 'pointer']);
     }
 } catch (eMossSR) {}
 
@@ -2884,12 +2885,7 @@ function performMossCloseNow() {
                     // 1. Phục hồi RollButton và tắt LoadingImage để tránh đơ giao diện
                     ensureMossRollButtonActive(mossWin, true);
 
-                    // 2. Gọi MMossMerchantWindow.NAAAMOPHFBF (Slot 9, RVA 0x1A183F0)
-                    if (nativeMossWindowClose !== null) {
-                        try { nativeMossWindowClose(mossWin, ptr(0)); } catch (eMWC) {}
-                    }
-
-                    // 3. Xử lý MWindow tại offset 0x20 (KHÔNG tắt GameObject của MMossMerchantWindow để có thể mở lại)
+                    // 2. Đóng MWindow tại offset 0x20 (KHÔNG gọi Window.Hide trực tiếp lên MMossMerchantWindow!)
                     var win = mossWin.add(0x20).readPointer();
                     if (!win.isNull()) {
                         try {
@@ -2924,8 +2920,8 @@ function performMossCloseNow() {
     }
     try { sendGSPacket([0xC1, 0x04, 0x31, 0x00]); } catch (eGS) {}
 
-    // 5. Mở khóa toàn diện thùng đồ & nhân vật
-    ensureDropAllowed();
+    // 5. Mở khóa toàn diện thùng đồ & nhân vật (đang trên Unity MainThread)
+    ensureDropAllowed(true);
     return true;
 }
 
@@ -3003,17 +2999,17 @@ function performMossRollNow(cat) {
             } catch (eCat) {}
         }
 
-        // 3. GỬI LỆNH QUAY:
+        // 3. GỬI LỆNH QUAY (chạy trực tiếp trên Unity MainThread):
         var sent = false;
-        // Ưu tiên 1: Gửi qua Native Packet RPC trực tiếp (MossMerchantWindow.FOILGIOOHJL - RVA 0x23F8BE0)
+        // Ưu tiên 1: Gửi qua Native Packet RPC thật (MossMerchantWindow.MKAOMFFDDGH - RVA 0x24CE7B0 -> C1:70:10 -> 0x122DCD0)
         if (nativeMossSendRoll !== null) {
             try {
-                nativeMossSendRoll(cat);
+                nativeMossSendRoll(cat, ptr(0));
                 sent = true;
             } catch (eSend) {}
         }
 
-        // Ưu tiên 2: Fallback qua OnClick của RollButton (MMossMerchantWindow.OGILEDKJPLF - RVA 0x27AA8B0)
+        // Ưu tiên 2: Fallback gọi OnClick của RollButton (nếu có)
         if (!sent && nativeMossRollClick !== null) {
             try {
                 nativeMossRollClick(mossWin, ptr(0));
@@ -3021,16 +3017,12 @@ function performMossRollNow(cat) {
             } catch (eRC) {}
         }
 
-        // 4. Bật hiệu ứng LoadingImage quay mượt mà trên giao diện (Tự phục hồi sau 1.2s nếu Server không trả item)
+        // 4. Bật hiệu ứng LoadingImage quay mượt mà (dùng mốc thời gian MainThread, KHÔNG dùng setTimeout đa luồng!)
         try {
             var loadingImg = mossWin.add(0x60).readPointer();
             if (!loadingImg.isNull() && isGameObjectValid(loadingImg) && nativeGameObjectSetActive !== null) {
                 nativeGameObjectSetActive(loadingImg, 1, ptr(0));
-                setTimeout(function() {
-                    try {
-                        ensureMossRollButtonActive(mossWin, false);
-                    } catch (eTO) {}
-                }, 1200);
+                _mossLoadingClearAtMs = Date.now() + 1200;
             }
         } catch (eLI) {}
 
@@ -3039,6 +3031,8 @@ function performMossRollNow(cat) {
         return false;
     }
 }
+
+var _mossLoadingClearAtMs = 0;
 
 function performMerchantCloseNow() {
     pendingMerchantClose = false;
@@ -3961,6 +3955,55 @@ try {
                     var mTarget = pendingMoveTarget;
                     pendingMoveTarget = null;
                     try { dispatchMoveTarget(mTarget); } catch (eMGU) {}
+                }
+
+                if (pendingMossInteractPtr !== null) {
+                    try {
+                        var mNpcGU = pendingMossInteractPtr;
+                        pendingMossInteractPtr = null;
+                        invokeNpcTalk(mNpcGU);
+                    } catch (eMNTGU) {}
+                }
+
+                if (pendingMerchantInteractPtr !== null) {
+                    try {
+                        var merchNpcGU = pendingMerchantInteractPtr;
+                        pendingMerchantInteractPtr = null;
+                        invokeNpcTalk(merchNpcGU);
+                    } catch (eMerchNTGU) {}
+                }
+
+                if (pendingMossOpenCategory !== null) {
+                    try {
+                        var openCatGU = pendingMossOpenCategory;
+                        pendingMossOpenCategory = null;
+                        if (nativeGetGameUI !== null) {
+                            var guiOpen = nativeGetGameUI();
+                            if (guiOpen && !guiOpen.isNull()) {
+                                var mossOffO = off('__UI_MOSS_WINDOW__');
+                                var mossWinO = mossOffO.isNull() ? guiOpen.add(ptr('0x1D0')).readPointer() : guiOpen.add(mossOffO).readPointer();
+                                if (mossWinO && !mossWinO.isNull()) {
+                                    setupMossWindow(mossWinO, openCatGU);
+                                }
+                            }
+                        }
+                    } catch (eMOGU) {}
+                }
+
+                if (_mossLoadingClearAtMs > 0 && Date.now() >= _mossLoadingClearAtMs) {
+                    _mossLoadingClearAtMs = 0;
+                    try {
+                        if (nativeGetGameUI !== null) {
+                            var guiLC = nativeGetGameUI();
+                            if (guiLC && !guiLC.isNull()) {
+                                var mossOffLC = off('__UI_MOSS_WINDOW__');
+                                var mossWinLC = mossOffLC.isNull() ? guiLC.add(ptr('0x1D0')).readPointer() : guiLC.add(mossOffLC).readPointer();
+                                if (mossWinLC && !mossWinLC.isNull()) {
+                                    ensureMossRollButtonActive(mossWinLC, false);
+                                }
+                            }
+                        }
+                    } catch (eMLC) {}
                 }
 
                 if (pendingMossClose) {
@@ -5250,6 +5293,8 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     if (zeroConf) {
         var endAt = (isArmedFuture ? targetEpoch : nowMs) + maxDur + 2000;
         _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, endAt);
+    } else {
+        _suppressMirrorUiUntilMs = 0;
     }
 
     _nativeMirrorTurboStats.running = !isArmedFuture;
@@ -5565,12 +5610,14 @@ try {
                     var lowT = title.toLowerCase();
                     var lowM = msg.toLowerCase();
                     var isDevilConfirm = (lowT.indexOf("devil") !== -1 || lowM.indexOf("devil") !== -1);
-                    var isMirrorConfirm = isMirrorZeroConfirmSuppressing() ||
+                    var isMirrorConfirm = _mirrorZeroConfirmMode && (
+                        isMirrorZeroConfirmSuppressing() ||
                         lowT.indexOf("mirror") !== -1 || lowM.indexOf("mirror") !== -1 ||
                         lowT.indexOf("double") !== -1 || lowM.indexOf("double") !== -1 ||
                         lowT.indexOf("doppel") !== -1 || lowM.indexOf("doppel") !== -1 ||
                         lowT.indexOf("lugard") !== -1 || lowM.indexOf("lugard") !== -1 ||
-                        lowT.indexOf("espelho") !== -1 || lowM.indexOf("espelho") !== -1;
+                        lowT.indexOf("espelho") !== -1 || lowM.indexOf("espelho") !== -1
+                    );
                     var isPartyConfirm = autoConfirmPartyEnabled && (
                         lowT.indexOf("party") !== -1 || lowM.indexOf("party") !== -1 ||
                         lowT.indexOf("tổ đội") !== -1 || lowM.indexOf("tổ đội") !== -1 ||
@@ -6071,27 +6118,10 @@ rpc.exports = {
 
     rollMoss: function(categoryId) {
         try {
-            ensureThreadAttached();
             var cat = parseInt(categoryId || 0);
-
-            // Ủy quyền cho Unity Main Thread Hook thực thi (GameUI.Update / Game.Update)
+            // Non-blocking: đẩy sang Unity MainThread (Game.Update / GameUI.Update), KHÔNG Thread.sleep() giữ Frida lock!
             pendingMossRollCategory = cat;
-            var rolled = false;
-            for (var w = 0; w < 10; w++) {
-                if (pendingMossRollCategory === null) {
-                    rolled = true;
-                    break;
-                }
-                Thread.sleep(0.015);
-            }
-
-            // Nếu Main Thread hook chưa kịp tiêu thụ (game pause / minimize), thực thi trực tiếp an toàn
-            if (!rolled) {
-                pendingMossRollCategory = null;
-                rolled = performMossRollNow(cat);
-            }
-
-            return rolled;
+            return true;
         } catch (eMR) {
             return false;
         }
@@ -6099,29 +6129,8 @@ rpc.exports = {
 
     closeMoss: function() {
         try {
-            ensureThreadAttached();
             pendingMossOpenCategory = null;
             pendingMossClose = true;
-
-            // Ưu tiên ủy quyền đóng cửa sổ cho Unity Main Thread Hook (GameUI.Update / Game.Update)
-            for (var w = 0; w < 4; w++) {
-                if (!pendingMossClose) break;
-                Thread.sleep(0.02);
-            }
-
-            // Nếu Main Thread chưa kịp tiêu thụ (ví dụ cửa sổ game thu nhỏ/tạm dừng), thực thi trực tiếp
-            if (pendingMossClose) {
-                pendingMossClose = false;
-                performMossCloseNow();
-            } else {
-                // Đảm bảo gói tin đóng đàm thoại C1:31 và mở khóa thùng đồ luôn được gửi
-                if (nativeCloseTalk !== null) {
-                    try { nativeCloseTalk(); } catch (eCT) {}
-                }
-                try { sendGSPacket([0xC1, 0x04, 0x31, 0x00]); } catch (eGS) {}
-                ensureDropAllowed();
-            }
-
             return true;
         } catch (eCM) {
             return false;
@@ -6130,24 +6139,12 @@ rpc.exports = {
 
     openMoss: function(categoryId) {
         try {
-            ensureThreadAttached();
             var cat = parseInt(categoryId || 0);
             var npc = findMossNpc();
             if (npc && !npc.ptr.isNull()) {
                 pendingMossInteractPtr = npc.ptr;
-                pendingMossOpenCategory = cat;
-                for (var w = 0; w < 4; w++) {
-                    if (pendingMossInteractPtr === null) break;
-                    Thread.sleep(0.02);
-                }
-                if (pendingMossInteractPtr !== null) {
-                    var nPtr = pendingMossInteractPtr;
-                    pendingMossInteractPtr = null;
-                    invokeNpcTalk(nPtr);
-                }
-            } else {
-                pendingMossOpenCategory = cat;
             }
+            pendingMossOpenCategory = cat;
             return true;
         } catch (eMO) {
             return false;
@@ -6156,15 +6153,9 @@ rpc.exports = {
 
     resetMossUI: function(categoryId) {
         try {
-            ensureThreadAttached();
             var cat = parseInt(categoryId || 0);
             pendingMossResetCategory = cat;
-            for (var w = 0; w < 3; w++) {
-                if (pendingMossResetCategory === null) return true;
-                Thread.sleep(0.02);
-            }
-            pendingMossResetCategory = null;
-            return performMossResetNow(cat);
+            return true;
         } catch (e) {
             return false;
         }
@@ -6345,22 +6336,15 @@ rpc.exports = {
 
     interactMossNpc: function(categoryId) {
         try {
-            ensureThreadAttached();
             var cat = parseInt(categoryId || 0);
             var npc = findMossNpc();
             if (!npc) {
                 return { success: false, error: "NPC_NOT_FOUND" };
             }
 
-            var talkOk = invokeNpcTalk(npc.ptr);
-            if (!talkOk && nativeUniversalNpcClick !== null) {
-                try {
-                    var nm = getNpcManagerPtr();
-                    nativeUniversalNpcClick(nm, npc.ptr, ptr(0));
-                    talkOk = true;
-                } catch (eUNC) {}
-            }
-
+            // Đẩy tương tác NPC Moss & chọn tab category sang Unity MainThread (Game.Update / GameUI.Update)
+            // KHÔNG gọi invokeNpcTalk trên luồng RPC nền (tránh deadlock/crash IL2CPP GC & Unity UI)!
+            pendingMossInteractPtr = npc.ptr;
             pendingMossOpenCategory = cat;
 
             return {
@@ -6398,40 +6382,12 @@ rpc.exports = {
 
     interactMerchantNpc: function() {
         try {
-            ensureThreadAttached();
             var npc = findMerchantNpc();
             if (!npc) {
                 return { success: false, error: "MERCHANT_NOT_FOUND" };
             }
 
-            // 1. Gửi gói tin C1:05 tới GameServer báo mở đối thoại NPC thương nhân (Opcode XOR 0xCB: 0x30 ^ 0xCB = 0xFB)
-            if (npc.index >= 0) {
-                var lo = npc.index & 0xFF;
-                var hi = (npc.index >> 8) & 0xFF;
-                var encTalk = 0x30 ^ 0xCB; // 0xFB
-                if (!sendGSPacket([0xC1, 0x05, encTalk, lo, hi], true)) {
-                    sendGSPacket([0xC1, 0x05, 0x30, lo, hi]);
-                }
-            }
-
-            // 2. Gọi native NpcManager.GEBGEGOEFAD(npc.ptr) (RVA 0x1023B10) - Hàm client gửi packet 0x30
-            if (nativeNpcSendTalk !== null) {
-                try {
-                    nativeNpcSendTalk(npc.ptr, ptr(0));
-                } catch (eNST) {}
-            }
-
-            // 3. Gọi trực tiếp invokeNpcTalk trên thread hiện tại
-            var talkOk = invokeNpcTalk(npc.ptr);
-            if (!talkOk && nativeUniversalNpcClick !== null) {
-                try {
-                    var nm = getNpcManagerPtr();
-                    nativeUniversalNpcClick(nm, npc.ptr, ptr(0));
-                    talkOk = true;
-                } catch (eUNC) {}
-            }
-
-            // 3. Xếp hàng tương tác thương nhân trên Unity Main Thread trong guiHook
+            // Đẩy tương tác NPC thương nhân sang Unity MainThread (Game.Update / GameUI.Update)
             pendingMerchantInteractPtr = npc.ptr;
 
             return {
@@ -9641,7 +9597,7 @@ class MegDirectEngine:
             for pid, eng in list(cls._instances.items()):
                 try:
                     eng.detach()
-                except Exception:
+                except BaseException:
                     pass
             cls._instances.clear()
 
@@ -9795,10 +9751,10 @@ class MegDirectEngine:
             "__LOCATION_HELPER_ON__": str(self.offsets.get("location_helper_on") or DEFAULT_OFFSETS.get("location_helper_on", "0x60")),
             "__LOCATION_HELPER_OFF__": str(self.offsets.get("location_helper_off") or DEFAULT_OFFSETS.get("location_helper_off", "0x68")),
             "__LOCATION_UPDATE_HELPER__": str(self.offsets.get("location_update_helper") or DEFAULT_OFFSETS.get("location_update_helper", "0x26A2E80")),
-            "__NPC_TALK__": str(self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x10E0660")),
-            "__NPC_CLOSE_TALK__": str(self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x10DC700")),
-            "__NPC_CLICK__": str(self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x10E0660")),
-            "__NPC_SEND_TALK__": str(self.offsets.get("npc_send_talk") or DEFAULT_OFFSETS.get("npc_send_talk", "0x1023B10")),
+            "__NPC_TALK__": str(self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x10E3010")),
+            "__NPC_CLOSE_TALK__": str(self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x10ECB60")),
+            "__NPC_CLICK__": str(self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x10E3010")),
+            "__NPC_SEND_TALK__": str(self.offsets.get("npc_send_talk") or DEFAULT_OFFSETS.get("npc_send_talk", "0x10E9C10")),
             "__USER_INV_PICK_ITEM__": str(self.offsets.get("user_inv_pick_item") or DEFAULT_OFFSETS.get("user_inv_pick_item", "0x1446400")),
             "__LOCAL_PICK_NEAREST__": str(self.offsets.get("local_pick_nearest") or DEFAULT_OFFSETS.get("local_pick_nearest", "0xB92800")),
             "__GET_CONFIG__": str(self.offsets.get("get_config") or DEFAULT_OFFSETS.get("get_config", "0x10D72F0")),
@@ -9828,7 +9784,7 @@ class MegDirectEngine:
             "__MOSS_ROLL_HANDLER__": str(self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x2872990")),
             "__MOSS_INIT__": str(self.offsets.get("moss_init") or DEFAULT_OFFSETS.get("moss_init", "0x2876A90")),
             "__MOSS_SELECT_CAT__": str(self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x2871370")),
-            "__MOSS_SEND_ROLL__": str(self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x24CB1C0")),
+            "__MOSS_SEND_ROLL__": str(self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x24CE7B0")),
             "__MOSS_ROLL_CLICK__": str(self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x286FE70")),
             "__MOSS_WINDOW_CLOSE__": str(self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x27ABAF0")),
             "__GAME_OBJECT_SET_ACTIVE__": str(self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x46263E0")),
@@ -12088,6 +12044,7 @@ class MegDirectEngine:
         self.is_ready = False
         with self._rpc_lock:
             try:
+                had_script = self.script is not None
                 if self.script:
                     try:
                         exports = getattr(self.script, "exports_sync", None)
@@ -12095,13 +12052,17 @@ class MegDirectEngine:
                             exports.cleanup()
                     except Exception:
                         pass
-                time.sleep(0.12)
+                if had_script:
+                    try:
+                        time.sleep(0.12)
+                    except BaseException:
+                        pass
                 if self.session:
                     try:
                         self.session.detach()
                     except Exception:
                         pass
-            except Exception:
+            except BaseException:
                 pass
             finally:
                 self.script = None

@@ -442,10 +442,12 @@ class TrainSlotsView(ctk.CTkFrame):
         running = sum(1 for card in self.cards.values() if getattr(card, "_is_running", False))
         connected = sum(1 for card in self.cards.values() if card.proc_var.get() not in ("--", "", "Chọn..."))
         total = len(self.cards)
+        summary_txt = f"🟢 {running}/{total} Đang chạy  ·  🔗 {connected}/{total} Đã nối"
+        if getattr(self, "_last_summary_text", None) == summary_txt:
+            return
+        self._last_summary_text = summary_txt
         if hasattr(self, "lbl_slot_summary") and self.lbl_slot_summary:
-            self.lbl_slot_summary.configure(
-                text=f"🟢 {running}/{total} Đang chạy  ·  🔗 {connected}/{total} Đã nối"
-            )
+            self.lbl_slot_summary.configure(text=summary_txt)
 
     def update_slots_data(self, dirty_slots: List[Dict[str, Any]]):
         for s_data in dirty_slots:

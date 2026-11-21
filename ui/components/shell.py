@@ -121,7 +121,11 @@ class MetricChip(ctk.CTkFrame):
         self.lbl_value.pack(anchor="w")
 
     def set_value(self, value: str, tone: Optional[str] = None):
-        self.lbl_value.configure(text=value)
+        val_str = str(value)
+        if getattr(self, "_last_chip_state", None) == (val_str, tone):
+            return
+        self._last_chip_state = (val_str, tone)
+        self.lbl_value.configure(text=val_str)
         if tone:
             tones = {
                 "info": (Colors.CHIP_INFO_BG, Colors.CHIP_INFO_FG, Colors.BORDER_CARD),
@@ -210,7 +214,7 @@ def bind_mousewheel_to_scrollable(scrollable_frame, step: int = 2):
         try:
             if not scrollable_frame.winfo_exists() or not canvas.winfo_exists():
                 return
-            if not scrollable_frame.winfo_viewable():
+            if not scrollable_frame.winfo_ismapped() or not scrollable_frame.winfo_viewable():
                 return
             x, y = scrollable_frame.winfo_pointerxy()
             rx = scrollable_frame.winfo_rootx()

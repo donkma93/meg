@@ -107,6 +107,7 @@ APP_NAME = "MEGAMU Auto Train Dashboard"
 APP_VERSION = "v1.6.4"
 DEFAULT_SLOTS = 5
 MAX_SLOTS = 50
+ENABLE_AUTOLOGIN = False
 CURRENT_LICENSE = "Dùng thử"
 
 def app_dir() -> Path:
@@ -1340,7 +1341,12 @@ def server_from_window_title(title: str) -> Optional[int]:
     return None
 
 def enumerate_megamu_processes() -> Dict[int, str]:
-    """Tìm tất cả tiến trình MEGAMU.exe thực sự đang chạy (bỏ qua tiến trình treo/ghost)."""
+    """Tìm tất cả tiến trình MEGAMU.exe thực sự đang chạy bằng Win32 Toolhelp32Snapshot (~6ms thay vì ~1300ms)."""
+    try:
+        from ui.engine_sync import enumerate_megamu_processes as _fast_enum
+        return _fast_enum()
+    except Exception:
+        pass
     pids = set()
     for p in psutil.process_iter(['pid', 'name', 'status']):
         try:
@@ -5934,8 +5940,8 @@ class DashboardApp(ctk.CTk):
         self.mirror_ui_elements: Dict[int, Dict[str, Any]] = {}
         self.editor_rows: List[Dict[str, Any]] = []
 
-        # Quản lý Account & AutoLogin
-        self.account_mgr = AccountManager() if AccountManager else None
+        # Quản lý Account & AutoLogin (tạm bỏ qua khi ENABLE_AUTOLOGIN = False)
+        self.account_mgr = AccountManager() if (ENABLE_AUTOLOGIN and AccountManager) else None
         self.autologin_ui_rows: List[Dict[str, Any]] = []
         self.autologin_delay_var = ctk.StringVar(value="3.0")
 
@@ -5972,6 +5978,7 @@ class DashboardApp(ctk.CTk):
 
         from ui.state import AppStateManager
         self.state_mgr = AppStateManager()
+        self.state_mgr.sync_slots([c.slot_idx for c in self.controllers])
 
         # Bắt đầu vòng lặp quét tiến trình & telemetry & bản quyền
         self.running = True
@@ -6335,7 +6342,8 @@ class DashboardApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=lambda: self.switch_tab("autologin")
         )
-        self.tab_autologin_btn.pack(side="left", padx=(0, 6))
+        if ENABLE_AUTOLOGIN:
+            self.tab_autologin_btn.pack(side="left", padx=(0, 6))
 
         tab_right = ctk.CTkFrame(tab_bar_inner, fg_color="transparent")
         tab_right.pack(side="right", fill="y")
@@ -6408,7 +6416,8 @@ class DashboardApp(ctk.CTk):
         self.build_logs_view()
         self.build_moss_view()
         self.build_mirror_view()
-        self.build_autologin_view()
+        if ENABLE_AUTOLOGIN:
+            self.build_autologin_view()
 
         # Đặt trước vị trí các panel tab vào content_container để loại bỏ hoàn toàn độ trễ remap (0ms Tab Switch)
         for p in self._tab_panels.values():
@@ -6483,11 +6492,11 @@ class DashboardApp(ctk.CTk):
         self.btn_close_all_games = self.train_view.btn_close_all_games
         self.btn_master_run = self.train_view.btn_master_run
 
-        for i in range(1, 11):
+        for ctrl in self.controllers:
+            i = ctrl.slot_idx
             if i in self.train_view.cards:
                 card = self.train_view.cards[i]
-                if i <= len(self.controllers):
-                    card.set_respawn_delay(getattr(self.controllers[i - 1], "respawn_delay", 15.0))
+                card.set_respawn_delay(getattr(ctrl, "respawn_delay", 15.0))
                 self.slot_ui_elements[i] = {
                     "row_frame": card,
                     "proc_var": card.proc_var,
@@ -6530,34 +6539,54 @@ class DashboardApp(ctk.CTk):
             self.log_message(f"[Slot {slot_idx:02d}] Đã cập nhật cấu hình: Map {ctrl.spot_map} ({ctrl.spot_x}, {ctrl.spot_y})", "SUCCESS")
 
     def create_slot_row(self, i: int):
-        """Khởi tạo và liên kết Slot thứ i với CompactSlotCard trên TrainSlotsView."""
-        if hasattr(self, "train_view") and i in self.train_view.cards:
-            card = self.train_view.cards[i]
-            self.slot_ui_elements[i] = {
-                "row_frame": card,
-                "proc_var": card.proc_var,
-                "proc_combo": card.proc_combo,
-                "profile_var": card.preset_var,
-                "preset_combo": card.preset_combo,
-                "preset_lbl": card.preset_combo,
-                "srv_lbl": None,
-                "lvl_lbl": None,
-                "map_lbl": card.map_lbl,
-                "prog_bar": None,
-                "exp_lbl": None,
-                "pts_lbl": None,
-                "coords_lbl": card.coords_lbl,
-                "status_lbl": card.status_lbl,
-                "btn_toggle": card.btn_toggle,
-                "btn_devil": None,
-                "btn_reset": None,
-                "btn_point": None,
-                "btn_cfg": card.btn_settings,
-                "btn_log": None
-            }
+        """Khởi tạo và liên kết Slot thứ i với CompactSlotCard trên TrainSlotsView (hỗ trợ slot > 10)."""
+        if hasattr(self, "train_view") and self.train_view:
+            if i not in self.train_view.cards and hasattr(self.train_view, "add_slot_card"):
+                self.train_view.add_slot_card(i)
+            if i in self.train_view.cards:
+                card = self.train_view.cards[i]
+                if 1 <= i <= len(self.controllers):
+                    card.set_respawn_delay(getattr(self.controllers[i - 1], "respawn_delay", 15.0))
+                self.slot_ui_elements[i] = {
+                    "row_frame": card,
+                    "proc_var": card.proc_var,
+                    "proc_combo": card.proc_combo,
+                    "profile_var": card.preset_var,
+                    "preset_combo": card.preset_combo,
+                    "preset_lbl": card.preset_combo,
+                    "srv_lbl": None,
+                    "lvl_lbl": None,
+                    "map_lbl": card.map_lbl,
+                    "prog_bar": None,
+                    "exp_lbl": None,
+                    "pts_lbl": None,
+                    "coords_lbl": card.coords_lbl,
+                    "status_lbl": card.status_lbl,
+                    "btn_toggle": card.btn_toggle,
+                    "btn_devil": None,
+                    "btn_reset": None,
+                    "btn_point": None,
+                    "btn_cfg": card.btn_settings,
+                    "btn_log": None
+                }
 
-    def add_new_slot(self):
-        """Thêm 1 slot tài khoản mới vào cuối danh sách (tùy thuộc vào License)."""
+    def add_new_slot(self, silent: bool = False):
+        """Thêm 1 slot tài khoản mới vào cuối danh sách (tùy thuộc vào License, thread-safe)."""
+        if threading.current_thread() is not threading.main_thread():
+            done = threading.Event()
+            result = [None]
+            def _run_on_main():
+                try:
+                    result[0] = self.add_new_slot(silent=silent)
+                finally:
+                    done.set()
+            try:
+                self.after(0, _run_on_main)
+                done.wait(timeout=3.0)
+            except Exception:
+                pass
+            return result[0]
+
         lic_data = license_client.load_license_data() if license_client else {}
         is_valid = license_client.is_license_valid() if license_client else False
         max_allowed = int(lic_data.get("max_slots", 5 if not is_valid else 10))
@@ -6569,13 +6598,14 @@ class DashboardApp(ctk.CTk):
             else:
                 msg = f"Gói bản quyền hiện tại của bạn cho phép tối đa {max_allowed} tài khoản.\nVui lòng liên hệ nâng cấp gói bản quyền để mở thêm Slot."
             self.log_message(msg, "WARNING")
-            try:
-                from tkinter import messagebox
-                messagebox.showinfo("Giới Hạn Bản Quyền", msg)
-            except Exception:
-                pass
-            self.switch_tab("logs")
-            return
+            if not silent and not self.__dict__.get("_suppress_slot_limit_dialog", False):
+                try:
+                    from tkinter import messagebox
+                    messagebox.showinfo("Giới Hạn Bản Quyền", msg)
+                except Exception:
+                    pass
+                self.switch_tab("logs")
+            return None
 
         new_slot_idx = cur_count + 1
         default_profile = 1
@@ -6584,6 +6614,8 @@ class DashboardApp(ctk.CTk):
 
         ctrl = SlotController(new_slot_idx, self, default_profile=default_profile)
         self.controllers.append(ctrl)
+        if hasattr(self, "state_mgr") and self.state_mgr:
+            self.state_mgr.ensure_slot(new_slot_idx)
 
         self.create_slot_row(new_slot_idx)
         if hasattr(self, "create_moss_slot_row") and hasattr(self, "moss_scroll_frame"):
@@ -6603,6 +6635,7 @@ class DashboardApp(ctk.CTk):
         if hasattr(self, "update_moss_selected_badge"):
             self.update_moss_selected_badge()
         self.log_message(f"Đã thêm Account Slot #{new_slot_idx:02d} thành công.", "SUCCESS")
+        return ctrl
 
     def remove_last_slot(self):
         """Xóa slot tài khoản cuối cùng."""
@@ -6630,11 +6663,18 @@ class DashboardApp(ctk.CTk):
 
         # Xóa UI row trong tab Accounts
         el = self.slot_ui_elements.pop(last_idx, None)
-        if el and el.get("row_frame"):
+        if hasattr(self, "train_view") and self.train_view and hasattr(self.train_view, "remove_last_card"):
+            try:
+                self.train_view.remove_last_card()
+            except Exception:
+                pass
+        elif el and el.get("row_frame"):
             try:
                 el["row_frame"].destroy()
             except Exception:
                 pass
+        if hasattr(self, "state_mgr") and self.state_mgr:
+            self.state_mgr.remove_slot(last_idx)
 
         # Xóa UI row trong tab Moss
         if hasattr(self, "moss_ui_elements"):
@@ -8217,12 +8257,12 @@ class DashboardApp(ctk.CTk):
         if has_mirror:
             self.tab_mirror_btn.pack(side="left", padx=(0, 6))
 
-        if has_train:
+        if has_train and ENABLE_AUTOLOGIN:
             self.tab_autologin_btn.pack(side="left", padx=(0, 6))
 
         # Kiểm tra xem tab hiện tại có bị ẩn không, nếu có thì tự động đổi tab
         cur_tab = getattr(self, "active_tab", "accounts")
-        if cur_tab == "autologin" and not has_train:
+        if cur_tab == "autologin" and (not has_train or not ENABLE_AUTOLOGIN):
             self.switch_tab("accounts")
         elif cur_tab in ("accounts", "profiles") and not has_train:
             if has_moss:
@@ -10573,39 +10613,6 @@ class DashboardApp(ctk.CTk):
             if el and el.get("cb_enabled"):
                 el["cb_enabled"].deselect()
             self.update_mirror_row_visuals(ctrl.slot_idx)
-        self.update_mirror_selected_badge()
-        self.on_toggle_mirror_auto_schedule()
-        self.append_mirror_log("⬜ Đã BỎ CHỌN toàn bộ tài khoản tham gia Auto Mirror.")
-
-    def update_mirror_selected_badge(self):
-        """Cập nhật nhãn số lượng tài khoản đã chọn đi Mirror trên Toolbar."""
-        if threading.current_thread() is not threading.main_thread():
-            try:
-                self.after(0, self.update_mirror_selected_badge)
-            except Exception:
-                pass
-            return
-        if hasattr(self, "lbl_mirror_count_badge") and self.lbl_mirror_count_badge:
-            total = len(self.controllers)
-            sel = sum(1 for c in self.controllers if getattr(c, "mirror_enabled", True))
-            cache_key = (sel, total)
-            if getattr(self, "_last_mirror_badge_cache", None) != cache_key:
-                self._last_mirror_badge_cache = cache_key
-                self.lbl_mirror_count_badge.configure(
-                    text=f"Đi Mirror: {sel}/{total}",
-                    text_color="#2dd4bf" if sel > 0 else "#64748b"
-                )
-
-    def update_mirror_row_visuals(self, slot_idx: int):
-        """Cập nhật màu sắc và trạng thái trực quan khi bật/tắt checkbox slot."""
-        el = self.mirror_ui_elements.get(slot_idx)
-        if not el:
-            return
-        ctrl = self.controllers[slot_idx - 1]
-        is_en = getattr(ctrl, "mirror_enabled", True)
-        if is_en:
-            if el.get("row_frame"):
-                el["row_frame"].configure(fg_color="#141722")
             if el.get("no_lbl"):
                 el["no_lbl"].configure(text_color="#94a3b8")
             if el.get("char_lbl"):
@@ -15134,22 +15141,37 @@ class DashboardApp(ctk.CTk):
                                 assigned_pids.add(p)
                                 break
 
-        # 2. Với các game MEGAMU còn lại chưa gán: tự động gán vào slot trống tiếp theo (chỉ gán game có cửa sổ)
-        avail_pids = [p for p in self.detected_games if p not in assigned_pids]
+        # 2. Với các game MEGAMU còn lại chưa gán: tự động gán vào slot trống tiếp theo (tự mở thêm slot > 10 nếu License cho phép)
+        avail_pids = [p for p in self.detected_games if p not in assigned_pids and self.detected_games.get(p, "")]
         avail_pids.sort()
         empty_ctrls = [c for c in self.controllers if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid)]
+
+        lic_data = license_client.load_license_data() if license_client else {}
+        is_valid = license_client.is_license_valid() if license_client else False
+        max_allowed = min(int(lic_data.get("max_slots", 5 if not is_valid else 10)), MAX_SLOTS)
+
+        prev_suppress = self.__dict__.get("_suppress_slot_limit_dialog", False)
+        self._suppress_slot_limit_dialog = True
+        try:
+            while len(empty_ctrls) < len(avail_pids) and len(self.controllers) < max_allowed:
+                cur_len = len(self.controllers)
+                self.add_new_slot()
+                if len(self.controllers) > cur_len:
+                    empty_ctrls.append(self.controllers[-1])
+                else:
+                    break
+        finally:
+            self._suppress_slot_limit_dialog = prev_suppress
+
         for p in avail_pids:
             if not empty_ctrls:
                 break
-            p_title = self.detected_games.get(p, "")
-            if not p_title:
-                continue
             ctrl = empty_ctrls.pop(0)
             ctrl.attach_pid(p)
             assigned_pids.add(p)
 
     def assign_all(self, async_mode: bool = False):
-        """Gán toàn bộ các tiến trình MEGAMU đang mở vào các Slot trống (hỗ trợ linh hoạt 1, 2, 3, 4, 5, 6, 7, 8... tài khoản)."""
+        """Gán toàn bộ các tiến trình MEGAMU đang mở vào các Slot trống (hỗ trợ linh hoạt 1..50 tài khoản theo License)."""
         if async_mode:
             threading.Thread(target=self.assign_all, kwargs={"async_mode": False}, daemon=True, name="AssignAllWorker").start()
             return
@@ -15171,14 +15193,19 @@ class DashboardApp(ctk.CTk):
         target_slots.sort(key=lambda c: c.slot_idx)
 
         # 2. Nếu số game cần gán nhiều hơn số slot trống hiện tại -> tự động mở thêm slot mới (nếu chưa vượt giới hạn bản quyền)
-        while len(target_slots) < len(available_pids) and len(self.controllers) < max_allowed and len(self.controllers) < MAX_SLOTS:
-            cur_len = len(self.controllers)
-            self.add_new_slot()
-            if len(self.controllers) > cur_len:
-                new_ctrl = self.controllers[-1]
-                target_slots.append(new_ctrl)
-            else:
-                break
+        prev_suppress = self.__dict__.get("_suppress_slot_limit_dialog", False)
+        self._suppress_slot_limit_dialog = True
+        try:
+            while len(target_slots) < len(available_pids) and len(self.controllers) < max_allowed and len(self.controllers) < MAX_SLOTS:
+                cur_len = len(self.controllers)
+                self.add_new_slot()
+                if len(self.controllers) > cur_len:
+                    new_ctrl = self.controllers[-1]
+                    target_slots.append(new_ctrl)
+                else:
+                    break
+        finally:
+            self._suppress_slot_limit_dialog = prev_suppress
 
         assigned_count = 0
         for pid in list(available_pids):

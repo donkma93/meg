@@ -151,10 +151,19 @@ itemsArr.add(0x20 + 205 * 8).writePointer(makeItem(1, 0, 0));
 
 const hooks = {};
 const nativeDropCalls = [];
+const nativeMossRollCalls = [];
 const sentGSFrames = [];
 let mockServerMode = "accept"; // "accept" | "reject"
 let mockNowMs = 1700000000000;
 let sleepCalls = 0;
+
+// Mock GameUI + MossMerchantWindow at +0x1D0 for rollMoss MainThread verification
+const guiPtr = allocMem(0x300);
+const mossWinPtr = allocMem(0x120);
+const mossMWinPtr = allocMem(0x80);
+mossMWinPtr.add(0x48).writeU8(1);
+mossWinPtr.add(0x20).writePointer(mossMWinPtr);
+guiPtr.add(0x1D0).writePointer(mossWinPtr);
 
 function emitDropRecvReply(slot, resCode) {
     const hook = hooks[(baseAddrVal + parseInt(DEFAULT_OFFSETS.user_inv_drop_recv, 16)) >>> 0];
@@ -238,7 +247,12 @@ const sandbox = {
             }
             const sym = offMap[addrNum];
             if (sym === "get_player") return playerPtr;
+            if (sym === "get_game_ui") return guiPtr;
             if (sym === "get_gs_connection") return gsPtr;
+            if (sym === "moss_send_roll") {
+                nativeMossRollCalls.push(Number(args[0]));
+                return undefined;
+            }
             if (sym === "gs_send" || sym === "gs_send_alt") {
                 sentGSFrames.push(bytesFromIl2CppArr(args[1]));
                 return undefined;
@@ -353,7 +367,18 @@ for (let step = 0; step < 10; step++) {
 assert(sDropSt && sDropSt.done && sDropSt.result.verified === true, "Single slot drop must verify cleanly on MainThread");
 assert.strictEqual(sleepCalls, 0, "Single slot drop MUST NEVER call Thread.sleep!");
 
-console.log(JSON.stringify({ ok: true, dropped: resOk.dropped, rejected: resRej.serverRejected, sleepCalls }));
+// 5) Verify rollMoss dispatches non-blocking on MainThread -> calls real moss_send_roll (0x24CE7B0) with 0 Thread.sleep!
+sleepCalls = 0;
+assert.strictEqual(rpcObj.exports.isMossOpen(), true, "isMossOpen must read GameUI+0x1D0");
+assert.strictEqual(rpcObj.exports.rollMoss(2), true, "rollMoss must queue immediately");
+assert.strictEqual(nativeMossRollCalls.length, 0, "rollMoss RPC must NOT invoke native roll on RPC thread");
+assert.strictEqual(sleepCalls, 0, "rollMoss RPC MUST NOT call Thread.sleep!");
+gameUpdHook.onEnter([]);
+assert.strictEqual(nativeMossRollCalls.length, 1, "Game.Update MainThread must dispatch real moss_send_roll (0x24CE7B0)");
+assert.strictEqual(nativeMossRollCalls[0], 2, "moss_send_roll must receive categoryId=2");
+assert.strictEqual(sleepCalls, 0, "MainThread Moss roll MUST NEVER call Thread.sleep!");
+
+console.log(JSON.stringify({ ok: true, dropped: resOk.dropped, rejected: resRej.serverRejected, sleepCalls, mossRolls: nativeMossRollCalls.length }));
 '''
 
 
@@ -369,6 +394,11 @@ class TestMossDropFix(unittest.TestCase):
             "ui_merchant_window": "0x1A0",
             "ui_moss_window": "0x1D0",
             "ui_warehouse_window": "0x290",
+            "npc_talk": "0x10E3010",
+            "npc_send_talk": "0x10E9C10",
+            "npc_close_talk": "0x10ECB60",
+            "npc_click": "0x10E3010",
+            "moss_send_roll": "0x24CE7B0",
         }
         with open("megamu_offsets.json", "r", encoding="utf-8") as f:
             root_off = json.load(f)
