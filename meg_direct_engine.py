@@ -176,7 +176,7 @@ DEFAULT_OFFSETS = {
     "ui_warehouse_window": "0x290",
     "ui_gremory_window": "0x170",
     "gremory_type_info": "0x55A4D00",
-    "gremory_claim_item": "0x1099700",
+    "gremory_claim_item": "0x109D830",
     "gremory_instance_offset": "0x138",
     "gremory_dict_offset": "0x20",
     "window_toggle": "0x2810F10",
@@ -8011,7 +8011,7 @@ rpc.exports = {
             try { outerArrLen = outerEntries.add(ptr('0x18')).readS32(); } catch (eOAL) { outerArrLen = outerCount; }
             var outerLimit = Math.min(outerCount, outerArrLen, 16);
 
-            var claimFunc = new NativeFunction(base.add(!gClaimOff.isNull() ? gClaimOff : ptr('0x1099700')), 'void', ['pointer', 'pointer']);
+            var claimFunc = new NativeFunction(base.add(!gClaimOff.isNull() ? gClaimOff : ptr('0x109D830')), 'void', ['pointer', 'pointer']);
             var claimedCount = 0;
             var claimedItems = [];
 
@@ -9755,8 +9755,8 @@ class MegDirectEngine:
             "__NPC_CLOSE_TALK__": str(self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x10ECB60")),
             "__NPC_CLICK__": str(self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x10E3010")),
             "__NPC_SEND_TALK__": str(self.offsets.get("npc_send_talk") or DEFAULT_OFFSETS.get("npc_send_talk", "0x10E9C10")),
-            "__USER_INV_PICK_ITEM__": str(self.offsets.get("user_inv_pick_item") or DEFAULT_OFFSETS.get("user_inv_pick_item", "0x1446400")),
-            "__LOCAL_PICK_NEAREST__": str(self.offsets.get("local_pick_nearest") or DEFAULT_OFFSETS.get("local_pick_nearest", "0xB92800")),
+            "__USER_INV_PICK_ITEM__": str(self.offsets.get("user_inv_pick_item") or DEFAULT_OFFSETS.get("user_inv_pick_item", "0x0")),
+            "__LOCAL_PICK_NEAREST__": str(self.offsets.get("local_pick_nearest") or DEFAULT_OFFSETS.get("local_pick_nearest", "0x0")),
             "__GET_CONFIG__": str(self.offsets.get("get_config") or DEFAULT_OFFSETS.get("get_config", "0x10D72F0")),
             "__GET_USER_2FA__": str(self.offsets.get("get_user_2fa") or DEFAULT_OFFSETS.get("get_user_2fa", "0x10D5080")),
             "__INV_TRASH_ITEM__": str(self.offsets.get("inv_trash_item") or "0x0"),
@@ -9844,8 +9844,8 @@ class MegDirectEngine:
             "__UI_MERCHANT_WINDOW__": str(self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x1A0")),
             "__UI_INVENTORY_WINDOW__": str(self.offsets.get("ui_inventory_window") or DEFAULT_OFFSETS.get("ui_inventory_window", "0x190")),
             "__UI_WAREHOUSE_WINDOW__": str(self.offsets.get("ui_warehouse_window") or DEFAULT_OFFSETS.get("ui_warehouse_window", "0x290")),
-            "__GREMORY_INSTANCE_GETTER__": str(self.offsets.get("gremory_instance_getter") or DEFAULT_OFFSETS.get("gremory_instance_getter", "0x109AC80")),
-            "__GREMORY_CLAIM_ITEM__": str(self.offsets.get("gremory_claim_item") or DEFAULT_OFFSETS.get("gremory_claim_item", "0x1099700")),
+            "__GREMORY_INSTANCE_GETTER__": str(self.offsets.get("gremory_instance_getter") or DEFAULT_OFFSETS.get("gremory_instance_getter", "0x0")),
+            "__GREMORY_CLAIM_ITEM__": str(self.offsets.get("gremory_claim_item") or DEFAULT_OFFSETS.get("gremory_claim_item", "0x109D830")),
             "__GREMORY_TYPE_INFO__": str(self.offsets.get("gremory_type_info") or DEFAULT_OFFSETS.get("gremory_type_info", "0x55A4D00")),
             "__SET_TARGET_FPS__": str(self.offsets.get("set_target_framerate") or DEFAULT_OFFSETS.get("set_target_framerate", "0x45E4B80")),
             "__GET_TARGET_FPS__": str(self.offsets.get("get_target_framerate") or DEFAULT_OFFSETS.get("get_target_framerate", "0x45E4B30")),

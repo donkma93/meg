@@ -175,7 +175,7 @@ class MirrorTabQt(QWidget):
         lbl_pf = QLabel("⚡ Bắn trước:")
         lbl_pf.setStyleSheet("color: #c084fc; font-weight: 700; font-size: 11px;")
         rl.addWidget(lbl_pf)
-        self.ed_prefire = QLineEdit("2.0")
+        self.ed_prefire = QLineEdit("5")
         self.ed_prefire.setFixedSize(44, 24)
         self.ed_prefire.setAlignment(Qt.AlignCenter)
         rl.addWidget(self.ed_prefire)
@@ -350,7 +350,7 @@ class MirrorTabQt(QWidget):
             self.cb_lifecycle.setChecked(bool(sched.get("auto_lifecycle", True)))
             self.cb_gremory.setChecked(bool(sched.get("auto_gremory", True)))
             self.cb_prep.setChecked(bool(sched.get("auto_prep_before", True)))
-            pf = float(sched.get("prefire_sec", 2.0) if sched.get("prefire_sec") is not None else 2.0)
+            pf = float(sched.get("prefire_sec", 5.0) if sched.get("prefire_sec") is not None else 5.0)
             self.ed_prefire.setText(f"{pf:.1f}".rstrip("0").rstrip(".") if pf != int(pf) else str(int(pf)))
             dl_raw = sched.get("interval_ms", sched.get("snipe_interval_ms", 10))
             self.ed_delay.setText(str(int(dl_raw) if dl_raw is not None else 10))
@@ -376,9 +376,9 @@ class MirrorTabQt(QWidget):
 
     def get_prefire_sec(self) -> float:
         try:
-            return max(0.0, min(30.0, float(self.ed_prefire.text().strip() or "2.0")))
+            return max(0.0, min(30.0, float(self.ed_prefire.text().strip() or "5.0")))
         except Exception:
-            return 2.0
+            return 5.0
 
     def update_countdown(self, sec: int, is_open: bool, next_str: Optional[str] = None):
         sec = max(0, int(sec or 0))

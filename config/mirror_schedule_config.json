@@ -4,7 +4,7 @@
     "auto_prep_before": true,
     "auto_lifecycle": true,
     "auto_gremory": true,
-    "zero_confirm": true,
+    "zero_confirm": false,
     "prefire_sec": 5.0,
     "interval_ms": 35,
     "snipe_interval_ms": 35,
@@ -34,11 +34,7 @@
     3,
     4,
     5,
-    6,
-    7,
-    8,
-    9,
-    10
+    6
   ],
   "combat_spots": {
     "GunApao": [
@@ -50,8 +46,8 @@
       66
     ],
     "laclac24": [
-      75,
-      66
+      188,
+      70
     ],
     "Goobin": [
       75,
@@ -70,8 +66,8 @@
       70
     ],
     "HSmart": [
-      75,
-      66
+      185,
+      187
     ],
     "VgDongNhi": [
       68,
@@ -350,6 +346,6 @@
     "enabled": true,
     "notify_enter": true,
     "notify_exit": true,
-    "updated_at": "2026-11-21 23:28:51"
+    "updated_at": "2026-11-21 23:51:41"
   }
 }

@@ -302,7 +302,7 @@ class DashboardAppQt(QMainWindow):
         raw_delay_val = mirror_sched_cfg.get("interval_ms", mirror_sched_cfg.get("snipe_interval_ms", 10))
         self.mirror_snipe_delay_ms = int(raw_delay_val) if raw_delay_val is not None else 10
         self.mirror_snipe_dur_s = float(mirror_sched_cfg.get("max_duration_s", 15.0) or 15.0)
-        self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 2.0) if mirror_sched_cfg.get("prefire_sec") is not None else 2.0)
+        self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 5.0) if mirror_sched_cfg.get("prefire_sec") is not None else 5.0)
         self.mirror_zero_confirm = bool(mirror_sched_cfg.get("zero_confirm", True))
         self.mirror_stagger_ms = int(mirror_sched_cfg.get("stagger_ms", 0) or 0)
         self._mirror_last_rtt_ms = -1.0
@@ -1233,12 +1233,13 @@ class DashboardAppQt(QMainWindow):
             return 0
 
     def _ensure_mirror_auto_schedule_enabled_from_manual(self):
-        """Khi bấm cướp cổng bằng tay, tự động bật lịch hẹn cướp cổng và đánh dấu đợt hiện tại."""
+        """Khi bấm cướp cổng bằng tay, tự động bật lịch hẹn cướp cổng và khóa lượt cướp duy nhất của đợt hiện tại."""
         try:
             if hasattr(self, "_get_current_or_upcoming_mirror_event_key"):
                 ev_key = self._get_current_or_upcoming_mirror_event_key()
                 if ev_key:
                     self._last_mirror_event_snipe_key = ev_key
+                    self._last_mirror_prefire_key = ev_key.replace("_event", "_prefire")
             if self.cb_mirror_auto_schedule.get() != 1:
                 self.cb_mirror_auto_schedule.select()
                 if self.mirror_view:
@@ -1247,7 +1248,7 @@ class DashboardAppQt(QMainWindow):
                 ConfigPersistenceManager.save_mirror_schedule_config(
                     auto_schedule=True,
                     auto_prep_before=cfg.get("auto_prep_before", True),
-                    prefire_sec=cfg.get("prefire_sec", 2.0),
+                    prefire_sec=cfg.get("prefire_sec", 5.0),
                     auto_lifecycle=cfg.get("auto_lifecycle", True),
                     auto_gremory=cfg.get("auto_gremory", True),
                     interval_ms=cfg.get("interval_ms", 10),
@@ -1255,7 +1256,7 @@ class DashboardAppQt(QMainWindow):
                     zero_confirm=cfg.get("zero_confirm", True),
                     selected_slots=cfg.get("selected_slots", []),
                 )
-                self.append_mirror_log("⚡ [Tự động cướp cổng] Đã tự động BẬT lịch hẹn cướp cổng cho các đợt sự kiện tiếp theo!")
+                self.append_mirror_log("⚡ [Tự động cướp cổng] Đã tự động BẬT lịch hẹn cướp cổng (1 lần duy nhất trước 5s cho các đợt kế tiếp)!")
         except Exception:
             pass
 
@@ -1304,24 +1305,48 @@ class DashboardAppQt(QMainWindow):
         self.append_mirror_log(f"🚪 Đã gửi lệnh vào cửa Double Goer đồng loạt cho {len(selected)} tài khoản!")
 
     def trigger_all_mirror_lifecycle(self):
+        self._sync_event_checkbox_proxies_from_view()
         selected = [c for c in self.controllers if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid)]
         for c in selected:
             threading.Thread(target=c.run_mirror_in_dungeon_lifecycle, kwargs={"force": True}, daemon=True).start()
-        self.append_mirror_log(f"⚔️ Đã kích hoạt chu trình ra bãi Mirror cho {len(selected)} tài khoản." if selected else "⚠️ Chưa có tài khoản Mirror kết nối.")
+        self.append_mirror_log(
+            f"⚔️ Đang kích hoạt chu trình ra bãi Mirror (Đợi Safe Zone -> Phút :16 ra bãi -> Helper -> Săn Box) cho {len(selected)} tài khoản..."
+            if selected else "⚠️ Chưa có tài khoản Mirror nào được tích chọn & kết nối!"
+        )
 
     def claim_all_gremory_case_items(self):
         def _w():
+            self.append_mirror_log("🎁 [Gremory Case] Bắt đầu lôi quà phím 'K' cho các tài khoản đã chọn...")
             total = 0
+            checked = 0
             for c in self.controllers:
                 if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid):
+                    checked += 1
                     try:
                         eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
                         if eng:
-                            cnt = int((eng.claim_gremory_case_items() or {}).get("claimed", 0) or 0)
+                            res = eng.claim_gremory_case_items() or {}
+                            cnt = int(res.get("claimed", 0) or 0)
                             total += cnt
-                    except Exception:
-                        pass
-            self.append_mirror_log(f"🎁 Hoàn tất lôi quà phím K: tổng {total} món.")
+                            if cnt > 0:
+                                self.append_mirror_log(
+                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] 🏆 ĐÃ LÔI THÀNH CÔNG {cnt} MÓN QUÀ TỪ PHÍM 'K' VÀO HÒM ĐỒ!"
+                                )
+                            elif res.get("ok"):
+                                self.append_mirror_log(
+                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] ℹ️ Hộp Quà Phím 'K' sạch quà (không có quà tồn)."
+                                )
+                            else:
+                                err_r = res.get("error") or res.get("reason") or "không rõ"
+                                self.append_mirror_log(
+                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Không lôi được quà phím 'K': {err_r}"
+                                )
+                    except Exception as e:
+                        self.append_mirror_log(f"[Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Lỗi lôi quà phím 'K': {e}")
+            if checked == 0:
+                self.append_mirror_log("⚠️ [Gremory Case] Không có tài khoản nào được tích 'Đi' và đang kết nối Game.")
+            else:
+                self.append_mirror_log(f"🏁 [Gremory Case] Hoàn tất lôi quà phím 'K' cho {checked} slot: tổng {total} món.")
         threading.Thread(target=_w, daemon=True).start()
 
     def move_all_to_event_map(self):
