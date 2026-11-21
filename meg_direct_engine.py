@@ -115,11 +115,12 @@ DEFAULT_OFFSETS = {
     "moss_window_close": "0x27ABAF0",
     "game_object_set_active": "0x46263E0",
     "component_get_game_object": "0x4621FC0",
-    "mirror_enter": "0x1009E00",
+    "mirror_enter": "0x100A910",
     "mirror_enter_alt": "0x100A910",
     "mirror_npc_click": "0x100B2E0",
     "mirror_is_event_map": "0x100D680",
-    "mirror_teleport_event": "0x3822C0",
+    "mirror_teleport_event": "0x100D800",
+    "doublegoer_type_info": "0x55612C8",
     "item_mirror_ticket": 7279,
     "devil_closure_enter": "0xFED530",
     "devil_closure_type_info": "0x55615E8",
@@ -132,7 +133,7 @@ DEFAULT_OFFSETS = {
     "item_devil_ticket_master": 6702,
     "table_event_entry_level": "0xD82E90",
     "helper_ui_get_instance": "0x10D27B0",
-    "helper_ui_show_dialog": "0x1CDC780",
+    "helper_ui_show_dialog": "0x1CDD220",
     "helper_ui_show_confirm": "0x1CDBEB0",
     "modal_manager_get_instance": "0x95AFA0",
     "modal_manager_create": "0x95B300",
@@ -184,8 +185,9 @@ DEFAULT_OFFSETS = {
     "set_vsync_count": "0x45F94B0",
     "get_vsync_count": "0x45F9460",
     "pkt_enc_nikini": "0x126BC00",
-    "pkt_enc_ngjg": "0x126CA50",
-    "socket_send_err": "0x42DF670",
+    "pkt_enc_ngjg": "0x126B4A0",
+    "socket_send_err": "0x42DF4D0",
+    "tcp_set_nodelay": "0x42EB350",
     "unity_get_time": "0x462F900",
     "get_user_account": "0x10D8BD0",
     "user_account_set_username": "0x14187B0",
@@ -547,17 +549,11 @@ var nativeMirrorIsEventMap = null;
 try {
     var mimOff = off('__MIRROR_IS_EVENT_MAP__');
     if (!mimOff.isNull()) {
-        nativeMirrorIsEventMap = new NativeFunction(baseAddr.add(mimOff), 'bool', []);
+        nativeMirrorIsEventMap = new NativeFunction(baseAddr.add(mimOff), 'bool', ['pointer']);
     }
 } catch (eMirrorMap) {}
 
 var nativeMirrorIsEventMapAlt = null;
-try {
-    var mimaOff = off('__MIRROR_IS_EVENT_MAP_ALT__');
-    if (!mimaOff.isNull()) {
-        nativeMirrorIsEventMapAlt = new NativeFunction(baseAddr.add(mimaOff), 'bool', []);
-    }
-} catch (eMirrorMapAlt) {}
 
 var nativeMirrorTeleportEventMap = null;
 try {
@@ -627,7 +623,7 @@ var nativeHelperUIShowDialog = null;
 try {
     var offHSD = off('__HELPER_UI_SHOW_DIALOG__');
     if (!offHSD.isNull()) {
-        nativeHelperUIShowDialog = new NativeFunction(baseAddr.add(offHSD), 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'pointer', 'pointer']);
+        nativeHelperUIShowDialog = new NativeFunction(baseAddr.add(offHSD), 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
     }
 } catch (eHSD) {}
 
@@ -1200,6 +1196,32 @@ try {
     }
 } catch (eSSE) {}
 
+var nativeTcpSetNoDelay = null;
+try {
+    var tndOff = off('__TCP_SET_NODELAY__');
+    if (!tndOff.isNull()) {
+        nativeTcpSetNoDelay = new NativeFunction(baseAddr.add(tndOff), 'void', ['pointer', 'bool', 'pointer']);
+    }
+} catch (eTND) {}
+var _lastNoDelayTcpPtrStr = "";
+function ensureTcpNoDelay(gs) {
+    try {
+        if (nativeTcpSetNoDelay === null || !gs || gs.isNull()) return false;
+        var tcp = gs.add(0x90).readPointer();
+        if (!tcp || tcp.isNull()) return false;
+        var key = tcp.toString();
+        if (_lastNoDelayTcpPtrStr === key) return true;
+        nativeTcpSetNoDelay(tcp, 1, ptr(0));
+        _lastNoDelayTcpPtrStr = key;
+        if (typeof _nativeMirrorTurboStats !== "undefined" && _nativeMirrorTurboStats) {
+            _nativeMirrorTurboStats.tcpNoDelayEnabled = true;
+        }
+        return true;
+    } catch (eND) {
+        return false;
+    }
+}
+
 var nativeGetGS = null;
 try {
     var gsOff = off('__GET_GS_CONNECTION__');
@@ -1224,22 +1246,25 @@ try {
     }
 } catch (eGSSendAlt) {}
 
+var il2cpp_get_corlib = null;
 var mono_domain_get_corlib = null;
 var il2cpp_class_from_name = null;
 var il2cpp_array_new = null;
 var il2cpp_gchandle_new = null;
 var il2cpp_gchandle_free = null;
 try {
+    var expIlCorlib = ga.findExportByName('il2cpp_get_corlib');
     var expCorlib = ga.findExportByName('mono_domain_get_corlib');
     var expClassFromName = ga.findExportByName('il2cpp_class_from_name');
     var expArrayNew = ga.findExportByName('il2cpp_array_new');
     var expGCHandleNew = ga.findExportByName('il2cpp_gchandle_new');
     var expGCHandleFree = ga.findExportByName('il2cpp_gchandle_free');
-    if (expCorlib) mono_domain_get_corlib = new NativeFunction(expCorlib, 'pointer', []);
-    if (expClassFromName) il2cpp_class_from_name = new NativeFunction(expClassFromName, 'pointer', ['pointer', 'pointer', 'pointer']);
-    if (expArrayNew) il2cpp_array_new = new NativeFunction(expArrayNew, 'pointer', ['pointer', 'size_t']);
-    if (expGCHandleNew) il2cpp_gchandle_new = new NativeFunction(expGCHandleNew, 'uint32', ['pointer', 'int']);
-    if (expGCHandleFree) il2cpp_gchandle_free = new NativeFunction(expGCHandleFree, 'void', ['uint32']);
+    if (expIlCorlib && !expIlCorlib.isNull()) il2cpp_get_corlib = new NativeFunction(expIlCorlib, 'pointer', []);
+    if (expCorlib && !expCorlib.isNull()) mono_domain_get_corlib = new NativeFunction(expCorlib, 'pointer', []);
+    if (expClassFromName && !expClassFromName.isNull()) il2cpp_class_from_name = new NativeFunction(expClassFromName, 'pointer', ['pointer', 'pointer', 'pointer']);
+    if (expArrayNew && !expArrayNew.isNull()) il2cpp_array_new = new NativeFunction(expArrayNew, 'pointer', ['pointer', 'size_t']);
+    if (expGCHandleNew && !expGCHandleNew.isNull()) il2cpp_gchandle_new = new NativeFunction(expGCHandleNew, 'uint32', ['pointer', 'int']);
+    if (expGCHandleFree && !expGCHandleFree.isNull()) il2cpp_gchandle_free = new NativeFunction(expGCHandleFree, 'void', ['uint32']);
 } catch (eIL2CPP) {}
 
 function getGSConnection() {
@@ -1269,9 +1294,15 @@ var _cachedByteClass = null;
 function getByteClass() {
     if (_cachedByteClass !== null && !_cachedByteClass.isNull()) return _cachedByteClass;
     try {
-        if (mono_domain_get_corlib !== null && il2cpp_class_from_name !== null) {
-            var corlib = mono_domain_get_corlib();
-            if (!corlib.isNull()) {
+        if (il2cpp_class_from_name !== null) {
+            var corlib = null;
+            if (il2cpp_get_corlib !== null) {
+                try { corlib = il2cpp_get_corlib(); } catch (eIC) { corlib = null; }
+            }
+            if ((!corlib || corlib.isNull()) && mono_domain_get_corlib !== null) {
+                try { corlib = mono_domain_get_corlib(); } catch (eMC) { corlib = null; }
+            }
+            if (corlib && !corlib.isNull()) {
                 _cachedByteClass = il2cpp_class_from_name(corlib, Memory.allocUtf8String("System"), Memory.allocUtf8String("Byte"));
             }
         }
@@ -1314,9 +1345,9 @@ var _c1SaltCounter = 0;
 function prepareC1FrameBytes(bytes, alreadyXored) {
     if (!bytes || bytes.length < 3) return bytes;
     var out = bytes.slice ? bytes.slice() : Array.prototype.slice.call(bytes);
-    // MLBANIKPCGO.NIKINIHADGM yêu cầu byte đầu dạng 0x10..0x1F (cho 0xC1) và opcode byte[2] XOR 0xCB
+    // OBEABIOOBHH.CDKODGBGAJH: byte[0] trong [0x10..0x1E] (Random.Next(0,15)+0x10) va opcode byte[2] XOR 0xCB
     if (out[0] === 0xC1) {
-        _c1SaltCounter = (_c1SaltCounter + 1) & 0x0F;
+        _c1SaltCounter = (_c1SaltCounter + 1) % 15;
         out[0] = (0x10 + _c1SaltCounter) & 0xFF;
         if (!alreadyXored) {
             out[2] = (out[2] ^ 0xCB) & 0xFF;
@@ -4035,9 +4066,38 @@ function getCurrentMapId() {
     return mapId;
 }
 
+function getSceneWorldIndex() {
+    try {
+        var tiOffset = off('__GAME_TYPE_INFO__');
+        if (!tiOffset.isNull()) {
+            var typeInfo = baseAddr.add(tiOffset).readPointer();
+            if (!typeInfo.isNull()) {
+                var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+                if (!staticFields.isNull()) {
+                    var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+                    if (!gameInstance.isNull()) {
+                        var sceneHandler = gameInstance.add(ptr('0x78')).readPointer();
+                        if (!sceneHandler.isNull()) {
+                            var wi = sceneHandler.add(ptr('0x40')).readS32();
+                            if (wi >= 0 && wi <= 255) return wi;
+                        }
+                    }
+                }
+            }
+        }
+    } catch (eSWI) {}
+    return -1;
+}
+
 function isCurrentMapDoubleGoer() {
+    // Khớp 100% logic gốc GameAssembly.dll: Mega.DoubleGoer$$PAGCDNAAHMO (0x100D680)
+    // chỉ trả về true khi 82 <= Game._Scene.WorldIndex (+0x40) <= 90 (KHÔNG bao gồm 65..68!)
+    var wi = getSceneWorldIndex();
+    if (wi >= 0) {
+        return (wi >= 82 && wi <= 90);
+    }
     var mid = getCurrentMapId();
-    return ((mid >= 82 && mid <= 90) || (mid >= 65 && mid <= 68));
+    return (mid >= 82 && mid <= 90);
 }
 
 function readPlayerInfoSnapshot(readName) {
@@ -4141,6 +4201,7 @@ function readPlayerInfoSnapshot(readName) {
             level: level,
             classId: classId,
             mapId: mapId,
+            inDoubleGoer: isCurrentMapDoubleGoer(),
             tileX: tileX,
             tileY: tileY,
             x: tileX,
@@ -4236,6 +4297,10 @@ var _nativeMirrorTurboStats = {
     rttMs: -1,
     minRttMs: -1,
     serverOpenEpochMs: 0,
+    targetOpenEpochMs: 0,
+    oneWayLatencyMs: 0,
+    activePhase: "idle",
+    tcpNoDelayEnabled: false,
     preStagedAtMs: 0,
     fpsBoosted: false
 };
@@ -4284,7 +4349,7 @@ function ensurePinnedMirrorPacket() {
 }
 
 function writePinnedMirrorFrame(arrPtr, relSlot) {
-    _c1SaltCounter = (_c1SaltCounter + 1) & 0x0F;
+    _c1SaltCounter = (_c1SaltCounter + 1) % 15;
     var raw = arrPtr.add(0x20);
     raw.writeU8((0x10 + _c1SaltCounter) & 0xFF);
     raw.add(1).writeU8(0x05);
@@ -4380,26 +4445,36 @@ function dispatchMirrorEnterPacketFast(relSlot) {
         if (!gs.isNull() && pinnedPtr !== null && !pinnedPtr.isNull()) {
             writePinnedMirrorFrame(pinnedPtr, rSlot);
 
-            // Method 5: Direct Socket.Send Fast-Path trên Unity MainThread (bỏ qua SendAsync/TaskFactory)
+            // Method 5: Direct Socket.Send Fast-Path trên Unity MainThread (bỏ qua SendAsync/TaskFactory + TCP_NODELAY)
             if (_nativeMirrorTurboStats.directSocketFast &&
                 nativePktEncNikini !== null &&
                 nativePktEncNgjg !== null &&
                 nativeSocketSendErr !== null) {
+                var serialAddr = gs.add(0xC0);
+                var prevSerial = 0;
+                var serialSaved = false;
+                var bytesActuallySent = false;
                 try {
                     if (_sockErrBuf === null) _sockErrBuf = Memory.alloc(4);
                     var tcp = gs.add(0x90).readPointer();
                     if (!tcp.isNull()) {
+                        ensureTcpNoDelay(gs);
                         var sock = tcp.add(0x10).readPointer();
                         if (!sock.isNull() && sock.add(0x52).readU8() === 1) {
-                            var encArr = nativePktEncNikini(pinnedPtr, gs.add(0xC0), ptr(0));
+                            prevSerial = serialAddr.readU8();
+                            serialSaved = true;
+                            var encArr = nativePktEncNikini(pinnedPtr, serialAddr, ptr(0));
                             if (encArr && !encArr.isNull()) {
                                 var encLen = encArr.add(0x18).readS32();
                                 if (encLen > 0) {
+                                    // Stream cipher FONJFGEKJHI (0x126B4A0) khop 100% GSConnection.INIIKIPJDIJ
                                     nativePktEncNgjg(encArr, encArr, ptr(0));
                                     _sockErrBuf.writeS32(0);
+                                    // Socket.Send(byte[], 0, encLen, None, out err) @ 0x42DF4D0
                                     var sentBytes = nativeSocketSendErr(sock, encArr, 0, encLen, 0, _sockErrBuf, ptr(0));
                                     var sockErr = _sockErrBuf.readS32();
                                     if (sentBytes > 0 && sockErr === 0) {
+                                        bytesActuallySent = true;
                                         if (nativeGetUnityTime !== null) {
                                             try { gs.add(0x74).writeFloat(nativeGetUnityTime()); } catch (eUT) {}
                                         }
@@ -4407,19 +4482,37 @@ function dispatchMirrorEnterPacketFast(relSlot) {
                                         _nativeMirrorTurboStats.directSocketHits += 1;
                                         return true;
                                     }
+                                    // Socket khong gui duoc byte nao -> khoi phuc SendSerial de tranh lech sequence voi Server!
+                                    if (!bytesActuallySent && serialSaved) {
+                                        try { serialAddr.writeU8(prevSerial); } catch (eRB1) {}
+                                    }
                                     _nativeMirrorTurboStats.directSocketErrors += 1;
-                                    // Đã tăng SendSerial trong NIKINIHADGM -> không gọi nativeGSSend lại gói này
-                                    return false;
+                                    if (_nativeMirrorTurboStats.directSocketErrors >= 3) {
+                                        _nativeMirrorTurboStats.directSocketFast = false;
+                                    }
+                                } else if (serialSaved) {
+                                    try { serialAddr.writeU8(prevSerial); } catch (eRB2) {}
                                 }
+                            } else if (serialSaved) {
+                                try { serialAddr.writeU8(prevSerial); } catch (eRB3) {}
                             }
                         }
                     }
                 } catch (eSockFast) {
+                    // Rollback SendSerial neu exception truoc khi gui byte de tuyet doi khong nhay +2 serial!
+                    if (!bytesActuallySent && serialSaved) {
+                        try { serialAddr.writeU8(prevSerial); } catch (eRB4) {}
+                    }
                     _nativeMirrorTurboStats.directSocketErrors += 1;
+                    if (_nativeMirrorTurboStats.directSocketErrors >= 3) {
+                        _nativeMirrorTurboStats.directSocketFast = false;
+                    }
                 }
             }
 
             // Method 2 fallback: Zero-alloc pinned nativeGSSend trực tiếp trên Unity MainThread
+            // Luôn ghi lại 5 byte header trước fallback vì DCBFPGDDCMG (0x126BC00) sửa mảng đầu vào tại chỗ!
+            writePinnedMirrorFrame(pinnedPtr, rSlot);
             if (sendGSPacketDirect(gs, pinnedPtr)) {
                 _nativeMirrorTurboStats.fallbackHits += 1;
                 return true;
@@ -4463,6 +4556,8 @@ function finishMirrorTurbo(msgType, enteredFlag) {
             mainThreadHits: _nativeMirrorTurboStats.mainThreadHits,
             directSocketHits: _nativeMirrorTurboStats.directSocketHits,
             fallbackHits: _nativeMirrorTurboStats.fallbackHits,
+            directSocketErrors: _nativeMirrorTurboStats.directSocketErrors,
+            tcpNoDelayEnabled: _nativeMirrorTurboStats.tcpNoDelayEnabled,
             rttMs: _nativeMirrorTurboStats.rttMs,
             minRttMs: _nativeMirrorTurboStats.minRttMs,
             lastRecvCode: _nativeMirrorTurboStats.lastRecvCode,
@@ -4562,6 +4657,7 @@ function tickNativeMirrorTurboMainThread() {
         _pendingMirrorPreStage = null;
         try {
             ensurePinnedMirrorPacket();
+            ensureTcpNoDelay(getGSConnection());
             if (nativeCloseTalk !== null) {
                 try { nativeCloseTalk(); } catch (eCT1) {}
             }
@@ -4636,9 +4732,36 @@ function tickNativeMirrorTurboMainThread() {
         st.preStagedAtMs = nowMs;
     }
 
-    // Pacing: intMs = 0 -> bắn mỗi frame; intMs >= 1 -> bắn khi đủ intMs (hoặc server vừa ACK R=6/2 trong chế độ ackPaced)
-    var dueByTime = (st.lastSendMs === 0) || ((nowMs - st.lastSendMs) >= st.intervalMs);
-    var dueByAck = st.ackPaced && !st.ackInFlight && (st.lastRecvMs > st.lastSendMs) && ((nowMs - st.lastSendMs) >= Math.min(st.intervalMs, 2));
+    // Adaptive 3-Phase Pacing khi biet chinh xac moc mo cong (targetOpenEpochMs > 0):
+    // - Phase 1 (Early Approach, > 450ms truoc thoi diem goi den cong): nhip sach >= 50ms tranh nghen hang cho TCP / anti-flood
+    // - Phase 2 (Critical Gate Window, [-450ms .. +1500ms] quanh moc mo cong bu 1-way RTT): Full-Speed intervalMs + ACK-driven refire
+    // - Phase 3 (Post-Open Tail, > +1500ms): nhip >= 25ms on dinh bat slot tre
+    var effInterval = st.intervalMs;
+    var allowAckRefire = st.ackPaced;
+    if (st.targetOpenEpochMs > 0) {
+        var oneWay = (st.oneWayLatencyMs > 0) ? st.oneWayLatencyMs : ((st.rttMs > 0) ? (st.rttMs * 0.5) : 0);
+        var critStart = st.targetOpenEpochMs - oneWay - 450;
+        var critEnd = st.targetOpenEpochMs + 1500;
+        if (nowMs < critStart) {
+            st.activePhase = "approach";
+            effInterval = Math.max(st.intervalMs, 50);
+            allowAckRefire = false;
+        } else if (nowMs <= critEnd) {
+            st.activePhase = "critical";
+            effInterval = st.intervalMs;
+            allowAckRefire = st.ackPaced;
+        } else {
+            st.activePhase = "tail";
+            effInterval = Math.max(st.intervalMs, 25);
+            allowAckRefire = st.ackPaced;
+        }
+    } else {
+        st.activePhase = "burst";
+    }
+
+    // Pacing: effInterval = 0 -> bắn mỗi frame; effInterval >= 1 -> bắn khi đủ effInterval (hoặc server vừa ACK R=6/2)
+    var dueByTime = (st.lastSendMs === 0) || ((nowMs - st.lastSendMs) >= effInterval);
+    var dueByAck = allowAckRefire && !st.ackInFlight && (st.lastRecvMs > st.lastSendMs) && ((nowMs - st.lastSendMs) >= Math.min(effInterval, 2));
     if (!dueByTime && !dueByAck) {
         return;
     }
@@ -4764,6 +4887,9 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     _nativeMirrorTurboStats.probePendingSendMs = 0;
     _nativeMirrorTurboStats.probeMode = false;
     _nativeMirrorTurboStats.serverOpenEpochMs = 0;
+    _nativeMirrorTurboStats.targetOpenEpochMs = opts.targetOpenEpochMs ? Number(opts.targetOpenEpochMs) : 0;
+    _nativeMirrorTurboStats.oneWayLatencyMs = opts.oneWayLatencyMs ? Number(opts.oneWayLatencyMs) : 0;
+    _nativeMirrorTurboStats.activePhase = isArmedFuture ? "armed" : "burst";
 
     if (!isArmedFuture || (targetEpoch - nowMs) <= 2500) {
         _pendingMirrorFpsBoost = true;
@@ -4949,9 +5075,9 @@ try {
                     return _origHelperUIShowDialog(a0, a1, a2, a3, a4, a5, a6);
                 }
                 return ptr(0);
-            }, 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'pointer', 'pointer']);
+            }, 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
             var origHsdPtr = Interceptor.replaceFast(hsdTarget, _helperUIShowDialogCb);
-            _origHelperUIShowDialog = new NativeFunction(origHsdPtr, 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'pointer', 'pointer']);
+            _origHelperUIShowDialog = new NativeFunction(origHsdPtr, 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
             helperUIShowDialogAddr = hsdTarget;
         } else {
             helperUIShowDialogHook = Interceptor.attach(hsdTarget, {
@@ -6232,6 +6358,8 @@ rpc.exports = {
             directSocketHits: _nativeMirrorTurboStats.directSocketHits,
             fallbackHits: _nativeMirrorTurboStats.fallbackHits,
             directSocketErrors: _nativeMirrorTurboStats.directSocketErrors,
+            tcpNoDelayEnabled: _nativeMirrorTurboStats.tcpNoDelayEnabled,
+            activePhase: _nativeMirrorTurboStats.activePhase,
             preStagedAtMs: _nativeMirrorTurboStats.preStagedAtMs,
             fpsBoosted: _nativeMirrorTurboStats.fpsBoosted,
             running: _nativeMirrorTurboStats.running,
@@ -6482,12 +6610,13 @@ rpc.exports = {
     getDoubleGoerState: function() {
         try {
             ensureThreadAttached();
-            // Đọc trực tiếp Mega.DoubleGoer_TypeInfo (RVA 0x5554F10) -> staticFields (+0xB8)
-            // +0x00: bool DFIOGMEGBMN (isActive)
-            // +0x04: int MLKCEDNBCGC (remainingTimeSeconds)
-            // +0x08: int KGDHEJALLNM (passedMonsters)
-            // +0x0C: int FAKEGKNPHGD (maxPassedMonsters - chuyển > 0 khi trận đấu bắt đầu!)
-            var dgTypeInfo = baseAddr.add(ptr('0x5554F10')).readPointer();
+            // Đọc trực tiếp Mega.DoubleGoer_TypeInfo (RVA 0x55612C8) -> staticFields (+0xB8)
+            // +0x00: bool PAFCGHEGBBO (isActive)
+            // +0x04: int HLEOADFPCCH (remainingTimeSeconds)
+            // +0x08: int ECBFKNFEGDP (passedMonsters)
+            // +0x0C: int DKNEMBJBPJB (maxPassedMonsters - chuyển > 0 khi trận đấu bắt đầu!)
+            var dgOff = off('__DOUBLEGOER_TYPE_INFO__');
+            var dgTypeInfo = baseAddr.add(!dgOff.isNull() ? dgOff : ptr('0x55612C8')).readPointer();
             if (!dgTypeInfo.isNull()) {
                 var sf = dgTypeInfo.add(0xB8).readPointer();
                 if (!sf.isNull()) {
@@ -7518,7 +7647,7 @@ rpc.exports = {
             var base = Process.findModuleByName('GameAssembly.dll').base;
             var gTypeOff = off('__GREMORY_TYPE_INFO__');
             var gClaimOff = off('__GREMORY_CLAIM_ITEM__');
-            var typeInfo = base.add(!gTypeOff.isNull() ? gTypeOff : ptr('0x553B900')).readPointer();
+            var typeInfo = base.add(!gTypeOff.isNull() ? gTypeOff : ptr('0x55A4D00')).readPointer();
             if (typeInfo.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "typeInfo_null" });
             var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
             if (staticFields.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "staticFields_null" });
@@ -7538,7 +7667,7 @@ rpc.exports = {
             try { outerArrLen = outerEntries.add(ptr('0x18')).readS32(); } catch (eOAL) { outerArrLen = outerCount; }
             var outerLimit = Math.min(outerCount, outerArrLen, 16);
 
-            var claimFunc = new NativeFunction(base.add(!gClaimOff.isNull() ? gClaimOff : ptr('0xFD85C0')), 'void', ['pointer', 'pointer']);
+            var claimFunc = new NativeFunction(base.add(!gClaimOff.isNull() ? gClaimOff : ptr('0x1099700')), 'void', ['pointer', 'pointer']);
             var claimedCount = 0;
             var claimedItems = [];
 
@@ -7936,7 +8065,7 @@ rpc.exports = {
         try {
             ensureThreadAttached();
             var info = readPlayerInfoSnapshot(false);
-            if (info && info.mapId !== undefined && (info.mapId === 40 || info.mapId === 53 || (info.mapId >= 65 && info.mapId <= 68) || (info.mapId >= 82 && info.mapId <= 90))) {
+            if (info && info.mapId !== undefined && (info.mapId === 40 || info.mapId === 53 || (info.mapId >= 82 && info.mapId <= 90))) {
                 return true;
             }
             dispatchChatMessage("/m ev");
@@ -9077,12 +9206,13 @@ class MegDirectEngine:
             "__GAME_OBJECT_SET_ACTIVE__": str(self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x46263E0")),
             "__COMPONENT_GET_GAME_OBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x4621FC0")),
             "__COMPONENT_GET_GAMEOBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x4621FC0")),
-            "__MIRROR_ENTER__": str(self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0x1009E00")),
+            "__MIRROR_ENTER__": str(self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0x100A910")),
             "__MIRROR_ENTER_ALT__": str(self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0x100A910")),
             "__MIRROR_NPC_CLICK__": str(self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0x100B2E0")),
             "__MIRROR_IS_EVENT_MAP__": str(self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0x100D680")),
-            "__MIRROR_IS_EVENT_MAP_ALT__": str(self.offsets.get("mirror_is_event_map_alt") or DEFAULT_OFFSETS.get("mirror_is_event_map_alt", "0xF94270")),
-            "__MIRROR_TELEPORT_EVENT__": str(self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x3822C0")),
+            "__MIRROR_IS_EVENT_MAP_ALT__": "0x0",
+            "__MIRROR_TELEPORT_EVENT__": str(self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x100D800")),
+            "__DOUBLEGOER_TYPE_INFO__": str(self.offsets.get("doublegoer_type_info") or DEFAULT_OFFSETS.get("doublegoer_type_info", "0x55612C8")),
             "__DEVIL_CLOSURE_ENTER__": str(self.offsets.get("devil_closure_enter") or DEFAULT_OFFSETS.get("devil_closure_enter", "0xFED530")),
             "__DEVIL_CLOSURE_TYPE_INFO__": str(self.offsets.get("devil_closure_type_info") or DEFAULT_OFFSETS.get("devil_closure_type_info", "0x55615E8")),
             "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xFED530")),
@@ -9092,7 +9222,7 @@ class MegDirectEngine:
             "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xFEE4D0")),
             "__TABLE_EVENT_ENTRY_LEVEL__": str(self.offsets.get("table_event_entry_level") or DEFAULT_OFFSETS.get("table_event_entry_level", "0xD82E90")),
             "__HELPER_UI_GET_INSTANCE__": str(self.offsets.get("helper_ui_get_instance") or DEFAULT_OFFSETS.get("helper_ui_get_instance", "0x10D27B0")),
-            "__HELPER_UI_SHOW_DIALOG__": str(self.offsets.get("helper_ui_show_dialog") or DEFAULT_OFFSETS.get("helper_ui_show_dialog", "0x1CDC780")),
+            "__HELPER_UI_SHOW_DIALOG__": str(self.offsets.get("helper_ui_show_dialog") or DEFAULT_OFFSETS.get("helper_ui_show_dialog", "0x1CDD220")),
             "__HELPER_UI_SHOW_CONFIRM__": str(self.offsets.get("helper_ui_show_confirm") or DEFAULT_OFFSETS.get("helper_ui_show_confirm", "0x1CDBEB0")),
             "__MODAL_MGR_GET_INSTANCE__": str(self.offsets.get("modal_manager_get_instance") or DEFAULT_OFFSETS.get("modal_manager_get_instance", "0x95AFA0")),
             "__MODAL_MGR_CREATE__": str(self.offsets.get("modal_manager_create") or DEFAULT_OFFSETS.get("modal_manager_create", "0x95B300")),
@@ -9140,8 +9270,9 @@ class MegDirectEngine:
             "__DOUBLEGOER_ENTER_RECV__": str(self.offsets.get("mirror_enter_recv") or DEFAULT_OFFSETS.get("mirror_enter_recv", "0x100C180")),
             "__UNITY_GET_TIME__": str(self.offsets.get("unity_get_time") or DEFAULT_OFFSETS.get("unity_get_time", "0x462F900")),
             "__PKT_ENC_NIKINI__": str(self.offsets.get("pkt_enc_nikini") or DEFAULT_OFFSETS.get("pkt_enc_nikini", "0x126BC00")),
-            "__PKT_ENC_NGJG__": str(self.offsets.get("pkt_enc_ngjg") or DEFAULT_OFFSETS.get("pkt_enc_ngjg", "0x126CA50")),
-            "__SOCKET_SEND_ERR__": str(self.offsets.get("socket_send_err") or DEFAULT_OFFSETS.get("socket_send_err", "0x42DF670")),
+            "__PKT_ENC_NGJG__": str(self.offsets.get("pkt_enc_ngjg") or DEFAULT_OFFSETS.get("pkt_enc_ngjg", "0x126B4A0")),
+            "__SOCKET_SEND_ERR__": str(self.offsets.get("socket_send_err") or DEFAULT_OFFSETS.get("socket_send_err", "0x42DF4D0")),
+            "__TCP_SET_NODELAY__": str(self.offsets.get("tcp_set_nodelay") or DEFAULT_OFFSETS.get("tcp_set_nodelay", "0x42EB350")),
             "__GET_SCENE_HANDLER__": str(self.offsets.get("get_scene_handler") or DEFAULT_OFFSETS.get("get_scene_handler", "0x10D8460")),
             "__RUNTIME_CLASS_INIT__": str(self.offsets.get("runtime_class_init") or DEFAULT_OFFSETS.get("runtime_class_init", "0x2EC0A0")),
             "__GET_USER_ACCOUNT__": str(self.offsets.get("get_user_account") or DEFAULT_OFFSETS.get("get_user_account", "0x10D8BD0")),
@@ -9388,17 +9519,35 @@ class MegDirectEngine:
                 if exports is None:
                     return None
 
-                fn = getattr(exports, func_name, None)
-                if not fn:
-                    if "_" in func_name:
-                        camel = "".join(w.capitalize() if i > 0 else w for i, w in enumerate(func_name.split("_")))
-                        fn = getattr(exports, camel, None)
-                    else:
-                        import re
-                        snake = re.sub(r'(?<!^)(?=[A-Z])', '_', func_name).lower()
-                        fn = getattr(exports, snake, None)
-                if fn:
-                    return fn(*args)
+                # QUAN TRỌNG (frida-python): ScriptExportsSync.__getattr__ LUÔN trả về proxy function
+                # (không bao giờ None) và tự chuyển snake_case -> camelCase khi gửi sang JS rpc.exports.
+                # Nếu gọi trực tiếp bằng camelCase (vd: startNativeMirrorTurbo), Frida hạ toàn bộ về
+                # chữ thường ("startnativemirrorturbo") -> RPCException("unable to find method")!
+                # Do đó phải chuyển sang snake_case TRƯỚC, chỉ fallback về tên gốc nếu method JS không phải camelCase.
+                import re as _re
+                snake_name = _re.sub(r'(?<!^)(?=[A-Z])', '_', func_name).lower()
+                candidates = [snake_name]
+                if func_name != snake_name:
+                    candidates.append(func_name)
+                if "_" in func_name:
+                    camel_name = "".join(w.capitalize() if i > 0 else w for i, w in enumerate(func_name.split("_")))
+                    if camel_name not in candidates:
+                        candidates.append(camel_name)
+
+                last_err = None
+                for cand in candidates:
+                    fn = getattr(exports, cand, None)
+                    if not fn:
+                        continue
+                    try:
+                        return fn(*args)
+                    except Exception as e_cand:
+                        last_err = e_cand
+                        if "unable to find method" in str(e_cand).lower():
+                            continue
+                        raise
+                if last_err is not None:
+                    raise last_err
             except Exception as e:
                 err_str = str(e).lower()
                 is_closed = any(k in err_str for k in ("detached", "destroyed", "script is destroyed", "closed", "transport is closing"))
@@ -10470,7 +10619,7 @@ class MegDirectEngine:
         if self.is_ready:
             try:
                 tele = self.get_player_info()
-                if tele and tele.get("mapId") in (40, 53, 65, 66, 67, 68, 82, 83, 84, 85, 86, 87, 88, 89, 90):
+                if tele and tele.get("mapId") in (40, 53, 82, 83, 84, 85, 86, 87, 88, 89, 90):
                     return True
                 res = self._call("teleportToEventMap")
                 if res:
@@ -10491,14 +10640,17 @@ class MegDirectEngine:
         return False
 
     def is_mirror_event_map(self) -> bool:
-        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (Map ID 82-90 hoặc 65-68) hay không (Hỗ trợ cả Frida Hook và Zero-Injection RAM)."""
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (SceneHandler.WorldIndex 82-90 theo chuẩn Mega.DoubleGoer$$PAGCDNAAHMO 0x100D680)."""
         # 1. Thử qua Frida / Fast Telemetry nếu engine đã hook
         if self.is_ready:
             try:
                 tele = self.get_player_info(max_age=0.5, allow_blocking=False)
-                if tele and "mapId" in tele and tele["mapId"] >= 0:
-                    mid = tele["mapId"]
-                    return ((82 <= mid <= 90) or (65 <= mid <= 68))
+                if tele:
+                    if "inDoubleGoer" in tele:
+                        return bool(tele["inDoubleGoer"])
+                    if "mapId" in tele and tele["mapId"] >= 0:
+                        mid = int(tele["mapId"])
+                        return (82 <= mid <= 90)
                 res = self._call("isMirrorEventMap")
                 if isinstance(res, bool):
                     return res
@@ -10509,8 +10661,8 @@ class MegDirectEngine:
         try:
             info = self.read_player_info_via_ram()
             if info and "mapId" in info and info["mapId"] >= 0:
-                mid = info["mapId"]
-                return ((82 <= mid <= 90) or (65 <= mid <= 68))
+                mid = int(info["mapId"])
+                return (82 <= mid <= 90)
         except Exception:
             pass
 
@@ -10524,14 +10676,14 @@ class MegDirectEngine:
                     m_info = sd.get("map", {})
                     mid = m_info.get("id", -1)
                     if mid >= 0:
-                        return ((82 <= mid <= 90) or (65 <= mid <= 68))
+                        return (82 <= mid <= 90)
         except Exception:
             pass
 
         return False
 
     def get_double_goer_state(self) -> Dict[str, Any]:
-        """Đọc trạng thái sự kiện Double Goer trực tiếp từ Mega.DoubleGoer_TypeInfo (0x5554F10)."""
+        """Đọc trạng thái sự kiện Double Goer trực tiếp từ Mega.DoubleGoer_TypeInfo (0x55612C8)."""
         if self.is_ready:
             try:
                 res = self._call("getDoubleGoerState")

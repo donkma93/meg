@@ -447,6 +447,10 @@ class MirrorView(ctk.CTkFrame):
             if el.get("status_lbl"):
                 if not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua", text_color=Colors.TEXT_DIM)
+                elif pid and getattr(ctrl, "mirror_sniping", False):
+                    el["status_lbl"].configure(text="⚡ Đang cướp cổng", text_color=Colors.PURPLE)
+                elif pid and getattr(ctrl, "_mirror_dungeon_running", False):
+                    el["status_lbl"].configure(text="🏆 Trong Mirror", text_color=Colors.AMBER)
                 elif pid:
                     el["status_lbl"].configure(text="🟢 Sẵn sàng", text_color=Colors.GREEN)
                 else:

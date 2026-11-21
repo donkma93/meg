@@ -277,6 +277,12 @@ class DashboardAppOptimized(ctk.CTk):
         self.mirror_snipe_dur_s = float(mirror_sched_cfg.get("max_duration_s", 15.0) or 15.0)
         self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 2.0) if mirror_sched_cfg.get("prefire_sec") is not None else 2.0)
         self.mirror_zero_confirm = bool(mirror_sched_cfg.get("zero_confirm", True))
+        self.mirror_stagger_ms = int(mirror_sched_cfg.get("stagger_ms", 0) or 0)
+        self._mirror_last_rtt_ms = -1.0
+        self._mirror_clock_offset_ms = float(mirror_sched_cfg.get("clock_offset_ms", 0.0) or 0.0)
+        self._last_scheduled_gate_open_epoch_ms = 0.0
+        self._last_mirror_prestage_key = None
+        self._last_mirror_arm_key = None
         self._last_moss_trigger_key = None
         self._last_moss_stop_key = None
         self._last_moss_move_key = None
@@ -602,16 +608,14 @@ class DashboardAppOptimized(ctk.CTk):
             on_telegram_config=getattr(self, "open_mirror_telegram_settings_dialog", None),
             on_import_accounts=getattr(self, "import_accounts_from_registry_ui", None),
             on_party_config=self.open_party_config_dialog,
-            on_slot_delay_changed=self.on_slot_delay_changed,
         )
         self.train_view.grid(row=0, column=0, sticky="nsew")
 
-        # Đồng bộ trạng thái Point & Delay ban đầu lên các thẻ Slot
+        # Đồng bộ trạng thái Point ban đầu lên các thẻ Slot
         for c in self.controllers:
             card = self.train_view.cards.get(c.slot_idx)
             if card:
                 card.set_point_state(getattr(c, "auto_add_point", False))
-                card.set_respawn_delay(getattr(c, "respawn_delay", 15.0))
 
         # Zero-Lag Optimization: Khởi tạo lười (Lazy Deferred Views)
         # Chỉ render TrainSlotsView ngay khi khởi động. Các tab khác chỉ tạo khi người dùng click
@@ -875,21 +879,6 @@ class DashboardAppOptimized(ctk.CTk):
     def _on_profile_saved(self, profile_idx: int):
         if hasattr(self, "train_view"):
             self.train_view.update_profile_options_all(CompactSlotCard.get_default_profile_options())
-            try:
-                cfg = ConfigPersistenceManager.load_single_profile(profile_idx)
-                d_val = float(cfg.get("respawn_delay", 15.0))
-                for ctrl in self.controllers:
-                    if getattr(ctrl, "profile_index", None) == profile_idx:
-                        ctrl.respawn_delay = d_val
-                        if ctrl.worker and ctrl.worker.running:
-                            ctrl.worker.respawn_delay = d_val
-                            if hasattr(ctrl.worker, "config") and isinstance(ctrl.worker.config, dict):
-                                ctrl.worker.config["respawn_delay"] = d_val
-                        card = self.train_view.cards.get(ctrl.slot_idx)
-                        if card:
-                            card.set_respawn_delay(d_val)
-            except Exception:
-                pass
 
     def open_slot_profile_editor(self, slot_idx: int):
         ctrl = self.controllers[slot_idx - 1]
@@ -1239,60 +1228,10 @@ class DashboardAppOptimized(ctk.CTk):
             digits = "".join(ch for ch in val if ch.isdigit())
             p_idx = int(digits) if digits else int(val.replace("Config", "").strip())
             ctrl.profile_index = p_idx
-            cfg = ConfigPersistenceManager.load_single_profile(p_idx)
-            d_val = float(cfg.get("respawn_delay", 15.0))
-            ctrl.respawn_delay = d_val
-            if hasattr(self, "train_view") and self.train_view:
-                card = self.train_view.cards.get(slot_idx)
-                if card:
-                    card.set_respawn_delay(d_val)
             self.state_mgr.update_slot_telemetry(slot_idx, profile=val)
-            self.log_message(f"[Slot {slot_idx:02d}] Đã đổi cấu hình sang {val} (Chờ ra bãi: {d_val:.0f}s).", "INFO")
+            self.log_message(f"[Slot {slot_idx:02d}] Đã đổi cấu hình sang {val}.", "INFO")
         except Exception:
             pass
-
-    def on_slot_delay_changed(self, slot_idx: int, val: float):
-        """Cập nhật và lưu thời gian chờ ra bãi cho slot riêng biệt."""
-        if not (1 <= slot_idx <= len(self.controllers)):
-            return
-        ctrl = self.controllers[slot_idx - 1]
-        val = max(3.0, float(val))
-        ctrl.respawn_delay = val
-        if ctrl.worker and ctrl.worker.running:
-            ctrl.worker.respawn_delay = val
-            if hasattr(ctrl.worker, "config") and isinstance(ctrl.worker.config, dict):
-                ctrl.worker.config["respawn_delay"] = val
-        p_idx = getattr(ctrl, "profile_index", slot_idx)
-        try:
-            cfg = ConfigPersistenceManager.load_single_profile(p_idx)
-            cfg["respawn_delay"] = val
-            ConfigPersistenceManager.save_single_profile(p_idx, cfg)
-        except Exception:
-            pass
-        try:
-            ConfigPersistenceManager.save_event_config(
-                slot_idx=ctrl.slot_idx,
-                auto_devil=ctrl.auto_devil,
-                devil_min_resets=ctrl.devil_min_resets,
-                devil_max_resets=ctrl.devil_max_resets,
-                devil_ticket_type=ctrl.devil_ticket_type,
-                auto_reset=ctrl.auto_reset,
-                auto_add_point=ctrl.auto_add_point,
-                reset_level=ctrl.reset_level,
-                stat_mode=ctrl.stat_mode,
-                custom_class=ctrl.custom_class,
-                stat_ratio=ctrl.stat_ratio,
-                respawn_delay=val
-            )
-        except Exception:
-            pass
-        if getattr(self, "profiles_view", None):
-            try:
-                if self.profiles_view.current_profile_idx == p_idx:
-                    self.profiles_view.respawn_var.set(str(int(val)))
-            except Exception:
-                pass
-        self.log_message(f"[Slot {slot_idx:02d}] Đã lưu thời gian chờ ra bãi: {val:.0f} giây (Config {p_idx}).", "SUCCESS")
 
     def save_slot_settings(self, slot_idx: int, new_cfg: Dict[str, Any]):
         ctrl = self.controllers[slot_idx - 1]
@@ -1303,13 +1242,6 @@ class DashboardAppOptimized(ctk.CTk):
                 ctrl.spot_x = int(new_cfg["x"])
             if "y" in new_cfg:
                 ctrl.spot_y = int(new_cfg["y"])
-            if "respawn_delay" in new_cfg:
-                d_val = max(3.0, float(new_cfg["respawn_delay"]))
-                ctrl.respawn_delay = d_val
-                if hasattr(self, "train_view") and self.train_view:
-                    card = self.train_view.cards.get(slot_idx)
-                    if card:
-                        card.set_respawn_delay(d_val)
             if "auto_repair" in new_cfg:
                 ctrl.auto_repair = bool(new_cfg["auto_repair"])
             if "auto_clean_trash" in new_cfg:
@@ -2157,6 +2089,8 @@ class DashboardAppOptimized(ctk.CTk):
                     prefire_sec=self.get_mirror_prefire_sec(),
                     interval_ms=self.get_mirror_snipe_delay(),
                     max_duration_s=self.get_mirror_snipe_dur(),
+                    stagger_ms=int(getattr(self, "mirror_stagger_ms", 0) or 0),
+                    clock_offset_ms=float(getattr(self, "_mirror_clock_offset_ms", 0.0) or 0.0),
                     selected_slots=selected,
                 )
                 zc_lbl = "BẬT" if zc_val else "TẮT"

@@ -49,6 +49,8 @@ let mockTicketSlot = 24;
 let mockRttDelayMs = 18;
 let sentNativeGSFrames = [];
 let sentDirectSockFrames = [];
+let tcpNoDelayCalls = [];
+let failNextDirectSockSend = false;
 let mirrorEnterAltCalls = [];
 let lugardTalkCalls = 0;
 let closeTalkCalls = 0;
@@ -176,6 +178,7 @@ const exportFns = {
     il2cpp_gchandle_free: 0x01001060,
     il2cpp_class_from_type: 0x01001070,
     il2cpp_type_get_object: 0x01001080,
+    il2cpp_get_corlib: 0x01001088,
     mono_domain_get_corlib: 0x01001090,
     il2cpp_class_from_name: 0x010010A0,
 };
@@ -252,6 +255,7 @@ const sandbox = {
         const addrNum = (addrPtr instanceof MockPtr) ? addrPtr._val : Number(addrPtr);
         return function(...args) {
             if (addrNum === exportFns.LoadLibraryW) return new MockPtr(0x01500000);
+            if (addrNum === exportFns.il2cpp_get_corlib) return new MockPtr(0x02000100);
             if (addrNum === exportFns.mono_domain_get_corlib) return new MockPtr(0x02000100);
             if (addrNum === exportFns.il2cpp_class_from_name) return new MockPtr(0x02000200);
             if (addrNum === exportFns.il2cpp_domain_get) return new MockPtr(0x02000000);
@@ -288,6 +292,9 @@ const sandbox = {
             if (sym === "pkt_enc_nikini") {
                 const srcArr = args[0];
                 const raw = bytesFromIl2CppArr(srcArr);
+                // Simulate real DCBFPGDDCMG in-place mutation of srcArr[0] & srcArr[2]
+                srcArr.add(0x20).writeU8(0x01);
+                srcArr.add(0x22).writeU8((raw[2] ^ 0xCB) & 0xFF);
                 const enc = allocMem(0x40 + raw.length);
                 enc.add(0x18).writeS32(raw.length);
                 for (let i = 0; i < raw.length; i++) enc.add(0x20 + i).writeU8(raw[i] ^ 0x55);
@@ -298,6 +305,10 @@ const sandbox = {
             }
             if (sym === "pkt_enc_ngjg") return undefined;
             if (sym === "socket_send_err") {
+                if (failNextDirectSockSend) {
+                    failNextDirectSockSend = false;
+                    throw new Error("Simulated transient Socket.Send error");
+                }
                 const encArr = args[1];
                 const encLen = Number(args[3]);
                 const errOut = args[5];
@@ -305,6 +316,10 @@ const sandbox = {
                 const frame = bytesFromIl2CppArr(encArr).map(b => b ^ 0x55);
                 sentDirectSockFrames.push(frame);
                 return encLen;
+            }
+            if (sym === "tcp_set_nodelay") {
+                tcpNoDelayCalls.push({ tcp: args[0].toString(), val: Number(args[1]) });
+                return undefined;
             }
             if (sym === "mirror_is_event_map" || sym === "mirror_is_event_map_alt") return mockInDoubleGoer;
             if (sym === "mirror_enter" || sym === "mirror_enter_alt") { mirrorEnterAltCalls.push(Number(args[0])); return undefined; }
@@ -328,9 +343,13 @@ function getHook(key) {
     return hooks[(baseAddrVal + offVal) >>> 0];
 }
 
-// 1) Method 2: Verify prepareC1FrameBytes & sendGSPacket XOR / header encoding
+// 1) Method 2: Verify prepareC1FrameBytes & sendGSPacket XOR / header encoding (0x10..0x1E strictly)
+for (let k = 0; k < 20; k++) {
+    const fk = sandbox.prepareC1FrameBytes([0xC1, 0x05, 0xBF, 0x0E, 0x0C], false);
+    assert(fk[0] >= 0x10 && fk[0] <= 0x1E, "C1 header must stay in 0x10..0x1E (got 0x" + fk[0].toString(16) + ")");
+}
 const f1 = sandbox.prepareC1FrameBytes([0xC1, 0x05, 0xBF, 0x0E, 0x0C], false);
-assert(f1[0] >= 0x10 && f1[0] <= 0x1F, "C1 header must become 0x10..0x1F");
+assert(f1[0] >= 0x10 && f1[0] <= 0x1E, "C1 header must become 0x10..0x1E");
 assert.strictEqual(f1[1], 0x05);
 assert.strictEqual(f1[2], 0xBF ^ 0xCB, "byte[2] must be XORed with 0xCB");
 assert.strictEqual(f1[3], 0x0E);
@@ -359,8 +378,9 @@ assert(dgerHook && typeof dgerHook.onEnter === "function", "mirror_enter_recv ho
 
 gameUpdHook.onEnter([]);
 assert(gcPinned.size >= 1, "Pinned byte[5] buffer must hold a pinned GCHandle after MainThread tick");
+assert(tcpNoDelayCalls.length >= 1 && tcpNoDelayCalls[0].val === 1, "TCP_NODELAY must be enabled on TcpClient during pre-stage");
 assert.strictEqual(sentDirectSockFrames.length, 1, "Probe must go via Direct Socket.Send");
-assert(sentDirectSockFrames[0][0] >= 0x10 && sentDirectSockFrames[0][0] <= 0x1F);
+assert(sentDirectSockFrames[0][0] >= 0x10 && sentDirectSockFrames[0][0] <= 0x1E);
 assert.strictEqual(sentDirectSockFrames[0][2], 0xBF ^ 0xCB);
 assert.strictEqual(sentDirectSockFrames[0][3], 0x0E);
 assert.strictEqual(sentDirectSockFrames[0][4], 12);
@@ -423,7 +443,47 @@ gameUpdHook.onEnter([]);
 assert.strictEqual(mockTargetFps, 60, "targetFrameRate restored to 60 on MainThread");
 assert.strictEqual(mockVSync, 1, "vSyncCount restored to 1 on MainThread");
 
-// 4) Verify DirectSocket fallback when sock+0x52 == 0 (disconnected) -> falls back to nativeGSSend
+// 4) Verify SendSerial rollback when Socket.Send throws transiently (ZERO SendSerial desync!)
+const serialBeforeErr = gsPtr.add(0xC0).readU8();
+failNextDirectSockSend = true;
+sentNativeGSFrames.length = 0;
+const okAfterRollback = sandbox.dispatchMirrorEnterPacketFast(12);
+assert.strictEqual(okAfterRollback, true, "Fallback must still send after DirectSocket error");
+assert.strictEqual(sentNativeGSFrames.length, 1, "Fallback sendGSPacketDirect must fire once");
+assert(sentNativeGSFrames[0][0] >= 0x10 && sentNativeGSFrames[0][0] <= 0x1E, "Fallback frame byte[0] must be rewritten after in-place DCBFPGDDCMG mutation!");
+assert.strictEqual(sentNativeGSFrames[0][2], 0xBF ^ 0xCB, "Fallback frame byte[2] must still be 0xBF^0xCB (not double-XORed)!");
+assert.strictEqual(gsPtr.add(0xC0).readU8(), serialBeforeErr, "SendSerial MUST be rolled back cleanly before fallback!");
+
+// 5) Verify 3-Phase Adaptive Pacing (Approach >= 50ms -> Critical Window full-speed 5ms)
+sentDirectSockFrames.length = 0;
+const gateOpenTarget = mockNowMs + 2000;
+const armAdaptive = JSON.parse(rpcObj.exports.armNativeMirrorTurbo(24, 5, 15000, mockNowMs, JSON.stringify({
+    preStaged: true,
+    directSocket: true,
+    ackPaced: true,
+    targetOpenEpochMs: gateOpenTarget,
+    oneWayLatencyMs: 140
+})));
+assert.strictEqual(armAdaptive.success, true);
+// Approach phase (2000ms before gate): fires 1st packet, then skips at +10ms, fires again at +50ms
+gameUpdHook.onEnter([]);
+assert.strictEqual(sentDirectSockFrames.length, 1, "Approach fires first packet");
+mockNowMs += 10;
+gameUpdHook.onEnter([]);
+assert.strictEqual(sentDirectSockFrames.length, 1, "Approach must throttle to >=50ms before critical window");
+mockNowMs += 45;
+gameUpdHook.onEnter([]);
+assert.strictEqual(sentDirectSockFrames.length, 2, "Approach fires at >=50ms");
+// Jump into Critical Window (gateOpenTarget - 140ms - 200ms): fires full speed at 5ms!
+mockNowMs = gateOpenTarget - 340;
+gameUpdHook.onEnter([]);
+const countAtCritStart = sentDirectSockFrames.length;
+mockNowMs += 5;
+gameUpdHook.onEnter([]);
+assert.strictEqual(sentDirectSockFrames.length, countAtCritStart + 1, "Critical window must fire at full 5ms cadence");
+rpcObj.exports.stopNativeMirrorTurbo();
+
+// 6) Verify DirectSocket fallback when sock+0x52 == 0 (disconnected) -> falls back to nativeGSSend
 sockPtr.add(0x52).writeU8(0);
 sentNativeGSFrames.length = 0;
 const startRes = JSON.parse(rpcObj.exports.startNativeMirrorTurbo(24, 5, 15000, JSON.stringify({ directSocket: true })));
@@ -464,15 +524,21 @@ class TestMirrorUltraOptimization(unittest.TestCase):
 
     def test_offsets_sync_and_placeholders_resolved(self):
         required_offsets = {
+            "mirror_enter": "0x100A910",
+            "mirror_enter_alt": "0x100A910",
             "mirror_enter_recv": "0x100C180",
+            "mirror_teleport_event": "0x100D800",
+            "doublegoer_type_info": "0x55612C8",
             "set_target_framerate": "0x45E4B80",
             "get_target_framerate": "0x45E4B30",
             "set_vsync_count": "0x45F94B0",
             "get_vsync_count": "0x45F9460",
             "pkt_enc_nikini": "0x126BC00",
-            "pkt_enc_ngjg": "0x126CA50",
-            "socket_send_err": "0x42DF670",
+            "pkt_enc_ngjg": "0x126B4A0",
+            "socket_send_err": "0x42DF4D0",
+            "tcp_set_nodelay": "0x42EB350",
             "unity_get_time": "0x462F900",
+            "helper_ui_show_dialog": "0x1CDD220",
         }
         with open("megamu_offsets.json", "r", encoding="utf-8") as f:
             root_off = json.load(f)
@@ -488,12 +554,14 @@ class TestMirrorUltraOptimization(unittest.TestCase):
         js = eng._generate_js()
         for ph in (
             "__DOUBLEGOER_ENTER_RECV__",
+            "__DOUBLEGOER_TYPE_INFO__",
             "__SET_VSYNC_COUNT__",
             "__GET_VSYNC_COUNT__",
             "__UNITY_GET_TIME__",
             "__PKT_ENC_NIKINI__",
             "__PKT_ENC_NGJG__",
             "__SOCKET_SEND_ERR__",
+            "__TCP_SET_NODELAY__",
         ):
             self.assertNotIn(ph, js, f"Unreplaced placeholder {ph} in generated JS")
 
@@ -683,6 +751,78 @@ class TestMirrorUltraOptimization(unittest.TestCase):
         stagger_calls.sort(key=lambda x: x[0])
         self.assertEqual(stagger_calls[0], (1, target_ms, 0))
         self.assertEqual(stagger_calls[1], (2, target_ms + 5, 5))
+
+    def test_no_false_entered_notification_and_strict_map_range(self):
+        # 1) is_mirror_event_map() must follow DoubleGoer.PAGCDNAAHMO (82..90 ONLY, never 65..68 or 51)
+        eng = _make_dummy_engine()
+        eng.is_ready = True
+        eng.last_fast_state_time = time.time()
+        for mid, expected in [(51, False), (53, False), (65, False), (68, False), (81, False), (82, True), (90, True), (91, False)]:
+            eng.last_fast_state = {"mapId": mid}
+            self.assertEqual(eng.is_mirror_event_map(), expected, f"mapId={mid} expected {expected}")
+
+        # 2) start_all_mirror_turbo_sniping must NEVER falsely say "đã vào trong map Double Goer" when 0 accounts entered
+        app = meg_gui.DashboardApp.__new__(meg_gui.DashboardApp)
+        app.controllers = []
+        app.mirror_snipe_delay_entry = MagicMock(get=lambda: "10")
+        app.mirror_snipe_dur_entry = MagicMock(get=lambda: "15.0")
+        app.mirror_stagger_ms_entry = MagicMock(get=lambda: "0")
+        app._ensure_mirror_auto_schedule_enabled_from_manual = MagicMock()
+        logs = []
+        done_ev = threading.Event()
+        def _after_cb(_ms, fn):
+            fn()
+            done_ev.set()
+        app.after = _after_cb
+        app.append_mirror_log = lambda msg: logs.append(msg)
+
+        app.start_all_mirror_turbo_sniping(from_scheduler=False)
+        self.assertTrue(done_ev.wait(timeout=2.0))
+        self.assertTrue(logs, "Expected a warning log when 0 connected accounts")
+        self.assertNotIn("đã vào trong map Double Goer", logs[-1])
+        self.assertIn("Chưa có tài khoản", logs[-1])
+
+        # 3) If an account is sniping (not in map), must say "Đang chạy Turbo Sniping", NOT "đã vào map"
+        logs.clear()
+        done_ev.clear()
+        c_snipe = MagicMock(
+            slot_idx=1,
+            mirror_enabled=True,
+            assigned_pid=os.getpid(),
+            mirror_sniping=True,
+            _mirror_dungeon_running=False,
+        )
+        c_snipe.engine = eng
+        eng.last_fast_state = {"mapId": 51, "inDoubleGoer": False}
+        app.controllers = [c_snipe]
+        app.start_all_mirror_turbo_sniping(from_scheduler=False)
+        self.assertTrue(done_ev.wait(timeout=2.0))
+        self.assertIn("Đang chạy Turbo Sniping", logs[-1])
+        self.assertNotIn("Tất cả", logs[-1])
+
+    def test_call_converts_camelcase_to_snake_case_first(self):
+        # Verify Frida ScriptExportsSync proxy behavior: __getattr__ ALWAYS returns a callable,
+        # and only snake_case maps to camelCase JS rpc.exports (raw camelCase gets lowercased and throws).
+        eng = _make_dummy_engine()
+        invoked = []
+
+        class FakeFridaExportsSync:
+            def __getattr__(self, name):
+                def _proxy(*args):
+                    invoked.append((name, args))
+                    if name == "start_native_mirror_turbo":
+                        return json.dumps({"success": True, "via": "snake_case"})
+                    if name == "raw_only_method":
+                        return "ok-raw"
+                    raise RuntimeError(f"unable to find method '{name.lower()}'")
+                return _proxy
+
+        eng.script = MagicMock(exports_sync=FakeFridaExportsSync())
+        res = eng._call("startNativeMirrorTurbo", 24, 5, 15000, "{}")
+        self.assertEqual(json.loads(res)["via"], "snake_case")
+        self.assertEqual(invoked[0][0], "start_native_mirror_turbo")
+        self.assertEqual(len(invoked), 1, "Should succeed on snake_case first without throwing on camelCase")
+
 
 
 if __name__ == "__main__":

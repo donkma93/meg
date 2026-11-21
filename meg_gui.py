@@ -4552,8 +4552,8 @@ class SlotController:
             pinfo = eng.get_player_info()
             if pinfo:
                 cmap = pinfo.get("mapId", -1)
-                # Map 53: Event Square, Map 40: Event Square VIP/Alt, Map 65-68 & 82-90: Double Goer
-                if (cmap in (53, 40)) or (65 <= cmap <= 68) or (82 <= cmap <= 90):
+                # Map 53: Event Square, Map 40: Event Square VIP/Alt, Map 82-90: Double Goer (chuẩn PAGCDNAAHMO 0x100D680)
+                if (cmap in (53, 40)) or (82 <= cmap <= 90):
                     return True
             eng.send_chat("/m ev")
             time.sleep(0.4)
@@ -5515,6 +5515,8 @@ class SlotController:
         start_at_epoch_ms: int = 0,
         stagger_ms: int = 0,
         zero_confirm: bool = True,
+        target_open_epoch_ms: int = 0,
+        one_way_latency_ms: float = 0.0,
     ) -> bool:
         """Kích hoạt chế độ Turbo Sniping (Bắn liên tiếp Direct Socket + Zero-Confirm bỏ qua toàn bộ popup) để cướp cổng Double Goer."""
         if license_client and not license_client.has_license_module("mirror"):
@@ -5595,7 +5597,7 @@ class SlotController:
         zc_tag = " · Zero-Confirm" if zero_confirm else ""
         self.app.update_mirror_slot_status(self.slot_idx, f"⚡ Turbo ({interval_ms}ms{zc_tag})", text_color="#c084fc")
 
-        # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, Direct Socket + Zero-Confirm chạy trực tiếp trong RAM Game)
+        # 1. Kích hoạt Native In-Process Turbo Sniping (0ms IPC, Direct Socket + TCP_NODELAY + Zero-Confirm chạy trực tiếp trong RAM Game)
         native_started = False
         turbo_opts = {
             "directSocket": True,
@@ -5605,35 +5607,86 @@ class SlotController:
             "suppressDialogs": bool(zero_confirm),
             "staggerMs": int(stagger_ms or 0),
         }
+        if target_open_epoch_ms and int(target_open_epoch_ms) > 0:
+            turbo_opts["targetOpenEpochMs"] = int(target_open_epoch_ms)
+        if one_way_latency_ms and float(one_way_latency_ms) > 0:
+            turbo_opts["oneWayLatencyMs"] = round(float(one_way_latency_ms), 1)
         now_ms_py = int(time.time() * 1000)
         use_arm = bool(start_at_epoch_ms and int(start_at_epoch_ms) > (now_ms_py + 10) and hasattr(eng, "arm_native_mirror_turbo"))
+
+        _RCODE_LABELS = {
+            0: "R=0 CHẤP NHẬN VÀO MAP",
+            1: "R=1 Thiếu vé / sai ô vé",
+            2: "R=2 Cổng chưa mở / phòng đầy (chưa thể vào)",
+            3: "R=3 PK không được vào",
+            4: "R=4 Không thể vào lúc này",
+            5: "R=5 Không thể vào lúc này",
+            6: "R=6 Cổng chưa mở",
+            7: "R=7 Cần đủ Party 5 người",
+            8: "R=8 Sai khoảng Level Party",
+        }
 
         if hasattr(eng, "start_native_mirror_turbo") or use_arm:
             def _on_native_event(payload):
                 p_type = payload.get("type")
-                if p_type == "mirror_turbo_entered":
+                if p_type == "mirror_enter_recv":
+                    r_code = int(payload.get("rCode", -1))
+                    rtt_ms = float(payload.get("rttMs", -1) or -1)
+                    srv_open = payload.get("serverOpenEpochMs", None)
+                    if hasattr(self.app, "record_mirror_net_telemetry"):
+                        try:
+                            self.app.record_mirror_net_telemetry(
+                                r_code=r_code,
+                                rtt_ms=rtt_ms if rtt_ms > 0 else 0.0,
+                                server_open_epoch_ms=srv_open if (r_code == 0 and srv_open) else None,
+                            )
+                        except Exception:
+                            pass
+                    now_r = time.time()
+                    if r_code == 0 or (r_code != 6) or (now_r - getattr(self, "_mirror_last_r6_log_ts", 0.0) >= 3.0):
+                        if r_code == 6:
+                            self._mirror_last_r6_log_ts = now_r
+                        r_lbl = _RCODE_LABELS.get(r_code, f"R={r_code}")
+                        rtt_txt = f" | RTT={rtt_ms:.0f}ms" if rtt_ms > 0 else ""
+                        self.app.after(0, lambda lbl=r_lbl, rt=rtt_txt: self.app.append_mirror_log(
+                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 📡 Server phản hồi: {lbl}{rt}"
+                        ))
+                elif p_type == "mirror_turbo_entered":
                     pkts = payload.get("packets", 0)
                     dur_ms = payload.get("elapsed", 0)
+                    ds_hits = payload.get("directSocketHits", 0)
+                    fb_hits = payload.get("fallbackHits", 0)
+                    ds_err = payload.get("directSocketErrors", 0)
+                    rtt_ms = payload.get("rttMs", -1)
+                    nd_tag = " · NoDelay" if payload.get("tcpNoDelayEnabled") else ""
                     sup_d = payload.get("suppressedDialogs", 0)
                     sup_c = payload.get("suppressedConfirms", 0)
-                    sup_txt = f" | Đã bỏ qua {sup_d + sup_c} thông báo" if (sup_d + sup_c) > 0 else ""
+                    sup_txt = f" | Bỏ qua {sup_d + sup_c} popup" if (sup_d + sup_c) > 0 else ""
+                    rtt_txt = f" | RTT={rtt_ms}ms" if isinstance(rtt_ms, (int, float)) and rtt_ms > 0 else ""
                     self.mirror_sniping = False
                     self.cached_mirror_ticket_slot = -1
                     self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {pkts} packets (Native {dur_ms}ms{sup_txt})!"
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🏆 CƯỚP CỔNG THÀNH CÔNG! Đã vào map Double Goer sau {pkts} packets (Direct:{ds_hits}/FB:{fb_hits}/Err:{ds_err}{nd_tag}, {dur_ms}ms{rtt_txt}{sup_txt})!"
                     ))
                     self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
                     # Kích hoạt ngay chu trình tự động trong map Double Goer (đợi hết giờ chuẩn bị -> bước ra khỏi Safe Zone -> bật Helper -> săn 3 rương)
                     self.run_mirror_in_dungeon_lifecycle(force=True)
                 elif p_type == "mirror_turbo_timeout":
                     pkts = payload.get("packets", 0)
+                    ds_hits = payload.get("directSocketHits", 0)
+                    fb_hits = payload.get("fallbackHits", 0)
+                    ds_err = payload.get("directSocketErrors", 0)
+                    rtt_ms = payload.get("rttMs", -1)
+                    rc_map = payload.get("rCodeCounts") or {}
+                    rc_txt = (" | Phản hồi: " + ", ".join(f"R{k}×{v}" for k, v in rc_map.items())) if rc_map else ""
+                    rtt_txt = f" | RTT={rtt_ms}ms" if isinstance(rtt_ms, (int, float)) and rtt_ms > 0 else ""
                     sup_d = payload.get("suppressedDialogs", 0)
                     sup_c = payload.get("suppressedConfirms", 0)
                     sup_txt = f" | Bỏ qua {sup_d + sup_c} popup" if (sup_d + sup_c) > 0 else ""
                     self.mirror_sniping = False
                     self.cached_mirror_ticket_slot = -1
                     self.app.after(0, lambda: self.app.append_mirror_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {pkts} packets (Native{sup_txt})."
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏱️ Hết thời gian Turbo Sniping ({max_duration_s:.0f}s). Đã bắn {pkts} packets (Direct:{ds_hits}/FB:{fb_hits}/Err:{ds_err}{rtt_txt}{rc_txt}{sup_txt})."
                     ))
                     self.app.after(0, lambda: self.app.update_mirror_slot_ui_state(self.slot_idx, is_running=False))
             eng.on_mirror_turbo_event = _on_native_event
@@ -5695,7 +5748,8 @@ class SlotController:
                         break
                     fast = getattr(eng, "last_fast_state", None) or {}
                     map_id = fast.get("mapId", -1)
-                    if (65 <= map_id <= 68) or (82 <= map_id <= 90):
+                    is_in_dg = (fast.get("inDoubleGoer") is True) if ("inDoubleGoer" in fast) else (82 <= map_id <= 90)
+                    if is_in_dg:
                         self.mirror_sniping = False
                         self.cached_mirror_ticket_slot = -1
                         self.app.after(0, lambda: self.app.append_mirror_log(
@@ -10767,8 +10821,14 @@ class DashboardApp(ctk.CTk):
             daemon=True
         ).start()
 
-    def start_all_mirror_turbo_sniping(self, from_scheduler: bool = False, target_open_epoch_ms: int = 0):
-        """Kích hoạt Turbo Sniping đồng loạt (bắn liên tiếp + Zero-Confirm) cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror."""
+    def start_all_mirror_turbo_sniping(
+        self,
+        from_scheduler: bool = False,
+        target_open_epoch_ms: int = 0,
+        gate_open_epoch_ms: int = 0,
+        one_way_latency_ms: float = 0.0,
+    ):
+        """Kích hoạt Turbo Sniping đồng loạt (bắn liên tiếp + DirectSocket TCP_NODELAY + Zero-Confirm) cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror."""
         if not from_scheduler:
             self._ensure_mirror_auto_schedule_enabled_from_manual()
         delay_ms = self.get_mirror_snipe_delay()
@@ -10776,28 +10836,56 @@ class DashboardApp(ctk.CTk):
         zero_confirm = self.get_mirror_zero_confirm() if hasattr(self, "get_mirror_zero_confirm") else True
 
         def _runner():
-            detected = self.__dict__.get("detected_games", {})
-            active_ctrls = [
+            selected_connected = [
                 c for c in self.controllers
                 if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid)
-                and (not detected or c.assigned_pid in detected)
-                and (getattr(c, "mirror_sniping", False) is not True)
-                and (getattr(c, "_mirror_dungeon_running", False) is not True)
             ]
-            # Lọc bỏ các tài khoản đã vào bên trong map Double Goer
+            if not selected_connected:
+                if not from_scheduler:
+                    self.after(0, lambda: self.append_mirror_log(
+                        "⚠️ Chưa có tài khoản nào được tích chọn 'Đi' và đang kết nối Game! Hãy gán PID & tích 'Đi' trước khi cướp cổng."
+                    ))
+                return
+
             unentered_ctrls = []
-            for c in active_ctrls:
+            already_sniping = []
+            already_entered = []
+            for c in selected_connected:
+                is_in_map = False
                 try:
                     eng = getattr(c, "engine", None) or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
                     if eng and (eng.is_mirror_event_map() is True):
-                        continue
+                        is_in_map = True
                 except Exception:
                     pass
+                if is_in_map:
+                    already_entered.append(c)
+                    continue
+                # Nếu cờ _mirror_dungeon_running bị kẹt True dù thực tế nhân vật KHÔNG ở trong map Double Goer -> tự gỡ kẹt
+                if getattr(c, "_mirror_dungeon_running", False) is True:
+                    c._mirror_dungeon_running = False
+                if getattr(c, "mirror_sniping", False) is True:
+                    already_sniping.append(c)
+                    continue
                 unentered_ctrls.append(c)
 
             if not unentered_ctrls:
                 if not from_scheduler:
-                    self.after(0, lambda: self.append_mirror_log("ℹ️ Tất cả tài khoản đã chọn đều đã vào trong map Double Goer hoặc đang cướp cổng!"))
+                    if already_sniping and not already_entered:
+                        n_sn = len(already_sniping)
+                        self.after(0, lambda n=n_sn: self.append_mirror_log(
+                            f"⚡ Đang chạy Turbo Sniping cho {n} tài khoản (chưa vào map). Bấm '⏹ Dừng' nếu muốn bắn lại."
+                        ))
+                    elif already_entered and len(already_entered) == len(selected_connected):
+                        n_en = len(already_entered)
+                        self.after(0, lambda n=n_en: self.append_mirror_log(
+                            f"🏆 Tất cả {n} tài khoản đã chọn đều đang ở trong map Double Goer (WorldIndex 82-90)!"
+                        ))
+                    else:
+                        n_en, n_sn = len(already_entered), len(already_sniping)
+                        self.after(0, lambda e=n_en, s=n_sn: self.append_mirror_log(
+                            f"ℹ️ Hiện có {e} tài khoản trong map Double Goer và {s} tài khoản đang chạy cướp cổng."
+                        ))
                 return
 
             threads = []
@@ -10809,6 +10897,11 @@ class DashboardApp(ctk.CTk):
             def _start_ctrl(c, idx_order):
                 stagger_offset = idx_order * stagger_step
                 slot_target_ms = (int(target_open_epoch_ms) + stagger_offset) if target_open_epoch_ms else 0
+                extra_kw = {}
+                if gate_open_epoch_ms and int(gate_open_epoch_ms) > 0:
+                    extra_kw["target_open_epoch_ms"] = int(gate_open_epoch_ms) + stagger_offset
+                if one_way_latency_ms and float(one_way_latency_ms) > 0:
+                    extra_kw["one_way_latency_ms"] = float(one_way_latency_ms)
                 ok = c.start_mirror_turbo_sniping(
                     interval_ms=delay_ms,
                     max_duration_s=dur_s,
@@ -10816,6 +10909,7 @@ class DashboardApp(ctk.CTk):
                     start_at_epoch_ms=slot_target_ms,
                     stagger_ms=stagger_offset,
                     zero_confirm=zero_confirm,
+                    **extra_kw,
                 )
                 if ok:
                     with res_lock:
@@ -11554,17 +11648,87 @@ class DashboardApp(ctk.CTk):
                             if getattr(ctrl, "cached_mirror_ticket_slot", -1) < 0:
                                 threading.Thread(target=ctrl.check_mirror_ticket, daemon=True).start()
 
-            # 4. PRE-FIRE TURBO SNIPING (Chỉ chạy duy nhất 1 lần đón đầu trước giờ mở cổng :10:00 theo đúng logic gốc meg_gui):
-            # Khi còn <= prefire_sec (mặc định 2.0s trước giờ mở cổng :10:00, tính theo giờ Server đã đồng bộ chuẩn):
-            # Kích hoạt Turbo Sniping đồng loạt đúng 1 lần duy nhất đón đầu cho đợt sự kiện đó!
+            # 3.6. PRE-STAGE & ĐO RTT THỰC TỪ GAMESERVER (T-15s):
+            # Ghim buffer byte[5], bật TCP_NODELAY, làm nóng Lugard talk và gửi 1 gói thăm dò đo Ping thật!
+            prestage_key = next_gate_open.strftime("%Y%m%d_%H10_prestage")
+            if is_auto and not is_in_gate_open_window and max(prefire_sec + 3.5, 5.0) < diff_to_open_float <= 16.0:
+                if getattr(self, "_last_mirror_prestage_key", None) != prestage_key:
+                    self._last_mirror_prestage_key = prestage_key
+
+                    def _do_prestage():
+                        detected_ps = getattr(self, "detected_games", {})
+                        staged = 0
+                        probed = False
+                        for ctrl in self.controllers:
+                            if not getattr(ctrl, "mirror_enabled", True):
+                                continue
+                            if not ctrl.assigned_pid or (detected_ps and ctrl.assigned_pid not in detected_ps):
+                                continue
+                            try:
+                                eng = ctrl.engine or (MegDirectEngine.get_engine(ctrl.assigned_pid) if MegDirectEngine else None)
+                                if not eng or not eng.is_ready:
+                                    continue
+                                if eng.is_mirror_event_map():
+                                    continue
+                                slot_id = getattr(ctrl, "cached_mirror_ticket_slot", -1)
+                                if hasattr(eng, "pre_stage_mirror_turbo"):
+                                    res_ps = eng.pre_stage_mirror_turbo(
+                                        slot=slot_id if slot_id >= 0 else None,
+                                        measure_probe=(not probed),
+                                    )
+                                    if res_ps.get("success"):
+                                        staged += 1
+                                        if res_ps.get("slot", -1) >= 0:
+                                            ctrl.cached_mirror_ticket_slot = int(res_ps["slot"])
+                                        if not probed:
+                                            probed = True
+                            except Exception:
+                                pass
+                        if staged > 0:
+                            self.after(0, lambda n=staged: self.append_mirror_log(
+                                f"🔧 [PRE-STAGE T-15s] Đã ghim buffer, bật TCP_NODELAY & thăm dò RTT thật cho {n} tài khoản!"
+                            ))
+
+                    threading.Thread(target=_do_prestage, daemon=True, name="MirrorPreStage").start()
+
+            # 4. PRECISION IN-PROCESS EPOCH ARMING + FALLBACK PRE-FIRE TURBO SNIPING:
+            # Nạp sẵn (Arm) trực tiếp vào Unity MainThread trước mốc bắn ~2.5s (0ms Tkinter jitter),
+            # bù trừ đồng thời NTP offset + learned server clock offset + One-Way Latency (RTT/2)!
             prefire_key = next_gate_open.strftime("%Y%m%d_%H10_prefire")
-            if not is_in_gate_open_window and diff_to_open_float <= (prefire_sec + 0.05):
-                if is_auto and getattr(self, "_last_mirror_prefire_key", None) != prefire_key:
+            arm_window_sec = prefire_sec + 2.5
+            if is_auto and not is_in_gate_open_window and diff_to_open_float <= (arm_window_sec + 0.05):
+                if getattr(self, "_last_mirror_prefire_key", None) != prefire_key:
                     self._last_mirror_prefire_key = prefire_key
-                    self.append_mirror_log(
-                        f"⚡ [TỰ ĐỘNG CƯỚP CỔNG] Còn {diff_to_open_float:.2f}s tới giờ mở cổng ({next_gate_open.strftime('%H:%M')})! Kích hoạt đón đầu đồng loạt (bắn trước {prefire_sec:.1f}s)!"
-                    )
-                    self.start_all_mirror_turbo_sniping(from_scheduler=True)
+                    ntp_off_sec = float(sched.get("ntp_offset_sec", 0.0) or 0.0)
+                    learned_off_ms = float(getattr(self, "_mirror_clock_offset_ms", 0.0) or 0.0)
+                    one_way_ms = float(sched.get("one_way_latency_sec", 0.14) or 0.14) * 1000.0
+                    # Quy đổi mốc mở cổng giờ Server sang Local PC epoch ms (khớp Date.now() trong Frida JS)
+                    gate_open_local_ms = int((next_gate_open.timestamp() - ntp_off_sec) * 1000.0 - learned_off_ms)
+                    arm_start_ms = int(gate_open_local_ms - one_way_ms - prefire_sec * 1000.0)
+                    self._last_scheduled_gate_open_epoch_ms = float(gate_open_local_ms)
+                    now_local_ms = int(time.time() * 1000)
+
+                    if arm_start_ms > now_local_ms + 50:
+                        wait_s = (arm_start_ms - now_local_ms) / 1000.0
+                        self.append_mirror_log(
+                            f"🎯 [ARM CƯỚP CỔNG] Đã nạp mốc bắn In-Process (còn {diff_to_open_float:.2f}s tới {next_gate_open.strftime('%H:%M')} · khai hỏa sau {wait_s:.2f}s · 1-way RTT={one_way_ms:.0f}ms · Offset={learned_off_ms:+.0f}ms)!"
+                        )
+                        self.start_all_mirror_turbo_sniping(
+                            from_scheduler=True,
+                            target_open_epoch_ms=arm_start_ms,
+                            gate_open_epoch_ms=gate_open_local_ms,
+                            one_way_latency_ms=one_way_ms,
+                        )
+                    else:
+                        self.append_mirror_log(
+                            f"⚡ [TỰ ĐỘNG CƯỚP CỔNG] Còn {diff_to_open_float:.2f}s tới giờ mở cổng ({next_gate_open.strftime('%H:%M')})! Kích hoạt đón đầu đồng loạt (bắn trước {prefire_sec:.1f}s · 1-way RTT={one_way_ms:.0f}ms)!"
+                        )
+                        self.start_all_mirror_turbo_sniping(
+                            from_scheduler=True,
+                            target_open_epoch_ms=0,
+                            gate_open_epoch_ms=gate_open_local_ms,
+                            one_way_latency_ms=one_way_ms,
+                        )
 
             # TRƯỜNG HỢP 1: CỔNG ĐANG MỞ (:10:00 đến :14:59 của giờ chẵn)
             if is_in_gate_open_window:
@@ -11616,8 +11780,10 @@ class DashboardApp(ctk.CTk):
                     if hasattr(self, "lbl_mirror_sched_status"):
                         if not is_auto:
                             self.lbl_mirror_sched_status.configure(text="⏸️ Tắt tự động", text_color="#94a3b8")
-                        elif len(unentered_ctrls) == 0 and len(sniping_ctrls) == 0:
-                            self.lbl_mirror_sched_status.configure(text="🏆 TẤT CẢ ĐÃ VÀO MAP", text_color="#10b981")
+                        elif len(entered_ctrls) > 0 and len(unentered_ctrls) == 0 and len(sniping_ctrls) == 0:
+                            self.lbl_mirror_sched_status.configure(text=f"🏆 TẤT CẢ ĐÃ VÀO MAP ({len(entered_ctrls)} TK)", text_color="#10b981")
+                        elif len(entered_ctrls) == 0 and len(unentered_ctrls) == 0 and len(sniping_ctrls) == 0:
+                            self.lbl_mirror_sched_status.configure(text="⚪ Chưa có TK kết nối", text_color="#94a3b8")
                         elif len(sniping_ctrls) > 0:
                             self.lbl_mirror_sched_status.configure(text=f"⚡ ĐANG CƯỚP CỔNG ({len(sniping_ctrls)} TK)...", text_color="#38bdf8")
                         else:
