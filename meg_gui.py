@@ -3642,26 +3642,30 @@ class SlotController:
         total = res.get("total", 0)
         merchant = res.get("merchantOpen", False)
         gs = res.get("gsOk", False)
+        srv_rej = int(res.get("serverRejected", 0) or 0)
+        send_err = str(res.get("sendError", "") or "")
+        rej_tag = f" [Server C1:23 từ chối {srv_rej} lần]" if srv_rej > 0 else ""
+        err_tag = f" [Lỗi gửi: {send_err}]" if send_err else ""
         if reason == "drop_blocked":
             msg = (
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Server KHÔNG cho rơi đồ tại ({x},{y}) "
-                f"— khu vực này là safe-zone (làng/Elbeland). Cần bật bán cho Merchant hoặc di chuyển ra ngoài làng."
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Server KHÔNG cho rơi đồ tại ({x},{y}){rej_tag} "
+                f"— khu vực này là safe-zone (làng/Elbeland) hoặc ô đứng bị chặn. Cần bật bán cho Merchant hoặc di chuyển ra ngoài làng."
             )
         elif reason == "merchant_closed":
             msg = (
                 f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Chưa mở cửa sổ Merchant nên không bán được, "
-                f"và rơi đồ tại chỗ cũng bị chặn. Hãy mở shop hoặc dùng '💰 Bán Silvia'."
+                f"và rơi đồ tại chỗ cũng bị chặn{rej_tag}. Hãy mở shop hoặc dùng '💰 Bán Silvia'."
             )
         elif reason == "no_gs_connection":
             msg = f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Mất kết nối GameServer (GS), không gửi được lệnh dọn."
         elif reason == "send_failed":
-            msg = f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Gửi gói tin dọn rác thất bại (engine chưa sẵn sàng)."
+            msg = f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Gửi gói tin dọn rác thất bại{err_tag} (engine chưa sẵn sàng)."
         elif reason == "no_candidates":
             msg = f"[Slot {self.slot_idx:02d} - {self.char_name}] ℹ️ Không có món rác nào đủ điều kiện để dọn an toàn."
         else:
             msg = (
                 f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không dọn được {total} món rác "
-                f"(lý do: {reason or 'unknown'}, toạ độ {x},{y}, merchant={merchant}, gs={gs})."
+                f"(lý do: {reason or 'unknown'}{rej_tag}{err_tag}, toạ độ {x},{y}, merchant={merchant}, gs={gs})."
             )
         self.app.after(0, lambda m=msg: self.app.append_moss_log(m))
 

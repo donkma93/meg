@@ -381,7 +381,7 @@
             "name": "Config 7",
             "config": {
                 "glide_speed": 3.5,
-                "respawn_delay": 60.0,
+                "respawn_delay": 15,
                 "map_load_delay": 1.8,
                 "level1_delay": 4.0,
                 "arrive_distance": 2.0,
@@ -403,13 +403,13 @@
                     },
                     {
                         "min_level": 40,
-                        "max_level": 79,
+                        "max_level": 400,
                         "map_name": "Dungeon 2",
                         "x": 218,
                         "y": 116
                     },
                     {
-                        "min_level": 80,
+                        "min_level": 400,
                         "max_level": 400,
                         "map_name": "Atlans 2",
                         "x": 236,

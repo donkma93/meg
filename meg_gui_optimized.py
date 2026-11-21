@@ -1916,22 +1916,36 @@ class DashboardAppOptimized(ctk.CTk):
         lines = []
         for ctrl, res in reports:
             if not isinstance(res, dict) or not res.get("ok"):
-                lines.append(f"[Slot {ctrl.slot_idx:02d}] ❌ Không đọc được hòm đồ")
+                lines.append(f"[Slot {ctrl.slot_idx:02d}] ❌ Không đọc được hòm đồ ({(res or {}).get('reason', '?')})")
                 lines.append("")
                 continue
-            junk = res.get("junk", []) or res.get("junkSlots", []) or []
-            held = res.get("kept", []) or res.get("keptSlots", []) or []
+            slots_list = res.get("slots")
+            if isinstance(slots_list, list):
+                junk = [s for s in slots_list if isinstance(s, dict) and s.get("status") == "junk"]
+                held = [s for s in slots_list if isinstance(s, dict) and s.get("status") == "protected"]
+            else:
+                raw_j = res.get("junkSlots") or (res.get("junk") if isinstance(res.get("junk"), list) else [])
+                raw_h = res.get("keptSlots") or (res.get("kept") if isinstance(res.get("kept"), list) else [])
+                junk = raw_j if isinstance(raw_j, list) else []
+                held = raw_h if isinstance(raw_h, list) else []
             total_junk += len(junk)
             total_held += len(held)
-            lines.append(f"[Slot {ctrl.slot_idx:02d} · {getattr(ctrl, 'char_name', '---')}] "
-                         f"dọn được {len(junk)} · giữ {len(held)}")
+            coord = res.get("coord") or {}
+            lines.append(
+                f"[Slot {ctrl.slot_idx:02d} · {getattr(ctrl, 'char_name', '---')}] "
+                f"{res.get('occupied', len(junk) + len(held))} món · dọn được {len(junk)} · giữ {len(held)} · "
+                f"({coord.get('x', '?')},{coord.get('y', '?')}) · Merchant {'MỞ' if res.get('merchantOpen') else 'ĐÓNG'}"
+            )
+            reason_labels = getattr(ctrl, "JUNK_REASON_LABELS", {}) or {}
+            for k, v in sorted((res.get("byReason") or {}).items(), key=lambda kv: -kv[1]):
+                lines.append(f"      giữ {v:>3} → {reason_labels.get(k, k)}")
             for it in junk[:25]:
                 if isinstance(it, dict):
                     lines.append(
-                        f"  - slot {it.get('slot', '?')}: {it.get('name', '?')} +{it.get('level', 0)}"
+                        f"  ✔ slot {int(it.get('slot', 0)):>3}: {it.get('name') or ('#' + str(it.get('index', '?')))} +{it.get('level', 0)}"
                     )
                 else:
-                    lines.append(f"  - {it}")
+                    lines.append(f"  ✔ {it}")
             if len(junk) > 25:
                 lines.append(f"      ... và {len(junk) - 25} món nữa")
             lines.append("")
@@ -2006,6 +2020,8 @@ class DashboardAppOptimized(ctk.CTk):
                     self.after(0, lambda c=ctrl, o=out, n=cleaned: self.append_moss_log(
                         f"[Slot {c.slot_idx:02d} - {c.char_name}] 🗑️ Dọn {n} món "
                         f"(vứt {o.get('dropped', 0)}, bán {o.get('sold', 0)}) — {o.get('reason')}"
+                        + (f" | server từ chối {o.get('serverRejected')} ô" if o.get("serverRejected") else "")
+                        + (f" | gửi lỗi: {o.get('sendError')}" if o.get("sendError") else "")
                     ))
                     time.sleep(0.2)
                 except Exception as e:
