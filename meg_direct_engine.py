@@ -627,13 +627,13 @@ try {
     }
 } catch (eLPN) {}
 
-function invokeNpcTalk(body) {
+function invokeNpcTalk(body, fallbackDirectSend) {
     if (!body || body.isNull()) return false;
     var ok = false;
     var nm = getNpcManagerPtr();
     if (nm && !nm.isNull()) {
         try {
-            // Reset LastTalkTime (+0x20) để không bị chặn bởi cooldown 0.5s trong NpcManager.MGPLAHFHGKP (0x102AA00)
+            // Reset LastTalkTime (+0x20) để không bị chặn bởi cooldown 0.5s của NpcManager
             nm.add(0x20).writeFloat(0.0);
         } catch (eRst) {}
     }
@@ -641,15 +641,19 @@ function invokeNpcTalk(body) {
         try {
             if (nm && !nm.isNull()) {
                 nativeNpcTalk(nm, body, ptr(0));
+                // Kiểm tra xem nativeNpcTalk có thực sự gửi C1:30 hay tự hủy âm thầm (LastTalkTime vẫn == 0)
+                var afterTalk = 0.0;
+                try { afterTalk = nm.add(0x20).readFloat(); } catch (eAT) {}
+                ok = (afterTalk > 0.0) || !fallbackDirectSend;
             } else {
                 nativeNpcTalk(body, body, ptr(0));
+                ok = true;
             }
-            ok = true;
         } catch (eNT) {}
     }
     if (!ok && nativeNpcSendTalk !== null) {
         try {
-            // Fallback nếu nativeNpcTalk thất bại: Gọi NpcManager.GEBGEGOEFAD(body, 0) (0x1023B10)
+            // Fallback khi nativeNpcTalk từ chối âm thầm hoặc lỗi: gửi trực tiếp C1:30 qua NpcManager static send talk
             nativeNpcSendTalk(body, ptr(0));
             ok = true;
         } catch (eNST2) {}
@@ -1483,6 +1487,7 @@ function dropSlotNative(slot, targetX, targetY) {
 }
 
 var pendingMossOpenCategory = null;
+var pendingMossSelectAfterServerOpen = null;
 var pendingMossRollCategory = null;
 var pendingMossClose = false;
 var pendingMossResetCategory = null;
@@ -3033,11 +3038,196 @@ try {
     }
 } catch (eQNHook) {}
 
-var pendingMossOpenCategory = null;
-var pendingMossRollCategory = null;
-var pendingMossClose = false;
-var pendingMossResetCategory = null;
-var pendingMerchantClose = false;
+function getIl2CppClassNameSafe(objPtr) {
+    if (!objPtr || objPtr.isNull()) return "";
+    try {
+        var klass = objPtr.readPointer();
+        if (klass.isNull()) return "";
+        var namePtr = klass.add(0x10).readPointer();
+        if (namePtr.isNull()) return "";
+        return namePtr.readUtf8String() || "";
+    } catch (eCls) {
+        return "";
+    }
+}
+
+function getMossWindowPtr(gui) {
+    try {
+        var g = gui;
+        if ((!g || g.isNull()) && nativeGetGameUI !== null) {
+            g = nativeGetGameUI();
+        }
+        if (!g || g.isNull()) return ptr(0);
+        var mossOff = off('__UI_MOSS_WINDOW__');
+        return mossOff.isNull() ? g.add(ptr('0x1D0')).readPointer() : g.add(mossOff).readPointer();
+    } catch (eMW) {
+        return ptr(0);
+    }
+}
+
+function getMossCategoryCount(mossWin) {
+    if (!mossWin || mossWin.isNull()) return 0;
+    try {
+        var catList = mossWin.add(0x80).readPointer();
+        if (catList.isNull()) return 0;
+        var cnt = catList.add(0x18).readS32();
+        return (cnt > 0 && cnt < 100) ? cnt : 0;
+    } catch (eCC) {
+        return 0;
+    }
+}
+
+function isMossWindowServerReady(mossWin) {
+    if (!mossWin || mossWin.isNull()) return false;
+    try {
+        var win = mossWin.add(0x20).readPointer();
+        if (win.isNull() || win.add(0x48).readU8() !== 1) return false;
+        return getMossCategoryCount(mossWin) > 0;
+    } catch (eMR) {
+        return false;
+    }
+}
+
+function selectMossCategoryOnly(mossWin, cat) {
+    if (!mossWin || mossWin.isNull()) return false;
+    try {
+        var catId = parseInt(cat || 0);
+        var catList = mossWin.add(0x80).readPointer();
+        var catCount = getMossCategoryCount(mossWin);
+        if (catList.isNull() || catCount <= 0) return false;
+        mossWin.add(0x78).writeS32(catId);
+        if (nativeMossSelectCat !== null) {
+            try {
+                var items = catList.add(0x10).readPointer();
+                if (!items.isNull()) {
+                    var targetCatObj = ptr(0);
+                    for (var ci = 0; ci < catCount; ci++) {
+                        var candidate = items.add(0x20 + ci * 8).readPointer();
+                        if (!candidate.isNull()) {
+                            var cId = candidate.add(0x10).readS32();
+                            if (cId === catId) {
+                                targetCatObj = candidate;
+                                break;
+                            }
+                        }
+                    }
+                    if (targetCatObj.isNull() && catId < catCount && catId >= 0) {
+                        targetCatObj = items.add(0x20 + catId * 8).readPointer();
+                    }
+                    if (!targetCatObj.isNull()) {
+                        nativeMossSelectCat(mossWin, targetCatObj, ptr(0));
+                    }
+                }
+            } catch (eCat) {}
+        }
+        return true;
+    } catch (eSel) {
+        return false;
+    }
+}
+
+function clearBlockingWindowsForNpcTalk(gui) {
+    // Dọn cửa sổ local bị kẹt (Moss rỗng / Merchant / Inventory) trước khi gửi C1:30
+    // để WindowHandler không chặn NpcManager.IBKEJOGKJDH / PCKGCMNFJND!
+    try {
+        var g = gui;
+        if ((!g || g.isNull()) && nativeGetGameUI !== null) {
+            g = nativeGetGameUI();
+        }
+        if (!g || g.isNull()) return;
+        var clearedAny = false;
+
+        // 1. Nếu bảng Moss đang bị mở giả (chưa có category từ server) -> đóng sạch
+        var mossWin = getMossWindowPtr(g);
+        if (!mossWin.isNull() && !isMossWindowServerReady(mossWin)) {
+            try {
+                var mWin = mossWin.add(0x20).readPointer();
+                if (!mWin.isNull() && mWin.add(0x48).readU8() === 1) {
+                    if (nativeWindowHide !== null) {
+                        try { nativeWindowHide(mWin, ptr(0)); } catch (eMH) {}
+                    } else if (nativeWindowSetState !== null) {
+                        try { nativeWindowSetState(mWin, 0, ptr(0)); } catch (eMS) {}
+                    }
+                    mWin.add(0x48).writeU8(0);
+                    clearedAny = true;
+                }
+            } catch (eMC) {}
+        }
+
+        // 2. Nếu cửa sổ Merchant đang mở -> đóng trước khi nói chuyện với Moss
+        try {
+            var merchOff = off('__UI_MERCHANT_WINDOW__');
+            var merchWin = merchOff.isNull() ? g.add(ptr('0x1A0')).readPointer() : g.add(merchOff).readPointer();
+            if (!merchWin.isNull()) {
+                var mw = merchWin.add(0x20).readPointer();
+                if (!mw.isNull() && mw.add(0x48).readU8() === 1) {
+                    if (nativeWindowHide !== null) {
+                        try { nativeWindowHide(mw, ptr(0)); } catch (eWH) {}
+                    }
+                    mw.add(0x48).writeU8(0);
+                    clearedAny = true;
+                }
+            }
+        } catch (eMerchC) {}
+
+        // 3. Nếu InventoryWindow đang mở cản trở WindowHandler -> ẩn tạm để Server mở lại cùng Moss
+        try {
+            var invOff = off('__UI_INVENTORY_WINDOW__');
+            var invWin = invOff.isNull() ? g.add(ptr('0x190')).readPointer() : g.add(invOff).readPointer();
+            if (!invWin.isNull()) {
+                var invMWin = invWin.add(0x28).readPointer();
+                if (!invMWin.isNull() && invMWin.add(0x48).readU8() === 1) {
+                    if (nativeWindowHide !== null) {
+                        try { nativeWindowHide(invMWin, ptr(0)); } catch (eIH) {}
+                    }
+                    invMWin.add(0x48).writeU8(0);
+                    clearedAny = true;
+                }
+            }
+        } catch (eInvC) {}
+
+        if (clearedAny && nativeCloseTalk !== null) {
+            try { nativeCloseTalk(); } catch (eCT) {}
+        }
+    } catch (eClr) {}
+}
+
+function performMossInteractOnMainThread(gui, nPtr) {
+    try {
+        var mossWin = getMossWindowPtr(gui);
+        // Nếu Server đã mở bảng Moss thật sẵn rồi thì chỉ cần chọn đúng Category, không spam C1:30
+        if (!mossWin.isNull() && isMossWindowServerReady(mossWin)) {
+            if (pendingMossSelectAfterServerOpen !== null) {
+                selectMossCategoryOnly(mossWin, pendingMossSelectAfterServerOpen.cat);
+                ensureMossRollButtonActive(mossWin, true);
+                pendingMossSelectAfterServerOpen = null;
+            }
+            return true;
+        }
+        clearBlockingWindowsForNpcTalk(gui);
+        return invokeNpcTalk(nPtr, true);
+    } catch (eMI) {
+        return false;
+    }
+}
+
+function pollMossSelectAfterServerOpenOnMainThread(gui) {
+    if (pendingMossSelectAfterServerOpen === null) return;
+    try {
+        var now = Date.now();
+        if (now > pendingMossSelectAfterServerOpen.untilMs) {
+            pendingMossSelectAfterServerOpen = null;
+            return;
+        }
+        var mossWin = getMossWindowPtr(gui);
+        if (!mossWin.isNull() && isMossWindowServerReady(mossWin)) {
+            var targetCat = pendingMossSelectAfterServerOpen.cat;
+            pendingMossSelectAfterServerOpen = null;
+            selectMossCategoryOnly(mossWin, targetCat);
+            ensureMossRollButtonActive(mossWin, true);
+        }
+    } catch (ePollSel) {}
+}
 
 function isGameObjectValid(goPtr) {
     if (!goPtr || goPtr.isNull()) return false;
@@ -3089,85 +3279,13 @@ function ensureMossRollButtonActive(mossWin, resetTimer) {
 function setupMossWindow(mossWin, cat) {
     if (!mossWin || mossWin.isNull()) return false;
     try {
-        var catId = parseInt(cat || 0);
-
-        // A. Đảm bảo InventoryWindow mở sẵn song song (GameUI + 0x188 -> MWindow tại offset 0x28)
-        if (nativeGetGameUI !== null) {
-            try {
-                var gui = nativeGetGameUI();
-                if (!gui.isNull()) {
-                    var invWin = gui.add(ptr('0x190')).readPointer();
-                    if (!invWin.isNull()) {
-                        var invMWin = invWin.add(0x28).readPointer();
-                        if (!invMWin.isNull() && invMWin.add(0x48).readU8() === 0) {
-                            if (nativeWindowShow !== null) {
-                                try { nativeWindowShow(invMWin, ptr(0)); } catch (eIS) {}
-                            }
-                            invMWin.add(0x48).writeU8(1);
-                        }
-                    }
-                }
-            } catch (eInv) {}
+        // Chỉ thao tác chọn tab & mở khóa nút quay khi Server THỰC SỰ đã mở bảng và nạp danh sách Category!
+        // TUYỆT ĐỐI KHÔNG cưỡng chế win+0x48 = 1 khi chưa có phiên NPC thật từ Server (sẽ khóa WindowHandler & chặn C1:30).
+        if (!isMossWindowServerReady(mossWin)) {
+            return false;
         }
-
-        // 1. Cập nhật Category ID (offset 0x78)
-        mossWin.add(0x78).writeS32(catId);
-
-        // 2. Kiểm tra danh sách Category từ Server
-        // Tuyệt đối không gọi nativeMossInit để tránh sinh các nút CategoryItemPrefab trùng lặp!
-        var catList = mossWin.add(0x80).readPointer();
-        var catCount = 0;
-        if (!catList.isNull()) {
-            try { catCount = catList.add(0x18).readS32(); } catch (eCC) {}
-        }
-
-        // 3. Chọn đúng tab Category theo chỉ định
-        if (nativeMossSelectCat !== null && !catList.isNull() && catCount > 0) {
-            try {
-                var items = catList.add(0x10).readPointer();
-                if (!items.isNull()) {
-                    var targetCatObj = ptr(0);
-                    for (var ci = 0; ci < catCount; ci++) {
-                        var candidate = items.add(0x20 + ci * 8).readPointer();
-                        if (!candidate.isNull()) {
-                            var cId = candidate.add(0x10).readS32();
-                            if (cId === catId) {
-                                targetCatObj = candidate;
-                                break;
-                            }
-                        }
-                    }
-                    if (targetCatObj.isNull() && catId < catCount && catId >= 0) {
-                        targetCatObj = items.add(0x20 + catId * 8).readPointer();
-                    }
-                    if (!targetCatObj.isNull()) {
-                        nativeMossSelectCat(mossWin, targetCatObj, ptr(0));
-                    }
-                }
-            } catch (eCat) {}
-        }
-
-        // 4. Đảm bảo nút quay sẵn sàng và LoadingImage tắt
+        selectMossCategoryOnly(mossWin, cat);
         ensureMossRollButtonActive(mossWin, true);
-
-        // 5. Hiển thị cửa sổ (MWindow tại offset 0x20)
-        var win = mossWin.add(0x20).readPointer();
-        if (!win.isNull()) {
-            if (nativeWindowShow !== null) {
-                try { nativeWindowShow(win, ptr(0)); } catch (eWS) {}
-            } else if (nativeWindowSetState !== null) {
-                try { nativeWindowSetState(win, 1, ptr(0)); } catch (eWSS) {}
-            }
-            win.add(0x48).writeU8(1);
-        }
-        if (nativeComponentGetGameObject !== null && nativeGameObjectSetActive !== null) {
-            try {
-                var mGo = nativeComponentGetGameObject(mossWin);
-                if (!mGo.isNull() && isGameObjectValid(mGo)) {
-                    nativeGameObjectSetActive(mGo, 1, ptr(0));
-                }
-            } catch (eMGO) {}
-        }
         return true;
     } catch (eSetup) {
         return false;
@@ -3176,6 +3294,7 @@ function setupMossWindow(mossWin, cat) {
 
 function performMossCloseNow() {
     pendingMossOpenCategory = null;
+    pendingMossSelectAfterServerOpen = null;
     pendingMossClose = false;
     try {
         if (nativeGetGameUI !== null) {
@@ -3230,15 +3349,12 @@ function performMossCloseNow() {
 function performMossResetNow(cat) {
     pendingMossResetCategory = null;
     try {
-        if (nativeGetGameUI !== null) {
-            var gui = nativeGetGameUI();
-            if (!gui.isNull()) {
-                var mossWin = gui.add(off('__UI_MOSS_WINDOW__')).readPointer();
-                if (!mossWin.isNull()) {
-                    setupMossWindow(mossWin, cat);
-                    ensureMossRollButtonActive(mossWin, true);
-                    return true;
-                }
+        var mossWin = getMossWindowPtr(null);
+        if (!mossWin.isNull()) {
+            ensureMossRollButtonActive(mossWin, true);
+            if (isMossWindowServerReady(mossWin)) {
+                selectMossCategoryOnly(mossWin, cat);
+                return true;
             }
         }
     } catch (eReset) {}
@@ -3254,19 +3370,10 @@ function performMossRollNow(cat) {
         var mossWin = mossOff.isNull() ? gui.add(ptr('0x1D0')).readPointer() : gui.add(mossOff).readPointer();
         if (mossWin.isNull()) return false;
 
-        // A. Đảm bảo InventoryWindow mở sẵn (GameUI + 0x188 -> MWindow tại offset 0x28)
-        try {
-            var invWin = gui.add(ptr('0x190')).readPointer();
-            if (!invWin.isNull()) {
-                var invMWin = invWin.add(0x28).readPointer();
-                if (!invMWin.isNull() && invMWin.add(0x48).readU8() === 0) {
-                    if (nativeWindowShow !== null) {
-                        try { nativeWindowShow(invMWin, ptr(0)); } catch (eIS) {}
-                    }
-                    invMWin.add(0x48).writeU8(1);
-                }
-            }
-        } catch (eInv) {}
+        // Chỉ gửi lệnh quay khi Server đã mở bảng Moss thật (MWindow open + catList.count > 0)
+        if (!isMossWindowServerReady(mossWin)) {
+            return false;
+        }
 
         // 1. Cập nhật Category ID (offset 0x78)
         mossWin.add(0x78).writeS32(cat);
@@ -3388,23 +3495,44 @@ function findMossNpc() {
         var entries = objDict.add(ptr('0x18')).readPointer();
         if (entries.isNull()) return null;
         var count = objDict.add(ptr('0x20')).readS32();
-        if (count <= 0 || count > 500) return null;
+        if (count <= 0 || count > 600) return null;
+
+        var best = null;
+        var bestScore = -1;
+        var bestDist = 999999;
 
         for (var i = 0; i < count; i++) {
             var entryAddr = entries.add(0x20 + i * 24);
+            // Bỏ qua slot Dictionary đã bị xóa (hashCode < 0)
+            if (entryAddr.readS32() < 0) continue;
             var val = entryAddr.add(16).readPointer();
             if (val.isNull()) continue;
+
+            // Bắt buộc là ViewportBody (tránh nhầm ViewportItem / ViewportEffect)
+            var vKlassName = getIl2CppClassNameSafe(val);
+            if (vKlassName.indexOf("ViewportBody") === -1) continue;
+
             var body = val.add(ptr('0x18')).readPointer();
             if (body.isNull()) continue;
 
-            // Bỏ qua chính bản thân nhân vật người chơi
+            // Bỏ qua chính bản thân nhân vật người chơi và thực thể đang bị hủy
             if (!localPlayer.isNull() && body.equals(localPlayer)) continue;
+            try { if (body.add(0xC0).readU8() !== 0) continue; } catch (eDst) {}
 
-            var bIdx = body.add(0x20).readS32();
+            // TUYỆT ĐỐI LOẠI TRỪ NGƯỜI CHƠI (CharacterBody / MCharacterBody / LocalCharacterBody)!
+            var bKlassName = getIl2CppClassNameSafe(body);
+            if (bKlassName.indexOf("CharacterBody") !== -1) continue;
+            if (bKlassName.length > 0 && bKlassName.indexOf("NpcBody") === -1 && bKlassName.indexOf("MonsterBody") === -1) continue;
+
+            var bIdx = -1;
+            try { bIdx = body.add(0x20).readS32(); } catch (eIdx) {}
             if (bIdx < 0) continue;
 
-            var npcType = -1;
-            try { npcType = body.add(0x34).readS32(); } catch (eT) {}
+            // Đọc cả Body._Class (+0x34) VÀ Body.Skin (+0x60 — ID thật của NPC/Monster, Moss = 492)
+            var bClass = -1;
+            var bSkin = -1;
+            try { bClass = body.add(0x34).readS32(); } catch (eT) {}
+            try { bSkin = body.add(0x60).readS32(); } catch (eS) {}
 
             var name = "";
             try {
@@ -3412,10 +3540,35 @@ function findMossNpc() {
                 if (!namePtr.isNull()) {
                     var len = namePtr.add(0x10).readS32();
                     if (len > 0 && len < 64) {
-                        name = namePtr.add(0x14).readUtf16String(len);
+                        name = namePtr.add(0x14).readUtf16String(len) || "";
                     }
                 }
             } catch (eN) {}
+
+            // Đọc thêm MonsterBody.MonsterInfo (+0x138 -> +0x18 Name) khi Body.Name trống
+            var infoName = "";
+            try {
+                var mInfo = body.add(0x138).readPointer();
+                if (!mInfo.isNull()) {
+                    var inPtr = mInfo.add(0x18).readPointer();
+                    if (!inPtr.isNull()) {
+                        var inLen = inPtr.add(0x10).readS32();
+                        if (inLen > 0 && inLen < 64) {
+                            infoName = inPtr.add(0x14).readUtf16String(inLen) || "";
+                        }
+                    }
+                }
+            } catch (eMI) {}
+
+            var finalName = name || infoName || "";
+            var lowName = finalName.toLowerCase();
+
+            // Loại trừ rõ ràng các NPC khác ở Elbeland
+            if (lowName.indexOf('james') !== -1 || lowName.indexOf('silvia') !== -1 ||
+                lowName.indexOf('leah') !== -1 || lowName.indexOf('lugard') !== -1 ||
+                lowName.indexOf('sartigan') !== -1 || lowName.indexOf('guard') !== -1) {
+                continue;
+            }
 
             var tx = -1, ty = -1;
             try {
@@ -3426,25 +3579,34 @@ function findMossNpc() {
                 }
             } catch (eC) {}
 
-            var isMoss = false;
-            if (name && name.toLowerCase().indexOf('moss') !== -1) {
-                isMoss = true;
-            } else if (npcType === 492) {
-                isMoss = true;
-            } else if (npcType > 0 && tx >= 20 && tx <= 26 && ty >= 222 && ty <= 228) {
-                isMoss = true;
+            var score = 0;
+            if (bSkin === 492 || bClass === 492) {
+                score = 300;
+            } else if (lowName.indexOf('moss') !== -1 || lowName.indexOf('gambler') !== -1) {
+                score = 200;
+            } else if (bKlassName.indexOf("NpcBody") !== -1 && tx >= 20 && tx <= 25 && ty >= 222 && ty <= 227) {
+                score = 100;
             }
 
-            if (isMoss) {
-                return {
-                    ptr: body,
-                    index: bIdx,
-                    name: name || "Moss The Gambler",
-                    x: tx,
-                    y: ty
-                };
+            if (score > 0) {
+                var dist = (tx >= 0 && ty >= 0) ? (Math.abs(tx - 22) + Math.abs(ty - 225)) : 999;
+                if (score > bestScore || (score === bestScore && dist < bestDist)) {
+                    bestScore = score;
+                    bestDist = dist;
+                    best = {
+                        ptr: body,
+                        index: bIdx,
+                        skin: bSkin,
+                        classId: bClass,
+                        klass: bKlassName,
+                        name: finalName || "Moss The Gambler",
+                        x: tx,
+                        y: ty
+                    };
+                }
             }
         }
+        return best;
     } catch (eFind) {}
     return null;
 }
@@ -3837,12 +3999,18 @@ function findMerchantNpc() {
 
         for (var i = 0; i < count; i++) {
             var entryAddr = entries.add(0x20 + i * 24);
+            if (entryAddr.readS32() < 0) continue;
             var val = entryAddr.add(16).readPointer();
             if (val.isNull()) continue;
+            if (getIl2CppClassNameSafe(val).indexOf("ViewportBody") === -1) continue;
             var body = val.add(ptr('0x18')).readPointer();
             if (body.isNull()) continue;
 
             if (!localPlayer.isNull() && body.equals(localPlayer)) continue;
+            try { if (body.add(0xC0).readU8() !== 0) continue; } catch (eMDst) {}
+            var mKlass = getIl2CppClassNameSafe(body);
+            if (mKlass.indexOf("CharacterBody") !== -1) continue;
+            if (mKlass.length > 0 && mKlass.indexOf("NpcBody") === -1 && mKlass.indexOf("MonsterBody") === -1) continue;
 
             var bIdx = body.add(0x20).readS32();
             if (bIdx < 0) continue;
@@ -3930,8 +4098,13 @@ try {
                             try {
                                 var nPtr = pendingMossInteractPtr;
                                 pendingMossInteractPtr = null;
-                                invokeNpcTalk(nPtr);
+                                performMossInteractOnMainThread(gui, nPtr);
                             } catch (eMossNT) {}
+                        }
+                        if (pendingMossSelectAfterServerOpen !== null) {
+                            try {
+                                pollMossSelectAfterServerOpenOnMainThread(gui);
+                            } catch (eMossSelUI) {}
                         }
 
                         if (pendingMerchantInteractPtr !== null) {
@@ -4351,8 +4524,13 @@ try {
                     try {
                         var mNpcGU = pendingMossInteractPtr;
                         pendingMossInteractPtr = null;
-                        invokeNpcTalk(mNpcGU);
+                        performMossInteractOnMainThread(null, mNpcGU);
                     } catch (eMNTGU) {}
+                }
+                if (pendingMossSelectAfterServerOpen !== null) {
+                    try {
+                        pollMossSelectAfterServerOpenOnMainThread(null);
+                    } catch (eMossSelGU) {}
                 }
 
                 if (pendingQuestNpcTalkPtr !== null) {
@@ -6655,6 +6833,7 @@ rpc.exports = {
     closeMoss: function() {
         try {
             pendingMossOpenCategory = null;
+            pendingMossSelectAfterServerOpen = null;
             pendingMossClose = true;
             return true;
         } catch (eCM) {
@@ -6665,12 +6844,19 @@ rpc.exports = {
     openMoss: function(categoryId) {
         try {
             var cat = parseInt(categoryId || 0);
+            var mossWin = getMossWindowPtr(null);
+            if (!mossWin.isNull() && isMossWindowServerReady(mossWin)) {
+                pendingMossOpenCategory = cat;
+                return true;
+            }
             var npc = findMossNpc();
             if (npc && !npc.ptr.isNull()) {
+                pendingMossOpenCategory = null;
+                pendingMossSelectAfterServerOpen = { cat: cat, untilMs: Date.now() + 4500 };
                 pendingMossInteractPtr = npc.ptr;
+                return true;
             }
-            pendingMossOpenCategory = cat;
-            return true;
+            return false;
         } catch (eMO) {
             return false;
         }
@@ -6850,6 +7036,9 @@ rpc.exports = {
             return {
                 found: true,
                 index: npc.index,
+                skin: npc.skin,
+                classId: npc.classId,
+                klass: npc.klass,
                 name: npc.name,
                 x: npc.x,
                 y: npc.y
@@ -6867,14 +7056,19 @@ rpc.exports = {
                 return { success: false, error: "NPC_NOT_FOUND" };
             }
 
-            // Đẩy tương tác NPC Moss & chọn tab category sang Unity MainThread (Game.Update / GameUI.Update)
-            // KHÔNG gọi invokeNpcTalk trên luồng RPC nền (tránh deadlock/crash IL2CPP GC & Unity UI)!
+            // Đẩy tương tác NPC Moss thật sang Unity MainThread (Game.Update / GameUI.Update).
+            // TUYỆT ĐỐI KHÔNG đặt pendingMossOpenCategory cưỡng chế mở cửa sổ cục bộ trước khi Server phản hồi C2:30!
+            // Thay vào đó đăng ký pendingMossSelectAfterServerOpen để tự động chọn đúng tab ngay khi Server mở bảng thật.
+            pendingMossOpenCategory = null;
+            pendingMossSelectAfterServerOpen = { cat: cat, untilMs: Date.now() + 4500 };
             pendingMossInteractPtr = npc.ptr;
-            pendingMossOpenCategory = cat;
 
             return {
                 success: true,
                 index: npc.index,
+                skin: npc.skin,
+                classId: npc.classId,
+                klass: npc.klass,
                 name: npc.name,
                 x: npc.x,
                 y: npc.y
@@ -12092,25 +12286,21 @@ class MegDirectEngine:
     def find_moss_npc(self) -> Dict[str, Any]:
         """
         Quét tìm NPC Moss The Gambler thực tế trong Viewport của game:
-        1. Ưu tiên đọc trực tiếp bộ nhớ RAM (ReadProcessMemory) từ Viewport.ObjectList (Zero-Injection, siêu tốc, an toàn tuyệt đối 100%).
-        2. Fallback qua Frida RPC nếu đang sẵn sàng.
+        1. Ưu tiên Frida RPC (findMossNpc) khi đã gắn engine để đồng nhất tuyệt đối với con trỏ tương tác NPC.
+        2. Fallback đọc trực tiếp bộ nhớ RAM (ReadProcessMemory) có lọc chặt NpcBody & Skin=492 (tuyệt đối không bắt nhầm Player).
         """
-        rpm_res = self._find_moss_npc_rpm()
-        if rpm_res and rpm_res.get("found"):
-            return rpm_res
-
         if self.is_ready:
             try:
                 res = self._call("findMossNpc")
-                if res and isinstance(res, dict) and res.get("found"):
+                if res and isinstance(res, dict):
                     return res
             except Exception as e:
                 _safe_log(f"[MegDirectEngine] Lỗi RPC findMossNpc: {e}")
 
-        return rpm_res
+        return self._find_moss_npc_rpm()
 
     def _find_moss_npc_rpm(self) -> Dict[str, Any]:
-        """Fallback quét tìm NPC Moss qua Win32 ReadProcessMemory từ Viewport.ObjectList."""
+        """Fallback quét tìm NPC Moss qua Win32 ReadProcessMemory từ Viewport.ObjectList (lọc chặt NpcBody & Skin=492)."""
         if sys.platform != "win32" or not self.pid:
             return {"found": False}
         try:
@@ -12120,14 +12310,37 @@ class MegDirectEngine:
                 return {"found": False}
             try:
                 def read_ptr(addr):
+                    if not addr: return 0
                     buf = ctypes.c_ulonglong()
-                    k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr), ctypes.byref(buf), 8, None)
+                    if not k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr), ctypes.byref(buf), 8, None):
+                        return 0
                     return buf.value
 
                 def read_i32(addr):
+                    if not addr: return -1
                     buf = ctypes.c_int32()
-                    k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr), ctypes.byref(buf), 4, None)
+                    if not k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr), ctypes.byref(buf), 4, None):
+                        return -1
                     return buf.value
+
+                def read_u8(addr):
+                    if not addr: return 0
+                    buf = ctypes.c_uint8()
+                    if not k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr), ctypes.byref(buf), 1, None):
+                        return 0
+                    return buf.value
+
+                def read_cstr(addr, max_len=64):
+                    if not addr: return ""
+                    buf = ctypes.create_string_buffer(max_len)
+                    if not k32.ReadProcessMemory(hProc, ctypes.c_void_p(addr), ctypes.byref(buf), max_len - 1, None):
+                        return ""
+                    return buf.value.decode("utf-8", errors="ignore")
+
+                def read_klass_name(obj_addr):
+                    klass = read_ptr(obj_addr)
+                    if not klass: return ""
+                    return read_cstr(read_ptr(klass + 0x10))
 
                 def read_str(addr):
                     if not addr: return ""
@@ -12165,37 +12378,72 @@ class MegDirectEngine:
                 entries = read_ptr(obj_dict + 0x18)
                 if not entries: return {"found": False}
                 count = read_i32(obj_dict + 0x20)
-                if count <= 0 or count > 500: return {"found": False}
+                if count <= 0 or count > 600: return {"found": False}
+
+                best = None
+                best_score = -1
+                best_dist = 999999
 
                 for i in range(count):
                     entry_addr = entries + 0x20 + i * 24
+                    if read_i32(entry_addr) < 0:
+                        continue
                     val = read_ptr(entry_addr + 16)
                     if not val: continue
+                    if "ViewportBody" not in read_klass_name(val):
+                        continue
                     body = read_ptr(val + 0x18)
                     if not body: continue
+                    if read_u8(body + 0xC0) != 0:
+                        continue
+
+                    b_klass = read_klass_name(body)
+                    if "CharacterBody" in b_klass:
+                        continue
+                    if b_klass and ("NpcBody" not in b_klass and "MonsterBody" not in b_klass):
+                        continue
+
                     b_idx = read_i32(body + 0x20)
                     if b_idx < 0: continue
 
+                    b_class = read_i32(body + 0x34)
+                    b_skin = read_i32(body + 0x60)
                     b_name = read_str(read_ptr(body + 0x28))
+                    m_info = read_ptr(body + 0x138)
+                    info_name = read_str(read_ptr(m_info + 0x18)) if m_info else ""
+                    final_name = b_name or info_name or ""
+                    low_name = final_name.lower()
+                    if any(k in low_name for k in ("james", "silvia", "leah", "lugard", "sartigan", "guard")):
+                        continue
+
                     c_ptr = read_ptr(body + 0x68)
                     tx, ty = (read_i32(c_ptr + 0x10), read_i32(c_ptr + 0x14)) if c_ptr else (-1, -1)
 
-                    is_moss = False
-                    if b_name:
-                        if "moss" in b_name.lower():
-                            is_moss = True
-                    else:
-                        if 21 <= tx <= 25 and 223 <= ty <= 227:
-                            is_moss = True
+                    score = 0
+                    if b_skin == 492 or b_class == 492:
+                        score = 300
+                    elif "moss" in low_name or "gambler" in low_name:
+                        score = 200
+                    elif "NpcBody" in b_klass and 20 <= tx <= 25 and 222 <= ty <= 227:
+                        score = 100
 
-                    if is_moss:
-                        return {
-                            "found": True,
-                            "index": b_idx,
-                            "name": b_name or "Moss The Gambler",
-                            "x": tx,
-                            "y": ty
-                        }
+                    if score > 0:
+                        dist = (abs(tx - 22) + abs(ty - 225)) if (tx >= 0 and ty >= 0) else 999
+                        if score > best_score or (score == best_score and dist < best_dist):
+                            best_score = score
+                            best_dist = dist
+                            best = {
+                                "found": True,
+                                "index": b_idx,
+                                "skin": b_skin,
+                                "classId": b_class,
+                                "klass": b_klass,
+                                "name": final_name or "Moss The Gambler",
+                                "x": tx,
+                                "y": ty
+                            }
+                if best:
+                    return best
             finally:
                 k32.CloseHandle(hProc)
         except Exception:

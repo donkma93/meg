@@ -3182,7 +3182,7 @@ class SlotController:
             consecutive_fails = 0
 
             # 0. Kiểm tra nếu bảng Moss đã được người dùng mở sẵn thủ công trong game -> Nhận diện ngay lập tức!
-            if eng and (eng.is_moss_open() or eng.is_moss_ready()):
+            if eng and eng.is_moss_open() and eng.is_moss_ready():
                 c_str = self.app.get_moss_cat_name(self.moss_category)
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cs=c_str: self.app.append_moss_log(
                     f"[Slot {s:02d} - {c}] 🎯 Phát hiện bảng Moss ({cs}) ĐÃ MỞ SẴN trên màn hình! Bỏ qua tương tác NPC, bắt đầu quay..."
@@ -3205,18 +3205,26 @@ class SlotController:
                         self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d}] ⚠️ Game MEGAMU đã thoát! Dừng quay."))
                         break
 
-                    # Nếu trong lúc chờ, người chơi mở bảng Moss thủ công trong game
-                    if eng and (eng.is_moss_open() or eng.is_moss_ready()):
+                    # Nếu trong lúc chờ, Server đã mở bảng Moss thật (hoặc người chơi mở sẵn)
+                    if eng and eng.is_moss_open() and eng.is_moss_ready():
                         c_str = self.app.get_moss_cat_name(self.moss_category)
                         self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cs=c_str: self.app.append_moss_log(
-                            f"[Slot {s:02d} - {c}] 🎯 Bảng Moss ({cs}) đã được mở! Bắt đầu quay..."
+                            f"[Slot {s:02d} - {c}] 🎯 Bảng Moss ({cs}) đã được mở từ Server! Bắt đầu quay..."
                         ))
+                        try:
+                            eng.reset_moss_ui(self.moss_category)
+                        except Exception:
+                            pass
                         npc_ready = True
                         break
 
                     npc_info = eng.find_moss_npc() if eng else None
                     if npc_info and npc_info.get("found"):
-                        # Đã phát hiện NPC Moss xuất hiện -> Tự động click vào NPC để Server mở bảng Moss
+                        # Bảo đảm nhân vật đứng sát NPC Moss (<= 3 ô) trước khi gửi lệnh C1:30
+                        self._ensure_near_moss_npc(eng, npc_info=npc_info, max_dist=3.0)
+                        if not self.moss_running:
+                            break
+                        # Tự động tương tác NPC Moss thật để Server mở bảng Moss và nạp Category
                         interact_res = eng.interact_moss_npc(self.moss_category) if eng else None
                         if interact_res and interact_res.get("success"):
                             n_name = interact_res.get("name", "Moss The Gambler")
@@ -3224,17 +3232,26 @@ class SlotController:
                             n_x = interact_res.get("x", 22)
                             n_y = interact_res.get("y", 225)
                             c_str = self.app.get_moss_cat_name(self.moss_category)
-                            # Chờ Server phản hồi gói C2:30 và hoàn tất nạp danh sách vật phẩm
-                            for _ in range(20):
-                                if eng and (eng.is_moss_ready() or eng.is_moss_open()):
+                            # Chờ Server phản hồi gói C2:30 và hoàn tất nạp danh sách Category (tối đa 2.5s)
+                            opened_by_server = False
+                            for _ in range(25):
+                                if not self.moss_running:
+                                    break
+                                if eng and eng.is_moss_ready():
+                                    opened_by_server = True
                                     break
                                 time.sleep(0.1)
-                            self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, i=n_idx, x=n_x, y=n_y, cs=c_str: self.app.append_moss_log(
-                                f"[Slot {s:02d} - {c}] 🎯 NPC {n} đã xuất hiện tại ({x},{y}, ID: {i})! Đã click vào NPC mở bảng Moss ({cs}) từ Server. Bắt đầu quay..."
-                            ))
-                            npc_ready = True
-                            time.sleep(0.3)
-                            break
+                            if opened_by_server:
+                                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, i=n_idx, x=n_x, y=n_y, cs=c_str: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {c}] 🎯 NPC {n} tại ({x},{y}, ID: {i}) đã mở bảng Moss ({cs}) từ Server! Bắt đầu quay..."
+                                ))
+                                npc_ready = True
+                                time.sleep(0.25)
+                                break
+                            else:
+                                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=n_name, x=n_x, y=n_y: self.app.append_moss_log(
+                                    f"[Slot {s:02d} - {c}] ⚠️ Đã gửi lệnh mở NPC {n} ({x},{y}) nhưng Server chưa mở bảng Moss, đang tiến lại gần & thử lại..."
+                                ))
                         else:
                             err_msg = interact_res.get("error", "Unknown") if interact_res else "None"
                             self.app.after(0, lambda s=self.slot_idx, err=err_msg: self.app.append_moss_log(
@@ -3244,22 +3261,14 @@ class SlotController:
                         # Kiểm tra khoảng cách tới Elbeland (22, 225)
                         if wait_ticks == 0 and eng:
                             try:
-                                pos = eng.get_player_info()
-                                if pos:
-                                    cx = pos.get("tileX", pos.get("x", 0))
-                                    cy = pos.get("tileY", pos.get("y", 0))
-                                    if ((cx - 22) ** 2 + (cy - 225) ** 2) ** 0.5 > 15:
-                                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, x=cx, y=cy: self.app.append_moss_log(
-                                            f"[Slot {s:02d} - {c}] 📍 Nhân vật ở xa ({x},{y}), tự động di chuyển về Elbeland (22, 225)..."
-                                        ))
-                                        self._sync_move_to_moss_elbeland(eng)
+                                self._ensure_near_moss_npc(eng, npc_info=None, max_dist=3.0)
                             except Exception:
                                 pass
 
                         wait_ticks += 1
                         if wait_ticks % 10 == 0:
                             self.app.after(0, lambda s=self.slot_idx: self.app.append_moss_log(
-                                f"[Slot {s:02d}] ⏳ NPC Moss chưa xuất hiện. Vẫn đang tiếp tục chờ NPC spawn để click vào..."
+                                f"[Slot {s:02d}] ⏳ NPC Moss chưa xuất hiện. Vẫn đang tiếp tục chờ NPC spawn để tự mở bảng..."
                             ))
 
                     time.sleep(0.5)
@@ -3365,19 +3374,42 @@ class SlotController:
                     except Exception:
                         pass
 
-                if eng and not eng.is_moss_open():
-                    # Đợi một chút kiểm tra nếu người dùng vừa bấm (X) trong game hoặc giao diện vừa đóng
-                    time.sleep(0.4)
+                if eng and not (eng.is_moss_open() and eng.is_moss_ready()):
+                    # Bảng Moss chưa mở thật từ Server (hoặc vừa bị đóng) -> tiến gần & tương tác lại NPC Moss thật
+                    time.sleep(0.35)
                     if not self.moss_running:
                         break
+                    reopened = False
                     try:
-                        eng.interact_moss_npc(self.moss_category)
-                        for _ in range(12):
-                            if not self.moss_running or eng.is_moss_open():
+                        npc_chk = eng.find_moss_npc()
+                        if npc_chk and npc_chk.get("found"):
+                            self._ensure_near_moss_npc(eng, npc_info=npc_chk, max_dist=3.0)
+                            if not self.moss_running:
                                 break
-                            time.sleep(0.1)
+                            eng.interact_moss_npc(self.moss_category)
+                            for _ in range(25):
+                                if not self.moss_running:
+                                    break
+                                if eng.is_moss_ready():
+                                    reopened = True
+                                    break
+                                time.sleep(0.1)
+                        else:
+                            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {c}] 🛑 Không còn thấy NPC Moss tại Elbeland (22, 225). Tự động dừng quay an toàn!"
+                            ))
+                            break
                     except Exception:
                         pass
+                    if not reopened:
+                        consecutive_fails += 1
+                        if consecutive_fails >= 4:
+                            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                                f"[Slot {s:02d} - {c}] ⚠️ Không thể mở lại bảng Moss từ Server sau {consecutive_fails} lần thử. Dừng quay an toàn."
+                            ))
+                            break
+                        time.sleep(0.5)
+                        continue
 
                 # Kiểm tra Zen thực tế từ RAM trước khi bấm quay (chỉ áp dụng cho nhóm quay bằng Zen 0 -> 5)
                 zen_before = -1
@@ -3550,6 +3582,19 @@ class SlotController:
                             ))
                             break
                         else:
+                            # Nếu phiên đối thoại Moss đã đóng hoặc lần thử 2 bị lệch phiên Server -> tự click lại NPC Moss thật
+                            if eng and (not eng.is_moss_ready() or consecutive_fails == 2):
+                                try:
+                                    npc_retry = eng.find_moss_npc()
+                                    if npc_retry and npc_retry.get("found"):
+                                        self._ensure_near_moss_npc(eng, npc_info=npc_retry, max_dist=3.0)
+                                        eng.interact_moss_npc(self.moss_category)
+                                        for _ in range(20):
+                                            if not self.moss_running or eng.is_moss_ready():
+                                                break
+                                            time.sleep(0.1)
+                                except Exception:
+                                    pass
                             self.app.after(0, lambda s=self.slot_idx, cf=consecutive_fails: self.app.append_moss_log(
                                 f"[Slot {s:02d} - {self.char_name}] ⚠️ Lượt quay chưa nhận được vật phẩm (Lần thử {cf}/4, đang kiểm tra lại hòm đồ và giải phóng giao diện)..."
                             ))
@@ -3698,6 +3743,54 @@ class SlotController:
             ))
             return False
 
+    def _ensure_near_moss_npc(self, eng, npc_info: Optional[Dict[str, Any]] = None, max_dist: float = 3.0) -> bool:
+        """Bảo đảm nhân vật đang ở Elbeland và đứng sát NPC Moss (<= max_dist ô) trước khi gọi C1:30."""
+        if not eng or not eng.is_ready:
+            return False
+        try:
+            tx, ty = 22, 225
+            if npc_info and isinstance(npc_info, dict):
+                nx = int(npc_info.get("x", -1) or -1)
+                ny = int(npc_info.get("y", -1) or -1)
+                if 15 <= nx <= 32 and 218 <= ny <= 232:
+                    tx, ty = nx, ny
+
+            pos = eng.get_player_info()
+            if not pos:
+                return False
+            cmap = int(pos.get("mapId", -1) if pos.get("mapId") is not None else -1)
+            cx = int(pos.get("tileX", pos.get("x", 0)) or 0)
+            cy = int(pos.get("tileY", pos.get("y", 0)) or 0)
+            cheb_dist = max(abs(cx - tx), abs(cy - ty))
+
+            # Nếu khác map Elbeland (51) hoặc đứng quá xa (> 15 ô) -> warp/di chuyển về Elbeland (22, 225)
+            if (cmap >= 0 and cmap != 51) or ((cx - tx) ** 2 + (cy - ty) ** 2) ** 0.5 > 15:
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, x=cx, y=cy: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 📍 Nhân vật ở xa ({x},{y}), tự động di chuyển về Elbeland (22, 225)..."
+                ))
+                return self._sync_move_to_moss_elbeland(eng)
+
+            # Đã ở Elbeland nhưng đứng cách NPC Moss > max_dist ô (ví dụ 4..14 ô) -> bước sát lại gần
+            if cheb_dist > max_dist:
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, x=cx, y=cy, gx=tx, gy=ty: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🚶 Bước lại gần NPC Moss từ ({x},{y}) tới ({gx},{gy})..."
+                ))
+                eng.start_auto_move(tx, ty, helper=False)
+                t0 = time.time()
+                while time.time() - t0 < 6.0:
+                    time.sleep(0.25)
+                    p2 = eng.get_player_info()
+                    if p2:
+                        px = int(p2.get("tileX", p2.get("x", 0)) or 0)
+                        py = int(p2.get("tileY", p2.get("y", 0)) or 0)
+                        if max(abs(px - tx), abs(py - ty)) <= max_dist:
+                            break
+                eng.stop_auto_move()
+                time.sleep(0.25)
+            return True
+        except Exception:
+            return False
+
     def _sync_move_to_moss_elbeland(self, eng) -> bool:
         """Đồng bộ di chuyển tới Elbeland (22, 225) nếu nhân vật đang ở xa NPC Moss."""
         try:
@@ -3715,16 +3808,36 @@ class SlotController:
                 eng.stop_helper()
                 time.sleep(0.3)
 
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland..."
-            ))
-            eng.send_chat("/m Elbeland")
-            time.sleep(2.0)
+            need_warp = True
+            try:
+                pinfo = eng.get_player_info()
+                if pinfo and int(pinfo.get("mapId", -1) if pinfo.get("mapId") is not None else -1) == 51:
+                    need_warp = False
+            except Exception:
+                pass
+
+            if need_warp:
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland..."
+                ))
+                eng.send_chat("/m Elbeland")
+                time.sleep(2.0)
+
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."
             ))
             eng.start_auto_move(22, 225, helper=False)
-            time.sleep(3.5)
+            t0 = time.time()
+            while time.time() - t0 < 10.0:
+                time.sleep(0.35)
+                pinfo = eng.get_player_info()
+                if pinfo:
+                    px = int(pinfo.get("tileX", pinfo.get("x", 0)) or 0)
+                    py = int(pinfo.get("tileY", pinfo.get("y", 0)) or 0)
+                    if px > 0 and py > 0 and max(abs(px - 22), abs(py - 225)) <= 3:
+                        break
+            eng.stop_auto_move()
+            time.sleep(0.25)
             return True
         except Exception:
             return False
@@ -3740,37 +3853,40 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
-        # 0. Kiểm tra nếu chưa mở bảng Moss thì tìm NPC mở bảng
-        if not eng.is_moss_open():
+        # 0. Kiểm tra nếu chưa mở bảng Moss thật từ Server thì tự tìm NPC & mở bảng
+        if not (eng.is_moss_open() and eng.is_moss_ready()):
             npc_info = eng.find_moss_npc()
             if not npc_info or not npc_info.get("found"):
-                pos = eng.get_player_info()
-                if pos:
-                    cx = pos.get("tileX", pos.get("x", 0))
-                    cy = pos.get("tileY", pos.get("y", 0))
-                    if ((cx - 22) ** 2 + (cy - 225) ** 2) ** 0.5 > 15:
-                        self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Nhân vật ở xa ({cx},{cy}), tự động di chuyển về Elbeland (22, 225)...")
-                        self._sync_move_to_moss_elbeland(eng)
-                        time.sleep(1.0)
-                        npc_info = eng.find_moss_npc()
+                self._ensure_near_moss_npc(eng, npc_info=None, max_dist=3.0)
+                time.sleep(0.5)
+                npc_info = eng.find_moss_npc()
 
             if not npc_info or not npc_info.get("found"):
                 self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⏳ Chưa thấy NPC Moss xuất hiện tại Elbeland (22, 225)! Không thể quay thử.")
                 return False
 
-            try:
-                eng.interact_moss_npc(self.moss_category)
-                for _ in range(12):
-                    time.sleep(0.1)
-                    if eng.is_moss_open():
+            self._ensure_near_moss_npc(eng, npc_info=npc_info, max_dist=3.0)
+            opened = False
+            for _attempt in range(2):
+                try:
+                    eng.interact_moss_npc(self.moss_category)
+                    for _ in range(25):
+                        time.sleep(0.1)
+                        if eng.is_moss_ready():
+                            opened = True
+                            break
+                    if opened:
                         break
-            except Exception:
-                pass
+                except Exception:
+                    pass
+            if not opened:
+                self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Đã click NPC Moss nhưng Server chưa mở bảng. Hãy kiểm tra nhân vật đứng gần (22, 225) và thử lại.")
+                return False
 
         # Kiểm tra Zen trước khi quay
         try:
             cur_zen = eng.get_player_zen()
-            if cur_zen >= 0 and cur_zen < 1_000_000:
+            if self.moss_category < 6 and cur_zen >= 0 and cur_zen < 1_000_000:
                 self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Không đủ Zen để quay Moss! Hiện có: {cur_zen:,} Zen (Cần tối thiểu 1.000.000 Zen).")
                 return False
         except Exception:
@@ -3798,9 +3914,13 @@ class SlotController:
         if not eng.is_ready:
             eng.attach()
 
-        # 0. Nếu bảng Moss đã mở sẵn trong game -> nhận diện ngay và sẵn sàng!
-        if eng.is_moss_open():
+        # 0. Nếu bảng Moss đã mở sẵn từ Server trong game -> nhận diện ngay và sẵn sàng!
+        if eng.is_moss_open() and eng.is_moss_ready():
             c_str = self.app.get_moss_cat_name(self.moss_category)
+            try:
+                eng.reset_moss_ui(self.moss_category)
+            except Exception:
+                pass
             self.app.append_moss_log(
                 f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Bảng Moss ({c_str}) đã mở sẵn trên màn hình game, sẵn sàng quay!"
             )
@@ -3809,19 +3929,9 @@ class SlotController:
         # 1. Quét tìm NPC Moss thực tế xuất hiện quanh Elbeland (22, 225)
         npc_info = eng.find_moss_npc()
         if not npc_info or not npc_info.get("found"):
-            # Kiểm tra khoảng cách tới Elbeland (22, 225)
-            pos = eng.get_player_info()
-            if pos:
-                cur_x = pos.get("tileX", pos.get("x", 0))
-                cur_y = pos.get("tileY", pos.get("y", 0))
-                dist = ((cur_x - 22) ** 2 + (cur_y - 225) ** 2) ** 0.5
-                if dist > 15:
-                    self.app.append_moss_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Nhân vật ở xa ({cur_x}, {cur_y}), tự động di chuyển về Elbeland (22, 225)..."
-                    )
-                    self._sync_move_to_moss_elbeland(eng)
-                    time.sleep(1.0)
-                    npc_info = eng.find_moss_npc()
+            self._ensure_near_moss_npc(eng, npc_info=None, max_dist=3.0)
+            time.sleep(0.5)
+            npc_info = eng.find_moss_npc()
 
         if not npc_info or not npc_info.get("found"):
             self.app.append_moss_log(
@@ -3829,34 +3939,34 @@ class SlotController:
             )
             return False
 
-        # 2. Click tương tác trực tiếp với NPC Moss để Server gửi dữ liệu và mở bảng hợp lệ
-        res = eng.interact_moss_npc(self.moss_category)
-        if res and res.get("success"):
-            c_str = self.app.get_moss_cat_name(self.moss_category)
-            n_name = res.get("name", "Moss The Gambler")
-            n_idx = res.get("index", "?")
-            n_x = res.get("x", 22)
-            n_y = res.get("y", 225)
-            # Chờ Server phản hồi và hoàn tất khởi tạo danh sách vật phẩm (tối đa 1.5 giây)
-            ready = False
-            for _ in range(15):
-                time.sleep(0.1)
-                if eng.is_moss_ready() or eng.is_moss_open():
-                    ready = True
-                    break
-            if ready:
-                self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Đã click vào NPC {n_name} ({n_x},{n_y}) -> Bảng Moss ({c_str}) đã nạp thành công từ Server, sẵn sàng quay!"
-                )
+        # 2. Bước sát NPC Moss (<= 3 ô) và gửi C1:30 để Server mở bảng Moss thật (thử tối đa 3 lần)
+        self._ensure_near_moss_npc(eng, npc_info=npc_info, max_dist=3.0)
+        c_str = self.app.get_moss_cat_name(self.moss_category)
+        last_err = "Unknown"
+        for attempt in range(3):
+            res = eng.interact_moss_npc(self.moss_category)
+            if res and res.get("success"):
+                n_name = res.get("name", "Moss The Gambler")
+                n_x = res.get("x", 22)
+                n_y = res.get("y", 225)
+                ready = False
+                for _ in range(20):
+                    time.sleep(0.1)
+                    if eng.is_moss_ready():
+                        ready = True
+                        break
+                if ready:
+                    self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Đã tự động mở bảng Moss ({c_str}) từ NPC {n_name} ({n_x},{n_y}) thành công!"
+                    )
+                    return True
+                last_err = f"Server chưa phản hồi mở bảng sau lần thử {attempt + 1}/3"
             else:
-                self.app.append_moss_log(
-                    f"[Slot {self.slot_idx:02d} - {self.char_name}] 🎯 Đã click vào NPC {n_name} ({n_x},{n_y}) -> Đã gửi yêu cầu đối thoại lên Server."
-                )
-            return True
-        else:
-            err = res.get("error", "Unknown") if res else "Failed"
-            self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Tương tác click NPC Moss thất bại: {err}")
-            return False
+                last_err = res.get("error", "Unknown") if res else "Failed"
+            time.sleep(0.35)
+
+        self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] ❌ Tự động mở bảng NPC Moss chưa thành công: {last_err}")
+        return False
 
     def close_moss_dialog(self) -> bool:
         """Đóng bảng NPC Moss và thoát phiên đối thoại để mở khóa thùng đồ."""
@@ -4317,16 +4427,26 @@ class SlotController:
         eng.stop_auto_move()
         time.sleep(0.6)
 
-        # Tương tác lại với NPC Moss để khôi phục phiên quay thưởng
+        # Tương tác lại với NPC Moss để khôi phục phiên quay thưởng (chờ Server thực sự mở bảng)
         if getattr(self, "moss_running", True):
             try:
-                eng.interact_moss_npc(self.moss_category)
-                time.sleep(0.8)
-                eng.reset_moss_ui(self.moss_category)
-                time.sleep(0.3)
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 🎰 Đã kết nối lại NPC Moss (22, 225). Tiếp tục chu trình quay thưởng!"
-                ))
+                reopened = False
+                for _attempt in range(2):
+                    eng.interact_moss_npc(self.moss_category)
+                    for _ in range(20):
+                        if not getattr(self, "moss_running", True):
+                            break
+                        if eng.is_moss_ready():
+                            reopened = True
+                            break
+                        time.sleep(0.1)
+                    if reopened:
+                        break
+                    time.sleep(0.3)
+                if reopened:
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] 🎰 Đã tự động mở lại bảng NPC Moss (22, 225) từ Server. Tiếp tục chu trình quay thưởng!"
+                    ))
             except Exception:
                 pass
         return reached_moss

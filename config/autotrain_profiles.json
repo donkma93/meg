@@ -21,9 +21,9 @@
                     {
                         "min_level": 1,
                         "max_level": 1110,
-                        "map_name": "Ubaid",
-                        "x": 191,
-                        "y": 153
+                        "map_name": "Aida 2",
+                        "x": 199,
+                        "y": 200
                     }
                 ],
                 "evade_on_kill": true,
