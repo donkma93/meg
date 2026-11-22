@@ -8,7 +8,7 @@
 #define MyAppExeName "MEGAMU Auto Train Dashboard.exe"
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.6.4"
+  #define MyAppVersion "1.6.6"
 #endif
 
 #ifndef SourceDir

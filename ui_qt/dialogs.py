@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QFrame, QLabel,
     QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox, QPlainTextEdit,
-    QMessageBox, QScrollArea, QWidget
+    QMessageBox, QScrollArea, QWidget, QProgressBar
 )
 
 
@@ -694,3 +694,203 @@ class TelegramConfigDialogQt(QDialog):
                 QMessageBox.warning(self, "Telegram", f"Gửi thất bại: {msg}")
         except Exception as e:
             QMessageBox.critical(self, "Telegram", f"Lỗi: {e}")
+
+
+class UpdateDialogQt(QDialog):
+    """Hộp thoại thông báo và tự động tải nâng cấp phiên bản mới trên Qt6."""
+
+    def __init__(self, update_info: Dict[str, Any], current_version: str = "v1.6.6", parent=None):
+        super().__init__(parent)
+        self.update_info = update_info or {}
+        self.current_version = current_version
+        self._is_downloading = False
+        self.setWindowTitle("🔄 Cập Nhật Phiên Bản Mới")
+        self.resize(560, 520)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(12)
+
+        # Header
+        h_box = QVBoxLayout()
+        lbl_h = QLabel("🏷️ PHÁT HIỆN PHIÊN BẢN MỚI")
+        lbl_h.setStyleSheet("color: #38bdf8; font-weight: 800; font-size: 15px;")
+        lbl_sub = QLabel("Đã có bản phát hành chính thức từ hệ thống GitHub Releases")
+        lbl_sub.setStyleSheet("color: #64748b; font-size: 11px;")
+        h_box.addWidget(lbl_h)
+        h_box.addWidget(lbl_sub)
+        root.addLayout(h_box)
+
+        # Card comparison
+        card = QFrame()
+        card.setStyleSheet("background-color: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 10px;")
+        c_lay = QHBoxLayout(card)
+        c_lay.setContentsMargins(10, 8, 10, 8)
+
+        v_curr = QLabel(f"Hiện tại: <b style='color:#94a3b8'>{self.current_version}</b>")
+        arrow = QLabel("➔")
+        arrow.setStyleSheet("color: #38bdf8; font-weight: bold; font-size: 14px;")
+        latest = self.update_info.get("latest_version", "?")
+        v_latest = QLabel(f"Mới nhất: <b style='color:#4ade80'>{latest}</b>")
+
+        c_lay.addWidget(v_curr)
+        c_lay.addStretch(1)
+        c_lay.addWidget(arrow)
+        c_lay.addStretch(1)
+        c_lay.addWidget(v_latest)
+        root.addWidget(card)
+
+        # Release notes
+        lbl_notes = QLabel("Nội dung thay đổi & Điểm mới:")
+        lbl_notes.setStyleSheet("color: #cbd5e1; font-weight: 600; font-size: 12px;")
+        root.addWidget(lbl_notes)
+
+        self.box_notes = QPlainTextEdit()
+        self.box_notes.setReadOnly(True)
+        self.box_notes.setStyleSheet(
+            "background-color: #0b1120; border: 1px solid #1e293b; border-radius: 6px; "
+            "color: #e2e8f0; font-family: Consolas, monospace; font-size: 11px;"
+        )
+        notes_text = self.update_info.get("release_notes", "") or "Không có ghi chú phát hành."
+        self.box_notes.setPlainText(notes_text)
+        root.addWidget(self.box_notes, 1)
+
+        # Progress bar
+        self.pbar = QProgressBar()
+        self.pbar.setRange(0, 100)
+        self.pbar.setValue(0)
+        self.pbar.setTextVisible(True)
+        self.pbar.setFixedHeight(20)
+        self.pbar.setStyleSheet("""
+            QProgressBar {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                text-align: center;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: bold;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #38bdf8);
+                border-radius: 3px;
+            }
+        """)
+        root.addWidget(self.pbar)
+
+        self.lbl_status = QLabel("Sẵn sàng cập nhật.")
+        self.lbl_status.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        root.addWidget(self.lbl_status)
+
+        # Buttons
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+
+        b_web = QPushButton("🌐 Xem Trên GitHub")
+        b_web.setProperty("tone", "ghost")
+        b_web.setFixedHeight(34)
+        b_web.clicked.connect(self._open_web)
+
+        self.b_update = QPushButton("⬇️ Cập Nhật Tự Động & Khởi Động Lại")
+        self.b_update.setProperty("tone", "primary")
+        self.b_update.setFixedHeight(34)
+        self.b_update.clicked.connect(self._start_download_and_apply)
+
+        self.b_close = QPushButton("Đóng")
+        self.b_close.setProperty("tone", "ghost")
+        self.b_close.setFixedHeight(34)
+        self.b_close.clicked.connect(self.reject)
+
+        btns.addWidget(b_web)
+        btns.addStretch(1)
+        btns.addWidget(self.b_update)
+        btns.addWidget(self.b_close)
+        root.addLayout(btns)
+
+        dl_url = self.update_info.get("download_url")
+        if not dl_url:
+            self.b_update.setEnabled(False)
+            self.lbl_status.setText("Chưa tìm thấy link tải trực tiếp. Vui lòng bấm 'Xem Trên GitHub'.")
+
+    def _open_web(self):
+        import webbrowser
+        url = self.update_info.get("release_url") or "https://github.com/donkma93/meg/releases"
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+    def _start_download_and_apply(self):
+        if self._is_downloading:
+            return
+        download_url = self.update_info.get("download_url")
+        if not download_url:
+            self.lbl_status.setText("Không tìm thấy link tải bản cập nhật.")
+            return
+
+        import threading
+        import tempfile
+        from pathlib import Path
+        import updater
+
+        self._is_downloading = True
+        self.b_update.setEnabled(False)
+        self.b_update.setText("⏳ Đang tải bản mới...")
+        self.b_close.setEnabled(False)
+        self.lbl_status.setText("Đang kết nối tới máy chủ GitHub...")
+
+        def _worker():
+            temp_dir = Path(tempfile.gettempdir())
+            target_exe = temp_dir / "MEGAMU_Update_Payload.exe"
+
+            def _progress(downloaded: int, total: int):
+                if total > 0:
+                    pct = int(min(100, max(0, (downloaded / total) * 100)))
+                    mb_dl = downloaded / (1024 * 1024)
+                    mb_tot = total / (1024 * 1024)
+                    def _ui():
+                        self.pbar.setValue(pct)
+                        self.lbl_status.setText(f"Đang tải xuống: {pct}% ({mb_dl:.1f} MB / {mb_tot:.1f} MB)")
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(0, _ui)
+
+            ok = updater.download_file_with_progress(
+                url=download_url,
+                dest_path=target_exe,
+                progress_callback=_progress
+            )
+
+            if ok and target_exe.exists() and target_exe.stat().st_size > 1000000:
+                def _success():
+                    self.pbar.setValue(100)
+                    self.lbl_status.setText("✅ Tải hoàn tất! Đang thay thế file và khởi động lại...")
+                    from PySide6.QtCore import QTimer
+                    def _do_restart():
+                        try:
+                            updater.apply_exe_update_and_restart(target_exe)
+                        except Exception as e:
+                            self.lbl_status.setText(f"Lỗi khởi động lại: {e}")
+                            self.b_update.setEnabled(True)
+                            self.b_update.setText("Thử Lại")
+                            self.b_close.setEnabled(True)
+                    QTimer.singleShot(1000, _do_restart)
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, _success)
+            else:
+                def _fail():
+                    self._is_downloading = False
+                    self.pbar.setValue(0)
+                    self.lbl_status.setText("❌ Tải cập nhật thất bại!")
+                    self.b_update.setEnabled(True)
+                    self.b_update.setText("🔄 Thử Lại")
+                    self.b_close.setEnabled(True)
+                    QMessageBox.warning(
+                        self,
+                        "Lỗi Tải Cập Nhật",
+                        "Không thể tải bản cập nhật từ GitHub. Vui lòng kiểm tra kết nối mạng hoặc mở link web."
+                    )
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(0, _fail)
+
+        threading.Thread(target=_worker, name="QtUpdateWorker", daemon=True).start()
+

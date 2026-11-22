@@ -366,7 +366,7 @@ def _http_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         "license_key": cleaned_key,
         "hwid": hwid,
         "machine_name": os.environ.get("COMPUTERNAME", "PC"),
-        "client_version": "v1.6.4",
+        "client_version": "v1.6.6",
         "product_code": "megamu-navigator"
     }).encode("utf-8")
 
@@ -412,6 +412,7 @@ def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         ver_bytes = b"v3.0.0"
         ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 65536)
         res_str = out_buf.value.decode("utf-8", errors="ignore")
+
         if res_str:
             if not is_frozen and ("imunify" in res_str.lower() or "bot-protection" in res_str.lower() or "access denied" in res_str.lower()):
                 return _http_activate(cleaned_key, srv)
@@ -505,7 +506,7 @@ def _http_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
     payload = json.dumps({
         "license_key": str(key).strip(),
         "hwid": hwid,
-        "client_version": "v1.6.4"
+        "client_version": "v1.6.6"
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=payload, headers=BROWSER_HEADERS)
@@ -574,6 +575,7 @@ def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
         ver_bytes = b"v3.0.0"
         ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 65536)
         res_str = out_buf.value.decode("utf-8", errors="ignore")
+
         if res_str:
             if not is_frozen and ("imunify" in res_str.lower() or "bot-protection" in res_str.lower() or "access denied" in res_str.lower()):
                 return _http_verify(key, srv, lic_data)
