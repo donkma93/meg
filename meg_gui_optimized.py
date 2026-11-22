@@ -40,6 +40,9 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+# Tạm ẩn toàn bộ chức năng Auto Login để tối ưu độ mượt khi khởi động & vận hành
+ENABLE_AUTOLOGIN = False
+
 from ui.theme import Colors, Fonts, Radii
 from ui.state import AppStateManager
 from ui.components.icons import UiIconFactory
@@ -48,7 +51,9 @@ from ui.components.shell import MetricChip, make_action_button
 from ui.components.dropdown import ModernDropdown
 from ui.views.train_view import TrainSlotsView
 from ui.views.profiles_view import ProfilesConfigView
-from ui.views.autologin_view import AutoLoginView
+AutoLoginView = None
+if ENABLE_AUTOLOGIN:
+    from ui.views.autologin_view import AutoLoginView
 from ui.views.mirror_view import MirrorView
 from ui.views.moss_view import MossView, moss_cat_id, moss_cat_name
 from ui.views.logs_view import LogsAndToolsView
@@ -56,7 +61,7 @@ from ui.modals.slot_settings import SlotSettingsModal
 from ui.modals.party_modal import PartySettingsModal
 from ui.modals.update_modal import UpdateModal
 from services.party_manager import PartyManager
-from ui.engine_sync import BackgroundEngineSync, enumerate_megamu_processes
+from ui.engine_sync import BackgroundEngineSync, enumerate_megamu_processes, build_enhanced_detected_games
 
 from meg_gui import (
     BASE_DIR,
@@ -119,10 +124,12 @@ def get_map_names() -> List[str]:
     return ["Lorencia", "Noria", "Devias", "Dungeon", "Lost Tower", "Atlans", "Tarkan", "Aida", "Kanturu", "Karutan"]
 
 
-try:
-    from meg_account_manager import AccountManager
-except ImportError:
-    AccountManager = None
+AccountManager = None
+if ENABLE_AUTOLOGIN:
+    try:
+        from meg_account_manager import AccountManager
+    except ImportError:
+        AccountManager = None
 
 try:
     import license_client
@@ -214,8 +221,8 @@ class DashboardAppOptimized(ctk.CTk):
         self.configure(fg_color=Colors.BG_ROOT)
         ctk.set_appearance_mode("dark")
 
-        self._setup_window_icon()
-        self.after(300, self._setup_window_icon)
+        # Nạp icon 1 lần duy nhất sau khi cửa sổ đã vẽ khung (tránh resize LANCZOS 2 lần trên Main Thread)
+        self.after(180, self._setup_window_icon)
 
         self.maps_list = get_map_names()
         self.slot_assignments = ConfigPersistenceManager.load_slot_assignments(DEFAULT_SLOTS)
@@ -239,7 +246,10 @@ class DashboardAppOptimized(ctk.CTk):
             ctrl.moss_enabled = (i in moss_sel) if (moss_sel is not None) else True
             self.controllers.append(ctrl)
 
-        self.account_manager = AccountManager() if AccountManager else None
+        # Đồng bộ toàn bộ danh sách slot (kể cả slot > 10) vào AppStateManager ngay khi khởi động
+        self.state_mgr.sync_slots([c.slot_idx for c in self.controllers])
+
+        self.account_manager = AccountManager() if (ENABLE_AUTOLOGIN and AccountManager) else None
         # Alias tương thích với các hàm Auto Login của meg_gui.DashboardApp
         self.account_mgr = self.account_manager
         self.detected_games = {}
@@ -277,6 +287,12 @@ class DashboardAppOptimized(ctk.CTk):
         self.mirror_snipe_dur_s = float(mirror_sched_cfg.get("max_duration_s", 15.0) or 15.0)
         self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 2.0) if mirror_sched_cfg.get("prefire_sec") is not None else 2.0)
         self.mirror_zero_confirm = bool(mirror_sched_cfg.get("zero_confirm", True))
+        self.mirror_stagger_ms = int(mirror_sched_cfg.get("stagger_ms", 0) or 0)
+        self._mirror_last_rtt_ms = -1.0
+        self._mirror_clock_offset_ms = float(mirror_sched_cfg.get("clock_offset_ms", 0.0) or 0.0)
+        self._last_scheduled_gate_open_epoch_ms = 0.0
+        self._last_mirror_prestage_key = None
+        self._last_mirror_arm_key = None
         self._last_moss_trigger_key = None
         self._last_moss_stop_key = None
         self._last_moss_move_key = None
@@ -529,14 +545,23 @@ class DashboardAppOptimized(ctk.CTk):
         self.tabs_map = {}
         self.active_tab_name = "train"
 
-        tab_defs = [
-            ("train", "01  Auto Train", "play"),
-            ("profiles", "02  Config", "gear"),
-            ("autologin", "03  Auto Login", "users"),
-            ("mirror", "04  Mirror", "zap"),
-            ("moss", "05  Moss", "gem"),
-            ("logs", "06  Logs", "terminal"),
-        ]
+        if ENABLE_AUTOLOGIN:
+            tab_defs = [
+                ("train", "01  Auto Train", "play"),
+                ("profiles", "02  Config", "gear"),
+                ("autologin", "03  Auto Login", "users"),
+                ("mirror", "04  Mirror", "zap"),
+                ("moss", "05  Moss", "gem"),
+                ("logs", "06  Logs", "terminal"),
+            ]
+        else:
+            tab_defs = [
+                ("train", "01  Auto Train", "play"),
+                ("profiles", "02  Config", "gear"),
+                ("mirror", "03  Mirror", "zap"),
+                ("moss", "04  Moss", "gem"),
+                ("logs", "05  Logs", "terminal"),
+            ]
 
         left = ctk.CTkFrame(inner, fg_color="transparent")
         left.pack(side="left", fill="y")
@@ -600,22 +625,20 @@ class DashboardAppOptimized(ctk.CTk):
             on_add_slot=self.add_new_slot,
             on_remove_slot=self.remove_last_slot,
             on_telegram_config=getattr(self, "open_mirror_telegram_settings_dialog", None),
-            on_import_accounts=getattr(self, "import_accounts_from_registry_ui", None),
+            on_import_accounts=(getattr(self, "import_accounts_from_registry_ui", None) if ENABLE_AUTOLOGIN else None),
             on_party_config=self.open_party_config_dialog,
-            on_slot_delay_changed=self.on_slot_delay_changed,
         )
         self.train_view.grid(row=0, column=0, sticky="nsew")
+        self._current_view_widget = self.train_view
 
-        # Đồng bộ trạng thái Point & Delay ban đầu lên các thẻ Slot
+        # Đồng bộ trạng thái Point ban đầu lên các thẻ Slot
         for c in self.controllers:
             card = self.train_view.cards.get(c.slot_idx)
             if card:
                 card.set_point_state(getattr(c, "auto_add_point", False))
-                card.set_respawn_delay(getattr(c, "respawn_delay", 15.0))
 
-        # Zero-Lag Optimization: Khởi tạo lười (Lazy Deferred Views)
-        # Chỉ render TrainSlotsView ngay khi khởi động. Các tab khác chỉ tạo khi người dùng click
-        # hoặc được âm thầm tạo trước lúc nhàn rỗi (idle), giúp app mở lên SIÊU TỐC (< 1 giây).
+        # True On-Demand Lazy Views: chỉ dựng view phụ khi người dùng thực sự mở tab đó
+        # (không preload hàng loạt sau khi mở app để triệt tiêu hoàn toàn hiện tượng giật lag khởi động)
         self.profiles_view = None
         self.autologin_view = None
         self.mirror_view = None
@@ -623,11 +646,7 @@ class DashboardAppOptimized(ctk.CTk):
         self.events_view = None
         self.logs_view = None
 
-        self.train_view.lift()
         self._update_tab_button_visuals("train")
-
-        # Sau 2.5s khi giao diện chính đã hiển thị mượt mà, âm thầm tải trước từng view phụ
-        self.after(2500, self._idle_preload_views)
 
         # Cho phép Python nhận tín hiệu SIGINT (Ctrl+C) ngay lập tức trên Windows
         self._check_signals()
@@ -653,36 +672,72 @@ class DashboardAppOptimized(ctk.CTk):
         ).pack(side="right", padx=16, pady=5)
 
     def switch_tab(self, tab_id: str):
+        if tab_id == "autologin" and not ENABLE_AUTOLOGIN:
+            return
         if self.active_tab_name == tab_id:
             return
+
+        old_view = getattr(self, "_current_view_widget", None)
         new_view = self._get_view_by_id(tab_id)
-        if new_view:
-            new_view.lift()
-        self.active_tab_name = tab_id
-        # Tương thích logic Auto Login của meg_gui (dùng self.active_tab)
-        self.active_tab = tab_id
-        self._update_tab_button_visuals(tab_id)
-        if tab_id == "autologin" and hasattr(self, "sync_autologin_table_values"):
+        if new_view is None:
+            return
+
+        # Gỡ tab cũ khỏi cây vẽ (grid_remove) thay vì xếp chồng .lift() -> triệt tiêu repaint & cuộn ngầm!
+        if old_view is not None and old_view is not new_view:
             try:
-                self.sync_autologin_table_values()
+                old_view.grid_remove()
             except Exception:
                 pass
-        elif tab_id == "mirror" and hasattr(self, "mirror_view") and self.mirror_view:
+        try:
+            new_view.grid(row=0, column=0, sticky="nsew")
+        except Exception:
+            pass
+        self._current_view_widget = new_view
+
+        self.active_tab_name = tab_id
+        self.active_tab = tab_id
+        self._update_tab_button_visuals(tab_id)
+
+        now = time.time()
+        if tab_id == "mirror" and hasattr(self, "mirror_view") and self.mirror_view:
             try:
+                mirror = self.state_mgr.events.get("mirror", {})
+                self.mirror_view.update_countdown(
+                    mirror.get("countdown_sec", 0),
+                    mirror.get("is_gate_open", False),
+                    mirror.get("next_time_str"),
+                )
                 self.mirror_view.refresh_rows()
-                self.trigger_mirror_ticket_scan()
+                # Throttle quét vé Mirror khi đổi tab (tối đa 1 lần / 25s; bấm nút 🎟️ Vé vẫn quét ngay)
+                if now - getattr(self, "_last_mirror_tab_ticket_scan", 0.0) >= 25.0:
+                    self._last_mirror_tab_ticket_scan = now
+                    self.trigger_mirror_ticket_scan()
             except Exception:
                 pass
         elif tab_id == "moss" and hasattr(self, "moss_view") and self.moss_view:
             try:
+                moss = self.state_mgr.events.get("moss", {})
+                self.moss_view.update_countdown(
+                    moss.get("countdown_sec", 0),
+                    moss.get("is_open", False),
+                    moss.get("next_time_str"),
+                )
                 self.moss_view.refresh_moss_rows()
             except Exception:
                 pass
         elif tab_id == "train" and hasattr(self, "train_view") and self.train_view:
             try:
-                all_data = self.state_mgr.get_all_slots_data()
-                if all_data:
-                    self.train_view.update_slots_data(all_data)
+                # Chỉ đẩy các slot thực sự có thay đổi thay vì đổ lại toàn bộ 100% bảng
+                dirty = self.state_mgr.get_dirty_slots()
+                if dirty:
+                    self.train_view.update_slots_data(dirty)
+            except Exception:
+                pass
+        elif tab_id == "logs" and hasattr(self, "logs_view") and self.logs_view:
+            try:
+                new_logs = self.state_mgr.pop_pending_logs()
+                if new_logs:
+                    self.logs_view.append_batched_logs(new_logs)
             except Exception:
                 pass
 
@@ -712,14 +767,15 @@ class DashboardAppOptimized(ctk.CTk):
                 on_profile_saved=self._on_profile_saved,
                 on_log=self.log_message
             )
-            self.profiles_view.grid(row=0, column=0, sticky="nsew")
             if self.active_tab_name == "profiles":
-                self.profiles_view.lift()
+                self.profiles_view.grid(row=0, column=0, sticky="nsew")
         except Exception as e:
             self.log_message(f"Lỗi tạo ProfilesConfigView: {e}", "WARNING")
         return self.profiles_view
 
     def _ensure_autologin_view(self):
+        if not ENABLE_AUTOLOGIN or AutoLoginView is None:
+            return None
         if self.autologin_view is not None:
             return self.autologin_view
         if not self.account_mgr:
@@ -787,7 +843,6 @@ class DashboardAppOptimized(ctk.CTk):
                 on_telegram_settings=getattr(self, "open_mirror_telegram_settings_dialog", None),
                 on_snipe_slot=getattr(self, "manual_snipe_mirror_slot", None),
             )
-            self.mirror_view.grid(row=0, column=0, sticky="nsew")
             mirror_sched_cfg = ConfigPersistenceManager.load_mirror_schedule_config()
             self.mirror_view.apply_schedule_config(mirror_sched_cfg)
             try:
@@ -796,7 +851,7 @@ class DashboardAppOptimized(ctk.CTk):
             except Exception:
                 pass
             if self.active_tab_name == "mirror":
-                self.mirror_view.lift()
+                self.mirror_view.grid(row=0, column=0, sticky="nsew")
         except Exception as em:
             self.log_message(f"Lỗi khởi tạo MirrorView: {em}", "WARNING")
         return self.mirror_view
@@ -823,13 +878,12 @@ class DashboardAppOptimized(ctk.CTk):
                 on_moss_row_action=self.on_moss_row_action,
                 on_moss_batch_tool=self.on_moss_batch_tool,
             )
-            self.moss_view.grid(row=0, column=0, sticky="nsew")
             self.events_view = self.moss_view
             moss_sched_cfg = ConfigPersistenceManager.load_moss_schedule_config()
             self.moss_view.apply_schedule_config(moss_sched_cfg)
             self.moss_view.apply_moss_flags_from_controllers()
             if self.active_tab_name in ("moss", "events"):
-                self.moss_view.lift()
+                self.moss_view.grid(row=0, column=0, sticky="nsew")
         except Exception as emo:
             self.log_message(f"Lỗi khởi tạo MossView: {emo}", "WARNING")
         return self.moss_view
@@ -843,53 +897,20 @@ class DashboardAppOptimized(ctk.CTk):
                 on_arrange_windows=None,
                 on_clear_logs=lambda: self.log_message("Nhật ký đã được làm sạch.", "INFO")
             )
-            self.logs_view.grid(row=0, column=0, sticky="nsew")
             if self.active_tab_name == "logs":
-                self.logs_view.lift()
+                self.logs_view.grid(row=0, column=0, sticky="nsew")
         except Exception as el:
             self.log_message(f"Lỗi khởi tạo LogsAndToolsView: {el}", "WARNING")
         return self.logs_view
 
     def _idle_preload_views(self):
-        """Âm thầm nạp trước từng view phụ lúc CPU rảnh để khi chuyển tab mượt tức thì."""
-        if not self.running:
-            return
-        try:
-            if self.profiles_view is None:
-                self._ensure_profiles_view()
-                self.after(600, self._idle_preload_views)
-            elif self.mirror_view is None:
-                self._ensure_mirror_view()
-                self.after(600, self._idle_preload_views)
-            elif self.moss_view is None:
-                self._ensure_moss_view()
-                self.after(600, self._idle_preload_views)
-            elif self.autologin_view is None:
-                self._ensure_autologin_view()
-                self.after(600, self._idle_preload_views)
-            elif self.logs_view is None:
-                self._ensure_logs_view()
-        except Exception:
-            pass
+        """Đã tắt tự động preload tất cả tab khi khởi động để tránh giật lag Main UI Thread.
+        Mọi tab phụ (Config / Mirror / Moss / Logs) sẽ chỉ được khởi tạo khi người dùng bấm chọn."""
+        return
 
     def _on_profile_saved(self, profile_idx: int):
         if hasattr(self, "train_view"):
             self.train_view.update_profile_options_all(CompactSlotCard.get_default_profile_options())
-            try:
-                cfg = ConfigPersistenceManager.load_single_profile(profile_idx)
-                d_val = float(cfg.get("respawn_delay", 15.0))
-                for ctrl in self.controllers:
-                    if getattr(ctrl, "profile_index", None) == profile_idx:
-                        ctrl.respawn_delay = d_val
-                        if ctrl.worker and ctrl.worker.running:
-                            ctrl.worker.respawn_delay = d_val
-                            if hasattr(ctrl.worker, "config") and isinstance(ctrl.worker.config, dict):
-                                ctrl.worker.config["respawn_delay"] = d_val
-                        card = self.train_view.cards.get(ctrl.slot_idx)
-                        if card:
-                            card.set_respawn_delay(d_val)
-            except Exception:
-                pass
 
     def open_slot_profile_editor(self, slot_idx: int):
         ctrl = self.controllers[slot_idx - 1]
@@ -930,26 +951,28 @@ class DashboardAppOptimized(ctk.CTk):
             except Exception:
                 pass
 
-            dirty_slots = self.state_mgr.get_dirty_slots()
-            if dirty_slots and hasattr(self, "train_view"):
-                self.train_view.update_slots_data(dirty_slots)
+            # Chỉ cập nhật UI cho tab ĐANG HIỂN THỊ (tránh vẽ ngầm lên các tab ẩn)
+            if self.active_tab_name == "train" and hasattr(self, "train_view"):
+                dirty_slots = self.state_mgr.get_dirty_slots()
+                if dirty_slots:
+                    self.train_view.update_slots_data(dirty_slots)
 
-            new_logs = self.state_mgr.pop_pending_logs()
-            if new_logs and hasattr(self, "logs_view"):
-                self.logs_view.append_batched_logs(new_logs)
+            if self.active_tab_name == "logs" and hasattr(self, "logs_view") and self.logs_view:
+                new_logs = self.state_mgr.pop_pending_logs()
+                if new_logs:
+                    self.logs_view.append_batched_logs(new_logs)
 
-            # Events countdown: chỉ khi dirty (engine_sync đánh dấu ~1s/lần)
+            # Events countdown: chỉ vẽ cho tab đang mở
             if self.state_mgr.is_events_dirty():
                 ev = self.state_mgr.events
-                if hasattr(self, "mirror_view") and self.mirror_view:
-                    # Chỉ cập nhật countdown; bảng slot throttle riêng
+                if self.active_tab_name == "mirror" and hasattr(self, "mirror_view") and self.mirror_view:
                     mirror = ev.get("mirror", {})
                     self.mirror_view.update_countdown(
                         mirror.get("countdown_sec", 0),
                         mirror.get("is_gate_open", False),
                         mirror.get("next_time_str"),
                     )
-                if hasattr(self, "moss_view") and self.moss_view:
+                elif self.active_tab_name in ("moss", "events") and hasattr(self, "moss_view") and self.moss_view:
                     moss = ev.get("moss", {})
                     self.moss_view.update_countdown(
                         moss.get("countdown_sec", 0),
@@ -981,8 +1004,8 @@ class DashboardAppOptimized(ctk.CTk):
                     self._last_header_stats_ts = now
                     self._update_header_stats_internal()
 
-            # Auto Login: tối đa ~1.2s/lần (không sync 4 lần/giây)
-            if self.active_tab_name == "autologin" and hasattr(self, "sync_autologin_table_values"):
+            # Auto Login: tạm ẩn khi ENABLE_AUTOLOGIN = False
+            if ENABLE_AUTOLOGIN and self.active_tab_name == "autologin" and hasattr(self, "sync_autologin_table_values"):
                 if now - getattr(self, "_last_autologin_sync_ts", 0) >= 1.2:
                     self._last_autologin_sync_ts = now
                     self.sync_autologin_table_values()
@@ -1097,21 +1120,56 @@ class DashboardAppOptimized(ctk.CTk):
         threading.Thread(target=self._worker_assign_all, daemon=True).start()
 
     def _worker_assign_all(self):
-        games = self.state_mgr.get_detected_games()
+        # 1. Quét tươi danh sách tiến trình MEGAMU để nhận diện ngay cả nhân vật thứ 11+ mới mở
+        try:
+            fresh_games = build_enhanced_detected_games()
+            if fresh_games:
+                self.state_mgr.update_detected_games(fresh_games)
+                games = fresh_games
+            else:
+                games = self.state_mgr.get_detected_games()
+        except Exception:
+            games = self.state_mgr.get_detected_games()
+
         assigned_pids = {c.assigned_pid for c in self.controllers if c.assigned_pid and psutil.pid_exists(c.assigned_pid)}
-        available = [p for p in games if p not in assigned_pids]
+        available = sorted(p for p in games if p not in assigned_pids)
+        if not available:
+            self.log_message("Không có tiến trình MEGAMU nào chưa được gán.", "WARNING")
+            return
+
+        lic_data = license_client.load_license_data() if license_client else {}
+        is_valid = license_client.is_license_valid() if license_client else False
+        max_allowed = min(int(lic_data.get("max_slots", 5 if not is_valid else 10)), MAX_SLOTS)
+
         target_slots = [c for c in self.controllers if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid)]
+        target_slots.sort(key=lambda c: c.slot_idx)
+
+        # 2. Nếu số nhân vật mở nhiều hơn số slot trống (ví dụ > 10 acc) -> tự động mở thêm slot theo hạn mức License
+        while len(target_slots) < len(available) and len(self.controllers) < max_allowed:
+            cur_len = len(self.controllers)
+            new_ctrl = self.add_new_slot(silent=True)
+            if new_ctrl is not None and len(self.controllers) > cur_len:
+                target_slots.append(new_ctrl)
+            else:
+                break
 
         count = 0
         for pid in available:
             if not target_slots:
                 break
             ctrl = target_slots.pop(0)
+            self.state_mgr.ensure_slot(ctrl.slot_idx)
             ctrl.attach_pid(pid)
             title = games.get(pid, "")
             _, t_name, srv_str = parse_slot_game_choice(title)
             if not t_name and character_name_from_window_title:
                 t_name = character_name_from_window_title(title)
+            if not t_name:
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    t_name = ProcessMemoryReader.read_character_name(pid) or ""
+                except Exception:
+                    pass
             if t_name and t_name != "---":
                 ctrl.char_name = t_name
                 ctrl.last_known_char_name = t_name
@@ -1126,23 +1184,48 @@ class DashboardAppOptimized(ctk.CTk):
             )
             count += 1
 
-        self.log_message(f"Đã gán thành công {count} tài khoản vào các Slot.", "SUCCESS")
+        remaining = len(available) - count
+        if remaining > 0:
+            self.log_message(
+                f"Đã gán thành công {count} tài khoản. Còn {remaining} game chưa gán do đạt giới hạn bản quyền ({max_allowed} slot).",
+                "WARNING"
+            )
+        else:
+            self.log_message(f"Đã gán thành công toàn bộ {count} tài khoản vào các Slot.", "SUCCESS")
+
         self.state_mgr.global_dirty = True
-        if hasattr(self, "mirror_view") and self.mirror_view:
-            self.mirror_view.refresh_rows()
-            self.trigger_mirror_ticket_scan()
-        if hasattr(self, "moss_view") and self.moss_view:
-            self.moss_view.refresh_moss_rows()
-        if hasattr(self, "train_view") and self.train_view:
-            all_data = self.state_mgr.get_all_slots_data()
-            if all_data:
-                self.train_view.update_slots_data(all_data)
+        self.update_header_stats()
+
+        def _refresh_ui_after_assign():
+            try:
+                if hasattr(self, "mirror_view") and self.mirror_view:
+                    self.mirror_view.refresh_rows()
+                    self.trigger_mirror_ticket_scan()
+                if hasattr(self, "moss_view") and self.moss_view:
+                    self.moss_view.refresh_moss_rows()
+                if hasattr(self, "train_view") and self.train_view:
+                    proc_options = ["--"] + list(self.state_mgr.get_detected_games().values())
+                    self._last_proc_options_cache = proc_options
+                    self.train_view.update_process_options_all(proc_options)
+                    all_data = self.state_mgr.get_all_slots_data()
+                    if all_data:
+                        self.train_view.update_slots_data(all_data)
+            except Exception:
+                pass
+
+        try:
+            self.after(0, _refresh_ui_after_assign)
+        except Exception:
+            _refresh_ui_after_assign()
 
     def refresh_games(self):
         self.log_message("🔄 Đang quét lại danh sách tiến trình MEGAMU...", "INFO")
         self.engine_sync.trigger_scan_now()
 
     def on_slot_pid_selected(self, slot_idx: int, val: str):
+        if not (1 <= slot_idx <= len(self.controllers)):
+            return
+        self.state_mgr.ensure_slot(slot_idx)
         ctrl = self.controllers[slot_idx - 1]
         pid, c_name, srv_str = parse_slot_game_choice(val)
 
@@ -1188,6 +1271,12 @@ class DashboardAppOptimized(ctk.CTk):
                         self.train_view.update_slots_data([self.state_mgr.get_slot(other_c.slot_idx)])
 
             ok = ctrl.attach_pid(pid)
+            if not c_name:
+                try:
+                    from meg_navigator import ProcessMemoryReader
+                    c_name = ProcessMemoryReader.read_character_name(pid) or ""
+                except Exception:
+                    pass
             if c_name and c_name != "---":
                 ctrl.char_name = c_name
                 ctrl.last_known_char_name = c_name
@@ -1239,60 +1328,10 @@ class DashboardAppOptimized(ctk.CTk):
             digits = "".join(ch for ch in val if ch.isdigit())
             p_idx = int(digits) if digits else int(val.replace("Config", "").strip())
             ctrl.profile_index = p_idx
-            cfg = ConfigPersistenceManager.load_single_profile(p_idx)
-            d_val = float(cfg.get("respawn_delay", 15.0))
-            ctrl.respawn_delay = d_val
-            if hasattr(self, "train_view") and self.train_view:
-                card = self.train_view.cards.get(slot_idx)
-                if card:
-                    card.set_respawn_delay(d_val)
             self.state_mgr.update_slot_telemetry(slot_idx, profile=val)
-            self.log_message(f"[Slot {slot_idx:02d}] Đã đổi cấu hình sang {val} (Chờ ra bãi: {d_val:.0f}s).", "INFO")
+            self.log_message(f"[Slot {slot_idx:02d}] Đã đổi cấu hình sang {val}.", "INFO")
         except Exception:
             pass
-
-    def on_slot_delay_changed(self, slot_idx: int, val: float):
-        """Cập nhật và lưu thời gian chờ ra bãi cho slot riêng biệt."""
-        if not (1 <= slot_idx <= len(self.controllers)):
-            return
-        ctrl = self.controllers[slot_idx - 1]
-        val = max(3.0, float(val))
-        ctrl.respawn_delay = val
-        if ctrl.worker and ctrl.worker.running:
-            ctrl.worker.respawn_delay = val
-            if hasattr(ctrl.worker, "config") and isinstance(ctrl.worker.config, dict):
-                ctrl.worker.config["respawn_delay"] = val
-        p_idx = getattr(ctrl, "profile_index", slot_idx)
-        try:
-            cfg = ConfigPersistenceManager.load_single_profile(p_idx)
-            cfg["respawn_delay"] = val
-            ConfigPersistenceManager.save_single_profile(p_idx, cfg)
-        except Exception:
-            pass
-        try:
-            ConfigPersistenceManager.save_event_config(
-                slot_idx=ctrl.slot_idx,
-                auto_devil=ctrl.auto_devil,
-                devil_min_resets=ctrl.devil_min_resets,
-                devil_max_resets=ctrl.devil_max_resets,
-                devil_ticket_type=ctrl.devil_ticket_type,
-                auto_reset=ctrl.auto_reset,
-                auto_add_point=ctrl.auto_add_point,
-                reset_level=ctrl.reset_level,
-                stat_mode=ctrl.stat_mode,
-                custom_class=ctrl.custom_class,
-                stat_ratio=ctrl.stat_ratio,
-                respawn_delay=val
-            )
-        except Exception:
-            pass
-        if getattr(self, "profiles_view", None):
-            try:
-                if self.profiles_view.current_profile_idx == p_idx:
-                    self.profiles_view.respawn_var.set(str(int(val)))
-            except Exception:
-                pass
-        self.log_message(f"[Slot {slot_idx:02d}] Đã lưu thời gian chờ ra bãi: {val:.0f} giây (Config {p_idx}).", "SUCCESS")
 
     def save_slot_settings(self, slot_idx: int, new_cfg: Dict[str, Any]):
         ctrl = self.controllers[slot_idx - 1]
@@ -1303,13 +1342,6 @@ class DashboardAppOptimized(ctk.CTk):
                 ctrl.spot_x = int(new_cfg["x"])
             if "y" in new_cfg:
                 ctrl.spot_y = int(new_cfg["y"])
-            if "respawn_delay" in new_cfg:
-                d_val = max(3.0, float(new_cfg["respawn_delay"]))
-                ctrl.respawn_delay = d_val
-                if hasattr(self, "train_view") and self.train_view:
-                    card = self.train_view.cards.get(slot_idx)
-                    if card:
-                        card.set_respawn_delay(d_val)
             if "auto_repair" in new_cfg:
                 ctrl.auto_repair = bool(new_cfg["auto_repair"])
             if "auto_clean_trash" in new_cfg:
@@ -1984,22 +2016,36 @@ class DashboardAppOptimized(ctk.CTk):
         lines = []
         for ctrl, res in reports:
             if not isinstance(res, dict) or not res.get("ok"):
-                lines.append(f"[Slot {ctrl.slot_idx:02d}] ❌ Không đọc được hòm đồ")
+                lines.append(f"[Slot {ctrl.slot_idx:02d}] ❌ Không đọc được hòm đồ ({(res or {}).get('reason', '?')})")
                 lines.append("")
                 continue
-            junk = res.get("junk", []) or res.get("junkSlots", []) or []
-            held = res.get("kept", []) or res.get("keptSlots", []) or []
+            slots_list = res.get("slots")
+            if isinstance(slots_list, list):
+                junk = [s for s in slots_list if isinstance(s, dict) and s.get("status") == "junk"]
+                held = [s for s in slots_list if isinstance(s, dict) and s.get("status") == "protected"]
+            else:
+                raw_j = res.get("junkSlots") or (res.get("junk") if isinstance(res.get("junk"), list) else [])
+                raw_h = res.get("keptSlots") or (res.get("kept") if isinstance(res.get("kept"), list) else [])
+                junk = raw_j if isinstance(raw_j, list) else []
+                held = raw_h if isinstance(raw_h, list) else []
             total_junk += len(junk)
             total_held += len(held)
-            lines.append(f"[Slot {ctrl.slot_idx:02d} · {getattr(ctrl, 'char_name', '---')}] "
-                         f"dọn được {len(junk)} · giữ {len(held)}")
+            coord = res.get("coord") or {}
+            lines.append(
+                f"[Slot {ctrl.slot_idx:02d} · {getattr(ctrl, 'char_name', '---')}] "
+                f"{res.get('occupied', len(junk) + len(held))} món · dọn được {len(junk)} · giữ {len(held)} · "
+                f"({coord.get('x', '?')},{coord.get('y', '?')}) · Merchant {'MỞ' if res.get('merchantOpen') else 'ĐÓNG'}"
+            )
+            reason_labels = getattr(ctrl, "JUNK_REASON_LABELS", {}) or {}
+            for k, v in sorted((res.get("byReason") or {}).items(), key=lambda kv: -kv[1]):
+                lines.append(f"      giữ {v:>3} → {reason_labels.get(k, k)}")
             for it in junk[:25]:
                 if isinstance(it, dict):
                     lines.append(
-                        f"  - slot {it.get('slot', '?')}: {it.get('name', '?')} +{it.get('level', 0)}"
+                        f"  ✔ slot {int(it.get('slot', 0)):>3}: {it.get('name') or ('#' + str(it.get('index', '?')))} +{it.get('level', 0)}"
                     )
                 else:
-                    lines.append(f"  - {it}")
+                    lines.append(f"  ✔ {it}")
             if len(junk) > 25:
                 lines.append(f"      ... và {len(junk) - 25} món nữa")
             lines.append("")
@@ -2074,6 +2120,8 @@ class DashboardAppOptimized(ctk.CTk):
                     self.after(0, lambda c=ctrl, o=out, n=cleaned: self.append_moss_log(
                         f"[Slot {c.slot_idx:02d} - {c.char_name}] 🗑️ Dọn {n} món "
                         f"(vứt {o.get('dropped', 0)}, bán {o.get('sold', 0)}) — {o.get('reason')}"
+                        + (f" | server từ chối {o.get('serverRejected')} ô" if o.get("serverRejected") else "")
+                        + (f" | gửi lỗi: {o.get('sendError')}" if o.get("sendError") else "")
                     ))
                     time.sleep(0.2)
                 except Exception as e:
@@ -2157,6 +2205,8 @@ class DashboardAppOptimized(ctk.CTk):
                     prefire_sec=self.get_mirror_prefire_sec(),
                     interval_ms=self.get_mirror_snipe_delay(),
                     max_duration_s=self.get_mirror_snipe_dur(),
+                    stagger_ms=int(getattr(self, "mirror_stagger_ms", 0) or 0),
+                    clock_offset_ms=float(getattr(self, "_mirror_clock_offset_ms", 0.0) or 0.0),
                     selected_slots=selected,
                 )
                 zc_lbl = "BẬT" if zc_val else "TẮT"
@@ -3329,6 +3379,12 @@ class DashboardAppOptimized(ctk.CTk):
         self.state_mgr.update_slot_telemetry(slot_idx, coords=coords, server=server)
 
     def update_header_stats(self):
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, self.update_header_stats)
+            except Exception:
+                pass
+            return
         self._update_header_stats_internal()
 
     def _on_acc_toggle(self, acc: Dict[str, Any], enabled: bool):
@@ -3426,12 +3482,29 @@ class DashboardAppOptimized(ctk.CTk):
             pass
 
     def create_slot_row(self, slot_idx: int):
-        """Tạo card slot mới trong TrainSlotsView (tương thích các hàm tự động thêm slot)."""
+        """Tạo card slot mới trong TrainSlotsView và đăng ký AppStateManager (hỗ trợ slot > 10)."""
+        if hasattr(self, "state_mgr") and self.state_mgr:
+            self.state_mgr.ensure_slot(slot_idx)
         if hasattr(self, "train_view") and self.train_view:
             self.train_view.add_slot_card(slot_idx)
 
-    def add_new_slot(self):
-        """Thêm slot mới nếu còn hạn mức License (tối đa MAX_SLOTS)."""
+    def add_new_slot(self, silent: bool = False):
+        """Thêm slot mới nếu còn hạn mức License (tối đa MAX_SLOTS). Hỗ trợ gọi an toàn từ mọi luồng."""
+        if threading.current_thread() is not threading.main_thread():
+            done = threading.Event()
+            result = [None]
+            def _run_on_main():
+                try:
+                    result[0] = self.add_new_slot(silent=silent)
+                finally:
+                    done.set()
+            try:
+                self.after(0, _run_on_main)
+                done.wait(timeout=3.0)
+            except Exception:
+                pass
+            return result[0]
+
         lic_data = license_client.load_license_data() if license_client else {}
         is_valid = license_client.is_license_valid() if license_client else False
         max_allowed = int(lic_data.get("max_slots", 5 if not is_valid else 10))
@@ -3442,11 +3515,12 @@ class DashboardAppOptimized(ctk.CTk):
             else:
                 msg = f"Gói bản quyền hiện tại của bạn cho phép tối đa {max_allowed} tài khoản.\nVui lòng liên hệ nâng cấp gói bản quyền để mở thêm Slot."
             self.log_message(msg, "WARNING")
-            try:
-                messagebox.showinfo("Giới Hạn Bản Quyền", msg)
-            except Exception:
-                pass
-            return
+            if not silent:
+                try:
+                    messagebox.showinfo("Giới Hạn Bản Quyền", msg)
+                except Exception:
+                    pass
+            return None
 
         new_slot_idx = cur_count + 1
         default_profile = 1
@@ -3459,15 +3533,24 @@ class DashboardAppOptimized(ctk.CTk):
         ctrl = SlotController(new_slot_idx, self, default_profile=default_profile)
         self.controllers.append(ctrl)
 
-        # 1. Thêm UI card vào TrainSlotsView
+        # 0. Đăng ký Slot mới vào AppStateManager (bắt buộc để Slot > 10 nhận telemetry & nhận diện nhân vật!)
+        if hasattr(self, "state_mgr") and self.state_mgr:
+            self.state_mgr.ensure_slot(new_slot_idx)
+
+        # 1. Thêm UI card vào TrainSlotsView + đồng bộ danh sách tiến trình vào dropdown mới
         if hasattr(self, "train_view") and self.train_view:
             self.train_view.add_slot_card(new_slot_idx)
+            cached_opts = getattr(self, "_last_proc_options_cache", None)
+            if cached_opts and new_slot_idx in self.train_view.cards:
+                self.train_view.cards[new_slot_idx].set_process_options(cached_opts)
 
         # 2. Thêm UI row vào MirrorView
         if hasattr(self, "mirror_view") and self.mirror_view:
             if hasattr(self.mirror_view, "_create_row"):
                 try:
                     self.mirror_view._create_row(ctrl)
+                    if hasattr(self.mirror_view, "_update_badge"):
+                        self.mirror_view._update_badge()
                 except Exception:
                     pass
 
@@ -3476,11 +3559,14 @@ class DashboardAppOptimized(ctk.CTk):
             if hasattr(self.moss_view, "_create_moss_slot_row"):
                 try:
                     self.moss_view._create_moss_slot_row(ctrl)
+                    if hasattr(self.moss_view, "_update_moss_badge"):
+                        self.moss_view._update_moss_badge()
                 except Exception:
                     pass
 
         self.update_header_stats()
         self.log_message(f"➕ Đã thêm Account Slot #{new_slot_idx:02d} thành công (Hiện có {len(self.controllers)} slot).", "SUCCESS")
+        return ctrl
 
     def remove_last_slot(self):
         """Xóa slot tài khoản cuối cùng."""
@@ -3510,8 +3596,10 @@ class DashboardAppOptimized(ctk.CTk):
             except Exception:
                 pass
 
-        # Xóa khỏi slot_assignments và lưu lại file
+        # Xóa khỏi slot_assignments, AppStateManager và lưu lại file
         self.slot_assignments.pop(last_idx, None)
+        if hasattr(self, "state_mgr") and self.state_mgr:
+            self.state_mgr.remove_slot(last_idx)
         try:
             ConfigPersistenceManager.save_all_slot_assignments(self.slot_assignments)
         except Exception:
@@ -3937,8 +4025,16 @@ def main():
         except Exception:
             pass
     app = None
+    _shutting_down = {"active": False}
 
     def sigint_handler(signum, frame):
+        if _shutting_down["active"]:
+            return
+        _shutting_down["active"] = True
+        try:
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+        except Exception:
+            pass
         print("\n[INFO] Đã nhận tín hiệu dừng (Ctrl+C). Đang đóng ứng dụng an toàn...")
         if app is not None:
             try:

@@ -47,8 +47,8 @@ def _apply_dwm_rounding(window):
         pass
 
 
-class ModernDropdown(ctk.CTkFrame):
-    """Dropdown menu hiện đại thông minh chống tràn màn hình với thiết kế cao cấp."""
+class ModernDropdown(tk.Frame):
+    """Dropdown menu hiện đại (Zero-Canvas native tk.Frame + tk.Label) chống tràn màn hình."""
 
     def __init__(
         self,
@@ -67,25 +67,26 @@ class ModernDropdown(ctk.CTkFrame):
         popup_min_width: Optional[int] = None,
         **kwargs
     ):
-        # Bỏ qua các tham số riêng nếu truyền từ CTkOptionMenu
-        kwargs.pop("button_color", None)
-        kwargs.pop("button_hover_color", None)
-        kwargs.pop("dropdown_fg_color", None)
-        kwargs.pop("dropdown_hover_color", None)
-        kwargs.pop("dropdown_text_color", None)
-        kwargs.pop("anchor", None)
+        # Bỏ qua các tham số riêng của CTkOptionMenu / CTkFrame nếu truyền vào
+        for k in (
+            "button_color", "button_hover_color", "dropdown_fg_color",
+            "dropdown_hover_color", "dropdown_text_color", "anchor",
+            "corner_radius", "border_width",
+        ):
+            kwargs.pop(k, None)
 
-        c_radius = kwargs.pop("corner_radius", 6)
         base_fg = fg_color or Colors.BG_SURFACE
         base_border = border_color or Colors.BORDER_CARD
         super().__init__(
             master,
             width=width,
             height=height,
-            fg_color=base_fg,
-            border_width=1,
-            border_color=base_border,
-            corner_radius=c_radius,
+            bg=base_fg,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=base_border,
+            highlightcolor=Colors.BORDER_FOCUS,
+            cursor="hand2",
             **kwargs
         )
         self.pack_propagate(False)
@@ -106,24 +107,32 @@ class ModernDropdown(ctk.CTkFrame):
         self.command = command
         self._popup: Optional[tk.Toplevel] = None
         self._global_bind_id: Optional[str] = None
+        self._last_text = self.variable.get()
 
-        # Text hiển thị giá trị hiện tại (có padding để không đè viền)
-        self._lbl = ctk.CTkLabel(
+        # Text hiển thị giá trị hiện tại (0 Canvas)
+        self._lbl = tk.Label(
             self,
-            text=self.variable.get(),
+            text=self._last_text,
             font=self._font,
-            text_color=self._text_color,
-            anchor="w"
+            bg=base_fg,
+            fg=self._text_color,
+            anchor="w",
+            bd=0,
+            cursor="hand2",
         )
-        self._lbl.pack(side="left", fill="both", expand=True, padx=(10, 4), pady=(2, 2))
+        self._lbl.pack(side="left", fill="both", expand=True, padx=(8, 2), pady=1)
 
-        # Vector Icon Chevron Down
-        self._chevron = ctk.CTkLabel(
+        # Mũi tên Chevron nhẹ (0 Canvas, 0 CTkImage)
+        self._chevron = tk.Label(
             self,
-            text="",
-            image=UiIconFactory.get("chevron_down", color="#94a3b8", size=(10, 10))
+            text="▾",
+            font=("Segoe UI", 9),
+            bg=base_fg,
+            fg="#94a3b8",
+            bd=0,
+            cursor="hand2",
         )
-        self._chevron.pack(side="right", padx=(0, 8), pady=(2, 2))
+        self._chevron.pack(side="right", padx=(0, 6), pady=1)
 
         # Đồng bộ khi biến StringVar thay đổi từ bên ngoài
         try:
@@ -136,19 +145,26 @@ class ModernDropdown(ctk.CTkFrame):
             w.bind("<Button-1>", lambda e: self._toggle_popup())
             w.bind("<Enter>", lambda e: self._on_enter())
             w.bind("<Leave>", lambda e: self._on_leave())
-            w.configure(cursor="hand2")
+
+    def _apply_surface(self, bg: str, border: str, bw: int = 1):
+        super().configure(bg=bg, highlightthickness=bw, highlightbackground=border, highlightcolor=border)
+        if hasattr(self, "_lbl") and self._lbl.winfo_exists():
+            self._lbl.configure(bg=bg)
+        if hasattr(self, "_chevron") and self._chevron.winfo_exists():
+            self._chevron.configure(bg=bg)
 
     def _on_enter(self):
         if not self._popup or not self._popup.winfo_exists():
-            self.configure(fg_color=self._hover_bg, border_color="#38bdf8")
+            self._apply_surface(self._hover_bg, "#38bdf8", 1)
 
     def _on_leave(self):
         if not self._popup or not self._popup.winfo_exists():
-            self.configure(fg_color=self._base_fg, border_color=self._base_border, border_width=1)
+            self._apply_surface(self._base_fg, self._base_border, 1)
 
     def _on_var_changed(self):
         val = self.variable.get() if self.variable else "--"
-        if hasattr(self, "_lbl") and self._lbl.winfo_exists():
+        if val != self._last_text and hasattr(self, "_lbl") and self._lbl.winfo_exists():
+            self._last_text = val
             self._lbl.configure(text=val)
 
     def _toggle_popup(self):
@@ -169,9 +185,9 @@ class ModernDropdown(ctk.CTkFrame):
         self.update_idletasks()
 
         # Hiệu ứng Active Focus Ring 2px hoàn toàn kín, không hở góc
-        self.configure(border_width=2, border_color=Colors.BORDER_FOCUS, fg_color=self._hover_bg)
+        self._apply_surface(self._hover_bg, Colors.BORDER_FOCUS, 2)
         try:
-            self._chevron.configure(image=UiIconFactory.get("chevron_up", color=Colors.CYAN, size=(10, 10)))
+            self._chevron.configure(text="▴", fg=Colors.CYAN)
         except Exception:
             pass
 
@@ -408,9 +424,9 @@ class ModernDropdown(ctk.CTkFrame):
             self._popup = None
 
         # Khôi phục trạng thái viền 1px và chevron
-        self.configure(border_width=1, fg_color=self._base_fg, border_color=self._base_border)
+        self._apply_surface(self._base_fg, self._base_border, 1)
         try:
-            self._chevron.configure(image=UiIconFactory.get("chevron_down", color="#94a3b8", size=(10, 10)))
+            self._chevron.configure(text="▾", fg="#94a3b8")
         except Exception:
             pass
 
@@ -425,35 +441,46 @@ class ModernDropdown(ctk.CTkFrame):
 
     def set(self, value: str):
         self.variable.set(value)
-        if hasattr(self, "_lbl") and self._lbl.winfo_exists():
+        if value != self._last_text and hasattr(self, "_lbl") and self._lbl.winfo_exists():
+            self._last_text = value
             self._lbl.configure(text=value)
 
     def get(self) -> str:
         return self.variable.get()
 
-    def configure(self, **kwargs):
-        if "values" in kwargs:
-            self.values = list(kwargs.pop("values"))
-        if "variable" in kwargs:
-            self.variable = kwargs.pop("variable")
+    def configure(self, cnf=None, **kwargs):
+        if not kwargs and cnf is None:
+            return super().configure()
+        kw = dict(kwargs)
+        if "values" in kw:
+            self.values = list(kw.pop("values"))
+        if "variable" in kw:
+            self.variable = kw.pop("variable")
             if hasattr(self, "_lbl") and self._lbl.winfo_exists() and self.variable:
-                self._lbl.configure(text=self.variable.get())
-        if "command" in kwargs:
-            self.command = kwargs.pop("command")
-        if "fg_color" in kwargs:
-            self._base_fg = kwargs.pop("fg_color")
-            super().configure(fg_color=self._base_fg)
-        if "border_color" in kwargs:
-            self._base_border = kwargs.pop("border_color")
-            super().configure(border_color=self._base_border)
-        if "text_color" in kwargs:
-            self._text_color = kwargs.pop("text_color")
+                v = self.variable.get()
+                self._last_text = v
+                self._lbl.configure(text=v)
+        if "command" in kw:
+            self.command = kw.pop("command")
+        if "fg_color" in kw:
+            self._base_fg = kw.pop("fg_color")
+            self._apply_surface(self._base_fg, self._base_border, 1)
+        if "border_color" in kw:
+            self._base_border = kw.pop("border_color")
+            super().configure(highlightbackground=self._base_border, highlightcolor=self._base_border)
+        if "border_width" in kw:
+            bw = int(kw.pop("border_width") or 1)
+            super().configure(highlightthickness=bw)
+        if "text_color" in kw:
+            self._text_color = kw.pop("text_color")
             if hasattr(self, "_lbl") and self._lbl.winfo_exists():
-                self._lbl.configure(text_color=self._text_color)
-        kwargs.pop("button_color", None)
-        kwargs.pop("button_hover_color", None)
-        kwargs.pop("dropdown_fg_color", None)
-        kwargs.pop("dropdown_hover_color", None)
-        kwargs.pop("dropdown_text_color", None)
-        kwargs.pop("anchor", None)
-        super().configure(**kwargs)
+                self._lbl.configure(fg=self._text_color)
+        for drop_k in (
+            "button_color", "button_hover_color", "dropdown_fg_color",
+            "dropdown_hover_color", "dropdown_text_color", "anchor", "corner_radius",
+        ):
+            kw.pop(drop_k, None)
+        if kw:
+            super().configure(**kw)
+
+    config = configure

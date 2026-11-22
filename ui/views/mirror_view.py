@@ -6,10 +6,12 @@ Dense ops layout: thin countdown strip · actions · table · status log.
 
 from typing import Callable, Optional, Dict, Any
 import time
+import tkinter as tk
 import customtkinter as ctk
 from ui.theme import Colors, Fonts, Radii
 from ui.components.icons import UiIconFactory
 from ui.components.shell import make_action_button, bind_mousewheel_to_scrollable
+from ui.components.fast_widgets import FastCell, FastButton, FastCheckBox
 from ui.components.tooltip import attach_tooltip
 
 
@@ -285,36 +287,35 @@ class MirrorView(ctk.CTkFrame):
     def _create_row(self, ctrl):
         i = ctrl.slot_idx
         is_en = getattr(ctrl, "mirror_enabled", True)
-        row = ctk.CTkFrame(
-            self.mirror_scroll,
-            fg_color=Colors.BG_SURFACE if is_en else "#0c1018",
-            height=34, corner_radius=Radii.SM
-        )
+        row_bg = Colors.BG_SURFACE if is_en else "#0c1018"
+        row = tk.Frame(self.mirror_scroll, bg=row_bg, height=32, bd=0, highlightthickness=0)
         row.pack(fill="x", pady=1)
         row.pack_propagate(False)
 
         var = ctk.BooleanVar(value=is_en)
         self.mirror_cb_vars[i] = var
-        cb = ctk.CTkCheckBox(
-            row, text="Đi", variable=var, width=75,
-            font=Fonts.CAPTION, text_color=Colors.PURPLE if is_en else Colors.TEXT_DIM,
-            checkbox_width=14, checkbox_height=14,
+        cb = FastCheckBox(
+            row, text="Đi", variable=var, width=75, height=26,
+            bg=row_bg, font=Fonts.CAPTION,
+            text_color=Colors.PURPLE if is_en else Colors.TEXT_DIM,
+            accent_color=Colors.PURPLE,
             command=lambda s=i, v=var: self._on_enabled(s, v.get())
         )
-        cb.pack(side="left", padx=(6, 2), pady=5)
+        cb.pack(side="left", padx=(6, 2), pady=3)
 
-        ctk.CTkLabel(row, text=f"{i:02d}", width=32, anchor="w", font=Fonts.BODY_BOLD, text_color=Colors.CYAN).pack(side="left", padx=2)
+        num_lbl = FastCell(row, text=f"{i:02d}", width=32, height=26, bg=row_bg, fg=Colors.CYAN, font=Fonts.BODY_BOLD, anchor="w")
+        num_lbl.pack(side="left", padx=2)
 
         char_disp = f"● {ctrl.char_name} ({ctrl.assigned_pid})" if ctrl.assigned_pid else "⚪ Chưa kết nối"
-        char_lbl = ctk.CTkLabel(
-            row, text=char_disp, width=210, anchor="w", font=Fonts.CAPTION,
-            text_color=Colors.TEXT_MAIN if (ctrl.assigned_pid and is_en) else Colors.TEXT_DIM
+        char_lbl = FastCell(
+            row, text=char_disp, width=210, height=26, bg=row_bg, anchor="w", font=Fonts.CAPTION,
+            fg=Colors.TEXT_MAIN if (ctrl.assigned_pid and is_en) else Colors.TEXT_DIM
         )
         char_lbl.pack(side="left", padx=4)
 
         # Cột Vé Mirror
-        ticket_lbl = ctk.CTkLabel(
-            row, text="🎟️ -- vé", width=125, anchor="w", font=Fonts.CAPTION, text_color=Colors.PURPLE
+        ticket_lbl = FastCell(
+            row, text="🎟️ -- vé", width=125, height=26, bg=row_bg, anchor="w", font=Fonts.CAPTION, fg=Colors.PURPLE
         )
         ticket_lbl.pack(side="left", padx=4)
 
@@ -324,16 +325,24 @@ class MirrorView(ctk.CTkFrame):
             st_text, st_color = "🟢 Sẵn sàng", Colors.GREEN
         else:
             st_text, st_color = "⚪ Chưa gán", Colors.TEXT_DIM
-        status_lbl = ctk.CTkLabel(row, text=st_text, width=115, anchor="w", font=Fonts.CAPTION, text_color=st_color)
+        status_lbl = FastCell(row, text=st_text, width=115, height=26, bg=row_bg, anchor="w", font=Fonts.CAPTION, fg=st_color)
         status_lbl.pack(side="left", padx=4)
 
-        btn = make_action_button(row, "⚡ Cướp", lambda s=i: self._handle_snipe_slot(s), tone="primary", height=24, width=72)
+        btn = FastButton(
+            row, text="⚡ Cướp", command=lambda s=i: self._handle_snipe_slot(s),
+            fg_color="#0c4a6e", hover_color="#075985", border_color="#0284c7", text_color=Colors.CYAN,
+            height=24, width=72, font=Fonts.BODY_BOLD
+        )
         btn.pack(side="left", padx=4)
 
         self.mirror_ui_elements[i] = {
-            "row_frame": row, "cb_enabled": cb, "char_lbl": char_lbl,
+            "row_frame": row, "cb_enabled": cb, "num_lbl": num_lbl, "char_lbl": char_lbl,
             "ticket_lbl": ticket_lbl, "status_lbl": status_lbl, "btn_snipe": btn,
+            "_bg": row_bg,
         }
+        if not hasattr(self, "_row_cache"):
+            self._row_cache = {}
+        self._row_cache.pop(i, None)
 
     # ---- log ----
     def append_log(self, text: str):
@@ -400,26 +409,45 @@ class MirrorView(ctk.CTkFrame):
         )
         self.refresh_rows()
 
+    def _apply_row_bg(self, el: Dict[str, Any], row_bg: str):
+        if el.get("_bg") == row_bg:
+            return
+        el["_bg"] = row_bg
+        if el.get("row_frame"):
+            el["row_frame"].configure(bg=row_bg)
+        for k in ("cb_enabled", "num_lbl", "char_lbl", "ticket_lbl", "status_lbl"):
+            w = el.get(k)
+            if w and hasattr(w, "set_bg"):
+                w.set_bg(row_bg)
+
     def update_countdown(self, sec: int, is_open: bool, next_str: Optional[str] = None):
-        self.lbl_mirror_countdown.configure(text=self._format_seconds(sec))
-        if is_open:
-            self.lbl_mirror_gate_status.configure(text="⚡ ĐANG MỞ", text_color=Colors.GREEN)
-            self.lbl_mirror_countdown.configure(text_color=Colors.GREEN)
-        else:
-            self.lbl_mirror_gate_status.configure(text="Cổng đóng", text_color=Colors.TEXT_MUTED)
-            self.lbl_mirror_countdown.configure(text_color=Colors.CYAN)
-        if next_str:
-            self.lbl_mirror_next.configure(text=f"Đợt kế: {next_str}")
+        cd_txt = self._format_seconds(sec)
+        prev = getattr(self, "_countdown_cache", None)
+        if prev != (cd_txt, is_open, next_str):
+            self._countdown_cache = (cd_txt, is_open, next_str)
+            self.lbl_mirror_countdown.configure(
+                text=cd_txt,
+                text_color=Colors.GREEN if is_open else Colors.CYAN,
+            )
+            if is_open:
+                self.lbl_mirror_gate_status.configure(text="⚡ ĐANG MỞ", text_color=Colors.GREEN)
+            else:
+                self.lbl_mirror_gate_status.configure(text="Cổng đóng", text_color=Colors.TEXT_MUTED)
+            if next_str:
+                self.lbl_mirror_next.configure(text=f"Đợt kế: {next_str}")
         if hasattr(self, "lbl_mirror_sync"):
             try:
                 from services.time_sync_service import get_time_sync
                 st_txt = get_time_sync().get_sync_status_text()
-                if st_txt and self.lbl_mirror_sync.cget("text") != st_txt:
+                if st_txt and getattr(self, "_last_sync_txt", None) != st_txt:
+                    self._last_sync_txt = st_txt
                     self.lbl_mirror_sync.configure(text=st_txt)
             except Exception:
                 pass
 
     def refresh_rows(self):
+        if not hasattr(self, "_row_cache"):
+            self._row_cache = {}
         for ctrl in self.controllers:
             i = ctrl.slot_idx
             el = self.mirror_ui_elements.get(i)
@@ -439,6 +467,24 @@ class MirrorView(ctk.CTkFrame):
                         ctrl.char_name = name
 
             pid = getattr(ctrl, "assigned_pid", None)
+            sniping = bool(getattr(ctrl, "mirror_sniping", False))
+            in_dungeon = bool(getattr(ctrl, "_mirror_dungeon_running", False))
+            t_info = getattr(ctrl, "cached_mirror_ticket_info", None)
+            t_key = (
+                int(t_info.get("count", 0) or 0),
+                bool(t_info.get("hasTicket")),
+                bool(t_info.get("hasOnlySign")),
+                len(t_info.get("signs", [])),
+            ) if isinstance(t_info, dict) else None
+
+            row_key = (is_en, name, pid, sniping, in_dungeon, t_key)
+            if self._row_cache.get(i) == row_key:
+                continue
+            self._row_cache[i] = row_key
+
+            row_bg = Colors.BG_SURFACE if is_en else "#0c1018"
+            self._apply_row_bg(el, row_bg)
+
             if el.get("char_lbl"):
                 el["char_lbl"].configure(
                     text=f"● {name} ({pid})" if pid else "⚪ Chưa kết nối",
@@ -447,18 +493,20 @@ class MirrorView(ctk.CTkFrame):
             if el.get("status_lbl"):
                 if not is_en:
                     el["status_lbl"].configure(text="⛔ Bỏ qua", text_color=Colors.TEXT_DIM)
+                elif pid and sniping:
+                    el["status_lbl"].configure(text="⚡ Đang cướp cổng", text_color=Colors.PURPLE)
+                elif pid and in_dungeon:
+                    el["status_lbl"].configure(text="🏆 Trong Mirror", text_color=Colors.AMBER)
                 elif pid:
                     el["status_lbl"].configure(text="🟢 Sẵn sàng", text_color=Colors.GREEN)
                 else:
                     el["status_lbl"].configure(text="⚪ Chưa gán", text_color=Colors.TEXT_DIM)
-            if el.get("row_frame"):
-                el["row_frame"].configure(fg_color=Colors.BG_SURFACE if is_en else "#0c1018")
             if hasattr(ctrl, "cached_mirror_ticket_info"):
-                self.update_slot_ticket_info(i, getattr(ctrl, "cached_mirror_ticket_info", None))
+                self.update_slot_ticket_info(i, t_info)
         self._update_badge()
 
     def update_slot_ticket_info(self, slot_idx: int, t_info: Optional[Dict[str, Any]] = None):
-        """Cập nhật nhãn số lượng vé Mirror cho một slot cụ thể."""
+        """Cập nhật nhãn số lượng vé Mirror cho một slot cụ thể (có State Diffing)."""
         el = self.mirror_ui_elements.get(slot_idx)
         if not el or not el.get("ticket_lbl") or not el["ticket_lbl"].winfo_exists():
             return
@@ -495,10 +543,13 @@ class MirrorView(ctk.CTkFrame):
 
     def _on_enabled(self, slot_idx: int, enabled: bool):
         el = self.mirror_ui_elements.get(slot_idx)
-        if el and el.get("row_frame"):
-            el["row_frame"].configure(fg_color=Colors.BG_SURFACE if enabled else "#0c1018")
-        if el and el.get("cb_enabled"):
-            el["cb_enabled"].configure(text_color=Colors.PURPLE if enabled else Colors.TEXT_DIM)
+        if el:
+            row_bg = Colors.BG_SURFACE if enabled else "#0c1018"
+            self._apply_row_bg(el, row_bg)
+            if el.get("cb_enabled"):
+                el["cb_enabled"].configure(text_color=Colors.PURPLE if enabled else Colors.TEXT_DIM)
+        if hasattr(self, "_row_cache"):
+            self._row_cache.pop(slot_idx, None)
         if self.on_toggle_participant:
             self.on_toggle_participant(slot_idx, enabled)
         self._update_badge()
@@ -506,6 +557,10 @@ class MirrorView(ctk.CTkFrame):
     def _update_badge(self):
         total = len(self.controllers)
         sel = sum(1 for c in self.controllers if getattr(c, "mirror_enabled", True))
+        key = (sel, total)
+        if getattr(self, "_badge_cache", None) == key:
+            return
+        self._badge_cache = key
         self.lbl_mirror_count_badge.configure(
             text=f"{sel}/{total} slot",
             text_color=Colors.PURPLE if sel else Colors.TEXT_DIM

@@ -24,18 +24,133 @@ except ImportError:
     ProcessMemoryReader = None
     MAP_CATALOG = {}
 
+try:
+    from meg_gui import (
+        character_name_from_window_title as _gui_char_from_title,
+        server_from_window_title as _gui_srv_from_title,
+        CLASS_ID_TO_CODE as _GUI_CLASS_ID_TO_CODE,
+    )
+except Exception:
+    _gui_char_from_title = None
+    _gui_srv_from_title = None
+    _GUI_CLASS_ID_TO_CODE = {}
+
 user32 = ctypes.windll.user32 if hasattr(ctypes, "windll") else None
 
-def enumerate_megamu_processes() -> Dict[int, str]:
-    """Tìm tất cả tiến trình MEGAMU.exe và lấy tiêu đề cửa sổ / tên nhân vật trên Windows."""
-    pids = set()
-    for p in psutil.process_iter(['pid', 'name']):
+
+def _parse_title_char_and_server(raw_title: str):
+    """Trích xuất (char_name, server_num_str) nhanh từ Window Title của MEGAMU (hỗ trợ mọi định dạng)."""
+    import re
+    if not raw_title:
+        return "", ""
+
+    name = ""
+    if _gui_char_from_title:
         try:
-            if p.info['name'] and p.info['name'].lower() == 'megamu.exe':
-                pids.add(p.info['pid'])
+            name = _gui_char_from_title(raw_title) or ""
+        except Exception:
+            name = ""
+
+    if not name:
+        m1 = re.match(r"^(?P<name>[^(\-\[\]]+?)\s*(?:\([^)]+\))?\s*[-–—]\s*MEGAMU", raw_title, re.IGNORECASE)
+        if m1:
+            cand = m1.group("name").strip()
+            if cand and not cand.upper().startswith("MEGAMU"):
+                name = cand
+        elif "[" in raw_title and "]" in raw_title:
+            try:
+                cand = raw_title.split("[")[1].split("]")[0].strip()
+                if cand and not re.match(r"^(?:Sv|Sub|Server)\s*\d+$", cand, re.IGNORECASE):
+                    name = cand
+            except Exception:
+                pass
+
+    srv_str = ""
+    if _gui_srv_from_title:
+        try:
+            s_num = _gui_srv_from_title(raw_title)
+            if s_num:
+                srv_str = f"Sv{s_num}"
+        except Exception:
+            srv_str = ""
+
+    if not srv_str:
+        m_srv = re.search(r"(?:Sv|Server|Sub)\.?\s*(\d+)", raw_title, re.IGNORECASE)
+        if m_srv:
+            srv_str = f"Sv{m_srv.group(1)}"
+
+    return name, srv_str
+
+
+def _fast_find_megamu_pids() -> set:
+    """Tìm nhanh tất cả PID của MEGAMU.exe bằng Win32 CreateToolhelp32Snapshot (~5ms thay vì ~1300ms của psutil.process_iter)."""
+    pids = set()
+    if hasattr(ctypes, "windll"):
+        try:
+            from ctypes import wintypes
+            TH32CS_SNAPPROCESS = 0x00000002
+            INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+            class _PROCESSENTRY32W(ctypes.Structure):
+                _fields_ = [
+                    ("dwSize", wintypes.DWORD),
+                    ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_void_p),
+                    ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", wintypes.LONG),
+                    ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", wintypes.WCHAR * 260),
+                ]
+
+            k32 = ctypes.windll.kernel32
+            k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+            k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+            k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+
+            snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+            if snap and snap != INVALID_HANDLE_VALUE:
+                try:
+                    pe = _PROCESSENTRY32W()
+                    pe.dwSize = ctypes.sizeof(_PROCESSENTRY32W)
+                    if k32.Process32FirstW(snap, ctypes.byref(pe)):
+                        while True:
+                            if pe.szExeFile.lower() == "megamu.exe":
+                                pids.add(int(pe.th32ProcessID))
+                            if not k32.Process32NextW(snap, ctypes.byref(pe)):
+                                break
+                finally:
+                    k32.CloseHandle(snap)
+                # Chỉ kiểm tra RSS trên đúng các PID MEGAMU khớp được (rất nhanh, < 1ms)
+                valid_pids = set()
+                for pid in pids:
+                    try:
+                        p = psutil.Process(pid)
+                        if p.memory_info().rss >= 15 * 1024 * 1024:
+                            valid_pids.add(pid)
+                    except Exception:
+                        pass
+                return valid_pids
         except Exception:
             pass
 
+    for p in psutil.process_iter(['pid', 'name', 'status']):
+        try:
+            if p.info['name'] and p.info['name'].lower() == 'megamu.exe':
+                if p.info.get('status') in (getattr(psutil, 'STATUS_ZOMBIE', 'zombie'), getattr(psutil, 'STATUS_DEAD', 'dead')):
+                    continue
+                if p.memory_info().rss >= 15 * 1024 * 1024:
+                    pids.add(p.info['pid'])
+        except Exception:
+            pass
+    return pids
+
+
+def enumerate_megamu_processes() -> Dict[int, str]:
+    """Tìm tất cả tiến trình MEGAMU.exe thực sự đang chạy (~6ms, không nghẽn GIL) và lấy tiêu đề cửa sổ."""
+    pids = _fast_find_megamu_pids()
     pid_to_title = {pid: "" for pid in pids}
     if not user32 or not pids:
         return pid_to_title
@@ -60,6 +175,32 @@ def enumerate_megamu_processes() -> Dict[int, str]:
         pass
 
     return pid_to_title
+
+
+def build_enhanced_detected_games(games: Optional[Dict[int, str]] = None) -> Dict[int, str]:
+    """Chuẩn hóa danh sách {pid: 'CharName [SvX] (PID 1234)'} cho toàn bộ cửa sổ MEGAMU (không giới hạn 10 client)."""
+    raw_games = games if games is not None else enumerate_megamu_processes()
+    enhanced_games: Dict[int, str] = {}
+    for pid, raw_title in raw_games.items():
+        name, srv_str = _parse_title_char_and_server(raw_title)
+        if not name and ProcessMemoryReader:
+            try:
+                name = ProcessMemoryReader.read_character_name(pid) or ""
+            except Exception:
+                pass
+
+        server_tag = f" [{srv_str}]" if srv_str else ""
+        if not server_tag and ProcessMemoryReader and hasattr(ProcessMemoryReader, "read_character_server"):
+            try:
+                srv_code = ProcessMemoryReader.read_character_server(pid)
+                if srv_code:
+                    server_tag = f" [Sv{srv_code}]"
+            except Exception:
+                pass
+
+        disp_title = f"{name}{server_tag} (PID {pid})" if name else (raw_title or f"MEGAMU ({pid})")
+        enhanced_games[pid] = disp_title
+    return enhanced_games
 
 
 class BackgroundEngineSync:
@@ -96,49 +237,16 @@ class BackgroundEngineSync:
         self._scan_trigger_event.set()
 
     # --------------------------------------------------------------------------
-    # LUỒNG 1: QUÉT TIẾN TRÌNH & THU THẬP THÔNG TIN TIÊU ĐỀ
+    # LUỒNG 1: QUÉT TIẾN TRÌNH & THU THẬP THÔNG TIN TIÊU ĐỀ (KHÔNG GIỚI HẠN 10 CLIENT)
     # --------------------------------------------------------------------------
     def _game_scan_loop(self):
         # Chờ 0.5s để Main UI Thread dựng xong giao diện ban đầu
         time.sleep(0.5)
         while self.running:
             try:
-                games = enumerate_megamu_processes()
-                enhanced_games = {}
-                for pid, raw_title in games.items():
-                    # Trích xuất tên nhân vật và server ngầm
-                    name = ""
-                    server_tag = ""
-                    if "[" in raw_title and "]" in raw_title:
-                        try:
-                            name = raw_title.split("[")[1].split("]")[0].strip()
-                        except Exception:
-                            pass
-                    if not name and ProcessMemoryReader:
-                        try:
-                            name = ProcessMemoryReader.read_character_name(pid) or ""
-                        except Exception:
-                            pass
-
-                    # Server code
-                    if "Sub" in raw_title or "Sv" in raw_title:
-                        for part in raw_title.split():
-                            if part.startswith("Sub") or part.startswith("Sv"):
-                                server_tag = f" [{part}]"
-                                break
-                    elif ProcessMemoryReader and hasattr(ProcessMemoryReader, "read_character_server"):
-                        try:
-                            srv_code = ProcessMemoryReader.read_character_server(pid)
-                            if srv_code:
-                                server_tag = f" [Sv{srv_code}]"
-                        except Exception:
-                            pass
-
-                    disp_title = f"{name}{server_tag} (PID {pid})" if name else (raw_title or f"MEGAMU ({pid})")
-                    enhanced_games[pid] = disp_title
-
+                enhanced_games = build_enhanced_detected_games()
                 self.state_mgr.update_detected_games(enhanced_games)
-            except Exception as e:
+            except Exception:
                 pass
 
             # Ngủ 4.0s hoặc thức dậy ngay nếu có sự kiện quét thủ công
@@ -146,7 +254,7 @@ class BackgroundEngineSync:
             self._scan_trigger_event.clear()
 
     # --------------------------------------------------------------------------
-    # LUỒNG 2: ĐỌC TELEMETRY 10 SLOT (CHỐNG NGHẼN GUI 100%)
+    # LUỒNG 2: ĐỌC TELEMETRY TOÀN BỘ SLOTS (HỖ TRỢ 11..50+ SLOTS, CHỐNG NGHẼN GUI 100%)
     # --------------------------------------------------------------------------
     def _telemetry_loop(self):
         import gc
@@ -156,12 +264,15 @@ class BackgroundEngineSync:
 
         while self.running:
             try:
-                controllers = self.controllers_provider() or []
+                controllers = list(self.controllers_provider() or [])
+                detected_snapshot = self.state_mgr.get_detected_games()
                 for ctrl in controllers:
                     pid = getattr(ctrl, "assigned_pid", None)
                     s_idx = getattr(ctrl, "slot_idx", 0)
                     if not pid or s_idx <= 0:
                         continue
+
+                    self.state_mgr.ensure_slot(s_idx)
 
                     # Kiểm tra PID còn sống không
                     if not psutil.pid_exists(pid):
@@ -200,7 +311,14 @@ class BackgroundEngineSync:
                             lvl = ProcessMemoryReader.read_character_level(pid)
                             cname = getattr(ctrl, "char_name", "---")
                             if not cname or cname == "---":
-                                cname = ProcessMemoryReader.read_character_name(pid) or "---"
+                                disp_t = detected_snapshot.get(pid, "")
+                                t_name, t_srv = _parse_title_char_and_server(disp_t)
+                                if t_name:
+                                    cname = t_name
+                                else:
+                                    cname = ProcessMemoryReader.read_character_name(pid) or "---"
+                                if t_srv and (not getattr(ctrl, "server_name", None) or ctrl.server_name == "---"):
+                                    ctrl.server_name = t_srv
                             p_info = {
                                 "name": cname,
                                 "level": lvl or 0,
@@ -236,6 +354,21 @@ class BackgroundEngineSync:
                             ctrl.coords = coords_str
                         if map_name != "---":
                             ctrl.current_map = map_name
+                        if "classId" in p_info:
+                            try:
+                                cid = int(p_info.get("classId", -1))
+                                if cid >= 0:
+                                    ctrl.class_id = cid
+                                    c_code = _GUI_CLASS_ID_TO_CODE.get(cid, "")
+                                    if c_code:
+                                        ctrl.class_code = c_code
+                            except Exception:
+                                pass
+                        if (not getattr(ctrl, "server_name", None) or ctrl.server_name == "---"):
+                            disp_t = detected_snapshot.get(pid, "")
+                            _, t_srv = _parse_title_char_and_server(disp_t)
+                            if t_srv:
+                                ctrl.server_name = t_srv
 
                         # Trạng thái Auto Train của worker
                         worker = getattr(ctrl, "worker", None)
