@@ -37,6 +37,7 @@
     "npc_send_talk": "0x10E9C10",
     "npc_close_talk": "0x10ECB60",
     "npc_click": "0x10E3010",
+    "user_inv_pick_item": "0x1451B90",
     "get_config": "0x10D72F0",
     "get_user_2fa": "0x10D5080",
     "inv_trash_item": "0x0",
@@ -151,5 +152,15 @@
     "mhelper_show_dialog_id": "0x1CDC490",
     "mhelper_show_dialog_generic": "0x1CDE0E0",
     "user_party_send_response": "0x1488D90",
-    "user_party_c2_40": "0x148C830"
+    "user_party_c2_40": "0x148C830",
+    "quest_get_manager": "0x10D2F10",
+    "quest_instance_offset": "0x160",
+    "quest_send_state": "0x112BAB0",
+    "quest_send_state_alt": "0x112BAB0",
+    "quest_npc_next_click": "0x28D5EB0",
+    "npc_enter_barracks": "0x10E2F00",
+    "npc_enter_refuge": "0x10E73B0",
+    "player_change_up": "0x38",
+    "ui_quest_npc_window": "0x208",
+    "chat_add_notice": "0x135F8F0"
 }

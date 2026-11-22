@@ -665,6 +665,80 @@ try {
     }
 } catch (eNCT) {}
 
+var nativeQuestGetManager = null;
+try {
+    var qgmOff = off('__QUEST_GET_MANAGER__');
+    if (!qgmOff.isNull()) {
+        nativeQuestGetManager = new NativeFunction(baseAddr.add(qgmOff), 'pointer', []);
+    }
+} catch (eQGM) {}
+
+var nativeQuestSendState = null;
+try {
+    var qssOff = off('__QUEST_SEND_STATE__');
+    if (!qssOff.isNull()) {
+        nativeQuestSendState = new NativeFunction(baseAddr.add(qssOff), 'void', ['int', 'int', 'pointer']);
+    }
+} catch (eQSS) {}
+
+var nativeQuestSendStateAlt = null;
+try {
+    var qssaOff = off('__QUEST_SEND_STATE_ALT__');
+    if (!qssaOff.isNull()) {
+        nativeQuestSendStateAlt = new NativeFunction(baseAddr.add(qssaOff), 'void', ['int', 'int', 'pointer']);
+    }
+} catch (eQSSA) {}
+
+var nativeQuestNpcNextClick = null;
+try {
+    var qnncOff = off('__QUEST_NPC_NEXT_CLICK__');
+    if (!qnncOff.isNull()) {
+        nativeQuestNpcNextClick = new NativeFunction(baseAddr.add(qnncOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eQNNC) {}
+
+var nativeNpcEnterBarracks = null;
+try {
+    var nebOff = off('__NPC_ENTER_BARRACKS__');
+    if (!nebOff.isNull()) {
+        nativeNpcEnterBarracks = new NativeFunction(baseAddr.add(nebOff), 'void', []);
+    }
+} catch (eNEB) {}
+
+var nativeNpcEnterRefuge = null;
+try {
+    var nerOff = off('__NPC_ENTER_REFUGE__');
+    if (!nerOff.isNull()) {
+        nativeNpcEnterRefuge = new NativeFunction(baseAddr.add(nerOff), 'void', []);
+    }
+} catch (eNER) {}
+
+function getQuestManagerPtr() {
+    try {
+        if (nativeQuestGetManager !== null) {
+            var qm = nativeQuestGetManager();
+            if (qm && !qm.isNull()) return qm;
+        }
+    } catch (eQM1) {}
+    try {
+        var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+        if (!typeInfo.isNull()) {
+            var sf = typeInfo.add(ptr('0xB8')).readPointer();
+            if (!sf.isNull()) {
+                var gi = sf.add(ptr('0x8')).readPointer();
+                if (!gi.isNull()) {
+                    var qOff = off('__QUEST_INSTANCE_OFFSET__');
+                    if (!qOff.isNull()) {
+                        var qm2 = gi.add(qOff).readPointer();
+                        if (qm2 && !qm2.isNull()) return qm2;
+                    }
+                }
+            }
+        }
+    } catch (eQM2) {}
+    return ptr(0);
+}
+
 var nativeUniversalNpcClick = null;
 try {
     var uncOff = off('__NPC_CLICK__');
@@ -1293,6 +1367,120 @@ var pendingMossResetCategory = null;
 var pendingMerchantClose = false;
 var pendingMossInteractPtr = null;
 var pendingMerchantInteractPtr = null;
+var pendingQuestNpcTalkPtr = null;
+var pendingQuestStateAction = null;
+var pendingQuestDungeonAction = null;
+var pendingQuestWindowClose = false;
+var pendingQuestNextAction = null;
+var pendingQuestPickups = [];
+var lastQuestPickupDone = 0;
+var lastQuestPickupErr = "";
+
+function flushQuestPickupsOnMainThread() {
+    if (!pendingQuestPickups || pendingQuestPickups.length === 0) return;
+    var batch = pendingQuestPickups.splice(0, pendingQuestPickups.length);
+    var picked = 0;
+    for (var i = 0; i < batch.length; i++) {
+        var it = batch[i];
+        try {
+            if (nativeUserInvPickItem !== null && it.itemPtr && !it.itemPtr.isNull()) {
+                nativeUserInvPickItem(it.vIdx, it.itemPtr, ptr(0));
+                picked++;
+            }
+        } catch (ePK) { lastQuestPickupErr = String(ePK); }
+    }
+    lastQuestPickupDone += picked;
+}
+var lastQuestClickDebug = { done: false, ok: false, method: "", qWinOpen: false, nextBtnFound: false, currentData: -1, error: "" };
+
+function performQuestNextClickOnMainThread(gui, wantIndex) {
+    var dbg = { done: true, ok: false, method: "", qWinOpen: false, nextBtnFound: false, currentData: -1, error: "" };
+    try {
+        var qm = getQuestManagerPtr();
+        if (qm && !qm.isNull()) {
+            try { dbg.currentData = qm.add(0x2C).readS32(); } catch (eCD) {}
+        }
+        var activeGui = gui;
+        if (!activeGui || activeGui.isNull()) {
+            try { if (nativeGetGameUI !== null) activeGui = nativeGetGameUI(); } catch (eGG) {}
+        }
+        var qWin = ptr(0);
+        if (activeGui && !activeGui.isNull()) {
+            var qwOff = off('__UI_QUEST_NPC_WINDOW__');
+            if (!qwOff.isNull()) {
+                qWin = activeGui.add(qwOff).readPointer();
+            }
+        }
+        if (qWin && !qWin.isNull()) {
+            try {
+                var mWin = qWin.add(0x20).readPointer();
+                if (!mWin.isNull()) {
+                    dbg.qWinOpen = (mWin.add(0x48).readU8() === 1);
+                }
+            } catch (eMW) {}
+
+            var nextBtn = ptr(0);
+            try { nextBtn = qWin.add(0x40).readPointer(); } catch (eNB) {}
+            if (nextBtn && !nextBtn.isNull()) {
+                dbg.nextBtnFound = true;
+                // Ưu tiên 1: Bấm trực tiếp NextButton (ACCEPT / CONTINUE / OK) chuẩn Unity Button.Press()
+                if (dbg.qWinOpen && nativeButtonPress !== null) {
+                    try {
+                        nativeButtonPress(nextBtn, ptr(0));
+                        dbg.ok = true;
+                        dbg.method = "Button.Press(NextButton)";
+                    } catch (eBP) {
+                        dbg.error = "Button.Press:" + eBP.toString();
+                    }
+                }
+                // Ưu tiên 2: Kích hoạt trực tiếp NextButton.onClick UnityEvent.Invoke()
+                if (!dbg.ok && dbg.qWinOpen) {
+                    var invokeFn = nativeUnityEvent_Invoke || nativeUnityEventInvoke;
+                    if (invokeFn !== null) {
+                        try {
+                            var onClick = nextBtn.add(0x100).readPointer();
+                            if (onClick && !onClick.isNull()) {
+                                invokeFn(onClick, ptr(0));
+                                dbg.ok = true;
+                                dbg.method = "UnityEvent.Invoke(NextButton.onClick)";
+                            }
+                        } catch (eUE) {
+                            dbg.error = (dbg.error ? dbg.error + "; " : "") + "UnityEvent:" + eUE.toString();
+                        }
+                    }
+                }
+            }
+
+            // Ưu tiên 3: Gọi trực tiếp handler MQuestNpcWindow.FELBIIDPABC(qWin)
+            if (!dbg.ok && dbg.qWinOpen && nativeQuestNpcNextClick !== null) {
+                try {
+                    nativeQuestNpcNextClick(qWin, ptr(0));
+                    dbg.ok = true;
+                    dbg.method = "MQuestNpcWindow.NextClick";
+                } catch (eNC) {
+                    dbg.error = (dbg.error ? dbg.error + "; " : "") + "NextClick:" + eNC.toString();
+                }
+            }
+        }
+
+        // Ưu tiên 4: Fallback gọi trực tiếp QuestManager.DDPEPNGHBLG(idx, 1) -> gửi gói C1:A2
+        if (!dbg.ok) {
+            var useIdx = (dbg.currentData >= 0 && dbg.currentData <= 31) ? dbg.currentData : parseInt(wantIndex);
+            if (useIdx >= 0 && nativeQuestSendState !== null) {
+                try {
+                    nativeQuestSendState(useIdx, 1, ptr(0));
+                    dbg.ok = true;
+                    dbg.method = "QuestManager.SendState(idx=" + useIdx + ")";
+                } catch (eQS) {
+                    dbg.error = (dbg.error ? dbg.error + "; " : "") + "SendState:" + eQS.toString();
+                }
+            }
+        }
+    } catch (eTop) {
+        dbg.error = eTop.toString();
+    }
+    lastQuestClickDebug = dbg;
+}
 
 function sendDropPacket(slot, targetX, targetY) {
     try {
@@ -2571,6 +2759,66 @@ try {
     }
 } catch (eHook) {}
 
+// Hook ChatFrame.CFKFOJFEOBA (C1:0D blue system notice) de ghi nhan TUC THI tien do giet quai NV Cap 3
+// (VD: 'Dark Elf ( 1/1', 'Balram (Trainee Soldier) ( 20/20') vi MegaMU khong luon day C1:A4 ngay luc quai chet
+var questNoticeKills = {};
+var questNoticeReq = {};
+var questNoticeCharName = "";
+var lastQuestNoticeText = "";
+
+function recordQuestNoticeText(rawText) {
+    try {
+        if (!rawText) return false;
+        var clean = String(rawText).replace(/<[^>]+>/g, "").trim();
+        if (clean.length < 5 || clean.length > 180) return false;
+        var low = clean.toLowerCase();
+        var mFrac = low.match(/(\d+)\s*(?:\/|of|de)\s*(\d+)/i) || low.match(/(\d+)\s*\/\s*(\d+)/);
+        if (!mFrac) return false;
+        var kCur = parseInt(mFrac[1], 10);
+        var kMax = parseInt(mFrac[2], 10);
+        if (isNaN(kCur) || kCur <= 0 || kCur > 200 || isNaN(kMax) || kMax < 1 || kMax > 200) return false;
+        var mid = null;
+        if (low.indexOf("dark elf") !== -1 || low.indexOf("darkelf") !== -1 || (low.indexOf("dark") !== -1 && low.indexOf("elf") !== -1)) {
+            mid = "412";
+        } else if (low.indexOf("balram") !== -1) {
+            mid = "409";
+        } else if (low.indexOf("death spirit") !== -1 || low.indexOf("deathspirit") !== -1 || low.indexOf("spirit") !== -1) {
+            mid = "410";
+        } else if (low.indexOf("soram") !== -1) {
+            mid = "411";
+        }
+        if (!mid) return false;
+        if (kCur > (questNoticeKills[mid] || 0)) questNoticeKills[mid] = kCur;
+        questNoticeReq[mid] = kMax;
+        lastQuestNoticeText = clean;
+        return true;
+    } catch (eQN) {
+        return false;
+    }
+}
+
+var questNoticeHook = null;
+try {
+    var canOff = off('__CHAT_ADD_NOTICE__');
+    if (!canOff.isNull()) {
+        questNoticeHook = Interceptor.attach(baseAddr.add(canOff), {
+            onEnter: function(args) {
+                if (shuttingDown) return;
+                try {
+                    var strPtr = args[2];
+                    if (strPtr && !strPtr.isNull()) {
+                        var sLen = strPtr.add(0x10).readS32();
+                        if (sLen > 4 && sLen < 200) {
+                            var txt = strPtr.add(0x14).readUtf16String(sLen);
+                            recordQuestNoticeText(txt);
+                        }
+                    }
+                } catch (eQNH) {}
+            }
+        });
+    }
+} catch (eQNHook) {}
+
 var pendingMossOpenCategory = null;
 var pendingMossRollCategory = null;
 var pendingMossClose = false;
@@ -3480,6 +3728,69 @@ try {
                             } catch (eNTM) {}
                         }
 
+                        if (pendingQuestNpcTalkPtr !== null) {
+                            try {
+                                var qnPtr = pendingQuestNpcTalkPtr;
+                                pendingQuestNpcTalkPtr = null;
+                                invokeNpcTalk(qnPtr);
+                            } catch (eQNT) {}
+                        }
+
+                        if (pendingQuestNextAction !== null) {
+                            try {
+                                var qna = pendingQuestNextAction;
+                                pendingQuestNextAction = null;
+                                performQuestNextClickOnMainThread(gui, qna.index);
+                            } catch (eQNA) {}
+                        }
+                        if (pendingQuestPickups.length > 0) {
+                            try { flushQuestPickupsOnMainThread(); } catch (eQPK1) {}
+                        }
+
+                        if (pendingQuestStateAction !== null) {
+                            try {
+                                var qsa = pendingQuestStateAction;
+                                pendingQuestStateAction = null;
+                                if (nativeQuestSendState !== null) {
+                                    nativeQuestSendState(qsa.index, qsa.flag ? 1 : 0, ptr(0));
+                                } else if (nativeQuestSendStateAlt !== null) {
+                                    nativeQuestSendStateAlt(qsa.index, qsa.flag ? 1 : 0, ptr(0));
+                                }
+                            } catch (eQSA) {
+                                lastQuestClickDebug = { done: true, ok: false, method: "SendState", error: eQSA.toString() };
+                            }
+                        }
+
+                        if (pendingQuestDungeonAction !== null) {
+                            try {
+                                var qda = pendingQuestDungeonAction;
+                                pendingQuestDungeonAction = null;
+                                if (qda === "barracks" && nativeNpcEnterBarracks !== null) {
+                                    nativeNpcEnterBarracks();
+                                } else if (qda === "refuge" && nativeNpcEnterRefuge !== null) {
+                                    nativeNpcEnterRefuge();
+                                }
+                            } catch (eQDA) {}
+                        }
+
+                        if (pendingQuestWindowClose) {
+                            try {
+                                pendingQuestWindowClose = false;
+                                if (gui && !gui.isNull()) {
+                                    var qwOff = off('__UI_QUEST_NPC_WINDOW__');
+                                    if (!qwOff.isNull()) {
+                                        var qWin = gui.add(qwOff).readPointer();
+                                        if (!qWin.isNull() && nativeWindowHide !== null) {
+                                            try { nativeWindowHide(qWin, ptr(0)); } catch (eQWH) {}
+                                        }
+                                    }
+                                }
+                                if (nativeCloseTalk !== null) {
+                                    try { nativeCloseTalk(); } catch (eQCT) {}
+                                }
+                            } catch (eQWC) {}
+                        }
+
                         if (pendingMossOpenCategory !== null) {
                             try {
                                 var cat = pendingMossOpenCategory;
@@ -3803,6 +4114,46 @@ try {
                         pendingMossInteractPtr = null;
                         invokeNpcTalk(mNpcGU);
                     } catch (eMNTGU) {}
+                }
+
+                if (pendingQuestNpcTalkPtr !== null) {
+                    try {
+                        var qnPtrGU = pendingQuestNpcTalkPtr;
+                        pendingQuestNpcTalkPtr = null;
+                        invokeNpcTalk(qnPtrGU);
+                    } catch (eQNTGU) {}
+                }
+
+                if (pendingQuestNextAction !== null) {
+                    try {
+                        var qnaGU = pendingQuestNextAction;
+                        pendingQuestNextAction = null;
+                        performQuestNextClickOnMainThread(null, qnaGU.index);
+                    } catch (eQNAGU) {}
+                }
+                if (pendingQuestPickups.length > 0) {
+                    try { flushQuestPickupsOnMainThread(); } catch (eQPK2) {}
+                }
+
+                if (pendingQuestStateAction !== null) {
+                    try {
+                        var qsaGU = pendingQuestStateAction;
+                        pendingQuestStateAction = null;
+                        if (nativeQuestSendState !== null) {
+                            nativeQuestSendState(qsaGU.index, qsaGU.flag ? 1 : 0, ptr(0));
+                        }
+                    } catch (eQSAGU) {
+                        lastQuestClickDebug = { done: true, ok: false, method: "SendState(GU)", error: eQSAGU.toString() };
+                    }
+                }
+
+                if (pendingQuestDungeonAction !== null) {
+                    try {
+                        var qdaGU = pendingQuestDungeonAction;
+                        pendingQuestDungeonAction = null;
+                        if (qdaGU === "barracks" && nativeNpcEnterBarracks !== null) nativeNpcEnterBarracks();
+                        else if (qdaGU === "refuge" && nativeNpcEnterRefuge !== null) nativeNpcEnterRefuge();
+                    } catch (eQDAGU) {}
                 }
 
                 if (pendingMerchantInteractPtr !== null) {
@@ -4401,10 +4752,14 @@ function readPlayerInfoSnapshot(readName) {
             } catch (e) {}
         }
 
-        var level = 0, classId = 0;
+        var level = 0, classId = 0, changeUp = 0;
         try {
             level = p.add(off('__PLAYER_LEVEL__')).readS32();
             classId = p.add(off('__PLAYER_CLASS__')).readS32();
+            var cuOff = off('__PLAYER_CHANGE_UP__');
+            if (!cuOff.isNull()) {
+                changeUp = p.add(cuOff).readS32();
+            }
         } catch (e) {}
 
         var tileX = 0, tileY = 0, mapId = -1;
@@ -4482,6 +4837,7 @@ function readPlayerInfoSnapshot(readName) {
             name: charName,
             level: level,
             classId: classId,
+            changeUp: changeUp,
             mapId: mapId,
             inDoubleGoer: isCurrentMapDoubleGoer(),
             tileX: tileX,
@@ -6239,6 +6595,472 @@ rpc.exports = {
             };
         } catch (eInteract) {
             return { success: false, error: eInteract.toString() };
+        }
+    },
+
+    getQuestState: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) {
+                return JSON.stringify({ ok: false, error: "player_null" });
+            }
+            var snap = readPlayerInfoSnapshot(true) || {};
+            var zen = 0;
+            try {
+                var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                if (!inv.isNull()) {
+                    var rawZen = inv.add(ptr('0x58')).readS32();
+                    zen = rawZen >= 0 ? rawZen : 0;
+                }
+            } catch (eZ) {}
+
+            var states = {};
+            var questCount = 0;
+            var currentData = -1;
+            var monsterKills = {};
+            var qm = getQuestManagerPtr();
+            if (qm && !qm.isNull()) {
+                try { questCount = qm.add(0x28).readS32(); } catch (eQC) {}
+                try { currentData = qm.add(0x2C).readS32(); } catch (eCD) {}
+                try {
+                    var stateArr = qm.add(0x20).readPointer();
+                    if (!stateArr.isNull()) {
+                        var arrLen = stateArr.add(0x18).readS32();
+                        var maxQ = Math.min(32, Math.max(0, arrLen * 4));
+                        for (var qi = 0; qi < maxQ; qi++) {
+                            var bIdx = qi >> 2;
+                            var shift = (qi & 3) * 2;
+                            var bVal = stateArr.add(0x20 + bIdx).readU8();
+                            states[String(qi)] = (bVal >> shift) & 3;
+                        }
+                    }
+                } catch (eSA) {}
+                try {
+                    var mkDict = qm.add(0x30).readPointer();
+                    if (!mkDict.isNull()) {
+                        var entries = mkDict.add(0x18).readPointer();
+                        var count = mkDict.add(0x20).readS32();
+                        if (!entries.isNull() && count > 0 && count <= 128) {
+                            for (var ei = 0; ei < count; ei++) {
+                                var eAddr = entries.add(0x20 + ei * 16);
+                                var hc = eAddr.readS32();
+                                if (hc < 0) continue;
+                                var mKey = eAddr.add(8).readS32();
+                                var mVal = eAddr.add(12).readS32();
+                                if (mKey > 0) {
+                                    monsterKills[String(mKey)] = mVal;
+                                }
+                            }
+                        }
+                    }
+                } catch (eMK) {}
+            }
+
+            var QUEST_ITEM_IDS = { 7191: 1, 7192: 1, 7193: 1, 7194: 1, 7233: 1, 7234: 1, 7235: 1, 7236: 1 };
+            var INV_Q_KEYS = ["scroll of emperor", "broken sword", "soul of wizard", "soul of prophet", "tear of elf", "abyssal eye", "ring of honor", "dark stone", "flame of death", "horn of hell", "feather of"];
+            var questItems = [];
+            try {
+                var inv2 = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                if (!inv2.isNull()) {
+                    var itemsArr = inv2.add(off('__INVENTORY_ITEMS__')).readPointer();
+                    if (!itemsArr.isNull()) {
+                        var maxSlot = 204;
+                        try {
+                            var aLen = itemsArr.add(0x18).readS32();
+                            if (aLen > 12 && aLen < maxSlot) maxSlot = aLen;
+                        } catch (eAL) {}
+                        for (var s = 12; s < maxSlot; s++) {
+                            var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                            if (!itemPtr.isNull()) {
+                                var idx = readItemIndex(itemPtr);
+                                var itName = "";
+                                try { itName = getItemName(itemPtr) || ""; } catch (eGN) {}
+                                var isQ = !!QUEST_ITEM_IDS[idx];
+                                if (!isQ && itName) {
+                                    var lowN = itName.toLowerCase();
+                                    for (var qk = 0; qk < INV_Q_KEYS.length; qk++) {
+                                        if (lowN.indexOf(INV_Q_KEYS[qk]) !== -1) { isQ = true; break; }
+                                    }
+                                }
+                                if (isQ) {
+                                    var lv = 0;
+                                    try { lv = itemPtr.add(0x10).readS32(); } catch (eLv) {}
+                                    questItems.push({ slot: s, id: idx, level: lv, name: itName });
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (eQI) {}
+
+            // Dong bo & hop nhat tien do giet quai ghi nhan tu System Notice (C1:0D -> Dark Elf 1/1, Balram/DS/Soram 20/20)
+            try {
+                var curCharN = String(snap.name || "");
+                if (curCharN && questNoticeCharName && curCharN !== questNoticeCharName) {
+                    questNoticeKills = {};
+                    questNoticeReq = {};
+                    lastQuestNoticeText = "";
+                }
+                if (curCharN) questNoticeCharName = curCharN;
+
+                if (states["5"] === 2) {
+                    delete questNoticeKills["409"];
+                    delete questNoticeKills["410"];
+                    delete questNoticeKills["411"];
+                } else {
+                    var bIds = ["409", "410", "411"];
+                    for (var bi = 0; bi < bIds.length; bi++) {
+                        var bKey = bIds[bi];
+                        var nv = questNoticeKills[bKey] || 0;
+                        if (nv > (monsterKills[bKey] || 0)) monsterKills[bKey] = nv;
+                    }
+                }
+
+                if (states["6"] === 2) {
+                    delete questNoticeKills["412"];
+                } else {
+                    var deVal = questNoticeKills["412"] || 0;
+                    if (deVal > (monsterKills["412"] || 0)) monsterKills["412"] = deVal;
+                }
+            } catch (eMergeQ) {}
+
+            return JSON.stringify({
+                ok: true,
+                name: snap.name || "",
+                level: snap.level || 0,
+                class_id: snap.classId !== undefined ? snap.classId : -1,
+                change_up: snap.changeUp !== undefined ? snap.changeUp : 0,
+                zen: zen,
+                map_id: snap.mapId !== undefined ? snap.mapId : -1,
+                x: snap.x || 0,
+                y: snap.y || 0,
+                quest_count: questCount,
+                current_data: currentData,
+                states: states,
+                monster_kills: monsterKills,
+                notice_kills: questNoticeKills,
+                last_quest_notice: lastQuestNoticeText,
+                quest_items: questItems
+            });
+        } catch (eQS) {
+            return JSON.stringify({ ok: false, error: eQS.toString() });
+        }
+    },
+
+    findNpcByFilter: function(skinId, nameSub) {
+        try {
+            ensureThreadAttached();
+            var wantSkin = parseInt(skinId);
+            var wantName = String(nameSub || "").toLowerCase();
+            var localPlayer = getPlayerPtr();
+            var px = -1, py = -1;
+            if (!localPlayer.isNull()) {
+                try {
+                    var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!pCoord.isNull()) {
+                        px = pCoord.add(0x10).readS32();
+                        py = pCoord.add(0x14).readS32();
+                    }
+                } catch (ePC) {}
+            }
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            if (typeInfo.isNull()) return JSON.stringify({ found: false });
+            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+            if (staticFields.isNull()) return JSON.stringify({ found: false });
+            var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+            if (gameInstance.isNull()) return JSON.stringify({ found: false });
+            var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+            if (viewport.isNull()) return JSON.stringify({ found: false });
+            var objDict = viewport.add(ptr('0x20')).readPointer();
+            if (objDict.isNull()) return JSON.stringify({ found: false });
+            var entries = objDict.add(ptr('0x18')).readPointer();
+            var count = objDict.add(ptr('0x20')).readS32();
+            if (entries.isNull() || count <= 0 || count > 600) return JSON.stringify({ found: false });
+
+            var best = null;
+            var bestDist = 999999;
+            for (var i = 0; i < count; i++) {
+                var entryAddr = entries.add(0x20 + i * 24);
+                if (entryAddr.readS32() < 0) continue;
+                var val = entryAddr.add(16).readPointer();
+                if (val.isNull()) continue;
+                var body = ptr(0);
+                try {
+                    var vk = val.readPointer();
+                    if (vk.isNull()) continue;
+                    var vkn = vk.add(0x10).readPointer().readUtf8String() || "";
+                    if (vkn.indexOf("ViewportBody") === -1) continue;
+                    body = val.add(0x18).readPointer();
+                } catch (eVB) { continue; }
+                if (body.isNull() || (!localPlayer.isNull() && body.equals(localPlayer))) continue;
+
+                var bSkin = -1, bClass = -1, bIdx = -1;
+                try { bIdx = body.add(0x20).readS32(); } catch (e1) {}
+                try { bClass = body.add(0x34).readS32(); } catch (e2) {}
+                try { bSkin = body.add(0x60).readS32(); } catch (e3) {}
+
+                var bName = "";
+                try {
+                    var np = body.add(off('__PLAYER_NAME__')).readPointer();
+                    if (!np.isNull()) {
+                        var nl = np.add(0x10).readS32();
+                        if (nl > 0 && nl < 64) bName = np.add(0x14).readUtf16String(nl);
+                    }
+                } catch (e4) {}
+
+                var matchSkin = (wantSkin >= 0 && (bSkin === wantSkin || bClass === wantSkin));
+                var matchName = (wantName.length > 0 && bName.toLowerCase().indexOf(wantName) !== -1);
+                if (!matchSkin && !matchName) continue;
+
+                var nx = 0, ny = 0;
+                try {
+                    var nc = body.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!nc.isNull()) {
+                        nx = nc.add(0x10).readS32();
+                        ny = nc.add(0x14).readS32();
+                    }
+                } catch (e5) {}
+                var dist = (px >= 0 && py >= 0) ? Math.sqrt((nx - px) * (nx - px) + (ny - py) * (ny - py)) : 0;
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = {
+                        found: true,
+                        ptr: body.toString(),
+                        index: bIdx,
+                        skin: bSkin,
+                        class_id: bClass,
+                        name: bName,
+                        x: nx,
+                        y: ny,
+                        dist: Math.round(dist * 10) / 10
+                    };
+                }
+            }
+            return JSON.stringify(best || { found: false });
+        } catch (eFN) {
+            return JSON.stringify({ found: false, error: eFN.toString() });
+        }
+    },
+
+    talkToNpcByPtr: function(ptrStr) {
+        try {
+            if (!ptrStr || ptrStr === "0" || ptrStr === "0x0") return JSON.stringify({ ok: false, error: "invalid_ptr" });
+            pendingQuestNpcTalkPtr = ptr(ptrStr);
+            return JSON.stringify({ ok: true });
+        } catch (eT) {
+            return JSON.stringify({ ok: false, error: eT.toString() });
+        }
+    },
+
+    getQuestNpcWindowState: function() {
+        try {
+            ensureThreadAttached();
+            var isOpen = false;
+            var hasNextBtn = false;
+            var currentData = -1;
+            var qm = getQuestManagerPtr();
+            if (qm && !qm.isNull()) {
+                try { currentData = qm.add(0x2C).readS32(); } catch (eCD) {}
+            }
+            if (nativeGetGameUI !== null) {
+                var gui = nativeGetGameUI();
+                if (gui && !gui.isNull()) {
+                    var qwOff = off('__UI_QUEST_NPC_WINDOW__');
+                    if (!qwOff.isNull()) {
+                        var qWin = gui.add(qwOff).readPointer();
+                        if (qWin && !qWin.isNull()) {
+                            var mWin = qWin.add(0x20).readPointer();
+                            if (mWin && !mWin.isNull()) {
+                                isOpen = (mWin.add(0x48).readU8() === 1);
+                            }
+                            var nb = qWin.add(0x40).readPointer();
+                            hasNextBtn = (nb && !nb.isNull());
+                        }
+                    }
+                }
+            }
+            return JSON.stringify({ ok: true, isOpen: isOpen, hasNextBtn: hasNextBtn, currentData: currentData });
+        } catch (eQW) {
+            return JSON.stringify({ ok: false, isOpen: false, hasNextBtn: false, currentData: -1, error: eQW.toString() });
+        }
+    },
+
+    clickQuestNpcNext: function(questIndex) {
+        try {
+            lastQuestClickDebug = { done: false, ok: false, method: "", qWinOpen: false, nextBtnFound: false, currentData: -1, error: "" };
+            pendingQuestNextAction = { index: parseInt(questIndex !== undefined && questIndex !== null ? questIndex : -1) };
+            for (var w = 0; w < 20; w++) {
+                if (lastQuestClickDebug.done) break;
+                Thread.sleep(0.02);
+            }
+            return JSON.stringify(lastQuestClickDebug);
+        } catch (eC) {
+            return JSON.stringify({ done: true, ok: false, method: "", error: eC.toString() });
+        }
+    },
+
+    sendQuestState: function(questIndex, flag) {
+        try {
+            pendingQuestStateAction = { index: parseInt(questIndex), flag: !!flag };
+            return JSON.stringify({ ok: true, index: parseInt(questIndex) });
+        } catch (eS) {
+            return JSON.stringify({ ok: false, error: eS.toString() });
+        }
+    },
+
+    enterQuestDungeon: function(dungeonType) {
+        try {
+            var dt = String(dungeonType || "").toLowerCase();
+            if (dt !== "barracks" && dt !== "refuge") {
+                return JSON.stringify({ ok: false, error: "invalid_dungeon_type" });
+            }
+            pendingQuestDungeonAction = dt;
+            return JSON.stringify({ ok: true, dungeon: dt });
+        } catch (eD) {
+            return JSON.stringify({ ok: false, error: eD.toString() });
+        }
+    },
+
+    closeQuestWindow: function() {
+        try {
+            pendingQuestWindowClose = true;
+            return true;
+        } catch (eC) {
+            return false;
+        }
+    },
+
+    pickupGroundQuestItems: function(targetIdsJson, maxRadius, targetLevel, targetKeywordsJson) {
+        try {
+            ensureThreadAttached();
+            var radius = (maxRadius !== undefined && maxRadius !== null) ? parseFloat(maxRadius) : 14.0;
+            var wantLevel = (targetLevel !== undefined && targetLevel !== null) ? parseInt(targetLevel) : -1;
+            var targetIds = {};
+            try {
+                var arr = JSON.parse(String(targetIdsJson || "[]"));
+                for (var k = 0; k < arr.length; k++) targetIds[parseInt(arr[k])] = true;
+            } catch (eP) {}
+
+            var targetKeywords = [];
+            try {
+                var kArr = JSON.parse(String(targetKeywordsJson || "[]"));
+                for (var kk = 0; kk < kArr.length; kk++) {
+                    var sKw = String(kArr[kk] || "").toLowerCase().trim();
+                    if (sKw.length > 0) targetKeywords.push(sKw);
+                }
+            } catch (eK) {}
+
+            var localPlayer = getPlayerPtr();
+            var px = -1, py = -1;
+            if (!localPlayer.isNull()) {
+                try {
+                    var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!pCoord.isNull()) {
+                        px = pCoord.add(0x10).readS32();
+                        py = pCoord.add(0x14).readS32();
+                    }
+                } catch (ePC) {}
+            }
+
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            if (typeInfo.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+            if (staticFields.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+            var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+            if (gameInstance.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+            var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+            if (viewport.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+            var objDict = viewport.add(ptr('0x20')).readPointer();
+            if (objDict.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+
+            var entries = objDict.add(ptr('0x18')).readPointer();
+            var count = objDict.add(ptr('0x20')).readS32();
+            var foundItems = [];
+            var queued = 0;
+            var pickedIds = [];
+            var prevDone = lastQuestPickupDone;
+
+            for (var i = 0; i < count && i < 600; i++) {
+                var entryAddr = entries.add(0x20 + i * 24);
+                if (entryAddr.readS32() < 0) continue;
+                var val = entryAddr.add(16).readPointer();
+                if (val.isNull()) continue;
+                var vk = val.readPointer();
+                if (vk.isNull()) continue;
+                var vkn = vk.add(0x10).readPointer().readUtf8String() || "";
+                if (vkn.indexOf("ViewportItem") === -1) continue;
+
+                var itemPtr = val.add(0x18).readPointer();
+                if (itemPtr.isNull()) continue;
+                var itemId = readItemIndex(itemPtr);
+                var itemLv = 0;
+                try { itemLv = itemPtr.add(0x10).readS32(); } catch (eIL) {}
+                var itemName = "";
+                try { itemName = getItemName(itemPtr) || ""; } catch (eIN) {}
+
+                // Khớp CHÍNH XÁC vật phẩm nhiệm vụ đang cần (đúng ID + đúng Level, hoặc đúng từ khóa tên riêng của vật phẩm đó)
+                var isMatch = false;
+                if (targetKeywords.length > 0 && itemName) {
+                    var low = itemName.toLowerCase();
+                    for (var kw = 0; kw < targetKeywords.length; kw++) {
+                        if (low.indexOf(targetKeywords[kw]) !== -1) {
+                            isMatch = true;
+                            break;
+                        }
+                    }
+                }
+                if (!isMatch && targetIds[itemId]) {
+                    if (wantLevel < 0 || itemLv === wantLevel) {
+                        isMatch = true;
+                    }
+                }
+                if (!isMatch) continue;
+
+                var ix = -1, iy = -1;
+                var icPtr = val.add(0x28).readPointer();
+                if (!icPtr.isNull()) {
+                    ix = icPtr.add(0x10).readS32();
+                    iy = icPtr.add(0x14).readS32();
+                }
+                var dist = (px >= 0 && py >= 0 && ix >= 0 && iy >= 0) ? Math.sqrt((ix - px) * (ix - px) + (iy - py) * (iy - py)) : 0;
+                if (dist <= radius) {
+                    var vIdx = val.add(0x10).readS32();
+                    foundItems.push({
+                        vIdx: vIdx,
+                        id: itemId,
+                        level: itemLv,
+                        name: itemName,
+                        x: ix,
+                        y: iy,
+                        dist: Math.round(dist * 10) / 10
+                    });
+                    if (vIdx >= 0 && dist <= 4.5) {
+                        pendingQuestPickups.push({ vIdx: vIdx, itemPtr: itemPtr });
+                        queued++;
+                        pickedIds.push(itemId);
+                    }
+                }
+            }
+
+            if (queued > 0) {
+                for (var w = 0; w < 12; w++) {
+                    if (lastQuestPickupDone > prevDone) break;
+                    Thread.sleep(0.02);
+                }
+            }
+            var actualPicked = Math.max(0, lastQuestPickupDone - prevDone);
+            return JSON.stringify({
+                ok: true,
+                pickedCount: actualPicked,
+                queuedCount: queued,
+                pickedIds: pickedIds,
+                foundItems: foundItems,
+                hasNativePick: (nativeUserInvPickItem !== null),
+                pickError: lastQuestPickupErr
+            });
+        } catch (ePQ) {
+            return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [], error: ePQ.toString() });
         }
     },
 
@@ -9735,6 +10557,15 @@ class MegDirectEngine:
             "__MHELPER_SHOW_DIALOG_GENERIC__": o("mhelper_show_dialog_generic"),
             "__USER_PARTY_SEND_RESPONSE__": o("user_party_send_response"),
             "__USER_PARTY_C2_40__": o("user_party_c2_40"),
+            "__QUEST_GET_MANAGER__": o("quest_get_manager"),
+            "__QUEST_INSTANCE_OFFSET__": o("quest_instance_offset"),
+            "__QUEST_SEND_STATE__": o("quest_send_state"),
+            "__QUEST_SEND_STATE_ALT__": o("quest_send_state_alt"),
+            "__NPC_ENTER_BARRACKS__": o("npc_enter_barracks"),
+            "__NPC_ENTER_REFUGE__": o("npc_enter_refuge"),
+            "__PLAYER_CHANGE_UP__": o("player_change_up"),
+            "__UI_QUEST_NPC_WINDOW__": o("ui_quest_npc_window"),
+            "__CHAT_ADD_NOTICE__": o("chat_add_notice"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -11908,6 +12739,60 @@ class MegDirectEngine:
     def get_autologin_characters(self) -> List[Dict[str, Any]]:
         """Lấy danh sách các nhân vật đọc được từ bộ nhớ khi login vào Scene 3 (Lobby)."""
         return getattr(self, "last_autologin_characters", [])
+
+    # ==========================================================================
+    # AUTO QUEST (NHIỆM VỤ CẤP 2 / MARLON / CẤP 3) NATIVE RPC WRAPPERS
+    # ==========================================================================
+    def get_quest_state(self) -> Dict[str, Any]:
+        """Đọc toàn bộ trạng thái QuestManager (bitmap nhiệm vụ, MonsterKillCount, ChangeUp, Zen, Quest Items)."""
+        return self._call_json("getQuestState", default={"ok": False, "error": "not_ready"})
+
+    def find_npc_by_filter(self, skin_id: int = -1, name_sub: str = "") -> Dict[str, Any]:
+        """Tìm NPC trong Viewport theo Skin/Class ID (Sebina=235, Marlon=229, Devin=406, Werewolf=407, Gatekeeper=408) hoặc tên."""
+        return self._call_json("findNpcByFilter", int(skin_id), str(name_sub or ""), default={"found": False})
+
+    def talk_to_npc_by_ptr(self, npc_ptr: Any) -> Dict[str, Any]:
+        """Gửi lệnh nói chuyện NPC an toàn trên Unity MainThread."""
+        ptr_str = hex(npc_ptr) if isinstance(npc_ptr, int) and npc_ptr > 0 else str(npc_ptr or "0")
+        return self._call_json("talkToNpcByPtr", ptr_str, default={"ok": False})
+
+    def get_quest_npc_window_state(self) -> Dict[str, Any]:
+        """Kiểm tra cửa sổ hội thoại QuestNpcWindow có đang mở và có nút Accept/Continue không."""
+        return self._call_json("getQuestNpcWindowState", default={"ok": False, "isOpen": False, "hasNextBtn": False, "currentData": -1})
+
+    def click_quest_npc_next(self, quest_index: int = -1) -> Dict[str, Any]:
+        """Bấm nút Accept / Continue / OK trên MQuestNpcWindow trên Unity MainThread (kèm fallback gửi C1:A2)."""
+        return self._call_json("clickQuestNpcNext", int(quest_index), default={"done": False, "ok": False, "method": "", "error": "not_ready"})
+
+    def send_quest_state(self, quest_index: int, flag: bool = False) -> Dict[str, Any]:
+        """Gửi gói C1:A2 nhận hoặc trả nhiệm vụ (quest_index: 0..6) trên Unity MainThread."""
+        return self._call_json("sendQuestState", int(quest_index), bool(flag), default={"ok": False})
+
+    def enter_quest_dungeon(self, dungeon_type: str) -> Dict[str, Any]:
+        """Gửi gói C1:D0:07 vào Barracks hoặc C1:D0:08 vào Refuge trên Unity MainThread."""
+        return self._call_json("enterQuestDungeon", str(dungeon_type or ""), default={"ok": False})
+
+    def close_quest_window(self) -> bool:
+        """Đóng cửa sổ hội thoại NPC Quest nếu đang mở."""
+        if self.is_ready:
+            try:
+                return bool(self._call("closeQuestWindow"))
+            except Exception:
+                pass
+        return False
+
+    def pickup_ground_quest_items(
+        self,
+        target_ids: List[int],
+        max_radius: float = 14.0,
+        item_level: Optional[int] = None,
+        keywords: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Quét ViewportItem trên đất khớp CHÍNH XÁC Quest Item (ID + Level hoặc từ khóa tên) và gọi UserInventory.MCJFNCGIHPP trên MainThread."""
+        payload = json.dumps([int(x) for x in (target_ids or [])])
+        lv_arg = int(item_level) if item_level is not None else -1
+        kw_payload = json.dumps([str(k) for k in (keywords or [])])
+        return self._call_json("pickupGroundQuestItems", payload, float(max_radius), lv_arg, kw_payload, default={"ok": False, "pickedCount": 0, "foundItems": []})
 
     def get_autologin_account(self) -> str:
         """Lấy tên tài khoản tương ứng với danh sách nhân vật vừa đọc được."""
