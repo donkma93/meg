@@ -48,19 +48,24 @@ hiddenimports = [
     'telegram_notifier',
     'meg_crash_tracer',
     'meg_rea_hunter',
+    'PySide6',
+    'PySide6.QtCore',
+    'PySide6.QtGui',
+    'PySide6.QtWidgets',
 ]
 
-# Thu thập toàn bộ customtkinter, ui, và services
+# Thu thập toàn bộ customtkinter, ui, ui_qt, và services
 tmp_ret = collect_all('customtkinter')
 datas += tmp_ret[0]
 binaries += tmp_ret[1]
 hiddenimports += tmp_ret[2]
 
 hiddenimports += collect_submodules('ui')
+hiddenimports += collect_submodules('ui_qt')
 hiddenimports += collect_submodules('services')
 
 a = Analysis(
-    ['meg_gui_optimized.py'],
+    ['meg_gui_qt.py'],
     pathex=[str(BASE_DIR)],
     binaries=binaries,
     datas=datas,

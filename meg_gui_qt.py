@@ -61,6 +61,7 @@ from ui_qt.dialogs import (
     PointConfigDialogQt,
     PartyConfigDialogQt,
     TelegramConfigDialogQt,
+    UpdateDialogQt,
 )
 
 from meg_gui import (
@@ -1733,11 +1734,23 @@ class DashboardAppQt(QMainWindow):
         except Exception:
             pass
 
+    def open_update_dialog(self, update_info=None):
+        info = update_info or self.update_info
+        if info and info.get("has_update"):
+            dlg = UpdateDialogQt(info, APP_VERSION, self)
+            dlg.exec()
+        else:
+            self.check_for_updates_ui(manual=True)
+
     def check_for_updates_ui(self, manual: bool = False):
         if not updater:
             if manual:
                 QMessageBox.information(self, "Cập nhật", "Module updater chưa khả dụng.")
             return
+        if manual and self.update_info and self.update_info.get("has_update"):
+            self.open_update_dialog(self.update_info)
+            return
+
         self.btn_update.setEnabled(False)
         self.btn_update.setText("⏳ Kiểm tra...")
         def _w():
@@ -1750,7 +1763,8 @@ class DashboardAppQt(QMainWindow):
                         self.update_info = res
                         latest = res.get("latest_version", "?")
                         self.btn_update.setText(f"🔥 Có bản {latest}!")
-                        QMessageBox.information(self, "Cập nhật", f"Đã có phiên bản mới: {latest}\n{res.get('release_notes', '')}")
+                        dlg = UpdateDialogQt(res, APP_VERSION, self)
+                        dlg.exec()
                     else:
                         self.btn_update.setText("🔄 Cập nhật")
                         if manual:
@@ -1759,9 +1773,6 @@ class DashboardAppQt(QMainWindow):
             except Exception as e:
                 self.after(0, lambda: (self.btn_update.setEnabled(True), self.btn_update.setText("🔄 Cập nhật"), manual and QMessageBox.warning(self, "Cập nhật", str(e))))
         threading.Thread(target=_w, daemon=True).start()
-
-    def open_update_dialog(self, update_info=None):
-        self.check_for_updates_ui(manual=True)
 
     def show_help(self):
         QMessageBox.information(

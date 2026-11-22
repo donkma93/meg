@@ -185,6 +185,10 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Nâng cấp quan trọng trong bản {version}:
+- **CHÍNH THỨC PHÁT HÀNH GIAO DIỆN NATIVE QT6 60FPS (PySide6 Edition):**
+  - **Tối ưu hóa hiển thị GPU Direct2D**: Tốc độ phản hồi cực nhanh, chuyển tab tức thì < 1ms, cuộn chuột và render bảng 50 slot siêu mượt 60fps, giảm tải triệt để tài nguyên máy.
+  - **Tích hợp hộp thoại UpdateDialogQt Native**: Cửa sổ cập nhật mới theo chuẩn Qt6 hiển thị so sánh phiên bản, thanh tiến trình tải xuống realtime và tự động khởi động lại an toàn.
+
 - **Tự Động Ra Bãi Mirror (Auto Mirror Move & Spot Positioning):**
   - Tự động di chuyển ra đúng tọa độ bãi quái trong Mirror sau khi vào sự kiện.
   - Tối ưu hóa chu kỳ quét Zero-Confirm và nhận thưởng Gremory Case (phím K) Native Hook.
@@ -195,24 +199,15 @@ if __name__ == "__main__":
 - **Khắc Phục Lỗi Tự Động Quay Lại Vị Trí (Death & Respawn Recovery):**
   - Xử lý mượt mà việc nhân vật bị kill hoặc về làng tự động quay lại bãi theo thời gian thực.
 
-- **Bổ Sung Giao Diện Native Qt6 60FPS Siêu Nhẹ (PySide6 Edition):**
-  - Giao diện `meg_gui_qt.py` chuẩn Qt6 60fps native với bộ chuyển tab tức thì < 1ms, bảng đa slot mượt mà và script khởi chạy nhanh `run_gui_qt.bat`.
-  - Cập nhật thư viện `PySide6` vào requirements hệ thống.
-
 - **Tự Động Ghép Nhiều Party Độc Lập (Auto Multi-PT System):**
-  - **Cơ chế tự động chia nhóm 5 acc**: Hệ thống tự động phân chia toàn bộ dàn tài khoản theo quy tắc 5 acc/nhóm (Slot 1–5 vào PT 1, Slot 6–10 vào PT 2, Slot 11–15 vào PT 3...).
-  - **Chủ PT độc lập từng nhóm**: Cho phép tự do chỉ định Chủ PT riêng biệt cho từng nhóm (ví dụ PT 1 chủ Slot 2, PT 2 chủ Slot 8), hệ thống tự động hoán đổi vai trò và bảo lưu vĩnh viễn cấu hình.
+  - **Cơ chế tự động chia nhóm 5 acc**: Hệ thống tự động phân chia toàn bộ dàn tài khoản theo quy tắc 5 acc/nhóm.
+  - **Chủ PT độc lập từng nhóm**: Cho phép tự do chỉ định Chủ PT riêng biệt cho từng nhóm, tự động hoán đổi vai trò và bảo lưu vĩnh viễn cấu hình.
   - **Giám sát thời gian thực RAM IL2CPP**: Hiển thị bảng Roster trực quan trạng thái trong nhóm (`👑 Chủ PT`, `👥 TV PT`, `🟢 Đã vào PT`, `⚪ Chưa vào PT`).
   - **Tự động mời và hồi phục (Heartbeat Heal)**: Tự động di chuyển sang map Chủ nhóm, bắt tay bằng Direct Engine Native Hook (Packet C1:40) và tự động mời lại khi nhân vật chết, chuyển map hoặc relogin.
 
 - **Hệ Thống License Client C++ Native Bridge:**
   - Chuẩn hóa đường dẫn nạp DLL tuyệt đối, loại bỏ hoàn toàn lỗi thiếu file DLL trên các môi trường chạy khác nhau.
   - Đồng bộ alias `get_hwid()` và trạng thái hiển thị bản quyền Pro (Vĩnh viễn) trên giao diện.
-
-- **Giao Diện & Cơ Chế Cập Nhật Tự Động (Auto Updater UI):**
-  - Tích hợp cửa sổ `UpdateModal` trực quan: so sánh phiên bản hiện tại vs mới nhất, xem ghi chú phát hành, thanh tiến trình tải xuống realtime.
-  - Tự động thay thế tệp .exe và khởi động lại phiên bản mới an toàn, không lo lock tiến trình.
-  - Tự động kiểm tra bản mới ngầm và báo hiệu trực quan `🔥 Có bản mới!` ngay trên thanh Header.
 """
 
     release = create_or_get_release(token, version, title, body)
