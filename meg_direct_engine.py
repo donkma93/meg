@@ -713,6 +713,128 @@ try {
     }
 } catch (eNER) {}
 
+// === GATE REA MODULE NATIVES (Unit.HJDEPLPHNBO C1:1C, ArkaWar C1:F8, Protocol C1:8E, Data.Instance) ===
+var gateCoordBuf = Memory.alloc(32);
+
+var nativeDataGetInstance = null;
+try {
+    var dgiOff = off('__DATA_GET_INSTANCE__');
+    if (!dgiOff.isNull()) {
+        nativeDataGetInstance = new NativeFunction(baseAddr.add(dgiOff), 'pointer', []);
+    }
+} catch (eDGI) {}
+
+var nativeUnitEnterGate = null;
+try {
+    var uegOff = off('__UNIT_ENTER_GATE__');
+    if (!uegOff.isNull()) {
+        nativeUnitEnterGate = new NativeFunction(baseAddr.add(uegOff), 'bool', ['int', 'pointer']);
+    }
+} catch (eUEG) {}
+
+var nativeArkaEnterAcheron = null;
+try {
+    var aeaOff = off('__ARKA_ENTER_ACHERON__');
+    if (!aeaOff.isNull()) {
+        nativeArkaEnterAcheron = new NativeFunction(baseAddr.add(aeaOff), 'void', []);
+    }
+} catch (eAEA) {}
+
+var nativeArkaEnterZone = null;
+try {
+    var aezOff = off('__ARKA_ENTER_ZONE__');
+    if (!aezOff.isNull()) {
+        nativeArkaEnterZone = new NativeFunction(baseAddr.add(aezOff), 'void', ['int']);
+    }
+} catch (eAEZ) {}
+
+var nativeProtocolWarp8E = null;
+try {
+    var pw8eOff = off('__PROTOCOL_WARP_8E__');
+    if (!pw8eOff.isNull()) {
+        nativeProtocolWarp8E = new NativeFunction(baseAddr.add(pw8eOff), 'void', ['int', 'int', 'int']);
+    }
+} catch (ePW8E) {}
+
+function readIl2CppStrSafe(sPtr) {
+    try {
+        if (!sPtr || sPtr.isNull()) return "";
+        var slen = sPtr.add(0x10).readS32();
+        if (slen <= 0 || slen > 256) return "";
+        return sPtr.add(0x14).readUtf16String(slen) || "";
+    } catch (eS) {
+        return "";
+    }
+}
+
+function getDataInstancePtr() {
+    // 1. Thread-safe static read: Mega.Data_TypeInfo -> static_fields (+0xB8) -> ANIDCBBGMOD (+0x0)
+    try {
+        var dtiOff = off('__DATA_TYPE_INFO__');
+        if (!dtiOff.isNull()) {
+            var dti = baseAddr.add(dtiOff).readPointer();
+            if (dti && !dti.isNull()) {
+                var sf = dti.add(ptr('0xB8')).readPointer();
+                if (sf && !sf.isNull()) {
+                    var inst = sf.readPointer();
+                    if (inst && !inst.isNull()) return inst;
+                }
+            }
+        }
+    } catch (eDTI) {}
+    // 2. Fallback: native Mega.Data.GJLMAKAJBKP()
+    try {
+        if (nativeDataGetInstance !== null) {
+            var inst2 = nativeDataGetInstance();
+            if (inst2 && !inst2.isNull()) return inst2;
+        }
+    } catch (eDGI2) {}
+    return ptr(0);
+}
+
+function readGateEntryObj(gPtr) {
+    if (!gPtr || gPtr.isNull()) return null;
+    try {
+        return {
+            index: gPtr.add(0x10).readS32(),
+            flag: gPtr.add(0x18).readS32(),
+            mapId: gPtr.add(0x1C).readS32(),
+            x: gPtr.add(0x20).readS32(),
+            y: gPtr.add(0x24).readS32(),
+            tx: gPtr.add(0x28).readS32(),
+            ty: gPtr.add(0x2C).readS32(),
+            targetGate: gPtr.add(0x30).readS32(),
+            targetDir: gPtr.add(0x34).readS32(),
+            minLevel: gPtr.add(0x38).readS32(),
+            maxLevel: gPtr.add(0x3C).readS32(),
+            minReset: gPtr.add(0x40).readS32(),
+            maxReset: gPtr.add(0x44).readS32(),
+            accountLevel: gPtr.add(0x48).readS32()
+        };
+    } catch (eG) {
+        return null;
+    }
+}
+
+function readMoveEntryObj(mPtr) {
+    if (!mPtr || mPtr.isNull()) return null;
+    try {
+        return {
+            index: mPtr.add(0x10).readS32(),
+            name: readIl2CppStrSafe(mPtr.add(0x18).readPointer()),
+            command: readIl2CppStrSafe(mPtr.add(0x20).readPointer()),
+            money: mPtr.add(0x28).readS32(),
+            minLevel: mPtr.add(0x2C).readS32(),
+            maxLevel: mPtr.add(0x30).readS32(),
+            accountLevel: mPtr.add(0x34).readS32(),
+            monsterClass: mPtr.add(0x38).readS32(),
+            gateId: mPtr.add(0x3C).readS32()
+        };
+    } catch (eM) {
+        return null;
+    }
+}
+
 function getQuestManagerPtr() {
     try {
         if (nativeQuestGetManager !== null) {
@@ -1370,6 +1492,98 @@ var pendingMerchantInteractPtr = null;
 var pendingQuestNpcTalkPtr = null;
 var pendingQuestStateAction = null;
 var pendingQuestDungeonAction = null;
+var pendingGateEnterAction = null;
+var pendingArkaEnterAction = null;
+var pendingWarp8EAction = null;
+var pendingGateDialogConfirm = null;
+var lastGateEnterResult = { done: false, ok: false, gateId: -1, x: -1, y: -1, ret: false, error: "" };
+
+function flushGateActionsOnMainThread() {
+    if (pendingGateEnterAction !== null) {
+        var act = pendingGateEnterAction;
+        pendingGateEnterAction = null;
+        var res = { done: true, ok: false, gateId: act.gateId, x: act.x, y: act.y, ret: false, error: "" };
+        try {
+            if (nativeUnitEnterGate === null) {
+                res.error = "unit_enter_gate_offset_missing";
+            } else {
+                var cPtr = ptr(0);
+                if (act.x >= 0 && act.y >= 0) {
+                    // Unit.HJDEPLPHNBO reads byte at [coord+0x10] (X) and [coord+0x14] (Y)
+                    gateCoordBuf.writeByteArray([0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0]);
+                    gateCoordBuf.add(0x10).writeS32(act.x & 0xFF);
+                    gateCoordBuf.add(0x14).writeS32(act.y & 0xFF);
+                    cPtr = gateCoordBuf;
+                }
+                var r = nativeUnitEnterGate(act.gateId | 0, cPtr);
+                res.ret = !!r;
+                res.ok = !!r;
+            }
+        } catch (eGE) {
+            res.error = String(eGE);
+        }
+        lastGateEnterResult = res;
+    }
+
+    if (pendingArkaEnterAction !== null) {
+        var aAct = pendingArkaEnterAction;
+        pendingArkaEnterAction = null;
+        try {
+            if (aAct.zone >= 0 && nativeArkaEnterZone !== null) {
+                nativeArkaEnterZone(aAct.zone | 0);
+            } else if (nativeArkaEnterAcheron !== null) {
+                nativeArkaEnterAcheron();
+            }
+        } catch (eAE) {}
+    }
+
+    if (pendingGateDialogConfirm !== null) {
+        var gd = pendingGateDialogConfirm;
+        if (Date.now() >= gd.readyAtMs) {
+            pendingGateDialogConfirm = null;
+            try {
+                if (gd.dlg && !gd.dlg.isNull()) {
+                    // Kiểm tra Unity Object.m_CachedPtr (+0x10) còn sống trước khi bấm YES
+                    var cachedPtr = gd.dlg.add(0x10).readPointer();
+                    if (cachedPtr && !cachedPtr.isNull()) {
+                        if (nativeMDialogConfirmYes !== null) {
+                            nativeMDialogConfirmYes(gd.dlg, ptr(0));
+                        } else {
+                            var yBtn = gd.dlg.add(ptr('0x48')).readPointer();
+                            if (yBtn && !yBtn.isNull() && nativeButtonPress !== null) {
+                                nativeButtonPress(yBtn, ptr(0));
+                            }
+                        }
+                        autoGateConfirmCount += 1;
+                        lastAutoGateConfirmInfo = {
+                            count: autoGateConfirmCount,
+                            title: gd.title || "",
+                            message: gd.message || "",
+                            timeMs: Date.now()
+                        };
+                        send({
+                            type: "auto_gate_confirmed",
+                            source: gd.source || "deferred_mainthread",
+                            title: gd.title || "",
+                            message: gd.message || "",
+                            count: autoGateConfirmCount
+                        });
+                    }
+                }
+            } catch (eGDF) {}
+        }
+    }
+
+    if (pendingWarp8EAction !== null) {
+        var wAct = pendingWarp8EAction;
+        pendingWarp8EAction = null;
+        try {
+            if (nativeProtocolWarp8E !== null) {
+                nativeProtocolWarp8E(wAct.type | 0, wAct.param | 0, wAct.extra | 0);
+            }
+        } catch (eW8E) {}
+    }
+}
 var pendingQuestWindowClose = false;
 var pendingQuestNextAction = null;
 var pendingQuestPickups = [];
@@ -3772,6 +3986,7 @@ try {
                                 }
                             } catch (eQDA) {}
                         }
+                        flushGateActionsOnMainThread();
 
                         if (pendingQuestWindowClose) {
                             try {
@@ -3854,6 +4069,30 @@ var pendingPartyInviteKey = -1;
 var lastPartyInviteResult = { done: false, ok: false, err: null, key: -1 };
 
 var autoConfirmPartyEnabled = true;
+var autoGateConfirmEnabled = false;
+var autoGateConfirmCount = 0;
+var lastAutoGateConfirmMs = 0;
+var lastAutoGateConfirmInfo = { count: 0, title: "", message: "", timeMs: 0 };
+
+function isGateTeleportDialog(title, msg) {
+    var lowT = String(title || "").toLowerCase().trim();
+    var lowM = String(msg || "").toLowerCase().trim();
+    if (lowM.indexOf("do you want to teleport") !== -1) {
+        if (lowM.indexOf("loren market") !== -1 ||
+            lowM.indexOf("blood castle") !== -1 ||
+            lowM.indexOf("devil square") !== -1 ||
+            lowM.indexOf("illusion temple") !== -1 ||
+            lowM.indexOf("imperial guardian") !== -1 ||
+            lowM.indexOf("complete the quest") !== -1) {
+            return false;
+        }
+        return true;
+    }
+    if (lowT === "teleport" && lowM.indexOf("teleport") !== -1 && lowM.indexOf("boss respawn") === -1 && lowM.indexOf("wing") === -1) {
+        return true;
+    }
+    return false;
+}
 var partyConfirmScanCounter = 0;
 var confirmedDialogHistory = {};
 
@@ -4155,6 +4394,7 @@ try {
                         else if (qdaGU === "refuge" && nativeNpcEnterRefuge !== null) nativeNpcEnterRefuge();
                     } catch (eQDAGU) {}
                 }
+                flushGateActionsOnMainThread();
 
                 if (pendingMerchantInteractPtr !== null) {
                     try {
@@ -5871,6 +6111,52 @@ try {
 // REA HOOK: MHelperUI.NIONHKAAMJL (ShowConfirm by ID - RVA 0x1CDC490)
 // Tự động xác nhận Party ngay khi nhận được gói tin mời tổ đội
 // =========================================================================
+// =========================================================================
+// REA HOOK: MHelperUI.NIONHKAAMJL (ShowDialog Generic - no id param)
+// Bắt trực tiếp popup cổng Gate ("Teleport" / "Do you want to teleport?")
+// do LocalCharacterBody.HFCPGMGJDEJ kích hoạt và tự động xác nhận YES (0ms)
+// =========================================================================
+var mhelperShowDialogGenericHook = null;
+try {
+    var offGateDlgGen = off('__MHELPER_SHOW_DIALOG_GENERIC__');
+    if (!offGateDlgGen.isNull()) {
+        mhelperShowDialogGenericHook = Interceptor.attach(baseAddr.add(offGateDlgGen), {
+            onEnter: function(args) {
+                this.isGateTeleport = false;
+                this.gateTitle = "";
+                this.gateMsg = "";
+                if (shuttingDown || !autoGateConfirmEnabled) return;
+                try {
+                    var title = readIl2CppStrSafe(args[1]);
+                    var msg = readIl2CppStrSafe(args[2]);
+                    if (isGateTeleportDialog(title, msg)) {
+                        this.isGateTeleport = true;
+                        this.gateTitle = title;
+                        this.gateMsg = msg;
+                    }
+                } catch (eGDE) {}
+            },
+            onLeave: function(retval) {
+                if (!this.isGateTeleport || shuttingDown) return;
+                if (!retval || retval.isNull()) return;
+                var nowMs = Date.now();
+                if (nowMs - lastAutoGateConfirmMs < 200) return;
+                lastAutoGateConfirmMs = nowMs;
+                try {
+                    // Trì hoãn 300ms trên MainThread để nhân vật thoát trạng thái IsTeleporting sau /move
+                    pendingGateDialogConfirm = {
+                        dlg: retval,
+                        readyAtMs: nowMs + 300,
+                        title: this.gateTitle,
+                        message: this.gateMsg,
+                        source: "dialog_generic_hook"
+                    };
+                } catch (eGDL) {}
+            }
+        });
+    }
+} catch (eMGDH) {}
+
 var mhelperShowDialogIdHook = null;
 try {
     var offPartyDlgId = off('__MHELPER_SHOW_DIALOG_ID__');
@@ -5878,8 +6164,21 @@ try {
         mhelperShowDialogIdHook = Interceptor.attach(baseAddr.add(offPartyDlgId), {
             onEnter: function(args) {
                 this.isParty = false;
+                this.isGateTeleport = false;
                 this.actionInvoked = false;
-                if (shuttingDown || !autoConfirmPartyEnabled) return;
+                if (shuttingDown || (!autoConfirmPartyEnabled && !autoGateConfirmEnabled)) return;
+                if (autoGateConfirmEnabled) {
+                    try {
+                        var gTitle = readIl2CppStrSafe(args[2]);
+                        var gMsg = readIl2CppStrSafe(args[3]);
+                        if (isGateTeleportDialog(gTitle, gMsg)) {
+                            this.isGateTeleport = true;
+                            this.gateTitle = gTitle;
+                            this.gateMsg = gMsg;
+                        }
+                    } catch (eGIdE) {}
+                }
+                if (!autoConfirmPartyEnabled) return;
                 try {
                     var title = "";
                     if (args[2] && !args[2].isNull()) {
@@ -5926,6 +6225,22 @@ try {
                 } catch (ePCheck) {}
             },
             onLeave: function(retval) {
+                if (this.isGateTeleport && !shuttingDown && retval && !retval.isNull()) {
+                    var nowGMs = Date.now();
+                    if (nowGMs - lastAutoGateConfirmMs >= 200) {
+                        lastAutoGateConfirmMs = nowGMs;
+                        try {
+                            pendingGateDialogConfirm = {
+                                dlg: retval,
+                                readyAtMs: nowGMs + 300,
+                                title: this.gateTitle || "",
+                                message: this.gateMsg || "",
+                                source: "dialog_id_hook"
+                            };
+                        } catch (eGIdL) {}
+                    }
+                    return;
+                }
                 if (!this.isParty || !retval || retval.isNull()) return;
                 try {
                     var dlg = retval;
@@ -5964,6 +6279,20 @@ rpc.exports = {
 
     isAutoConfirmPartyEnabled: function() {
         return autoConfirmPartyEnabled;
+    },
+
+    setAutoGateConfirm: function(enabled) {
+        autoGateConfirmEnabled = !!enabled;
+        return JSON.stringify({ ok: true, enabled: autoGateConfirmEnabled, count: autoGateConfirmCount });
+    },
+
+    getAutoGateConfirmStatus: function() {
+        return JSON.stringify({
+            ok: true,
+            enabled: autoGateConfirmEnabled,
+            count: autoGateConfirmCount,
+            last: lastAutoGateConfirmInfo
+        });
     },
 
     getPlayerInfo: function() {
@@ -6919,6 +7248,172 @@ rpc.exports = {
             return JSON.stringify({ ok: true, dungeon: dt });
         } catch (eD) {
             return JSON.stringify({ ok: false, error: eD.toString() });
+        }
+    },
+
+    dumpWorldGates: function() {
+        try {
+            ensureThreadAttached();
+            var dataInst = getDataInstancePtr();
+            if (!dataInst || dataInst.isNull()) {
+                return JSON.stringify({ ok: false, error: "data_instance_null", gates: [], moves: [] });
+            }
+            var tableWorld = dataInst.add(0x90).readPointer();
+            if (!tableWorld || tableWorld.isNull()) {
+                return JSON.stringify({ ok: false, error: "table_world_null", gates: [], moves: [] });
+            }
+
+            var gates = [];
+            try {
+                var gateCont = tableWorld.add(0x30).readPointer();
+                if (gateCont && !gateCont.isNull()) {
+                    var gList = gateCont.add(0x10).readPointer();
+                    if (gList && !gList.isNull()) {
+                        var gCount = gList.add(0x18).readS32();
+                        var gArr = gList.add(0x10).readPointer();
+                        if (gArr && !gArr.isNull() && gCount > 0 && gCount < 4096) {
+                            for (var gi = 0; gi < gCount; gi++) {
+                                var gPtr = gArr.add(0x20 + gi * 8).readPointer();
+                                var gObj = readGateEntryObj(gPtr);
+                                if (gObj !== null) gates.push(gObj);
+                            }
+                        }
+                    }
+                }
+            } catch (eGL) {}
+
+            var moves = [];
+            try {
+                var moveCont = tableWorld.add(0x28).readPointer();
+                if (moveCont && !moveCont.isNull()) {
+                    var mList = moveCont.add(0x10).readPointer();
+                    if (mList && !mList.isNull()) {
+                        var mCount = mList.add(0x18).readS32();
+                        var mArr = mList.add(0x10).readPointer();
+                        if (mArr && !mArr.isNull() && mCount > 0 && mCount < 2048) {
+                            for (var mi = 0; mi < mCount; mi++) {
+                                var mPtr = mArr.add(0x20 + mi * 8).readPointer();
+                                var mObj = readMoveEntryObj(mPtr);
+                                if (mObj !== null) moves.push(mObj);
+                            }
+                        }
+                    }
+                }
+            } catch (eML) {}
+
+            var curMap = -1, curX = -1, curY = -1;
+            try {
+                if (getWorldNative !== null) {
+                    var w = getWorldNative();
+                    if (w && !w.isNull()) curMap = w.add(0x20).readS32();
+                }
+            } catch (eWM) {}
+            try {
+                var lp = getPlayerPtr();
+                if (lp && !lp.isNull()) {
+                    var c = lp.add(0x68).readPointer();
+                    if (c && !c.isNull()) {
+                        curX = c.add(0x10).readS32();
+                        curY = c.add(0x14).readS32();
+                    }
+                }
+            } catch (eLP) {}
+
+            return JSON.stringify({
+                ok: true,
+                currentMapId: curMap,
+                currentX: curX,
+                currentY: curY,
+                gateCount: gates.length,
+                moveCount: moves.length,
+                gates: gates,
+                moves: moves
+            });
+        } catch (eDW) {
+            return JSON.stringify({ ok: false, error: eDW.toString(), gates: [], moves: [] });
+        }
+    },
+
+    getCurrentTileGate: function() {
+        try {
+            ensureThreadAttached();
+            var lp = getPlayerPtr();
+            if (!lp || lp.isNull()) return JSON.stringify({ ok: false, found: false, error: "no_player" });
+            var c = lp.add(0x68).readPointer();
+            if (!c || c.isNull()) return JSON.stringify({ ok: false, found: false, error: "no_coord" });
+            var px = c.add(0x10).readS32();
+            var py = c.add(0x14).readS32();
+            if (px < 0 || px > 255 || py < 0 || py > 255) {
+                return JSON.stringify({ ok: true, found: false, x: px, y: py });
+            }
+            var w = (getWorldNative !== null) ? getWorldNative() : ptr(0);
+            if (!w || w.isNull()) return JSON.stringify({ ok: false, found: false, error: "no_world" });
+            var mapId = w.add(0x20).readS32();
+            var gates2D = w.add(0x218).readPointer();
+            if (!gates2D || gates2D.isNull()) {
+                return JSON.stringify({ ok: true, found: false, mapId: mapId, x: px, y: py });
+            }
+            var bounds = gates2D.add(0x10).readPointer();
+            var dim0 = bounds.readU32();
+            var dim1 = bounds.add(0x10).readU32();
+            if (px >= dim0 || py >= dim1) {
+                return JSON.stringify({ ok: true, found: false, mapId: mapId, x: px, y: py });
+            }
+            var gPtr = gates2D.add(0x20 + (px * dim1 + py) * 8).readPointer();
+            if (!gPtr || gPtr.isNull()) {
+                return JSON.stringify({ ok: true, found: false, mapId: mapId, x: px, y: py });
+            }
+            var gObj = readGateEntryObj(gPtr);
+            return JSON.stringify({ ok: true, found: gObj !== null, mapId: mapId, x: px, y: py, gate: gObj });
+        } catch (eTG) {
+            return JSON.stringify({ ok: false, found: false, error: eTG.toString() });
+        }
+    },
+
+    enterGate: function(gateId, x, y) {
+        try {
+            var gid = parseInt(gateId);
+            if (isNaN(gid) || gid < 0 || gid > 65535) {
+                return JSON.stringify({ ok: false, error: "invalid_gate_id" });
+            }
+            var gx = (x !== undefined && x !== null) ? parseInt(x) : -1;
+            var gy = (y !== undefined && y !== null) ? parseInt(y) : -1;
+            lastGateEnterResult = { done: false, ok: false, gateId: gid, x: gx, y: gy, ret: false, error: "" };
+            pendingGateEnterAction = { gateId: gid, x: gx, y: gy };
+            return JSON.stringify({ ok: true, queued: true, gateId: gid, x: gx, y: gy });
+        } catch (eEG) {
+            return JSON.stringify({ ok: false, error: eEG.toString() });
+        }
+    },
+
+    getLastGateEnterResult: function() {
+        try {
+            return JSON.stringify(lastGateEnterResult);
+        } catch (eR) {
+            return JSON.stringify({ done: false, ok: false, error: eR.toString() });
+        }
+    },
+
+    enterAcheronNpc: function(zone) {
+        try {
+            var z = (zone !== undefined && zone !== null) ? parseInt(zone) : -1;
+            pendingArkaEnterAction = { zone: z };
+            return JSON.stringify({ ok: true, queued: true, zone: z });
+        } catch (eEA) {
+            return JSON.stringify({ ok: false, error: eEA.toString() });
+        }
+    },
+
+    sendWarp8E: function(warpType, param, extra) {
+        try {
+            pendingWarp8EAction = {
+                type: parseInt(warpType || 0),
+                param: parseInt(param || 0),
+                extra: parseInt(extra || 0)
+            };
+            return JSON.stringify({ ok: true, queued: true });
+        } catch (eW) {
+            return JSON.stringify({ ok: false, error: eW.toString() });
         }
     },
 
@@ -10206,6 +10701,7 @@ rpc.exports = {
             }
         } catch (eHSC) {}
         try {
+            try { if (mhelperShowDialogGenericHook) { mhelperShowDialogGenericHook.detach(); mhelperShowDialogGenericHook = null; } } catch(eCGH) {}
             Interceptor.flush();
         } catch (eF) {}
         return true;
@@ -10566,6 +11062,12 @@ class MegDirectEngine:
             "__PLAYER_CHANGE_UP__": o("player_change_up"),
             "__UI_QUEST_NPC_WINDOW__": o("ui_quest_npc_window"),
             "__CHAT_ADD_NOTICE__": o("chat_add_notice"),
+            "__DATA_TYPE_INFO__": o("data_type_info"),
+            "__DATA_GET_INSTANCE__": o("data_get_instance"),
+            "__UNIT_ENTER_GATE__": o("unit_enter_gate"),
+            "__ARKA_ENTER_ACHERON__": o("arka_enter_acheron"),
+            "__ARKA_ENTER_ZONE__": o("arka_enter_zone"),
+            "__PROTOCOL_WARP_8E__": o("protocol_warp_8e"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -10611,6 +11113,17 @@ class MegDirectEngine:
                             _safe_log(f"[MegDirectEngine] Native Chat đã gửi thành công: '{cmd_val}'")
                         else:
                             _safe_log(f"[MegDirectEngine] Native Chat gửi lỗi '{cmd_val}': {payload.get('error')}")
+                    elif p_type == "auto_gate_confirmed":
+                        cb = getattr(self, "on_gate_confirmed_callback", None)
+                        if cb:
+                            try:
+                                cb(payload)
+                            except Exception:
+                                pass
+                        _safe_log(
+                            f"[MegDirectEngine] PID {self.pid} AUTO-CONFIRM GATE (#{payload.get('count', 1)}): "
+                            f"{payload.get('title', '')} | {payload.get('message', '')}"
+                        )
                     elif p_type == "auto_party_confirmed":
                         title = payload.get("title", "")
                         msg = payload.get("message", "")
@@ -12436,6 +12949,15 @@ class MegDirectEngine:
                 return True
         return self.set_party_auto_mode(enable=True)
 
+    def set_auto_gate_confirm(self, enabled: bool = True) -> Dict[str, Any]:
+        """Bật/tắt chế độ tự động xác nhận popup cổng Gate ('Do you want to teleport?') trong 0ms."""
+        self.auto_gate_confirm = bool(enabled)
+        return self._call_json("setAutoGateConfirm", bool(enabled), default={"ok": False, "enabled": False, "count": 0})
+
+    def get_auto_gate_confirm_status(self) -> Dict[str, Any]:
+        """Lấy trạng thái & số lần đã Auto-Confirm cổng Gate."""
+        return self._call_json("getAutoGateConfirmStatus", default={"ok": False, "enabled": False, "count": 0})
+
     def set_auto_confirm_party(self, enabled: bool = True) -> bool:
         """
         Bật/tắt chế độ tự động đồng ý / xác nhận lời mời Party từ các tài khoản khác.
@@ -12771,6 +13293,30 @@ class MegDirectEngine:
     def enter_quest_dungeon(self, dungeon_type: str) -> Dict[str, Any]:
         """Gửi gói C1:D0:07 vào Barracks hoặc C1:D0:08 vào Refuge trên Unity MainThread."""
         return self._call_json("enterQuestDungeon", str(dungeon_type or ""), default={"ok": False})
+
+    def dump_world_gates(self) -> Dict[str, Any]:
+        """Đọc toàn bộ bảng TableWorld.Gate và TableWorld.Move trực tiếp từ RAM game."""
+        return self._call_json("dumpWorldGates", default={"ok": False, "gates": [], "moves": []})
+
+    def get_current_tile_gate(self) -> Dict[str, Any]:
+        """Kiểm tra xem ô tọa độ nhân vật đang đứng có thuộc Gate nào trong World.Gates[,] hay không."""
+        return self._call_json("getCurrentTileGate", default={"ok": False, "found": False})
+
+    def enter_gate(self, gate_id: int, x: int = -1, y: int = -1) -> Dict[str, Any]:
+        """Gọi trực tiếp Mega.Unit.HJDEPLPHNBO (gửi gói C1:1C) trên Unity MainThread để đi qua Gate."""
+        return self._call_json("enterGate", int(gate_id), int(x), int(y), default={"ok": False})
+
+    def get_last_gate_enter_result(self) -> Dict[str, Any]:
+        """Đọc kết quả thực thi lần gọi enter_gate gần nhất trên Unity MainThread."""
+        return self._call_json("getLastGateEnterResult", default={"done": False, "ok": False})
+
+    def enter_acheron_npc(self, zone: int = -1) -> Dict[str, Any]:
+        """Gửi gói C1:F8:30 (vào Acheron) hoặc C1:F8:34 (vào zone ArkaWar) trên Unity MainThread."""
+        return self._call_json("enterAcheronNpc", int(zone), default={"ok": False})
+
+    def send_warp_8e(self, warp_type: int, param: int, extra: int = 0) -> Dict[str, Any]:
+        """Gửi gói C1:8E (Protocol.EMHENMDBJIG) trên Unity MainThread."""
+        return self._call_json("sendWarp8E", int(warp_type), int(param), int(extra), default={"ok": False})
 
     def close_quest_window(self) -> bool:
         """Đóng cửa sổ hội thoại NPC Quest nếu đang mở."""

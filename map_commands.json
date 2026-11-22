@@ -226,7 +226,8 @@
       "aliases": [
         "acheron",
         "acheron town"
-      ]
+      ],
+      "map_id": 91
     },
     {
       "name": "Tarkan",
@@ -377,12 +378,14 @@
     },
     {
       "name": "Alkmar",
-      "command": "alkmar",
+      "command": "alcmaru",
       "aliases": [
         "alkmar",
         "alcmar",
-        "alcmaru"
-      ]
+        "alcmaru",
+        "alka"
+      ],
+      "map_id": 91
     },
     {
       "name": "Abyss of Atlans 1",
@@ -415,8 +418,10 @@
       "name": "Debenter",
       "command": "debenter",
       "aliases": [
-        "debenter"
-      ]
+        "debenter",
+        "deventer"
+      ],
+      "map_id": 95
     },
     {
       "name": "Deep Dungeon 1",
@@ -495,7 +500,8 @@
       "command": "nars",
       "aliases": [
         "nars"
-      ]
+      ],
+      "map_id": 110
     },
     {
       "name": "Nixies",
@@ -516,15 +522,20 @@
       "name": "Ubaid",
       "command": "ubaid",
       "aliases": [
-        "ubaid"
-      ]
+        "ubaid",
+        "ubail"
+      ],
+      "map_id": 91
     },
     {
       "name": "Uruk",
       "command": "uruk",
       "aliases": [
-        "uruk"
-      ]
+        "uruk",
+        "uruk mountain",
+        "urukmountain"
+      ],
+      "map_id": 100
     }
   ]
 }

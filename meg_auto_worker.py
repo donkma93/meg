@@ -27,6 +27,20 @@ except ImportError:
 
 from meg_direct_engine import MegDirectEngine
 try:
+    from meg_gate_navigator import (
+        GateCatalog,
+        KNOWN_MOVE_COMMANDS,
+        is_in_acheron_safe_zone,
+        is_inside_gate_destination,
+        normalize_map_name,
+    )
+except ImportError:
+    GateCatalog = None
+    KNOWN_MOVE_COMMANDS = {}
+    is_in_acheron_safe_zone = None
+    is_inside_gate_destination = None
+    normalize_map_name = None
+try:
     from meg_crash_tracer import log_thread_exception
 except ImportError:
     def log_thread_exception(*args, **kwargs): pass
@@ -350,7 +364,7 @@ class AutoTrainWorker:
         self.evade_killer_name = ""
         self.last_evade_map_retry = 0.0
 
-        # Quản lý Đổi Map
+        # Quản lý Đổi Map & Cổng GATE REA (Alkmar, Ubaid, Debenter, Uruk, Nars, Nixies...)
         self.expected_map_id: Optional[int] = None
         self.route_map_name = ""
         self.map_wait_active = False
@@ -360,6 +374,10 @@ class AutoTrainWorker:
         self.map_move_sent = False
         self.next_map_retry_at = 0.0
         self.map_retry_count = 0
+        self.gate_catalog: Optional[Any] = None
+        self._gate_auto_confirm_armed = False
+        self.last_gate_c11c_time = 0.0
+        self.last_gate_walk_time = 0.0
 
     def _log(self, msg: str, level: str = "INFO"):
         if self.log_callback:
@@ -675,25 +693,223 @@ class AutoTrainWorker:
         self._set_state(f"CHẠY RA BÃI ({x}, {y})")
         self._log(f"Đã xác thực bản đồ; chỉ cần đi đến tọa độ ({x}, {y}).", "SUCCESS")
 
-    def _route_map_gate(self, stage: Dict[str, Any], current_map_id: Optional[int]) -> bool:
+    # ------------------------------------------------------------------
+    # Tích hợp GATE REA + Auto-Confirm Gate cho các Map [Gate] (Alkmar, Ubaid, Debenter, Uruk, Nars, Nixies...)
+    # ------------------------------------------------------------------
+
+    def _ensure_auto_gate_confirm(self):
+        """Bật sẵn Auto-Confirm Gate (trì hoãn 300ms, bỏ qua popup 'Do you want to teleport?') trên Engine."""
+        if self._gate_auto_confirm_armed or not self.core:
+            return
+        if hasattr(self.core, "set_auto_gate_confirm"):
+            try:
+                res = self.core.set_auto_gate_confirm(True)
+                if isinstance(res, dict) and res.get("ok"):
+                    self._gate_auto_confirm_armed = True
+            except Exception:
+                pass
+
+    def _ensure_gate_catalog(self):
+        if GateCatalog is None:
+            return None
+        if self.gate_catalog is None:
+            self.gate_catalog = GateCatalog()
+            self.gate_catalog.load_cache()
+        if not self.gate_catalog.is_loaded and self.core and hasattr(self.core, "dump_world_gates"):
+            try:
+                dump = self.core.dump_world_gates()
+                if dump and dump.get("ok"):
+                    self.gate_catalog.load_from_dump(dump)
+                    try:
+                        self.gate_catalog.save_cache()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return self.gate_catalog if self.gate_catalog.is_loaded else None
+
+    def _resolve_stage_gate_info(self, map_name: str) -> Optional[Dict[str, Any]]:
         """
-        Cổng kiểm soát chuyển bản đồ chuẩn v1.3.6 từ MEGAMU Dashboard gốc:
-        - Khớp MapID lập tức chuyển trusted và cho phép chạy ra bãi.
-        - Lệch MapID kích hoạt lệnh /move hoặc đi bộ qua cổng nếu chưa đủ level.
-        - Chống kẹt: Tuyệt đối không ép nhân vật chạy tọa độ của map đích khi vẫn đang ở map cũ.
+        Kiểm tra map của chặng có phải là Map [Gate] (Alkmar/Alka, Ubaid/Ubail, Debenter/Deventer,
+        Uruk, Nars, Nixies...) hay không. Trả về descriptor đầy đủ (portal, target_gate, dest_map_id, move_cmd).
+        """
+        if not map_name or GateCatalog is None:
+            return None
+        cat = self._ensure_gate_catalog()
+        if cat is None:
+            return None
+        res = cat.resolve_target(map_name)
+        if not res.get("ok"):
+            return None
+        pgid = int(res.get("portal_gate_id", -1))
+        if pgid <= 0:
+            return None
+        portal = cat.get_gate(pgid)
+        if portal is None:
+            return None
+        mv = res.get("move")
+        canonical = str(res.get("canonical") or normalize_map_name(map_name))
+        cmd_word = (mv.command if (mv and mv.command) else KNOWN_MOVE_COMMANDS.get(canonical, canonical)).strip()
+        return {
+            "canonical": canonical,
+            "name": res.get("name") or map_name,
+            "dest_map_id": int(res.get("map_id", -1)),
+            "dest_gate_id": int(res.get("gate_id", -1)),
+            "portal": portal,
+            "move_cmd": f"/move {cmd_word}" if cmd_word else "",
+        }
+
+    def _handle_gate_map_routing(
+        self,
+        stage: Dict[str, Any],
+        gate_info: Dict[str, Any],
+        current_map_id: Optional[int],
+        current_coords: Optional[Tuple[int, int]] = None,
+    ) -> bool:
+        """
+        Điều hướng trọn gói qua cổng GATE cho Auto Train:
+        - Nếu đã ở bên trong map đích (qua khỏi cổng & ngoài Safe Zone Acheron) -> chạy thẳng tới tọa độ bãi (tx, ty).
+        - Nếu đang đứng trên ô cổng Portal -> chờ 0.9s cho Auto-Confirm tự bấm YES, dự phòng bắn thẳng C1:1C (enter_gate).
+        - Nếu đang ở cùng map chứa cổng (vd Acheron Town Map 91) -> thử /move <cmd> hoặc tự chạy tới tâm cổng để xuyên cổng.
+        - Nếu đang ở map khác (vd Lorencia/Noria/Alkmar khi muốn sang Ubaid) -> gửi /move <cmd> để đáp thẳng lên cổng -> Auto-Confirm xuyên cổng!
+        Trả về True nếu đang bận xử lý chuyển map/qua cổng (chặn vòng lặp chạy tọa độ bãi sớm).
         """
         now = time.time()
-        expected = self.map_resolver.expected_map_id(stage.get("map_name") or stage.get("map", ""))
+        self._ensure_auto_gate_confirm()
+
+        cur_map = int(current_map_id) if current_map_id is not None else -1
+        if current_coords is not None:
+            px, py = int(current_coords[0]), int(current_coords[1])
+        else:
+            px, py = int(self.last_px or 0), int(self.last_py or 0)
+
+        portal = gate_info["portal"]
+        dest_map = int(gate_info["dest_map_id"])
+        canonical = gate_info["canonical"]
+        g_name = gate_info["name"]
+        mv_cmd = gate_info["move_cmd"]
+
+        if cur_map < 0:
+            self._set_state(f"GATE LOAD {g_name}")
+            return True
+
+        # 1. ĐÃ QUA CỔNG VÀ ĐANG Ở BÊN TRONG KHU VỰC ĐÍCH!
+        if is_inside_gate_destination(canonical, dest_map, portal, cur_map, px, py):
+            self.map_sensor_trusted = True
+            self.map_sensor_suspect = False
+            if self.map_wait_active or not self.map_move_sent:
+                self._move_to_target_after_map_verified()
+                return True
+            return False
+
+        # Chưa ở trong khu vực đích -> Đảm bảo không đánh quái/không giữ arrived_at_spot giả
+        self.arrived_at_spot = False
+        self.map_move_sent = False
+        try:
+            if self.core.is_helper_active():
+                self.core.stop_helper()
+        except Exception:
+            pass
+
+        # 2. ĐANG ĐỨNG TRÊN Ô PORTAL CỔNG (vd vừa /move hoặc vừa đi tới cổng) -> Đợi Auto-Confirm 300ms hoặc bắn thẳng C1:1C!
+        if cur_map == portal.map_id and portal.contains(px, py, pad=2):
+            self._set_state(f"QUA CỔNG #{portal.index} -> {g_name}")
+            # Nếu vừa mới gửi /move trong < 0.8s, nhường Auto-Confirm 300ms chạy trước
+            if (now - self.map_command_sent_at) >= 0.85 and (now - self.last_gate_c11c_time) >= 1.5:
+                self.last_gate_c11c_time = now
+                self._log(
+                    f"🚪 Đang đứng trên cổng Portal #{portal.index} ({px},{py}) -> Bắn REA C1:1C xuyên cổng vào {g_name}!",
+                    "INFO",
+                )
+                try:
+                    if hasattr(self.core, "enter_gate"):
+                        self.core.enter_gate(portal.index, px, py)
+                except Exception as e:
+                    self._log(f"Lỗi gọi enter_gate({portal.index}): {e}", "WARNING")
+            self.map_wait_active = True
+            return True
+
+        # 3. ĐANG Ở CÙNG MAP CHỨA CỔNG & TRONG VÙNG ĐI BỘ ĐƯỢC TỚI CỔNG (vd đang ở Acheron Safe Zone Map 91)
+        can_walk_to_portal = (
+            cur_map == portal.map_id
+            and (
+                (cur_map == 91 and is_in_acheron_safe_zone(cur_map, px, py))
+                or (cur_map != 91 and math.hypot(portal.center[0] - px, portal.center[1] - py) <= 45.0)
+            )
+        )
+
+        # Nếu chưa từng gửi /move (hoặc đang ở map khác không thể đi bộ tới cổng) -> Gửi /move <cmd> trước cho siêu nhanh!
+        if (not can_walk_to_portal) or (self.map_command_sent_at <= 0.0 and mv_cmd):
+            if mv_cmd and (self.map_command_sent_at <= 0.0 or now >= self.next_map_retry_at):
+                self._log(f"🚪 Chuyển tới cổng {g_name}: gửi '{mv_cmd}' (Auto-Confirm Gate: ON)...", "INFO")
+                try:
+                    self.core.stop_helper()
+                    self.core.cancel_move()
+                    time.sleep(0.25)
+                except Exception:
+                    pass
+                self.core.send_chat(mv_cmd)
+                self.map_command_sent_at = now
+                self.map_wait_active = True
+                self.next_map_retry_at = now + 5.5
+                self.map_retry_count += 1
+                self._set_state(f"WARP CỔNG {g_name}")
+                return True
+
+        # Nếu đang ở Acheron Safe Zone (hoặc cạnh cổng) mà sau 1.8s từ lúc /move vẫn chưa vào cổng -> Tự đi bộ thẳng tới tâm cổng!
+        if can_walk_to_portal and (now - self.map_command_sent_at) >= 1.8:
+            pcx, pcy = portal.center
+            if (now - self.last_gate_walk_time) >= 1.4:
+                self.last_gate_walk_time = now
+                self._log(
+                    f"🚶 Tự động di chuyển tới tâm cổng Portal #{portal.index} ({pcx},{pcy}) để Auto-Confirm qua {g_name}...",
+                    "INFO",
+                )
+                try:
+                    if hasattr(self.core, "start_auto_move"):
+                        self.core.start_auto_move(pcx, pcy, helper=False)
+                    else:
+                        self.core.move_to(pcx, pcy, bypass_angle=0.0)
+                except Exception:
+                    pass
+            self._set_state(f"ĐẾN CỔNG {g_name} ({pcx},{pcy})")
+            self.map_wait_active = True
+            return True
+
+        self._set_state(f"CHỜ CỔNG {g_name}")
+        return True
+
+    def _route_map_gate(
+        self,
+        stage: Dict[str, Any],
+        current_map_id: Optional[int],
+        current_coords: Optional[Tuple[int, int]] = None,
+    ) -> bool:
+        """
+        Cổng kiểm soát chuyển bản đồ chuẩn v1.3.6 từ MEGAMU Dashboard gốc + tích hợp GATE REA:
+        - Tự động nhận diện các Map [Gate] (Alkmar, Ubaid, Debenter, Uruk, Nars, Nixies):
+          đến cổng -> Auto-Confirm (0ms/300ms) / C1:1C -> vào đúng map đích rồi chạy thẳng tới tọa độ bãi!
+        - Khớp MapID lập tức chuyển trusted và cho phép chạy ra bãi.
+        - Chống kẹt: Tuyệt đối không ép nhân vật chạy tọa độ của map đích khi vẫn đang ở map cũ / Safe Zone.
+        """
+        now = time.time()
+        map_name = stage.get("map_name") or stage.get("map", "")
+        expected = self.map_resolver.expected_map_id(map_name)
         if expected is not None:
             self.expected_map_id = expected
-
-        if self.expected_map_id is None:
-            return False
 
         # 0. Nếu tắt auto_warp: Không kiểm soát cổng chuyển map, đi thẳng ra bãi
         if stage.get("auto_warp") is False:
             if not self.map_move_sent:
                 self._move_to_target_after_map_verified()
+            return False
+
+        # 0.5. Tích hợp trọn gói cho các Map [Gate] (Alkmar/Ubaid/Debenter/Uruk/Nars/Nixies)
+        gate_info = self._resolve_stage_gate_info(map_name)
+        if gate_info is not None:
+            return self._handle_gate_map_routing(stage, gate_info, current_map_id, current_coords=current_coords)
+
+        if self.expected_map_id is None:
             return False
 
         try:
@@ -811,6 +1027,14 @@ class AutoTrainWorker:
         map_name = stage.get("map_name") or stage.get("map", "")
         tx, ty = self.current_target if self.current_target else (0, 0)
 
+        # 0. Nếu là Map [Gate] (Alkmar, Ubaid, Debenter, Uruk, Nars, Nixies...) và chưa tắt auto_warp:
+        # Dùng hẳn bộ điều hướng Gate REA + Auto-Confirm (tránh nhầm Map 91 Acheron Town là đã ở Ubaid/Alkmar!)
+        if stage.get("auto_warp") is not False:
+            gate_info = self._resolve_stage_gate_info(map_name)
+            if gate_info is not None:
+                self.expected_map_id = gate_info["dest_map_id"]
+                return self._handle_gate_map_routing(stage, gate_info, current_map_id, current_coords=current_coords)
+
         # Kiểm tra xem nhân vật đã ở tại map hay chưa
         already_at_map = False
         skip_reason = ""
@@ -927,6 +1151,7 @@ class AutoTrainWorker:
         """Vòng lặp chính điều hướng và cắm bãi (Smart AutoTrain Main Loop)."""
         time.sleep(((self.slot_idx - 1) % 50) * 0.035)
         self._log(f"Smart AutoTrain worker đã bắt đầu (Chu kỳ poll: {self.poll_interval:.3f}s).", "SUCCESS")
+        self._ensure_auto_gate_confirm()
 
         while self.running and not self.stop_event.is_set():
             now = time.time()
@@ -1438,8 +1663,8 @@ class AutoTrainWorker:
                     time.sleep(0.3)
                     continue
 
-                # 6. Kiểm tra cổng chuyển map (Safe Map Gate matching v1.3.6)
-                if self._route_map_gate(stage, current_map_id):
+                # 6. Kiểm tra cổng chuyển map (Safe Map Gate + GATE REA Auto-Confirm)
+                if self._route_map_gate(stage, current_map_id, current_coords=(px, py)):
                     time.sleep(min(0.7, max(0.25, self.poll_interval)))
                     continue
 
