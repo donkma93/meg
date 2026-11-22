@@ -21,6 +21,7 @@ class LicenseApiController extends Controller
             'machine_name' => 'nullable|string|max:100',
             'client_version' => 'nullable|string|max:50',
             'product_code' => 'nullable|string|max:50',
+            'nonce' => 'nullable|string|max:128',
         ]);
 
         $key = trim($request->input('license_key'));
@@ -110,8 +111,10 @@ class LicenseApiController extends Controller
 
         $daysLeft = $license->expires_at ? max(0, now()->diffInDays($license->expires_at, false)) : null;
         $signature = $this->generateSignature($license->license_key, $hwid, 'active');
+        $nonce = trim((string) $request->input('nonce', ''));
+        $offsetsPkg = $this->buildEncryptedOffsetsPayload($license, $hwid, $nonce);
 
-        return response()->json([
+        return response()->json(array_merge([
             'success' => true,
             'message' => 'Kích hoạt bản quyền thành công!',
             'signature' => $signature,
@@ -129,7 +132,7 @@ class LicenseApiController extends Controller
                 'modules' => $license->modules,
                 'signature' => $signature,
             ]
-        ]);
+        ], $offsetsPkg));
     }
 
     /**
@@ -141,6 +144,7 @@ class LicenseApiController extends Controller
             'license_key' => 'required|string',
             'hwid' => 'required|string',
             'client_version' => 'nullable|string',
+            'nonce' => 'nullable|string|max:128',
         ]);
 
         $key = trim($request->input('license_key'));
@@ -189,8 +193,10 @@ class LicenseApiController extends Controller
         $this->logAction($license, 'verify', $hwid, $ip, $version, 'success', 'Xác thực định kỳ OK');
 
         $daysLeft = $license->expires_at ? max(0, now()->diffInDays($license->expires_at, false)) : null;
+        $nonce = trim((string) $request->input('nonce', ''));
+        $offsetsPkg = $this->buildEncryptedOffsetsPayload($license, $hwid, $nonce);
 
-        return response()->json([
+        return response()->json(array_merge([
             'valid' => true,
             'status' => 'active',
             'plan_type' => $license->plan_type,
@@ -200,7 +206,118 @@ class LicenseApiController extends Controller
             'days_left' => $daysLeft,
             'modules' => $license->modules,
             'signature' => $this->generateSignature($license->license_key, $hwid, 'active'),
-        ]);
+        ], $offsetsPkg));
+    }
+
+    /**
+     * Đọc file game_offsets.json nội bộ trên Server (KHÔNG công khai trong public/),
+     * lọc theo module bản quyền của key và mã hóa AES-256-CBC + HMAC-SHA256 theo khóa phiên dùng 1 lần.
+     * Client giải mã trực tiếp trong RAM của meg_license_bridge.dll (không lưu ra đĩa).
+     */
+    private function buildEncryptedOffsetsPayload(License $license, string $hwid, string $nonce): array
+    {
+        if ($nonce === '') {
+            return [];
+        }
+
+        $offsetsPath = storage_path('app/private/game_offsets.json');
+        if (!is_file($offsetsPath)) {
+            $altPath = storage_path('app/game_offsets.json');
+            if (is_file($altPath)) {
+                $offsetsPath = $altPath;
+            } else {
+                return [];
+            }
+        }
+
+        $raw = @file_get_contents($offsetsPath);
+        if (!$raw) {
+            return [];
+        }
+        $allOffsets = json_decode($raw, true);
+        if (!is_array($allOffsets) || empty($allOffsets)) {
+            return [];
+        }
+
+        $filtered = $this->filterOffsetsByModules($allOffsets, $license->modules);
+        $plainJson = json_encode($filtered, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($plainJson === false) {
+            return [];
+        }
+
+        $secret = $this->getNativeSecret();
+        $ts = (string) time();
+        $upperKey = strtoupper(trim($license->license_key));
+        $upperHwid = strtoupper(trim($hwid));
+        $baseMaterial = $secret . '|' . $upperKey . '|' . $upperHwid . '|' . $nonce . '|' . $ts;
+
+        $encKey = hash('sha256', 'ENC|' . $baseMaterial, true);
+        $macKey = hash('sha256', 'MAC|' . $baseMaterial, true);
+        $iv = random_bytes(16);
+
+        $cipher = openssl_encrypt($plainJson, 'AES-256-CBC', $encKey, OPENSSL_RAW_DATA, $iv);
+        if ($cipher === false) {
+            return [];
+        }
+
+        $tag = hash_hmac('sha256', $iv . $cipher, $macKey, true);
+        $blob = base64_encode($iv . $cipher . $tag);
+        $sigPayload = $upperKey . '|' . $upperHwid . '|active|' . $ts . '|' . $nonce . '|' . $blob;
+        $offsetsSig = hash_hmac('sha256', $sigPayload, $secret);
+
+        return [
+            'offsets_ts' => $ts,
+            'offsets_nonce' => $nonce,
+            'offsets_blob' => $blob,
+            'offsets_sig' => $offsetsSig,
+        ];
+    }
+
+    /**
+     * Chỉ cấp các nhóm offset tương ứng với module đã kích hoạt (train / mirror / moss).
+     */
+    private function filterOffsetsByModules(array $allOffsets, $modules): array
+    {
+        if (!is_array($modules) || empty($modules)) {
+            return $allOffsets;
+        }
+        $mods = array_map('strtolower', $modules);
+        $hasTrain = in_array('train', $mods, true);
+        $hasMirror = in_array('mirror', $mods, true);
+        $hasMoss = in_array('moss', $mods, true);
+
+        if ($hasTrain && $hasMirror && $hasMoss) {
+            return $allOffsets;
+        }
+
+        $out = [];
+        foreach ($allOffsets as $k => $v) {
+            $lk = strtolower((string) $k);
+            $isMossKey = str_starts_with($lk, 'moss_') || $lk === 'ui_moss_window';
+            $isMirrorKey = str_starts_with($lk, 'mirror_')
+                || str_starts_with($lk, 'doublegoer_')
+                || str_starts_with($lk, 'gremory_')
+                || str_starts_with($lk, 'pkt_enc_')
+                || in_array($lk, ['item_mirror_ticket', 'ui_gremory_window', 'socket_send_err', 'tcp_set_nodelay'], true);
+            $isDevilKey = str_starts_with($lk, 'devil_') || str_starts_with($lk, 'item_devil_');
+
+            if ($isMossKey && !$hasMoss) {
+                continue;
+            }
+            if ($isMirrorKey && !$hasMirror) {
+                continue;
+            }
+            if ($isDevilKey && !$hasTrain) {
+                continue;
+            }
+            $out[$k] = $v;
+        }
+        return $out;
+    }
+
+    private function getNativeSecret(): string
+    {
+        return (string) env('LICENSE_NATIVE_SECRET', 'MEGAMU_DONPV_2026_NATIVE_SECURE_TOKEN_#89a1');
     }
 
     /**
@@ -208,7 +325,7 @@ class LicenseApiController extends Controller
      */
     private function generateSignature(string $licenseKey, string $hwid, string $status): string
     {
-        $secret = 'MEGAMU_DONPV_2026_NATIVE_SECURE_TOKEN_#89a1';
+        $secret = $this->getNativeSecret();
         $payload = strtoupper($licenseKey) . '|' . strtoupper($hwid) . '|' . strtolower($status);
         return hash_hmac('sha256', $payload, $secret);
     }

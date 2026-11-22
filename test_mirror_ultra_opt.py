@@ -544,9 +544,13 @@ class TestMirrorUltraOptimization(unittest.TestCase):
             root_off = json.load(f)
         with open(os.path.join("config", "megamu_offsets.json"), "r", encoding="utf-8") as f:
             cfg_off = json.load(f)
+        with open(os.path.join("license-server", "storage", "app", "private", "game_offsets.json"), "r", encoding="utf-8") as f:
+            srv_off = json.load(f)
 
         for key, expected in required_offsets.items():
-            self.assertEqual(mde.DEFAULT_OFFSETS.get(key), expected, f"DEFAULT_OFFSETS mismatch: {key}")
+            # Zero-Offset-On-Disk: DEFAULT_OFFSETS must NOT hardcode any RVA hex literals!
+            self.assertIsNone(mde.DEFAULT_OFFSETS.get(key), f"DEFAULT_OFFSETS leaked RVA: {key}")
+            self.assertEqual(srv_off.get(key), expected, f"server game_offsets.json mismatch: {key}")
             self.assertEqual(root_off.get(key), expected, f"megamu_offsets.json mismatch: {key}")
             self.assertEqual(cfg_off.get(key), expected, f"config/megamu_offsets.json mismatch: {key}")
 

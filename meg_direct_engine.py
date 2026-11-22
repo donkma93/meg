@@ -5,8 +5,8 @@ MEGAMU Direct Frida IL2CPP Engine
 =================================
 Giao tiếp trực tiếp và an toàn với GameAssembly.dll qua Frida Dynamic Instrumentation.
 Mô phỏng 100% cơ chế MEGAMUCore của MEGAMU Auto Train Dashboard gốc:
-- Hook onEnter vào chat_update (offset 0x14B6AF0) trên Unity Main Thread.
-- Thực thi MoveTo (0xD72750), ChatSend (0x14B9250), HelperStart (0x2A3B580), HelperStop (0x2A3C660).
+- Hook onEnter vào chat_update (tải động từ RAM License Vault) trên Unity Main Thread.
+- Thực thi MoveTo, ChatSend, HelperStart, HelperStop qua địa chỉ giải mã trong RAM.
 - Push Fast Telemetry mỗi 150ms từ trong RAM tiến trình game ra Python (Zero-Polling).
 - 3-Phase Safe Detach với Interceptor.flush() chống crash 0xc0000005 frida-agent.dll_unloaded.
 - Mutex Process Guard tránh đa phiên Frida đồng thời trên cùng 1 Game PID.
@@ -52,160 +52,10 @@ def _safe_log(msg: str):
     except Exception:
         pass
 
-DEFAULT_OFFSETS = {
+# ZERO HARDCODED OFFSETS: Toàn bộ giá trị offset thực tế được Server mã hóa AES-256-CBC
+# và giải mã tạm trên RAM bởi meg_license_bridge.dll (không lưu trong source hay đĩa phát hành).
+DEFAULT_OFFSETS: Dict[str, Any] = {
     "game_module": "GameAssembly.dll",
-    "get_player": "0x10D7DD0",
-    "get_game_ui": "0x10D7E40",
-    "get_world": "0x10D7EB0",
-    "get_auto_login": "0x10D7BB0",
-    "get_window_handler": "0x10D6F90",
-    "game_update": "0x10CFF50",
-    "game_ui_update": "0x13F37D0",
-    "game_type_info": "0x55A4D00",
-    "item_storage_type_info": "0x5574B18",
-    "mlogin_ui_type_info": "0x559CF00",
-    "mlogin_submit": "0x1CF98A0",
-    "mlogin_token_login": "0x1CFA990",
-    "set_auto_login": "0xF68780",
-    "move_to": "0xC43C50",
-    "start_auto_move": "0xC43C50",
-    "stop_auto_move": "0xC43E10",
-    "chat_send": "0x134B040",
-    "chat_frame_send": "0x134B040",
-    "chat_send_cmd": "0xF79E70",
-    "command_mgr_process": "0xF79E70",
-    "static_chat_send": "0xF78030",
-    "chat_update": "0x1359450",
-    "helper_start": "0x478B40",
-    "helper_stop": "0x469600",
-    "helper_action": "0x472030",
-    "helper_toggle": "0x472030",
-    "helper_send_bf51": "0x472030",
-    "helper_req_start": "0x478B40",
-    "helper_req_stop": "0x469600",
-    "ui_location_frame": "0x88",
-    "location_helper_on": "0x60",
-    "location_helper_off": "0x68",
-    "location_update_helper": "0x26A2E80",
-    "npc_talk": "0x10E3010",
-    "npc_send_talk": "0x10E9C10",
-    "npc_close_talk": "0x10ECB60",
-    "npc_click": "0x10E3010",
-    "get_config": "0x10D72F0",
-    "get_user_2fa": "0x10D5080",
-    "inv_trash_item": "0x0",
-    "inv_sell_item": "0x0",
-    "inv_drop_item": "0x0",
-    "user_inv_trash": "0x1450900",
-    "user_inv_drop": "0x14581E0",
-    "user_inv_drop_recv": "0x1457C40",
-    "user_inv_action": "0x14521D0",
-    "user_inv_sell": "0x14521D0",
-    "user_inv_sell_5": "0x14557E0",
-    "item_storage_drop": "0x22EEA70",
-    "merchant_sell_item": "0x2858700",
-    "slot_quick_action": "0x24B1E10",
-    "item_storage_move": "0x2309F10",
-    "window_show": "0x2814390",
-    "window_hide": "0x27ABAF0",
-    "window_set_state": "0x2808DB0",
-    "moss_roll": "0x286FE70",
-    "moss_open": "0x2808DB0",
-    "moss_roll_handler": "0x2872990",
-    "moss_init": "0x2876A90",
-    "moss_select_cat": "0x2871370",
-    "moss_send_roll": "0x24CE7B0",
-    "moss_roll_click": "0x286FE70",
-    "moss_window_close": "0x27ABAF0",
-    "game_object_set_active": "0x46263E0",
-    "component_get_game_object": "0x4621FC0",
-    "mirror_enter": "0x100A910",
-    "mirror_enter_alt": "0x100A910",
-    "mirror_npc_click": "0x100B2E0",
-    "mirror_is_event_map": "0x100D680",
-    "mirror_teleport_event": "0x100D800",
-    "doublegoer_type_info": "0x55612C8",
-    "item_mirror_ticket": 7279,
-    "devil_closure_enter": "0xFED530",
-    "devil_closure_type_info": "0x55615E8",
-    "devil_enter": "0xFED530",
-    "devil_enter_alt": "0xFED6A0",
-    "devil_enter_1e": "0xFED530",
-    "devil_npc_click": "0xFFDF30",
-    "devil_is_event_map": "0xFEE4D0",
-    "item_devil_ticket": 7187,
-    "item_devil_ticket_master": 6702,
-    "table_event_entry_level": "0xD82E90",
-    "helper_ui_get_instance": "0x10D27B0",
-    "helper_ui_show_dialog": "0x1CDD220",
-    "helper_ui_show_confirm": "0x1CDBEB0",
-    "modal_manager_get_instance": "0x95AFA0",
-    "modal_manager_create": "0x95B300",
-    "modal_box_set_text1": "0x9598B0",
-    "modal_box_set_text2": "0x959A60",
-    "modal_box_set_confirm_text": "0x959C10",
-    "modal_box_show": "0x959E10",
-    "get_gs_connection": "0x10D59E0",
-    "gs_send": "0x122DCD0",
-    "gs_send_alt": "0x122DCD0",
-    "player_point": "0x238",
-    "player_master_point": "0x23C",
-    "player_reset_count": "0x2B4",
-    "player_name": "0x28",
-    "player_level": "0x30",
-    "player_class": "0x34",
-    "player_coord": "0x68",
-    "player_move": "0xE8",
-    "player_inventory": "0x1B0",
-    "player_helper": "0x1E0",
-    "player_last_coord": "0x508",
-    "auto_move_working": "0x4C0",
-    "auto_move_type": "0x4C4",
-    "auto_move_helper": "0x4C8",
-    "auto_move_dest": "0x4D0",
-    "move_flag": "0x3C",
-    "helper_state": "0x20",
-    "inventory_items": "0x28",
-    "game_world": "0x200",
-    "world_scene_index": "0x20",
-    "viewport": "0x110",
-    "ui_chat_frame": "0x50",
-    "ui_moss_window": "0x1D0",
-    "ui_merchant_window": "0x1A0",
-    "ui_inventory_window": "0x190",
-    "ui_warehouse_window": "0x290",
-    "ui_gremory_window": "0x170",
-    "gremory_type_info": "0x55A4D00",
-    "gremory_claim_item": "0x109D830",
-    "gremory_instance_offset": "0x138",
-    "gremory_dict_offset": "0x20",
-    "window_toggle": "0x2810F10",
-    "button_press": "0x4705530",
-    "unity_event_invoke": "0x463F230",
-    "mdialog_confirm_yes": "0x1C6C860",
-    "mirror_enter_recv": "0x100C180",
-    "set_target_framerate": "0x45E4B80",
-    "get_target_framerate": "0x45E4B30",
-    "set_vsync_count": "0x45F94B0",
-    "get_vsync_count": "0x45F9460",
-    "pkt_enc_nikini": "0x126BC00",
-    "pkt_enc_ngjg": "0x126B4A0",
-    "socket_send_err": "0x42DF4D0",
-    "tcp_set_nodelay": "0x42EB350",
-    "unity_get_time": "0x462F900",
-    "get_user_account": "0x10D8BD0",
-    "user_account_set_username": "0x14187B0",
-    "user_account_set_token": "0x1418E10",
-    "get_scene_handler": "0x10D8460",
-    "get_cs_connection": "0x10D85B0",
-    "cs_connection_connect": "0x121DE20",
-    "runtime_class_init": "0x2EC0A0",
-    "party_invite_by_key": "0x1485BB0",
-    "get_helper_ui": "0x10D27B0",
-    "mhelper_show_dialog_id": "0x1CDC490",
-    "mhelper_show_dialog_generic": "0x1CDE0E0",
-    "user_party_send_response": "0x1488D90",
-    "user_party_c2_40": "0x148C830"
 }
 
 FRIDA_AGENT_JS = r"""
@@ -815,6 +665,202 @@ try {
     }
 } catch (eNCT) {}
 
+var nativeQuestGetManager = null;
+try {
+    var qgmOff = off('__QUEST_GET_MANAGER__');
+    if (!qgmOff.isNull()) {
+        nativeQuestGetManager = new NativeFunction(baseAddr.add(qgmOff), 'pointer', []);
+    }
+} catch (eQGM) {}
+
+var nativeQuestSendState = null;
+try {
+    var qssOff = off('__QUEST_SEND_STATE__');
+    if (!qssOff.isNull()) {
+        nativeQuestSendState = new NativeFunction(baseAddr.add(qssOff), 'void', ['int', 'int', 'pointer']);
+    }
+} catch (eQSS) {}
+
+var nativeQuestSendStateAlt = null;
+try {
+    var qssaOff = off('__QUEST_SEND_STATE_ALT__');
+    if (!qssaOff.isNull()) {
+        nativeQuestSendStateAlt = new NativeFunction(baseAddr.add(qssaOff), 'void', ['int', 'int', 'pointer']);
+    }
+} catch (eQSSA) {}
+
+var nativeQuestNpcNextClick = null;
+try {
+    var qnncOff = off('__QUEST_NPC_NEXT_CLICK__');
+    if (!qnncOff.isNull()) {
+        nativeQuestNpcNextClick = new NativeFunction(baseAddr.add(qnncOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eQNNC) {}
+
+var nativeNpcEnterBarracks = null;
+try {
+    var nebOff = off('__NPC_ENTER_BARRACKS__');
+    if (!nebOff.isNull()) {
+        nativeNpcEnterBarracks = new NativeFunction(baseAddr.add(nebOff), 'void', []);
+    }
+} catch (eNEB) {}
+
+var nativeNpcEnterRefuge = null;
+try {
+    var nerOff = off('__NPC_ENTER_REFUGE__');
+    if (!nerOff.isNull()) {
+        nativeNpcEnterRefuge = new NativeFunction(baseAddr.add(nerOff), 'void', []);
+    }
+} catch (eNER) {}
+
+// === GATE REA MODULE NATIVES (Unit.HJDEPLPHNBO C1:1C, ArkaWar C1:F8, Protocol C1:8E, Data.Instance) ===
+var gateCoordBuf = Memory.alloc(32);
+
+var nativeDataGetInstance = null;
+try {
+    var dgiOff = off('__DATA_GET_INSTANCE__');
+    if (!dgiOff.isNull()) {
+        nativeDataGetInstance = new NativeFunction(baseAddr.add(dgiOff), 'pointer', []);
+    }
+} catch (eDGI) {}
+
+var nativeUnitEnterGate = null;
+try {
+    var uegOff = off('__UNIT_ENTER_GATE__');
+    if (!uegOff.isNull()) {
+        nativeUnitEnterGate = new NativeFunction(baseAddr.add(uegOff), 'bool', ['int', 'pointer']);
+    }
+} catch (eUEG) {}
+
+var nativeArkaEnterAcheron = null;
+try {
+    var aeaOff = off('__ARKA_ENTER_ACHERON__');
+    if (!aeaOff.isNull()) {
+        nativeArkaEnterAcheron = new NativeFunction(baseAddr.add(aeaOff), 'void', []);
+    }
+} catch (eAEA) {}
+
+var nativeArkaEnterZone = null;
+try {
+    var aezOff = off('__ARKA_ENTER_ZONE__');
+    if (!aezOff.isNull()) {
+        nativeArkaEnterZone = new NativeFunction(baseAddr.add(aezOff), 'void', ['int']);
+    }
+} catch (eAEZ) {}
+
+var nativeProtocolWarp8E = null;
+try {
+    var pw8eOff = off('__PROTOCOL_WARP_8E__');
+    if (!pw8eOff.isNull()) {
+        nativeProtocolWarp8E = new NativeFunction(baseAddr.add(pw8eOff), 'void', ['int', 'int', 'int']);
+    }
+} catch (ePW8E) {}
+
+function readIl2CppStrSafe(sPtr) {
+    try {
+        if (!sPtr || sPtr.isNull()) return "";
+        var slen = sPtr.add(0x10).readS32();
+        if (slen <= 0 || slen > 256) return "";
+        return sPtr.add(0x14).readUtf16String(slen) || "";
+    } catch (eS) {
+        return "";
+    }
+}
+
+function getDataInstancePtr() {
+    // 1. Thread-safe static read: Mega.Data_TypeInfo -> static_fields (+0xB8) -> ANIDCBBGMOD (+0x0)
+    try {
+        var dtiOff = off('__DATA_TYPE_INFO__');
+        if (!dtiOff.isNull()) {
+            var dti = baseAddr.add(dtiOff).readPointer();
+            if (dti && !dti.isNull()) {
+                var sf = dti.add(ptr('0xB8')).readPointer();
+                if (sf && !sf.isNull()) {
+                    var inst = sf.readPointer();
+                    if (inst && !inst.isNull()) return inst;
+                }
+            }
+        }
+    } catch (eDTI) {}
+    // 2. Fallback: native Mega.Data.GJLMAKAJBKP()
+    try {
+        if (nativeDataGetInstance !== null) {
+            var inst2 = nativeDataGetInstance();
+            if (inst2 && !inst2.isNull()) return inst2;
+        }
+    } catch (eDGI2) {}
+    return ptr(0);
+}
+
+function readGateEntryObj(gPtr) {
+    if (!gPtr || gPtr.isNull()) return null;
+    try {
+        return {
+            index: gPtr.add(0x10).readS32(),
+            flag: gPtr.add(0x18).readS32(),
+            mapId: gPtr.add(0x1C).readS32(),
+            x: gPtr.add(0x20).readS32(),
+            y: gPtr.add(0x24).readS32(),
+            tx: gPtr.add(0x28).readS32(),
+            ty: gPtr.add(0x2C).readS32(),
+            targetGate: gPtr.add(0x30).readS32(),
+            targetDir: gPtr.add(0x34).readS32(),
+            minLevel: gPtr.add(0x38).readS32(),
+            maxLevel: gPtr.add(0x3C).readS32(),
+            minReset: gPtr.add(0x40).readS32(),
+            maxReset: gPtr.add(0x44).readS32(),
+            accountLevel: gPtr.add(0x48).readS32()
+        };
+    } catch (eG) {
+        return null;
+    }
+}
+
+function readMoveEntryObj(mPtr) {
+    if (!mPtr || mPtr.isNull()) return null;
+    try {
+        return {
+            index: mPtr.add(0x10).readS32(),
+            name: readIl2CppStrSafe(mPtr.add(0x18).readPointer()),
+            command: readIl2CppStrSafe(mPtr.add(0x20).readPointer()),
+            money: mPtr.add(0x28).readS32(),
+            minLevel: mPtr.add(0x2C).readS32(),
+            maxLevel: mPtr.add(0x30).readS32(),
+            accountLevel: mPtr.add(0x34).readS32(),
+            monsterClass: mPtr.add(0x38).readS32(),
+            gateId: mPtr.add(0x3C).readS32()
+        };
+    } catch (eM) {
+        return null;
+    }
+}
+
+function getQuestManagerPtr() {
+    try {
+        if (nativeQuestGetManager !== null) {
+            var qm = nativeQuestGetManager();
+            if (qm && !qm.isNull()) return qm;
+        }
+    } catch (eQM1) {}
+    try {
+        var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+        if (!typeInfo.isNull()) {
+            var sf = typeInfo.add(ptr('0xB8')).readPointer();
+            if (!sf.isNull()) {
+                var gi = sf.add(ptr('0x8')).readPointer();
+                if (!gi.isNull()) {
+                    var qOff = off('__QUEST_INSTANCE_OFFSET__');
+                    if (!qOff.isNull()) {
+                        var qm2 = gi.add(qOff).readPointer();
+                        if (qm2 && !qm2.isNull()) return qm2;
+                    }
+                }
+            }
+        }
+    } catch (eQM2) {}
+    return ptr(0);
+}
+
 var nativeUniversalNpcClick = null;
 try {
     var uncOff = off('__NPC_CLICK__');
@@ -958,8 +1004,6 @@ try {
     var gcOff = off('__GET_CONFIG__');
     if (!gcOff.isNull()) {
         nativeGetConfig = new NativeFunction(baseAddr.add(gcOff), 'pointer', []);
-    } else {
-        nativeGetConfig = new NativeFunction(baseAddr.add(ptr('0x107B360')), 'pointer', []);
     }
 } catch (eGC) {}
 
@@ -968,8 +1012,6 @@ try {
     var u2faOff = off('__GET_USER_2FA__');
     if (!u2faOff.isNull()) {
         nativeGetUser2FA = new NativeFunction(baseAddr.add(u2faOff), 'pointer', []);
-    } else {
-        nativeGetUser2FA = new NativeFunction(baseAddr.add(ptr('0x10D5080')), 'pointer', []);
     }
 } catch (e2fa) {}
 
@@ -978,8 +1020,6 @@ try {
     var uitOff = off('__USER_INV_TRASH__');
     if (!uitOff.isNull()) {
         nativeUserInvTrash = new NativeFunction(baseAddr.add(uitOff), 'void', ['int', 'int', 'pointer']);
-    } else {
-        nativeUserInvTrash = new NativeFunction(baseAddr.add(ptr('0x144C8A0')), 'void', ['int', 'int', 'pointer']);
     }
 } catch (eUIT) {}
 
@@ -988,8 +1028,6 @@ try {
     var uiaOff = off('__USER_INV_ACTION__');
     if (!uiaOff.isNull()) {
         nativeUserInvAction = new NativeFunction(baseAddr.add(uiaOff), 'void', ['int', 'pointer']);
-    } else {
-        nativeUserInvAction = new NativeFunction(baseAddr.add(ptr('0x14521D0')), 'void', ['int', 'pointer']);
     }
 } catch (eUIA) {}
 
@@ -998,8 +1036,6 @@ try {
     var isdOff = off('__ITEM_STORAGE_DROP__');
     if (!isdOff.isNull()) {
         nativeItemStorageDrop = new NativeFunction(baseAddr.add(isdOff), 'void', ['pointer', 'pointer']);
-    } else {
-        nativeItemStorageDrop = new NativeFunction(baseAddr.add(ptr('0x22EEA70')), 'void', ['pointer', 'pointer']);
     }
 } catch (eISD) {}
 
@@ -1453,6 +1489,212 @@ var pendingMossResetCategory = null;
 var pendingMerchantClose = false;
 var pendingMossInteractPtr = null;
 var pendingMerchantInteractPtr = null;
+var pendingQuestNpcTalkPtr = null;
+var pendingQuestStateAction = null;
+var pendingQuestDungeonAction = null;
+var pendingGateEnterAction = null;
+var pendingArkaEnterAction = null;
+var pendingWarp8EAction = null;
+var pendingGateDialogConfirm = null;
+var lastGateEnterResult = { done: false, ok: false, gateId: -1, x: -1, y: -1, ret: false, error: "" };
+
+function flushGateActionsOnMainThread() {
+    if (pendingGateEnterAction !== null) {
+        var act = pendingGateEnterAction;
+        pendingGateEnterAction = null;
+        var res = { done: true, ok: false, gateId: act.gateId, x: act.x, y: act.y, ret: false, error: "" };
+        try {
+            if (nativeUnitEnterGate === null) {
+                res.error = "unit_enter_gate_offset_missing";
+            } else {
+                var cPtr = ptr(0);
+                if (act.x >= 0 && act.y >= 0) {
+                    // Unit.HJDEPLPHNBO reads byte at [coord+0x10] (X) and [coord+0x14] (Y)
+                    gateCoordBuf.writeByteArray([0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0]);
+                    gateCoordBuf.add(0x10).writeS32(act.x & 0xFF);
+                    gateCoordBuf.add(0x14).writeS32(act.y & 0xFF);
+                    cPtr = gateCoordBuf;
+                }
+                var r = nativeUnitEnterGate(act.gateId | 0, cPtr);
+                res.ret = !!r;
+                res.ok = !!r;
+            }
+        } catch (eGE) {
+            res.error = String(eGE);
+        }
+        lastGateEnterResult = res;
+    }
+
+    if (pendingArkaEnterAction !== null) {
+        var aAct = pendingArkaEnterAction;
+        pendingArkaEnterAction = null;
+        try {
+            if (aAct.zone >= 0 && nativeArkaEnterZone !== null) {
+                nativeArkaEnterZone(aAct.zone | 0);
+            } else if (nativeArkaEnterAcheron !== null) {
+                nativeArkaEnterAcheron();
+            }
+        } catch (eAE) {}
+    }
+
+    if (pendingGateDialogConfirm !== null) {
+        var gd = pendingGateDialogConfirm;
+        if (Date.now() >= gd.readyAtMs) {
+            pendingGateDialogConfirm = null;
+            try {
+                if (gd.dlg && !gd.dlg.isNull()) {
+                    // Kiểm tra Unity Object.m_CachedPtr (+0x10) còn sống trước khi bấm YES
+                    var cachedPtr = gd.dlg.add(0x10).readPointer();
+                    if (cachedPtr && !cachedPtr.isNull()) {
+                        if (nativeMDialogConfirmYes !== null) {
+                            nativeMDialogConfirmYes(gd.dlg, ptr(0));
+                        } else {
+                            var yBtn = gd.dlg.add(ptr('0x48')).readPointer();
+                            if (yBtn && !yBtn.isNull() && nativeButtonPress !== null) {
+                                nativeButtonPress(yBtn, ptr(0));
+                            }
+                        }
+                        autoGateConfirmCount += 1;
+                        lastAutoGateConfirmInfo = {
+                            count: autoGateConfirmCount,
+                            title: gd.title || "",
+                            message: gd.message || "",
+                            timeMs: Date.now()
+                        };
+                        send({
+                            type: "auto_gate_confirmed",
+                            source: gd.source || "deferred_mainthread",
+                            title: gd.title || "",
+                            message: gd.message || "",
+                            count: autoGateConfirmCount
+                        });
+                    }
+                }
+            } catch (eGDF) {}
+        }
+    }
+
+    if (pendingWarp8EAction !== null) {
+        var wAct = pendingWarp8EAction;
+        pendingWarp8EAction = null;
+        try {
+            if (nativeProtocolWarp8E !== null) {
+                nativeProtocolWarp8E(wAct.type | 0, wAct.param | 0, wAct.extra | 0);
+            }
+        } catch (eW8E) {}
+    }
+}
+var pendingQuestWindowClose = false;
+var pendingQuestNextAction = null;
+var pendingQuestPickups = [];
+var lastQuestPickupDone = 0;
+var lastQuestPickupErr = "";
+
+function flushQuestPickupsOnMainThread() {
+    if (!pendingQuestPickups || pendingQuestPickups.length === 0) return;
+    var batch = pendingQuestPickups.splice(0, pendingQuestPickups.length);
+    var picked = 0;
+    for (var i = 0; i < batch.length; i++) {
+        var it = batch[i];
+        try {
+            if (nativeUserInvPickItem !== null && it.itemPtr && !it.itemPtr.isNull()) {
+                nativeUserInvPickItem(it.vIdx, it.itemPtr, ptr(0));
+                picked++;
+            }
+        } catch (ePK) { lastQuestPickupErr = String(ePK); }
+    }
+    lastQuestPickupDone += picked;
+}
+var lastQuestClickDebug = { done: false, ok: false, method: "", qWinOpen: false, nextBtnFound: false, currentData: -1, error: "" };
+
+function performQuestNextClickOnMainThread(gui, wantIndex) {
+    var dbg = { done: true, ok: false, method: "", qWinOpen: false, nextBtnFound: false, currentData: -1, error: "" };
+    try {
+        var qm = getQuestManagerPtr();
+        if (qm && !qm.isNull()) {
+            try { dbg.currentData = qm.add(0x2C).readS32(); } catch (eCD) {}
+        }
+        var activeGui = gui;
+        if (!activeGui || activeGui.isNull()) {
+            try { if (nativeGetGameUI !== null) activeGui = nativeGetGameUI(); } catch (eGG) {}
+        }
+        var qWin = ptr(0);
+        if (activeGui && !activeGui.isNull()) {
+            var qwOff = off('__UI_QUEST_NPC_WINDOW__');
+            if (!qwOff.isNull()) {
+                qWin = activeGui.add(qwOff).readPointer();
+            }
+        }
+        if (qWin && !qWin.isNull()) {
+            try {
+                var mWin = qWin.add(0x20).readPointer();
+                if (!mWin.isNull()) {
+                    dbg.qWinOpen = (mWin.add(0x48).readU8() === 1);
+                }
+            } catch (eMW) {}
+
+            var nextBtn = ptr(0);
+            try { nextBtn = qWin.add(0x40).readPointer(); } catch (eNB) {}
+            if (nextBtn && !nextBtn.isNull()) {
+                dbg.nextBtnFound = true;
+                // Ưu tiên 1: Bấm trực tiếp NextButton (ACCEPT / CONTINUE / OK) chuẩn Unity Button.Press()
+                if (dbg.qWinOpen && nativeButtonPress !== null) {
+                    try {
+                        nativeButtonPress(nextBtn, ptr(0));
+                        dbg.ok = true;
+                        dbg.method = "Button.Press(NextButton)";
+                    } catch (eBP) {
+                        dbg.error = "Button.Press:" + eBP.toString();
+                    }
+                }
+                // Ưu tiên 2: Kích hoạt trực tiếp NextButton.onClick UnityEvent.Invoke()
+                if (!dbg.ok && dbg.qWinOpen) {
+                    var invokeFn = nativeUnityEvent_Invoke || nativeUnityEventInvoke;
+                    if (invokeFn !== null) {
+                        try {
+                            var onClick = nextBtn.add(0x100).readPointer();
+                            if (onClick && !onClick.isNull()) {
+                                invokeFn(onClick, ptr(0));
+                                dbg.ok = true;
+                                dbg.method = "UnityEvent.Invoke(NextButton.onClick)";
+                            }
+                        } catch (eUE) {
+                            dbg.error = (dbg.error ? dbg.error + "; " : "") + "UnityEvent:" + eUE.toString();
+                        }
+                    }
+                }
+            }
+
+            // Ưu tiên 3: Gọi trực tiếp handler MQuestNpcWindow.FELBIIDPABC(qWin)
+            if (!dbg.ok && dbg.qWinOpen && nativeQuestNpcNextClick !== null) {
+                try {
+                    nativeQuestNpcNextClick(qWin, ptr(0));
+                    dbg.ok = true;
+                    dbg.method = "MQuestNpcWindow.NextClick";
+                } catch (eNC) {
+                    dbg.error = (dbg.error ? dbg.error + "; " : "") + "NextClick:" + eNC.toString();
+                }
+            }
+        }
+
+        // Ưu tiên 4: Fallback gọi trực tiếp QuestManager.DDPEPNGHBLG(idx, 1) -> gửi gói C1:A2
+        if (!dbg.ok) {
+            var useIdx = (dbg.currentData >= 0 && dbg.currentData <= 31) ? dbg.currentData : parseInt(wantIndex);
+            if (useIdx >= 0 && nativeQuestSendState !== null) {
+                try {
+                    nativeQuestSendState(useIdx, 1, ptr(0));
+                    dbg.ok = true;
+                    dbg.method = "QuestManager.SendState(idx=" + useIdx + ")";
+                } catch (eQS) {
+                    dbg.error = (dbg.error ? dbg.error + "; " : "") + "SendState:" + eQS.toString();
+                }
+            }
+        }
+    } catch (eTop) {
+        dbg.error = eTop.toString();
+    }
+    lastQuestClickDebug = dbg;
+}
 
 function sendDropPacket(slot, targetX, targetY) {
     try {
@@ -2731,6 +2973,66 @@ try {
     }
 } catch (eHook) {}
 
+// Hook ChatFrame.CFKFOJFEOBA (C1:0D blue system notice) de ghi nhan TUC THI tien do giet quai NV Cap 3
+// (VD: 'Dark Elf ( 1/1', 'Balram (Trainee Soldier) ( 20/20') vi MegaMU khong luon day C1:A4 ngay luc quai chet
+var questNoticeKills = {};
+var questNoticeReq = {};
+var questNoticeCharName = "";
+var lastQuestNoticeText = "";
+
+function recordQuestNoticeText(rawText) {
+    try {
+        if (!rawText) return false;
+        var clean = String(rawText).replace(/<[^>]+>/g, "").trim();
+        if (clean.length < 5 || clean.length > 180) return false;
+        var low = clean.toLowerCase();
+        var mFrac = low.match(/(\d+)\s*(?:\/|of|de)\s*(\d+)/i) || low.match(/(\d+)\s*\/\s*(\d+)/);
+        if (!mFrac) return false;
+        var kCur = parseInt(mFrac[1], 10);
+        var kMax = parseInt(mFrac[2], 10);
+        if (isNaN(kCur) || kCur <= 0 || kCur > 200 || isNaN(kMax) || kMax < 1 || kMax > 200) return false;
+        var mid = null;
+        if (low.indexOf("dark elf") !== -1 || low.indexOf("darkelf") !== -1 || (low.indexOf("dark") !== -1 && low.indexOf("elf") !== -1)) {
+            mid = "412";
+        } else if (low.indexOf("balram") !== -1) {
+            mid = "409";
+        } else if (low.indexOf("death spirit") !== -1 || low.indexOf("deathspirit") !== -1 || low.indexOf("spirit") !== -1) {
+            mid = "410";
+        } else if (low.indexOf("soram") !== -1) {
+            mid = "411";
+        }
+        if (!mid) return false;
+        if (kCur > (questNoticeKills[mid] || 0)) questNoticeKills[mid] = kCur;
+        questNoticeReq[mid] = kMax;
+        lastQuestNoticeText = clean;
+        return true;
+    } catch (eQN) {
+        return false;
+    }
+}
+
+var questNoticeHook = null;
+try {
+    var canOff = off('__CHAT_ADD_NOTICE__');
+    if (!canOff.isNull()) {
+        questNoticeHook = Interceptor.attach(baseAddr.add(canOff), {
+            onEnter: function(args) {
+                if (shuttingDown) return;
+                try {
+                    var strPtr = args[2];
+                    if (strPtr && !strPtr.isNull()) {
+                        var sLen = strPtr.add(0x10).readS32();
+                        if (sLen > 4 && sLen < 200) {
+                            var txt = strPtr.add(0x14).readUtf16String(sLen);
+                            recordQuestNoticeText(txt);
+                        }
+                    }
+                } catch (eQNH) {}
+            }
+        });
+    }
+} catch (eQNHook) {}
+
 var pendingMossOpenCategory = null;
 var pendingMossRollCategory = null;
 var pendingMossClose = false;
@@ -3640,6 +3942,70 @@ try {
                             } catch (eNTM) {}
                         }
 
+                        if (pendingQuestNpcTalkPtr !== null) {
+                            try {
+                                var qnPtr = pendingQuestNpcTalkPtr;
+                                pendingQuestNpcTalkPtr = null;
+                                invokeNpcTalk(qnPtr);
+                            } catch (eQNT) {}
+                        }
+
+                        if (pendingQuestNextAction !== null) {
+                            try {
+                                var qna = pendingQuestNextAction;
+                                pendingQuestNextAction = null;
+                                performQuestNextClickOnMainThread(gui, qna.index);
+                            } catch (eQNA) {}
+                        }
+                        if (pendingQuestPickups.length > 0) {
+                            try { flushQuestPickupsOnMainThread(); } catch (eQPK1) {}
+                        }
+
+                        if (pendingQuestStateAction !== null) {
+                            try {
+                                var qsa = pendingQuestStateAction;
+                                pendingQuestStateAction = null;
+                                if (nativeQuestSendState !== null) {
+                                    nativeQuestSendState(qsa.index, qsa.flag ? 1 : 0, ptr(0));
+                                } else if (nativeQuestSendStateAlt !== null) {
+                                    nativeQuestSendStateAlt(qsa.index, qsa.flag ? 1 : 0, ptr(0));
+                                }
+                            } catch (eQSA) {
+                                lastQuestClickDebug = { done: true, ok: false, method: "SendState", error: eQSA.toString() };
+                            }
+                        }
+
+                        if (pendingQuestDungeonAction !== null) {
+                            try {
+                                var qda = pendingQuestDungeonAction;
+                                pendingQuestDungeonAction = null;
+                                if (qda === "barracks" && nativeNpcEnterBarracks !== null) {
+                                    nativeNpcEnterBarracks();
+                                } else if (qda === "refuge" && nativeNpcEnterRefuge !== null) {
+                                    nativeNpcEnterRefuge();
+                                }
+                            } catch (eQDA) {}
+                        }
+                        flushGateActionsOnMainThread();
+
+                        if (pendingQuestWindowClose) {
+                            try {
+                                pendingQuestWindowClose = false;
+                                if (gui && !gui.isNull()) {
+                                    var qwOff = off('__UI_QUEST_NPC_WINDOW__');
+                                    if (!qwOff.isNull()) {
+                                        var qWin = gui.add(qwOff).readPointer();
+                                        if (!qWin.isNull() && nativeWindowHide !== null) {
+                                            try { nativeWindowHide(qWin, ptr(0)); } catch (eQWH) {}
+                                        }
+                                    }
+                                }
+                                if (nativeCloseTalk !== null) {
+                                    try { nativeCloseTalk(); } catch (eQCT) {}
+                                }
+                            } catch (eQWC) {}
+                        }
+
                         if (pendingMossOpenCategory !== null) {
                             try {
                                 var cat = pendingMossOpenCategory;
@@ -3703,6 +4069,30 @@ var pendingPartyInviteKey = -1;
 var lastPartyInviteResult = { done: false, ok: false, err: null, key: -1 };
 
 var autoConfirmPartyEnabled = true;
+var autoGateConfirmEnabled = false;
+var autoGateConfirmCount = 0;
+var lastAutoGateConfirmMs = 0;
+var lastAutoGateConfirmInfo = { count: 0, title: "", message: "", timeMs: 0 };
+
+function isGateTeleportDialog(title, msg) {
+    var lowT = String(title || "").toLowerCase().trim();
+    var lowM = String(msg || "").toLowerCase().trim();
+    if (lowM.indexOf("do you want to teleport") !== -1) {
+        if (lowM.indexOf("loren market") !== -1 ||
+            lowM.indexOf("blood castle") !== -1 ||
+            lowM.indexOf("devil square") !== -1 ||
+            lowM.indexOf("illusion temple") !== -1 ||
+            lowM.indexOf("imperial guardian") !== -1 ||
+            lowM.indexOf("complete the quest") !== -1) {
+            return false;
+        }
+        return true;
+    }
+    if (lowT === "teleport" && lowM.indexOf("teleport") !== -1 && lowM.indexOf("boss respawn") === -1 && lowM.indexOf("wing") === -1) {
+        return true;
+    }
+    return false;
+}
 var partyConfirmScanCounter = 0;
 var confirmedDialogHistory = {};
 
@@ -3964,6 +4354,47 @@ try {
                         invokeNpcTalk(mNpcGU);
                     } catch (eMNTGU) {}
                 }
+
+                if (pendingQuestNpcTalkPtr !== null) {
+                    try {
+                        var qnPtrGU = pendingQuestNpcTalkPtr;
+                        pendingQuestNpcTalkPtr = null;
+                        invokeNpcTalk(qnPtrGU);
+                    } catch (eQNTGU) {}
+                }
+
+                if (pendingQuestNextAction !== null) {
+                    try {
+                        var qnaGU = pendingQuestNextAction;
+                        pendingQuestNextAction = null;
+                        performQuestNextClickOnMainThread(null, qnaGU.index);
+                    } catch (eQNAGU) {}
+                }
+                if (pendingQuestPickups.length > 0) {
+                    try { flushQuestPickupsOnMainThread(); } catch (eQPK2) {}
+                }
+
+                if (pendingQuestStateAction !== null) {
+                    try {
+                        var qsaGU = pendingQuestStateAction;
+                        pendingQuestStateAction = null;
+                        if (nativeQuestSendState !== null) {
+                            nativeQuestSendState(qsaGU.index, qsaGU.flag ? 1 : 0, ptr(0));
+                        }
+                    } catch (eQSAGU) {
+                        lastQuestClickDebug = { done: true, ok: false, method: "SendState(GU)", error: eQSAGU.toString() };
+                    }
+                }
+
+                if (pendingQuestDungeonAction !== null) {
+                    try {
+                        var qdaGU = pendingQuestDungeonAction;
+                        pendingQuestDungeonAction = null;
+                        if (qdaGU === "barracks" && nativeNpcEnterBarracks !== null) nativeNpcEnterBarracks();
+                        else if (qdaGU === "refuge" && nativeNpcEnterRefuge !== null) nativeNpcEnterRefuge();
+                    } catch (eQDAGU) {}
+                }
+                flushGateActionsOnMainThread();
 
                 if (pendingMerchantInteractPtr !== null) {
                     try {
@@ -4561,10 +4992,14 @@ function readPlayerInfoSnapshot(readName) {
             } catch (e) {}
         }
 
-        var level = 0, classId = 0;
+        var level = 0, classId = 0, changeUp = 0;
         try {
             level = p.add(off('__PLAYER_LEVEL__')).readS32();
             classId = p.add(off('__PLAYER_CLASS__')).readS32();
+            var cuOff = off('__PLAYER_CHANGE_UP__');
+            if (!cuOff.isNull()) {
+                changeUp = p.add(cuOff).readS32();
+            }
         } catch (e) {}
 
         var tileX = 0, tileY = 0, mapId = -1;
@@ -4642,6 +5077,7 @@ function readPlayerInfoSnapshot(readName) {
             name: charName,
             level: level,
             classId: classId,
+            changeUp: changeUp,
             mapId: mapId,
             inDoubleGoer: isCurrentMapDoubleGoer(),
             tileX: tileX,
@@ -5675,6 +6111,52 @@ try {
 // REA HOOK: MHelperUI.NIONHKAAMJL (ShowConfirm by ID - RVA 0x1CDC490)
 // Tự động xác nhận Party ngay khi nhận được gói tin mời tổ đội
 // =========================================================================
+// =========================================================================
+// REA HOOK: MHelperUI.NIONHKAAMJL (ShowDialog Generic - no id param)
+// Bắt trực tiếp popup cổng Gate ("Teleport" / "Do you want to teleport?")
+// do LocalCharacterBody.HFCPGMGJDEJ kích hoạt và tự động xác nhận YES (0ms)
+// =========================================================================
+var mhelperShowDialogGenericHook = null;
+try {
+    var offGateDlgGen = off('__MHELPER_SHOW_DIALOG_GENERIC__');
+    if (!offGateDlgGen.isNull()) {
+        mhelperShowDialogGenericHook = Interceptor.attach(baseAddr.add(offGateDlgGen), {
+            onEnter: function(args) {
+                this.isGateTeleport = false;
+                this.gateTitle = "";
+                this.gateMsg = "";
+                if (shuttingDown || !autoGateConfirmEnabled) return;
+                try {
+                    var title = readIl2CppStrSafe(args[1]);
+                    var msg = readIl2CppStrSafe(args[2]);
+                    if (isGateTeleportDialog(title, msg)) {
+                        this.isGateTeleport = true;
+                        this.gateTitle = title;
+                        this.gateMsg = msg;
+                    }
+                } catch (eGDE) {}
+            },
+            onLeave: function(retval) {
+                if (!this.isGateTeleport || shuttingDown) return;
+                if (!retval || retval.isNull()) return;
+                var nowMs = Date.now();
+                if (nowMs - lastAutoGateConfirmMs < 200) return;
+                lastAutoGateConfirmMs = nowMs;
+                try {
+                    // Trì hoãn 300ms trên MainThread để nhân vật thoát trạng thái IsTeleporting sau /move
+                    pendingGateDialogConfirm = {
+                        dlg: retval,
+                        readyAtMs: nowMs + 300,
+                        title: this.gateTitle,
+                        message: this.gateMsg,
+                        source: "dialog_generic_hook"
+                    };
+                } catch (eGDL) {}
+            }
+        });
+    }
+} catch (eMGDH) {}
+
 var mhelperShowDialogIdHook = null;
 try {
     var offPartyDlgId = off('__MHELPER_SHOW_DIALOG_ID__');
@@ -5682,8 +6164,21 @@ try {
         mhelperShowDialogIdHook = Interceptor.attach(baseAddr.add(offPartyDlgId), {
             onEnter: function(args) {
                 this.isParty = false;
+                this.isGateTeleport = false;
                 this.actionInvoked = false;
-                if (shuttingDown || !autoConfirmPartyEnabled) return;
+                if (shuttingDown || (!autoConfirmPartyEnabled && !autoGateConfirmEnabled)) return;
+                if (autoGateConfirmEnabled) {
+                    try {
+                        var gTitle = readIl2CppStrSafe(args[2]);
+                        var gMsg = readIl2CppStrSafe(args[3]);
+                        if (isGateTeleportDialog(gTitle, gMsg)) {
+                            this.isGateTeleport = true;
+                            this.gateTitle = gTitle;
+                            this.gateMsg = gMsg;
+                        }
+                    } catch (eGIdE) {}
+                }
+                if (!autoConfirmPartyEnabled) return;
                 try {
                     var title = "";
                     if (args[2] && !args[2].isNull()) {
@@ -5730,6 +6225,22 @@ try {
                 } catch (ePCheck) {}
             },
             onLeave: function(retval) {
+                if (this.isGateTeleport && !shuttingDown && retval && !retval.isNull()) {
+                    var nowGMs = Date.now();
+                    if (nowGMs - lastAutoGateConfirmMs >= 200) {
+                        lastAutoGateConfirmMs = nowGMs;
+                        try {
+                            pendingGateDialogConfirm = {
+                                dlg: retval,
+                                readyAtMs: nowGMs + 300,
+                                title: this.gateTitle || "",
+                                message: this.gateMsg || "",
+                                source: "dialog_id_hook"
+                            };
+                        } catch (eGIdL) {}
+                    }
+                    return;
+                }
                 if (!this.isParty || !retval || retval.isNull()) return;
                 try {
                     var dlg = retval;
@@ -5768,6 +6279,20 @@ rpc.exports = {
 
     isAutoConfirmPartyEnabled: function() {
         return autoConfirmPartyEnabled;
+    },
+
+    setAutoGateConfirm: function(enabled) {
+        autoGateConfirmEnabled = !!enabled;
+        return JSON.stringify({ ok: true, enabled: autoGateConfirmEnabled, count: autoGateConfirmCount });
+    },
+
+    getAutoGateConfirmStatus: function() {
+        return JSON.stringify({
+            ok: true,
+            enabled: autoGateConfirmEnabled,
+            count: autoGateConfirmCount,
+            last: lastAutoGateConfirmInfo
+        });
     },
 
     getPlayerInfo: function() {
@@ -6402,6 +6927,638 @@ rpc.exports = {
         }
     },
 
+    getQuestState: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (p.isNull()) {
+                return JSON.stringify({ ok: false, error: "player_null" });
+            }
+            var snap = readPlayerInfoSnapshot(true) || {};
+            var zen = 0;
+            try {
+                var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                if (!inv.isNull()) {
+                    var rawZen = inv.add(ptr('0x58')).readS32();
+                    zen = rawZen >= 0 ? rawZen : 0;
+                }
+            } catch (eZ) {}
+
+            var states = {};
+            var questCount = 0;
+            var currentData = -1;
+            var monsterKills = {};
+            var qm = getQuestManagerPtr();
+            if (qm && !qm.isNull()) {
+                try { questCount = qm.add(0x28).readS32(); } catch (eQC) {}
+                try { currentData = qm.add(0x2C).readS32(); } catch (eCD) {}
+                try {
+                    var stateArr = qm.add(0x20).readPointer();
+                    if (!stateArr.isNull()) {
+                        var arrLen = stateArr.add(0x18).readS32();
+                        var maxQ = Math.min(32, Math.max(0, arrLen * 4));
+                        for (var qi = 0; qi < maxQ; qi++) {
+                            var bIdx = qi >> 2;
+                            var shift = (qi & 3) * 2;
+                            var bVal = stateArr.add(0x20 + bIdx).readU8();
+                            states[String(qi)] = (bVal >> shift) & 3;
+                        }
+                    }
+                } catch (eSA) {}
+                try {
+                    var mkDict = qm.add(0x30).readPointer();
+                    if (!mkDict.isNull()) {
+                        var entries = mkDict.add(0x18).readPointer();
+                        var count = mkDict.add(0x20).readS32();
+                        if (!entries.isNull() && count > 0 && count <= 128) {
+                            for (var ei = 0; ei < count; ei++) {
+                                var eAddr = entries.add(0x20 + ei * 16);
+                                var hc = eAddr.readS32();
+                                if (hc < 0) continue;
+                                var mKey = eAddr.add(8).readS32();
+                                var mVal = eAddr.add(12).readS32();
+                                if (mKey > 0) {
+                                    monsterKills[String(mKey)] = mVal;
+                                }
+                            }
+                        }
+                    }
+                } catch (eMK) {}
+            }
+
+            var QUEST_ITEM_IDS = { 7191: 1, 7192: 1, 7193: 1, 7194: 1, 7233: 1, 7234: 1, 7235: 1, 7236: 1 };
+            var INV_Q_KEYS = ["scroll of emperor", "broken sword", "soul of wizard", "soul of prophet", "tear of elf", "abyssal eye", "ring of honor", "dark stone", "flame of death", "horn of hell", "feather of"];
+            var questItems = [];
+            try {
+                var inv2 = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                if (!inv2.isNull()) {
+                    var itemsArr = inv2.add(off('__INVENTORY_ITEMS__')).readPointer();
+                    if (!itemsArr.isNull()) {
+                        var maxSlot = 204;
+                        try {
+                            var aLen = itemsArr.add(0x18).readS32();
+                            if (aLen > 12 && aLen < maxSlot) maxSlot = aLen;
+                        } catch (eAL) {}
+                        for (var s = 12; s < maxSlot; s++) {
+                            var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                            if (!itemPtr.isNull()) {
+                                var idx = readItemIndex(itemPtr);
+                                var itName = "";
+                                try { itName = getItemName(itemPtr) || ""; } catch (eGN) {}
+                                var isQ = !!QUEST_ITEM_IDS[idx];
+                                if (!isQ && itName) {
+                                    var lowN = itName.toLowerCase();
+                                    for (var qk = 0; qk < INV_Q_KEYS.length; qk++) {
+                                        if (lowN.indexOf(INV_Q_KEYS[qk]) !== -1) { isQ = true; break; }
+                                    }
+                                }
+                                if (isQ) {
+                                    var lv = 0;
+                                    try { lv = itemPtr.add(0x10).readS32(); } catch (eLv) {}
+                                    questItems.push({ slot: s, id: idx, level: lv, name: itName });
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (eQI) {}
+
+            // Dong bo & hop nhat tien do giet quai ghi nhan tu System Notice (C1:0D -> Dark Elf 1/1, Balram/DS/Soram 20/20)
+            try {
+                var curCharN = String(snap.name || "");
+                if (curCharN && questNoticeCharName && curCharN !== questNoticeCharName) {
+                    questNoticeKills = {};
+                    questNoticeReq = {};
+                    lastQuestNoticeText = "";
+                }
+                if (curCharN) questNoticeCharName = curCharN;
+
+                if (states["5"] === 2) {
+                    delete questNoticeKills["409"];
+                    delete questNoticeKills["410"];
+                    delete questNoticeKills["411"];
+                } else {
+                    var bIds = ["409", "410", "411"];
+                    for (var bi = 0; bi < bIds.length; bi++) {
+                        var bKey = bIds[bi];
+                        var nv = questNoticeKills[bKey] || 0;
+                        if (nv > (monsterKills[bKey] || 0)) monsterKills[bKey] = nv;
+                    }
+                }
+
+                if (states["6"] === 2) {
+                    delete questNoticeKills["412"];
+                } else {
+                    var deVal = questNoticeKills["412"] || 0;
+                    if (deVal > (monsterKills["412"] || 0)) monsterKills["412"] = deVal;
+                }
+            } catch (eMergeQ) {}
+
+            return JSON.stringify({
+                ok: true,
+                name: snap.name || "",
+                level: snap.level || 0,
+                class_id: snap.classId !== undefined ? snap.classId : -1,
+                change_up: snap.changeUp !== undefined ? snap.changeUp : 0,
+                zen: zen,
+                map_id: snap.mapId !== undefined ? snap.mapId : -1,
+                x: snap.x || 0,
+                y: snap.y || 0,
+                quest_count: questCount,
+                current_data: currentData,
+                states: states,
+                monster_kills: monsterKills,
+                notice_kills: questNoticeKills,
+                last_quest_notice: lastQuestNoticeText,
+                quest_items: questItems
+            });
+        } catch (eQS) {
+            return JSON.stringify({ ok: false, error: eQS.toString() });
+        }
+    },
+
+    findNpcByFilter: function(skinId, nameSub) {
+        try {
+            ensureThreadAttached();
+            var wantSkin = parseInt(skinId);
+            var wantName = String(nameSub || "").toLowerCase();
+            var localPlayer = getPlayerPtr();
+            var px = -1, py = -1;
+            if (!localPlayer.isNull()) {
+                try {
+                    var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!pCoord.isNull()) {
+                        px = pCoord.add(0x10).readS32();
+                        py = pCoord.add(0x14).readS32();
+                    }
+                } catch (ePC) {}
+            }
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            if (typeInfo.isNull()) return JSON.stringify({ found: false });
+            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+            if (staticFields.isNull()) return JSON.stringify({ found: false });
+            var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+            if (gameInstance.isNull()) return JSON.stringify({ found: false });
+            var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+            if (viewport.isNull()) return JSON.stringify({ found: false });
+            var objDict = viewport.add(ptr('0x20')).readPointer();
+            if (objDict.isNull()) return JSON.stringify({ found: false });
+            var entries = objDict.add(ptr('0x18')).readPointer();
+            var count = objDict.add(ptr('0x20')).readS32();
+            if (entries.isNull() || count <= 0 || count > 600) return JSON.stringify({ found: false });
+
+            var best = null;
+            var bestDist = 999999;
+            for (var i = 0; i < count; i++) {
+                var entryAddr = entries.add(0x20 + i * 24);
+                if (entryAddr.readS32() < 0) continue;
+                var val = entryAddr.add(16).readPointer();
+                if (val.isNull()) continue;
+                var body = ptr(0);
+                try {
+                    var vk = val.readPointer();
+                    if (vk.isNull()) continue;
+                    var vkn = vk.add(0x10).readPointer().readUtf8String() || "";
+                    if (vkn.indexOf("ViewportBody") === -1) continue;
+                    body = val.add(0x18).readPointer();
+                } catch (eVB) { continue; }
+                if (body.isNull() || (!localPlayer.isNull() && body.equals(localPlayer))) continue;
+
+                var bSkin = -1, bClass = -1, bIdx = -1;
+                try { bIdx = body.add(0x20).readS32(); } catch (e1) {}
+                try { bClass = body.add(0x34).readS32(); } catch (e2) {}
+                try { bSkin = body.add(0x60).readS32(); } catch (e3) {}
+
+                var bName = "";
+                try {
+                    var np = body.add(off('__PLAYER_NAME__')).readPointer();
+                    if (!np.isNull()) {
+                        var nl = np.add(0x10).readS32();
+                        if (nl > 0 && nl < 64) bName = np.add(0x14).readUtf16String(nl);
+                    }
+                } catch (e4) {}
+
+                var matchSkin = (wantSkin >= 0 && (bSkin === wantSkin || bClass === wantSkin));
+                var matchName = (wantName.length > 0 && bName.toLowerCase().indexOf(wantName) !== -1);
+                if (!matchSkin && !matchName) continue;
+
+                var nx = 0, ny = 0;
+                try {
+                    var nc = body.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!nc.isNull()) {
+                        nx = nc.add(0x10).readS32();
+                        ny = nc.add(0x14).readS32();
+                    }
+                } catch (e5) {}
+                var dist = (px >= 0 && py >= 0) ? Math.sqrt((nx - px) * (nx - px) + (ny - py) * (ny - py)) : 0;
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = {
+                        found: true,
+                        ptr: body.toString(),
+                        index: bIdx,
+                        skin: bSkin,
+                        class_id: bClass,
+                        name: bName,
+                        x: nx,
+                        y: ny,
+                        dist: Math.round(dist * 10) / 10
+                    };
+                }
+            }
+            return JSON.stringify(best || { found: false });
+        } catch (eFN) {
+            return JSON.stringify({ found: false, error: eFN.toString() });
+        }
+    },
+
+    talkToNpcByPtr: function(ptrStr) {
+        try {
+            if (!ptrStr || ptrStr === "0" || ptrStr === "0x0") return JSON.stringify({ ok: false, error: "invalid_ptr" });
+            pendingQuestNpcTalkPtr = ptr(ptrStr);
+            return JSON.stringify({ ok: true });
+        } catch (eT) {
+            return JSON.stringify({ ok: false, error: eT.toString() });
+        }
+    },
+
+    getQuestNpcWindowState: function() {
+        try {
+            ensureThreadAttached();
+            var isOpen = false;
+            var hasNextBtn = false;
+            var currentData = -1;
+            var qm = getQuestManagerPtr();
+            if (qm && !qm.isNull()) {
+                try { currentData = qm.add(0x2C).readS32(); } catch (eCD) {}
+            }
+            if (nativeGetGameUI !== null) {
+                var gui = nativeGetGameUI();
+                if (gui && !gui.isNull()) {
+                    var qwOff = off('__UI_QUEST_NPC_WINDOW__');
+                    if (!qwOff.isNull()) {
+                        var qWin = gui.add(qwOff).readPointer();
+                        if (qWin && !qWin.isNull()) {
+                            var mWin = qWin.add(0x20).readPointer();
+                            if (mWin && !mWin.isNull()) {
+                                isOpen = (mWin.add(0x48).readU8() === 1);
+                            }
+                            var nb = qWin.add(0x40).readPointer();
+                            hasNextBtn = (nb && !nb.isNull());
+                        }
+                    }
+                }
+            }
+            return JSON.stringify({ ok: true, isOpen: isOpen, hasNextBtn: hasNextBtn, currentData: currentData });
+        } catch (eQW) {
+            return JSON.stringify({ ok: false, isOpen: false, hasNextBtn: false, currentData: -1, error: eQW.toString() });
+        }
+    },
+
+    clickQuestNpcNext: function(questIndex) {
+        try {
+            lastQuestClickDebug = { done: false, ok: false, method: "", qWinOpen: false, nextBtnFound: false, currentData: -1, error: "" };
+            pendingQuestNextAction = { index: parseInt(questIndex !== undefined && questIndex !== null ? questIndex : -1) };
+            for (var w = 0; w < 20; w++) {
+                if (lastQuestClickDebug.done) break;
+                Thread.sleep(0.02);
+            }
+            return JSON.stringify(lastQuestClickDebug);
+        } catch (eC) {
+            return JSON.stringify({ done: true, ok: false, method: "", error: eC.toString() });
+        }
+    },
+
+    sendQuestState: function(questIndex, flag) {
+        try {
+            pendingQuestStateAction = { index: parseInt(questIndex), flag: !!flag };
+            return JSON.stringify({ ok: true, index: parseInt(questIndex) });
+        } catch (eS) {
+            return JSON.stringify({ ok: false, error: eS.toString() });
+        }
+    },
+
+    enterQuestDungeon: function(dungeonType) {
+        try {
+            var dt = String(dungeonType || "").toLowerCase();
+            if (dt !== "barracks" && dt !== "refuge") {
+                return JSON.stringify({ ok: false, error: "invalid_dungeon_type" });
+            }
+            pendingQuestDungeonAction = dt;
+            return JSON.stringify({ ok: true, dungeon: dt });
+        } catch (eD) {
+            return JSON.stringify({ ok: false, error: eD.toString() });
+        }
+    },
+
+    dumpWorldGates: function() {
+        try {
+            ensureThreadAttached();
+            var dataInst = getDataInstancePtr();
+            if (!dataInst || dataInst.isNull()) {
+                return JSON.stringify({ ok: false, error: "data_instance_null", gates: [], moves: [] });
+            }
+            var tableWorld = dataInst.add(0x90).readPointer();
+            if (!tableWorld || tableWorld.isNull()) {
+                return JSON.stringify({ ok: false, error: "table_world_null", gates: [], moves: [] });
+            }
+
+            var gates = [];
+            try {
+                var gateCont = tableWorld.add(0x30).readPointer();
+                if (gateCont && !gateCont.isNull()) {
+                    var gList = gateCont.add(0x10).readPointer();
+                    if (gList && !gList.isNull()) {
+                        var gCount = gList.add(0x18).readS32();
+                        var gArr = gList.add(0x10).readPointer();
+                        if (gArr && !gArr.isNull() && gCount > 0 && gCount < 4096) {
+                            for (var gi = 0; gi < gCount; gi++) {
+                                var gPtr = gArr.add(0x20 + gi * 8).readPointer();
+                                var gObj = readGateEntryObj(gPtr);
+                                if (gObj !== null) gates.push(gObj);
+                            }
+                        }
+                    }
+                }
+            } catch (eGL) {}
+
+            var moves = [];
+            try {
+                var moveCont = tableWorld.add(0x28).readPointer();
+                if (moveCont && !moveCont.isNull()) {
+                    var mList = moveCont.add(0x10).readPointer();
+                    if (mList && !mList.isNull()) {
+                        var mCount = mList.add(0x18).readS32();
+                        var mArr = mList.add(0x10).readPointer();
+                        if (mArr && !mArr.isNull() && mCount > 0 && mCount < 2048) {
+                            for (var mi = 0; mi < mCount; mi++) {
+                                var mPtr = mArr.add(0x20 + mi * 8).readPointer();
+                                var mObj = readMoveEntryObj(mPtr);
+                                if (mObj !== null) moves.push(mObj);
+                            }
+                        }
+                    }
+                }
+            } catch (eML) {}
+
+            var curMap = -1, curX = -1, curY = -1;
+            try {
+                if (getWorldNative !== null) {
+                    var w = getWorldNative();
+                    if (w && !w.isNull()) curMap = w.add(0x20).readS32();
+                }
+            } catch (eWM) {}
+            try {
+                var lp = getPlayerPtr();
+                if (lp && !lp.isNull()) {
+                    var c = lp.add(0x68).readPointer();
+                    if (c && !c.isNull()) {
+                        curX = c.add(0x10).readS32();
+                        curY = c.add(0x14).readS32();
+                    }
+                }
+            } catch (eLP) {}
+
+            return JSON.stringify({
+                ok: true,
+                currentMapId: curMap,
+                currentX: curX,
+                currentY: curY,
+                gateCount: gates.length,
+                moveCount: moves.length,
+                gates: gates,
+                moves: moves
+            });
+        } catch (eDW) {
+            return JSON.stringify({ ok: false, error: eDW.toString(), gates: [], moves: [] });
+        }
+    },
+
+    getCurrentTileGate: function() {
+        try {
+            ensureThreadAttached();
+            var lp = getPlayerPtr();
+            if (!lp || lp.isNull()) return JSON.stringify({ ok: false, found: false, error: "no_player" });
+            var c = lp.add(0x68).readPointer();
+            if (!c || c.isNull()) return JSON.stringify({ ok: false, found: false, error: "no_coord" });
+            var px = c.add(0x10).readS32();
+            var py = c.add(0x14).readS32();
+            if (px < 0 || px > 255 || py < 0 || py > 255) {
+                return JSON.stringify({ ok: true, found: false, x: px, y: py });
+            }
+            var w = (getWorldNative !== null) ? getWorldNative() : ptr(0);
+            if (!w || w.isNull()) return JSON.stringify({ ok: false, found: false, error: "no_world" });
+            var mapId = w.add(0x20).readS32();
+            var gates2D = w.add(0x218).readPointer();
+            if (!gates2D || gates2D.isNull()) {
+                return JSON.stringify({ ok: true, found: false, mapId: mapId, x: px, y: py });
+            }
+            var bounds = gates2D.add(0x10).readPointer();
+            var dim0 = bounds.readU32();
+            var dim1 = bounds.add(0x10).readU32();
+            if (px >= dim0 || py >= dim1) {
+                return JSON.stringify({ ok: true, found: false, mapId: mapId, x: px, y: py });
+            }
+            var gPtr = gates2D.add(0x20 + (px * dim1 + py) * 8).readPointer();
+            if (!gPtr || gPtr.isNull()) {
+                return JSON.stringify({ ok: true, found: false, mapId: mapId, x: px, y: py });
+            }
+            var gObj = readGateEntryObj(gPtr);
+            return JSON.stringify({ ok: true, found: gObj !== null, mapId: mapId, x: px, y: py, gate: gObj });
+        } catch (eTG) {
+            return JSON.stringify({ ok: false, found: false, error: eTG.toString() });
+        }
+    },
+
+    enterGate: function(gateId, x, y) {
+        try {
+            var gid = parseInt(gateId);
+            if (isNaN(gid) || gid < 0 || gid > 65535) {
+                return JSON.stringify({ ok: false, error: "invalid_gate_id" });
+            }
+            var gx = (x !== undefined && x !== null) ? parseInt(x) : -1;
+            var gy = (y !== undefined && y !== null) ? parseInt(y) : -1;
+            lastGateEnterResult = { done: false, ok: false, gateId: gid, x: gx, y: gy, ret: false, error: "" };
+            pendingGateEnterAction = { gateId: gid, x: gx, y: gy };
+            return JSON.stringify({ ok: true, queued: true, gateId: gid, x: gx, y: gy });
+        } catch (eEG) {
+            return JSON.stringify({ ok: false, error: eEG.toString() });
+        }
+    },
+
+    getLastGateEnterResult: function() {
+        try {
+            return JSON.stringify(lastGateEnterResult);
+        } catch (eR) {
+            return JSON.stringify({ done: false, ok: false, error: eR.toString() });
+        }
+    },
+
+    enterAcheronNpc: function(zone) {
+        try {
+            var z = (zone !== undefined && zone !== null) ? parseInt(zone) : -1;
+            pendingArkaEnterAction = { zone: z };
+            return JSON.stringify({ ok: true, queued: true, zone: z });
+        } catch (eEA) {
+            return JSON.stringify({ ok: false, error: eEA.toString() });
+        }
+    },
+
+    sendWarp8E: function(warpType, param, extra) {
+        try {
+            pendingWarp8EAction = {
+                type: parseInt(warpType || 0),
+                param: parseInt(param || 0),
+                extra: parseInt(extra || 0)
+            };
+            return JSON.stringify({ ok: true, queued: true });
+        } catch (eW) {
+            return JSON.stringify({ ok: false, error: eW.toString() });
+        }
+    },
+
+    closeQuestWindow: function() {
+        try {
+            pendingQuestWindowClose = true;
+            return true;
+        } catch (eC) {
+            return false;
+        }
+    },
+
+    pickupGroundQuestItems: function(targetIdsJson, maxRadius, targetLevel, targetKeywordsJson) {
+        try {
+            ensureThreadAttached();
+            var radius = (maxRadius !== undefined && maxRadius !== null) ? parseFloat(maxRadius) : 14.0;
+            var wantLevel = (targetLevel !== undefined && targetLevel !== null) ? parseInt(targetLevel) : -1;
+            var targetIds = {};
+            try {
+                var arr = JSON.parse(String(targetIdsJson || "[]"));
+                for (var k = 0; k < arr.length; k++) targetIds[parseInt(arr[k])] = true;
+            } catch (eP) {}
+
+            var targetKeywords = [];
+            try {
+                var kArr = JSON.parse(String(targetKeywordsJson || "[]"));
+                for (var kk = 0; kk < kArr.length; kk++) {
+                    var sKw = String(kArr[kk] || "").toLowerCase().trim();
+                    if (sKw.length > 0) targetKeywords.push(sKw);
+                }
+            } catch (eK) {}
+
+            var localPlayer = getPlayerPtr();
+            var px = -1, py = -1;
+            if (!localPlayer.isNull()) {
+                try {
+                    var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!pCoord.isNull()) {
+                        px = pCoord.add(0x10).readS32();
+                        py = pCoord.add(0x14).readS32();
+                    }
+                } catch (ePC) {}
+            }
+
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            if (typeInfo.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+            if (staticFields.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+            var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+            if (gameInstance.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+            var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+            if (viewport.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+            var objDict = viewport.add(ptr('0x20')).readPointer();
+            if (objDict.isNull()) return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [] });
+
+            var entries = objDict.add(ptr('0x18')).readPointer();
+            var count = objDict.add(ptr('0x20')).readS32();
+            var foundItems = [];
+            var queued = 0;
+            var pickedIds = [];
+            var prevDone = lastQuestPickupDone;
+
+            for (var i = 0; i < count && i < 600; i++) {
+                var entryAddr = entries.add(0x20 + i * 24);
+                if (entryAddr.readS32() < 0) continue;
+                var val = entryAddr.add(16).readPointer();
+                if (val.isNull()) continue;
+                var vk = val.readPointer();
+                if (vk.isNull()) continue;
+                var vkn = vk.add(0x10).readPointer().readUtf8String() || "";
+                if (vkn.indexOf("ViewportItem") === -1) continue;
+
+                var itemPtr = val.add(0x18).readPointer();
+                if (itemPtr.isNull()) continue;
+                var itemId = readItemIndex(itemPtr);
+                var itemLv = 0;
+                try { itemLv = itemPtr.add(0x10).readS32(); } catch (eIL) {}
+                var itemName = "";
+                try { itemName = getItemName(itemPtr) || ""; } catch (eIN) {}
+
+                // Khớp CHÍNH XÁC vật phẩm nhiệm vụ đang cần (đúng ID + đúng Level, hoặc đúng từ khóa tên riêng của vật phẩm đó)
+                var isMatch = false;
+                if (targetKeywords.length > 0 && itemName) {
+                    var low = itemName.toLowerCase();
+                    for (var kw = 0; kw < targetKeywords.length; kw++) {
+                        if (low.indexOf(targetKeywords[kw]) !== -1) {
+                            isMatch = true;
+                            break;
+                        }
+                    }
+                }
+                if (!isMatch && targetIds[itemId]) {
+                    if (wantLevel < 0 || itemLv === wantLevel) {
+                        isMatch = true;
+                    }
+                }
+                if (!isMatch) continue;
+
+                var ix = -1, iy = -1;
+                var icPtr = val.add(0x28).readPointer();
+                if (!icPtr.isNull()) {
+                    ix = icPtr.add(0x10).readS32();
+                    iy = icPtr.add(0x14).readS32();
+                }
+                var dist = (px >= 0 && py >= 0 && ix >= 0 && iy >= 0) ? Math.sqrt((ix - px) * (ix - px) + (iy - py) * (iy - py)) : 0;
+                if (dist <= radius) {
+                    var vIdx = val.add(0x10).readS32();
+                    foundItems.push({
+                        vIdx: vIdx,
+                        id: itemId,
+                        level: itemLv,
+                        name: itemName,
+                        x: ix,
+                        y: iy,
+                        dist: Math.round(dist * 10) / 10
+                    });
+                    if (vIdx >= 0 && dist <= 4.5) {
+                        pendingQuestPickups.push({ vIdx: vIdx, itemPtr: itemPtr });
+                        queued++;
+                        pickedIds.push(itemId);
+                    }
+                }
+            }
+
+            if (queued > 0) {
+                for (var w = 0; w < 12; w++) {
+                    if (lastQuestPickupDone > prevDone) break;
+                    Thread.sleep(0.02);
+                }
+            }
+            var actualPicked = Math.max(0, lastQuestPickupDone - prevDone);
+            return JSON.stringify({
+                ok: true,
+                pickedCount: actualPicked,
+                queuedCount: queued,
+                pickedIds: pickedIds,
+                foundItems: foundItems,
+                hasNativePick: (nativeUserInvPickItem !== null),
+                pickError: lastQuestPickupErr
+            });
+        } catch (ePQ) {
+            return JSON.stringify({ ok: false, pickedCount: 0, foundItems: [], error: ePQ.toString() });
+        }
+    },
+
     closeMerchantNpc: function() {
         try {
             ensureThreadAttached();
@@ -6960,7 +8117,8 @@ rpc.exports = {
             // +0x08: int ECBFKNFEGDP (passedMonsters)
             // +0x0C: int DKNEMBJBPJB (maxPassedMonsters - chuyển > 0 khi trận đấu bắt đầu!)
             var dgOff = off('__DOUBLEGOER_TYPE_INFO__');
-            var dgTypeInfo = baseAddr.add(!dgOff.isNull() ? dgOff : ptr('0x55612C8')).readPointer();
+            if (dgOff.isNull()) return JSON.stringify({ ok: false, active: false, timer: 0, passed: 0, maxPassed: 0 });
+            var dgTypeInfo = baseAddr.add(dgOff).readPointer();
             if (!dgTypeInfo.isNull()) {
                 var sf = dgTypeInfo.add(0xB8).readPointer();
                 if (!sf.isNull()) {
@@ -7991,7 +9149,10 @@ rpc.exports = {
             var base = Process.findModuleByName('GameAssembly.dll').base;
             var gTypeOff = off('__GREMORY_TYPE_INFO__');
             var gClaimOff = off('__GREMORY_CLAIM_ITEM__');
-            var typeInfo = base.add(!gTypeOff.isNull() ? gTypeOff : ptr('0x55A4D00')).readPointer();
+            if (gTypeOff.isNull() || gClaimOff.isNull()) {
+                return JSON.stringify({ ok: false, claimed: 0, reason: "gremory_offsets_missing" });
+            }
+            var typeInfo = base.add(gTypeOff).readPointer();
             if (typeInfo.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "typeInfo_null" });
             var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
             if (staticFields.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "staticFields_null" });
@@ -8011,7 +9172,7 @@ rpc.exports = {
             try { outerArrLen = outerEntries.add(ptr('0x18')).readS32(); } catch (eOAL) { outerArrLen = outerCount; }
             var outerLimit = Math.min(outerCount, outerArrLen, 16);
 
-            var claimFunc = new NativeFunction(base.add(!gClaimOff.isNull() ? gClaimOff : ptr('0x109D830')), 'void', ['pointer', 'pointer']);
+            var claimFunc = new NativeFunction(base.add(gClaimOff), 'void', ['pointer', 'pointer']);
             var claimedCount = 0;
             var claimedItems = [];
 
@@ -9540,6 +10701,7 @@ rpc.exports = {
             }
         } catch (eHSC) {}
         try {
+            try { if (mhelperShowDialogGenericHook) { mhelperShowDialogGenericHook.detach(); mhelperShowDialogGenericHook = null; } } catch(eCGH) {}
             Interceptor.flush();
         } catch (eF) {}
         return true;
@@ -9636,63 +10798,74 @@ class MegDirectEngine:
             self.telemetry_callbacks.remove(cb)
 
     def _load_offsets_file(self):
-        # 1. Khởi tạo toàn bộ offset mặc định (Chuẩn xác 100% của bản MEGAMU hiện tại)
+        """
+        Nạp Game Offsets theo kiến trúc Zero-Offset-On-Disk (RAM-Only):
+        1. Ưu tiên tuyệt đối: Lấy trực tiếp từ kho RAM mã hóa của `meg_license_bridge.dll`
+           (đã được Web License Server mã hóa AES-256-CBC và giải mã trong RAM).
+        2. Nếu RAM chưa có offset mà license đang hợp lệ -> tự động gọi `verify_license()`
+           để đồng bộ trực tuyến từ Web Server vào RAM ngay lập tức.
+        3. Bản phát hành đóng gói (frozen `.exe`): TUYỆT ĐỐI KHÔNG đọc bất kỳ file
+           `megamu_offsets.json` nào từ ổ cứng!
+        4. Chỉ khi đang chạy mã nguồn mở (dev local, chưa đóng gói) mới cho phép fallback
+           đọc `config/megamu_offsets.json` phục vụ kiểm thử nội bộ.
+        """
         self.offsets = dict(DEFAULT_OFFSETS)
+        is_frozen = bool(getattr(sys, "frozen", False))
 
-        # 2. Bổ sung các offset mới từ Native C++ Security Bridge nếu chưa có trong DEFAULT_OFFSETS
+        # 1. Nạp từ RAM của Native C++ Security Bridge (Strict Online)
         try:
-            from license_client import get_secure_game_offsets, is_native_bridge_active
+            from license_client import (
+                get_secure_game_offsets,
+                is_native_bridge_active,
+                is_license_valid,
+                verify_license,
+            )
             if is_native_bridge_active():
                 sec_offsets = get_secure_game_offsets()
+                if not sec_offsets and is_frozen and is_license_valid():
+                    try:
+                        verify_license()
+                        sec_offsets = get_secure_game_offsets(force_refresh=True)
+                    except Exception:
+                        pass
                 if sec_offsets and isinstance(sec_offsets, dict):
                     for k, v in sec_offsets.items():
-                        if v and k not in self.offsets:
+                        if v is not None and v != "":
                             self.offsets[k] = v
-                    _safe_log("[MegDirectEngine] Đã nạp thành công Game Offsets từ Native C++ Security Bridge.")
+                    _safe_log(f"[MegDirectEngine] Đã nạp {len(sec_offsets)} Game Offsets trực tiếp từ RAM (Native C++ Vault).")
+                    return
         except Exception as e:
-            _safe_log(f"[MegDirectEngine] Lỗi trích xuất Native Offsets: {e}")
+            _safe_log(f"[MegDirectEngine] Lỗi trích xuất Native RAM Offsets: {e}")
 
-        # 3. Đọc cấu hình đĩa JSON để nạp bản cập nhật mới nhất (ƯU TIÊN TUYỆT ĐỐI ghi đè)
-        if getattr(sys, "frozen", False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-        candidate_paths = [
+        # 2. BẢN PHÁT HÀNH ĐÓNG GÓI (.EXE): TUYỆT ĐỐI KHÔNG ĐỌC OFFSET TỪ Ổ CỨNG
+        if is_frozen:
+            _safe_log("[MegDirectEngine] ⚠️ Chưa có Game Offsets trong RAM — hãy kết nối mạng và Đồng Bộ / Kích Hoạt bản quyền.")
+            return
+
+        # 3. CHẾ ĐỘ DEV NỘI BỘ (chỉ hoạt động khi chạy script .py chưa đóng gói)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        for p in (
             os.path.join(base_dir, "config", "megamu_offsets.json"),
             os.path.join(base_dir, "megamu_offsets.json"),
-        ]
-        meipass = os.environ.get("NUITKA_ONEFILE_DIRECTORY") or getattr(sys, "_MEIPASS", None)
-        if meipass:
-            candidate_paths.append(os.path.join(meipass, "config", "megamu_offsets.json"))
-            candidate_paths.append(os.path.join(meipass, "megamu_offsets.json"))
-
-        for p in candidate_paths:
+        ):
             if os.path.exists(p):
                 try:
                     with open(p, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     if isinstance(data, dict):
                         for k, v in data.items():
-                            if v:
+                            if v is not None and v != "":
                                 self.offsets[k] = v
-                        _safe_log(f"[MegDirectEngine] Đã nạp và ưu tiên cấu hình offsets từ tệp đĩa: {p}")
+                        _safe_log(f"[MegDirectEngine] [DEV] Đã nạp offsets từ đĩa cục bộ: {p}")
                         break
                 except Exception as e:
-                    _safe_log(f"[MegDirectEngine] Lỗi đọc megamu_offsets.json: {e}")
+                    _safe_log(f"[MegDirectEngine] [DEV] Lỗi đọc offsets cục bộ: {e}")
 
-        # 4. Tự động làm sạch các offset NpcManager bị dính hàm bẫy (obfuscated decoy) từ bản cấu hình cũ
-        if self.offsets.get("npc_talk") == "0x1015210":
-            self.offsets["npc_talk"] = "0x102AA00"
-        if self.offsets.get("npc_close_talk") == "0x1025540":
-            self.offsets["npc_close_talk"] = "0x101B1C0"
-        if self.offsets.get("npc_click") in ("0x1013520", "0x1015210"):
-            self.offsets["npc_click"] = "0x102AA00"
-        if not self.offsets.get("npc_send_talk"):
-            self.offsets["npc_send_talk"] = "0x1023B10"
-        if not self.offsets.get("user_inv_pick_item"):
-            self.offsets["user_inv_pick_item"] = "0x1446400"
-        if not self.offsets.get("local_pick_nearest"):
-            self.offsets["local_pick_nearest"] = "0xB92800"
+    def _off(self, key: str, default: str = "0x0") -> str:
+        val = self.offsets.get(key)
+        if val is None or val == "":
+            return default
+        return str(val)
 
     def _claim_mutex(self):
         """Khóa Named Mutex trên Windows để đảm bảo mỗi PID chỉ gắn 1 Frida engine duy nhất."""
@@ -9715,166 +10888,186 @@ class MegDirectEngine:
             self._mutex_handle = None
 
     def _generate_js(self) -> str:
+        # Đảm bảo offsets đã được nạp vào RAM (hoặc dev JSON khi chạy unittest chưa gọi _load_offsets_file)
+        if len(self.offsets) <= 1:
+            self._load_offsets_file()
+
         js = FRIDA_AGENT_JS
+        o = self._off
         mapping = {
-            "__GET_PLAYER__": str(self.offsets.get("get_player") or DEFAULT_OFFSETS.get("get_player", "0x10D7DD0")),
-            "__GET_GAME_UI__": str(self.offsets.get("get_game_ui") or DEFAULT_OFFSETS.get("get_game_ui", "0x10D7E40")),
-            "__GET_WORLD__": str(self.offsets.get("get_world") or DEFAULT_OFFSETS.get("get_world", "0x10D7EB0")),
-            "__GET_AUTO_LOGIN__": str(self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0x10D7BB0")),
-            "__GET_WINDOW_HANDLER__": str(self.offsets.get("get_window_handler") or DEFAULT_OFFSETS.get("get_window_handler", "0x10D6F90")),
-            "__GAME_UPDATE__": str(self.offsets.get("game_update") or DEFAULT_OFFSETS.get("game_update", "0x10CFF50")),
-            "__GAME_UI_UPDATE__": str(self.offsets.get("game_ui_update") or DEFAULT_OFFSETS.get("game_ui_update", "0x13F37D0")),
-            "__GAME_TYPE_INFO__": str(self.offsets.get("game_type_info") or DEFAULT_OFFSETS.get("game_type_info", "0x55A4D00")),
-            "__ITEM_STORAGE_TYPE_INFO__": str(self.offsets.get("item_storage_type_info") or DEFAULT_OFFSETS.get("item_storage_type_info", "0x5574B18")),
-            "__MLOGIN_UI_TYPE_INFO__": str(self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x559CF00")),
-            "__MLOGIN_SUBMIT__": str(self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1CF98A0")),
-            "__MLOGIN_TOKEN_LOGIN__": str(self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1CFA990")),
-            "__SET_AUTO_LOGIN__": str(self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xF68780")),
-            "__MOVE_TO__": str(self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xC43C50")),
-            "__START_AUTO_MOVE__": str(self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xC43C50")),
-            "__STOP_AUTO_MOVE__": str(self.offsets.get("stop_auto_move") or DEFAULT_OFFSETS.get("stop_auto_move", "0xC43E10")),
-            "__CHAT_SEND__": str(self.offsets.get("chat_send") or DEFAULT_OFFSETS.get("chat_send", "0x134B040")),
-            "__CHAT_FRAME_SEND__": str(self.offsets.get("chat_frame_send") or DEFAULT_OFFSETS.get("chat_frame_send", "0x134B040")),
-            "__CHAT_SEND_CMD__": str(self.offsets.get("chat_send_cmd") or DEFAULT_OFFSETS.get("chat_send_cmd", "0xF79E70")),
-            "__COMMAND_MGR_PROCESS__": str(self.offsets.get("command_mgr_process") or DEFAULT_OFFSETS.get("command_mgr_process", "0xF79E70")),
-            "__STATIC_CHAT_SEND__": str(self.offsets.get("static_chat_send") or DEFAULT_OFFSETS.get("static_chat_send", "0xF78030")),
-            "__MDIALOG_CONFIRM_YES__": str(self.offsets.get("mdialog_confirm_yes") or DEFAULT_OFFSETS.get("mdialog_confirm_yes", "0x1C6C860")),
-            "__CHAT_UPDATE__": str(self.offsets.get("chat_update") or DEFAULT_OFFSETS.get("chat_update", "0x1359450")),
-            "__HELPER_START__": str(self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x478B40")),
-            "__HELPER_STOP__": str(self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x469600")),
-            "__HELPER_ACTION__": str(self.offsets.get("helper_action") or DEFAULT_OFFSETS.get("helper_action", "0x472030")),
-            "__HELPER_TOGGLE__": str(self.offsets.get("helper_toggle") or DEFAULT_OFFSETS.get("helper_toggle", "0x472030")),
-            "__HELPER_SEND_BF51__": str(self.offsets.get("helper_send_bf51") or DEFAULT_OFFSETS.get("helper_send_bf51", "0x472030")),
-            "__HELPER_REQ_START__": str(self.offsets.get("helper_req_start") or DEFAULT_OFFSETS.get("helper_req_start", "0x478B40")),
-            "__HELPER_REQ_STOP__": str(self.offsets.get("helper_req_stop") or DEFAULT_OFFSETS.get("helper_req_stop", "0x469600")),
-            "__UI_LOCATION_FRAME__": str(self.offsets.get("ui_location_frame") or DEFAULT_OFFSETS.get("ui_location_frame", "0x88")),
-            "__LOCATION_HELPER_ON__": str(self.offsets.get("location_helper_on") or DEFAULT_OFFSETS.get("location_helper_on", "0x60")),
-            "__LOCATION_HELPER_OFF__": str(self.offsets.get("location_helper_off") or DEFAULT_OFFSETS.get("location_helper_off", "0x68")),
-            "__LOCATION_UPDATE_HELPER__": str(self.offsets.get("location_update_helper") or DEFAULT_OFFSETS.get("location_update_helper", "0x26A2E80")),
-            "__NPC_TALK__": str(self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x10E3010")),
-            "__NPC_CLOSE_TALK__": str(self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x10ECB60")),
-            "__NPC_CLICK__": str(self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x10E3010")),
-            "__NPC_SEND_TALK__": str(self.offsets.get("npc_send_talk") or DEFAULT_OFFSETS.get("npc_send_talk", "0x10E9C10")),
-            "__USER_INV_PICK_ITEM__": str(self.offsets.get("user_inv_pick_item") or DEFAULT_OFFSETS.get("user_inv_pick_item", "0x0")),
-            "__LOCAL_PICK_NEAREST__": str(self.offsets.get("local_pick_nearest") or DEFAULT_OFFSETS.get("local_pick_nearest", "0x0")),
-            "__GET_CONFIG__": str(self.offsets.get("get_config") or DEFAULT_OFFSETS.get("get_config", "0x10D72F0")),
-            "__GET_USER_2FA__": str(self.offsets.get("get_user_2fa") or DEFAULT_OFFSETS.get("get_user_2fa", "0x10D5080")),
-            "__INV_TRASH_ITEM__": str(self.offsets.get("inv_trash_item") or "0x0"),
-            "__INV_DROP_ITEM__": str(self.offsets.get("inv_drop_item") or "0x0"),
-            "__INV_SELL_ITEM__": str(self.offsets.get("inv_sell_item") or "0x0"),
-            "__USER_INV_TRASH__": str(self.offsets.get("user_inv_trash") or DEFAULT_OFFSETS.get("user_inv_trash", "0x1450900")),
-            "__USER_INV_DROP__": str(self.offsets.get("user_inv_drop") or DEFAULT_OFFSETS.get("user_inv_drop", "0x14581E0")),
-            "__USER_INV_DROP_RECV__": str(self.offsets.get("user_inv_drop_recv") or DEFAULT_OFFSETS.get("user_inv_drop_recv", "0x1457C40")),
-            "__USER_INV_ACTION__": str(self.offsets.get("user_inv_action") or DEFAULT_OFFSETS.get("user_inv_action", "0x14521D0")),
-            "__USER_INV_SELL__": str(self.offsets.get("user_inv_sell") or DEFAULT_OFFSETS.get("user_inv_sell", "0x14521D0")),
-            "__USER_INV_SELL_5__": str(self.offsets.get("user_inv_sell_5") or DEFAULT_OFFSETS.get("user_inv_sell_5", "0x14557E0")),
-            "__ITEM_STORAGE_DROP__": str(self.offsets.get("item_storage_drop") or DEFAULT_OFFSETS.get("item_storage_drop", "0x22EEA70")),
-            "__ITEM_STORAGE_SELL__": str(self.offsets.get("item_storage_sell") or DEFAULT_OFFSETS.get("item_storage_sell", "0x2250560")),
-            "__MERCHANT_SELL_ITEM__": str(self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2858700")),
-            "__SLOT_QUICK_ACTION__": str(self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x24B1E10")),
-            "__ITEM_STORAGE_MOVE__": str(self.offsets.get("item_storage_move") or DEFAULT_OFFSETS.get("item_storage_move", "0x2309F10")),
-            "__WINDOW_SHOW__": str(self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x2814390")),
-            "__WINDOW_HIDE__": str(self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x27ABAF0")),
-            "__WINDOW_SET_STATE__": str(self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x2808DB0")),
-            "__WINDOW_TOGGLE__": str(self.offsets.get("window_toggle") or DEFAULT_OFFSETS.get("window_toggle", "0x2810F10")),
-            "__BUTTON_PRESS__": str(self.offsets.get("button_press") or DEFAULT_OFFSETS.get("button_press", "0x4705530")),
-            "__UNITY_EVENT_INVOKE__": str(self.offsets.get("unity_event_invoke") or DEFAULT_OFFSETS.get("unity_event_invoke", "0x463F230")),
-            "__MOSS_ROLL__": str(self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x286FE70")),
-            "__MOSS_OPEN__": str(self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x2808DB0")),
-            "__MOSS_ROLL_HANDLER__": str(self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x2872990")),
-            "__MOSS_INIT__": str(self.offsets.get("moss_init") or DEFAULT_OFFSETS.get("moss_init", "0x2876A90")),
-            "__MOSS_SELECT_CAT__": str(self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x2871370")),
-            "__MOSS_SEND_ROLL__": str(self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x24CE7B0")),
-            "__MOSS_ROLL_CLICK__": str(self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x286FE70")),
-            "__MOSS_WINDOW_CLOSE__": str(self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x27ABAF0")),
-            "__GAME_OBJECT_SET_ACTIVE__": str(self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x46263E0")),
-            "__COMPONENT_GET_GAME_OBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x4621FC0")),
-            "__COMPONENT_GET_GAMEOBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x4621FC0")),
-            "__MIRROR_ENTER__": str(self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0x100A910")),
-            "__MIRROR_ENTER_ALT__": str(self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0x100A910")),
-            "__MIRROR_NPC_CLICK__": str(self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0x100B2E0")),
-            "__MIRROR_IS_EVENT_MAP__": str(self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0x100D680")),
+            "__GET_PLAYER__": o("get_player"),
+            "__GET_GAME_UI__": o("get_game_ui"),
+            "__GET_WORLD__": o("get_world"),
+            "__GET_AUTO_LOGIN__": o("get_auto_login"),
+            "__GET_WINDOW_HANDLER__": o("get_window_handler"),
+            "__GAME_UPDATE__": o("game_update"),
+            "__GAME_UI_UPDATE__": o("game_ui_update"),
+            "__GAME_TYPE_INFO__": o("game_type_info"),
+            "__ITEM_STORAGE_TYPE_INFO__": o("item_storage_type_info"),
+            "__MLOGIN_UI_TYPE_INFO__": o("mlogin_ui_type_info"),
+            "__MLOGIN_SUBMIT__": o("mlogin_submit"),
+            "__MLOGIN_TOKEN_LOGIN__": o("mlogin_token_login"),
+            "__SET_AUTO_LOGIN__": o("set_auto_login"),
+            "__MOVE_TO__": o("move_to"),
+            "__START_AUTO_MOVE__": o("start_auto_move"),
+            "__STOP_AUTO_MOVE__": o("stop_auto_move"),
+            "__CHAT_SEND__": o("chat_send"),
+            "__CHAT_FRAME_SEND__": o("chat_frame_send"),
+            "__CHAT_SEND_CMD__": o("chat_send_cmd"),
+            "__COMMAND_MGR_PROCESS__": o("command_mgr_process"),
+            "__STATIC_CHAT_SEND__": o("static_chat_send"),
+            "__MDIALOG_CONFIRM_YES__": o("mdialog_confirm_yes"),
+            "__CHAT_UPDATE__": o("chat_update"),
+            "__HELPER_START__": o("helper_start"),
+            "__HELPER_STOP__": o("helper_stop"),
+            "__HELPER_ACTION__": o("helper_action"),
+            "__HELPER_TOGGLE__": o("helper_toggle"),
+            "__HELPER_SEND_BF51__": o("helper_send_bf51"),
+            "__HELPER_REQ_START__": o("helper_req_start"),
+            "__HELPER_REQ_STOP__": o("helper_req_stop"),
+            "__UI_LOCATION_FRAME__": o("ui_location_frame"),
+            "__LOCATION_HELPER_ON__": o("location_helper_on"),
+            "__LOCATION_HELPER_OFF__": o("location_helper_off"),
+            "__LOCATION_UPDATE_HELPER__": o("location_update_helper"),
+            "__NPC_TALK__": o("npc_talk"),
+            "__NPC_CLOSE_TALK__": o("npc_close_talk"),
+            "__NPC_CLICK__": o("npc_click"),
+            "__NPC_SEND_TALK__": o("npc_send_talk"),
+            "__USER_INV_PICK_ITEM__": o("user_inv_pick_item"),
+            "__LOCAL_PICK_NEAREST__": o("local_pick_nearest"),
+            "__GET_CONFIG__": o("get_config"),
+            "__GET_USER_2FA__": o("get_user_2fa"),
+            "__INV_TRASH_ITEM__": o("inv_trash_item"),
+            "__INV_DROP_ITEM__": o("inv_drop_item"),
+            "__INV_SELL_ITEM__": o("inv_sell_item"),
+            "__USER_INV_TRASH__": o("user_inv_trash"),
+            "__USER_INV_DROP__": o("user_inv_drop"),
+            "__USER_INV_DROP_RECV__": o("user_inv_drop_recv"),
+            "__USER_INV_ACTION__": o("user_inv_action"),
+            "__USER_INV_SELL__": o("user_inv_sell"),
+            "__USER_INV_SELL_5__": o("user_inv_sell_5"),
+            "__ITEM_STORAGE_DROP__": o("item_storage_drop"),
+            "__ITEM_STORAGE_SELL__": o("item_storage_sell"),
+            "__MERCHANT_SELL_ITEM__": o("merchant_sell_item"),
+            "__SLOT_QUICK_ACTION__": o("slot_quick_action"),
+            "__ITEM_STORAGE_MOVE__": o("item_storage_move"),
+            "__WINDOW_SHOW__": o("window_show"),
+            "__WINDOW_HIDE__": o("window_hide"),
+            "__WINDOW_SET_STATE__": o("window_set_state"),
+            "__WINDOW_TOGGLE__": o("window_toggle"),
+            "__BUTTON_PRESS__": o("button_press"),
+            "__UNITY_EVENT_INVOKE__": o("unity_event_invoke"),
+            "__MOSS_ROLL__": o("moss_roll"),
+            "__MOSS_OPEN__": o("moss_open"),
+            "__MOSS_ROLL_HANDLER__": o("moss_roll_handler"),
+            "__MOSS_INIT__": o("moss_init"),
+            "__MOSS_SELECT_CAT__": o("moss_select_cat"),
+            "__MOSS_SEND_ROLL__": o("moss_send_roll"),
+            "__MOSS_ROLL_CLICK__": o("moss_roll_click"),
+            "__MOSS_WINDOW_CLOSE__": o("moss_window_close"),
+            "__GAME_OBJECT_SET_ACTIVE__": o("game_object_set_active"),
+            "__COMPONENT_GET_GAME_OBJECT__": o("component_get_game_object"),
+            "__COMPONENT_GET_GAMEOBJECT__": o("component_get_game_object"),
+            "__MIRROR_ENTER__": o("mirror_enter"),
+            "__MIRROR_ENTER_ALT__": o("mirror_enter_alt"),
+            "__MIRROR_NPC_CLICK__": o("mirror_npc_click"),
+            "__MIRROR_IS_EVENT_MAP__": o("mirror_is_event_map"),
             "__MIRROR_IS_EVENT_MAP_ALT__": "0x0",
-            "__MIRROR_TELEPORT_EVENT__": str(self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x100D800")),
-            "__DOUBLEGOER_TYPE_INFO__": str(self.offsets.get("doublegoer_type_info") or DEFAULT_OFFSETS.get("doublegoer_type_info", "0x55612C8")),
-            "__DEVIL_CLOSURE_ENTER__": str(self.offsets.get("devil_closure_enter") or DEFAULT_OFFSETS.get("devil_closure_enter", "0xFED530")),
-            "__DEVIL_CLOSURE_TYPE_INFO__": str(self.offsets.get("devil_closure_type_info") or DEFAULT_OFFSETS.get("devil_closure_type_info", "0x55615E8")),
-            "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xFED530")),
-            "__DEVIL_ENTER_ALT__": str(self.offsets.get("devil_enter_alt") or DEFAULT_OFFSETS.get("devil_enter_alt", "0xFED6A0")),
-            "__DEVIL_ENTER_1E__": str(self.offsets.get("devil_enter_1e") or DEFAULT_OFFSETS.get("devil_enter_1e", "0xFED530")),
-            "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xFFDF30")),
-            "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xFEE4D0")),
-            "__TABLE_EVENT_ENTRY_LEVEL__": str(self.offsets.get("table_event_entry_level") or DEFAULT_OFFSETS.get("table_event_entry_level", "0xD82E90")),
-            "__HELPER_UI_GET_INSTANCE__": str(self.offsets.get("helper_ui_get_instance") or DEFAULT_OFFSETS.get("helper_ui_get_instance", "0x10D27B0")),
-            "__HELPER_UI_SHOW_DIALOG__": str(self.offsets.get("helper_ui_show_dialog") or DEFAULT_OFFSETS.get("helper_ui_show_dialog", "0x1CDD220")),
-            "__HELPER_UI_SHOW_CONFIRM__": str(self.offsets.get("helper_ui_show_confirm") or DEFAULT_OFFSETS.get("helper_ui_show_confirm", "0x1CDBEB0")),
-            "__MODAL_MGR_GET_INSTANCE__": str(self.offsets.get("modal_manager_get_instance") or DEFAULT_OFFSETS.get("modal_manager_get_instance", "0x95AFA0")),
-            "__MODAL_MGR_CREATE__": str(self.offsets.get("modal_manager_create") or DEFAULT_OFFSETS.get("modal_manager_create", "0x95B300")),
-            "__MODAL_BOX_SET_TEXT1__": str(self.offsets.get("modal_box_set_text1") or DEFAULT_OFFSETS.get("modal_box_set_text1", "0x9598B0")),
-            "__MODAL_BOX_SET_TEXT2__": str(self.offsets.get("modal_box_set_text2") or DEFAULT_OFFSETS.get("modal_box_set_text2", "0x959A60")),
-            "__MODAL_BOX_SET_CONFIRM_TEXT__": str(self.offsets.get("modal_box_set_confirm_text") or DEFAULT_OFFSETS.get("modal_box_set_confirm_text", "0x959C10")),
-            "__MODAL_BOX_SHOW__": str(self.offsets.get("modal_box_show") or DEFAULT_OFFSETS.get("modal_box_show", "0x959E10")),
-            "__GET_GS_CONNECTION__": str(self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0x10D59E0")),
-            "__GS_SEND__": str(self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x122DCD0")),
-            "__GS_SEND_ALT__": str(self.offsets.get("gs_send_alt") or DEFAULT_OFFSETS.get("gs_send_alt", "0x122DCD0")),
-            "__PLAYER_POINT__": str(self.offsets.get("player_point") or DEFAULT_OFFSETS.get("player_point", "0x238")),
-            "__PLAYER_MASTER_POINT__": str(self.offsets.get("player_master_point") or DEFAULT_OFFSETS.get("player_master_point", "0x23C")),
-            "__PLAYER_RESET_COUNT__": str(self.offsets.get("player_reset_count") or DEFAULT_OFFSETS.get("player_reset_count", "0x2B4")),
-            "__PLAYER_NAME__": str(self.offsets.get("player_name") or DEFAULT_OFFSETS.get("player_name", "0x28")),
-            "__PLAYER_LEVEL__": str(self.offsets.get("player_level") or DEFAULT_OFFSETS.get("player_level", "0x30")),
-            "__PLAYER_CLASS__": str(self.offsets.get("player_class") or DEFAULT_OFFSETS.get("player_class", "0x34")),
-            "__PLAYER_COORD__": str(self.offsets.get("player_coord") or DEFAULT_OFFSETS.get("player_coord", "0x68")),
-            "__PLAYER_MOVE__": str(self.offsets.get("player_move") or DEFAULT_OFFSETS.get("player_move", "0xE8")),
-            "__PLAYER_INVENTORY__": str(self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B0")),
-            "__PLAYER_HELPER__": str(self.offsets.get("player_helper") or DEFAULT_OFFSETS.get("player_helper", "0x1E0")),
-            "__PLAYER_LAST_COORD__": str(self.offsets.get("player_last_coord") or DEFAULT_OFFSETS.get("player_last_coord", "0x508")),
-            "__AUTO_MOVE_WORKING__": str(self.offsets.get("auto_move_working") or DEFAULT_OFFSETS.get("auto_move_working", "0x4C0")),
-            "__AUTO_MOVE_TYPE__": str(self.offsets.get("auto_move_type") or DEFAULT_OFFSETS.get("auto_move_type", "0x4C4")),
-            "__AUTO_MOVE_HELPER__": str(self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x4C8")),
-            "__AUTO_MOVE_DEST__": str(self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x4D0")),
-            "__MOVE_FLAG__": str(self.offsets.get("move_flag") or DEFAULT_OFFSETS.get("move_flag", "0x3C")),
-            "__HELPER_STATE__": str(self.offsets.get("helper_state") or DEFAULT_OFFSETS.get("helper_state", "0x20")),
-            "__INVENTORY_ITEMS__": str(self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28")),
-            "__GAME_WORLD__": str(self.offsets.get("game_world") or DEFAULT_OFFSETS.get("game_world", "0x200")),
-            "__WORLD_SCENE_INDEX__": str(self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20")),
-            "__VIEWPORT__": str(self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110")),
-            "__PARTY_INVITE_BY_KEY__": str(self.offsets.get("party_invite_by_key") or DEFAULT_OFFSETS.get("party_invite_by_key", "0x1485BB0")),
-            "__UI_CHAT_FRAME__": str(self.offsets.get("ui_chat_frame") or DEFAULT_OFFSETS.get("ui_chat_frame", "0x50")),
-            "__UI_MOSS_WINDOW__": str(self.offsets.get("ui_moss_window") or DEFAULT_OFFSETS.get("ui_moss_window", "0x1D0")),
-            "__UI_MERCHANT_WINDOW__": str(self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x1A0")),
-            "__UI_INVENTORY_WINDOW__": str(self.offsets.get("ui_inventory_window") or DEFAULT_OFFSETS.get("ui_inventory_window", "0x190")),
-            "__UI_WAREHOUSE_WINDOW__": str(self.offsets.get("ui_warehouse_window") or DEFAULT_OFFSETS.get("ui_warehouse_window", "0x290")),
-            "__GREMORY_INSTANCE_GETTER__": str(self.offsets.get("gremory_instance_getter") or DEFAULT_OFFSETS.get("gremory_instance_getter", "0x0")),
-            "__GREMORY_CLAIM_ITEM__": str(self.offsets.get("gremory_claim_item") or DEFAULT_OFFSETS.get("gremory_claim_item", "0x109D830")),
-            "__GREMORY_TYPE_INFO__": str(self.offsets.get("gremory_type_info") or DEFAULT_OFFSETS.get("gremory_type_info", "0x55A4D00")),
-            "__SET_TARGET_FPS__": str(self.offsets.get("set_target_framerate") or DEFAULT_OFFSETS.get("set_target_framerate", "0x45E4B80")),
-            "__GET_TARGET_FPS__": str(self.offsets.get("get_target_framerate") or DEFAULT_OFFSETS.get("get_target_framerate", "0x45E4B30")),
-            "__SET_VSYNC_COUNT__": str(self.offsets.get("set_vsync_count") or DEFAULT_OFFSETS.get("set_vsync_count", "0x45F94B0")),
-            "__GET_VSYNC_COUNT__": str(self.offsets.get("get_vsync_count") or DEFAULT_OFFSETS.get("get_vsync_count", "0x45F9460")),
-            "__DOUBLEGOER_ENTER_RECV__": str(self.offsets.get("mirror_enter_recv") or DEFAULT_OFFSETS.get("mirror_enter_recv", "0x100C180")),
-            "__UNITY_GET_TIME__": str(self.offsets.get("unity_get_time") or DEFAULT_OFFSETS.get("unity_get_time", "0x462F900")),
-            "__PKT_ENC_NIKINI__": str(self.offsets.get("pkt_enc_nikini") or DEFAULT_OFFSETS.get("pkt_enc_nikini", "0x126BC00")),
-            "__PKT_ENC_NGJG__": str(self.offsets.get("pkt_enc_ngjg") or DEFAULT_OFFSETS.get("pkt_enc_ngjg", "0x126B4A0")),
-            "__SOCKET_SEND_ERR__": str(self.offsets.get("socket_send_err") or DEFAULT_OFFSETS.get("socket_send_err", "0x42DF4D0")),
-            "__TCP_SET_NODELAY__": str(self.offsets.get("tcp_set_nodelay") or DEFAULT_OFFSETS.get("tcp_set_nodelay", "0x42EB350")),
-            "__GET_SCENE_HANDLER__": str(self.offsets.get("get_scene_handler") or DEFAULT_OFFSETS.get("get_scene_handler", "0x10D8460")),
-            "__RUNTIME_CLASS_INIT__": str(self.offsets.get("runtime_class_init") or DEFAULT_OFFSETS.get("runtime_class_init", "0x2EC0A0")),
-            "__GET_USER_ACCOUNT__": str(self.offsets.get("get_user_account") or DEFAULT_OFFSETS.get("get_user_account", "0x10D8BD0")),
-            "__USER_ACCOUNT_SET_USERNAME__": str(self.offsets.get("user_account_set_username") or DEFAULT_OFFSETS.get("user_account_set_username", "0x14187B0")),
-            "__USER_ACCOUNT_SET_TOKEN__": str(self.offsets.get("user_account_set_token") or DEFAULT_OFFSETS.get("user_account_set_token", "0x1418E10")),
-            "__GET_CS_CONNECTION__": str(self.offsets.get("get_cs_connection") or DEFAULT_OFFSETS.get("get_cs_connection", "0x10D85B0")),
-            "__CS_CONNECT__": str(self.offsets.get("cs_connection_connect") or DEFAULT_OFFSETS.get("cs_connection_connect", "0x121DE20")),
-            "__MLOGIN_SET_STATE__": str(self.offsets.get("mlogin_set_state") or DEFAULT_OFFSETS.get("mlogin_set_state", "0x1C33070")),
-            "__AUTO_SELECT_CHARACTER__": str(self.offsets.get("auto_select_character") or DEFAULT_OFFSETS.get("auto_select_character", "0xEC6020")),
-            "__UNIT_SELECT_CHARACTER__": str(self.offsets.get("unit_select_character") or DEFAULT_OFFSETS.get("unit_select_character", "0x111C0F0")),
-            "__UNIT_ENTRY_CHARACTER__": str(self.offsets.get("unit_entry_character") or DEFAULT_OFFSETS.get("unit_entry_character", "0x11203D0")),
-            "__CONNECT_SERVER_SELECT__": str(self.offsets.get("connect_server_select") or DEFAULT_OFFSETS.get("connect_server_select", "0x11F2A50")),
-            "__GET_HELPER_UI__": str(self.offsets.get("get_helper_ui") or DEFAULT_OFFSETS.get("get_helper_ui", "0x10D27B0")),
-            "__INPUT_FIELD_SET_TEXT__": str(self.offsets.get("input_field_set_text") or DEFAULT_OFFSETS.get("input_field_set_text", "0x46C8EB0")),
-            "__MHELPER_SHOW_DIALOG_ID__": str(self.offsets.get("mhelper_show_dialog_id") or DEFAULT_OFFSETS.get("mhelper_show_dialog_id", "0x1CDC490")),
-            "__MHELPER_SHOW_DIALOG_GENERIC__": str(self.offsets.get("mhelper_show_dialog_generic") or DEFAULT_OFFSETS.get("mhelper_show_dialog_generic", "0x1CDE0E0")),
-            "__USER_PARTY_SEND_RESPONSE__": str(self.offsets.get("user_party_send_response") or DEFAULT_OFFSETS.get("user_party_send_response", "0x1488D90")),
-            "__USER_PARTY_C2_40__": str(self.offsets.get("user_party_c2_40") or DEFAULT_OFFSETS.get("user_party_c2_40", "0x148C830")),
+            "__MIRROR_TELEPORT_EVENT__": o("mirror_teleport_event"),
+            "__DOUBLEGOER_TYPE_INFO__": o("doublegoer_type_info"),
+            "__DEVIL_CLOSURE_ENTER__": o("devil_closure_enter"),
+            "__DEVIL_CLOSURE_TYPE_INFO__": o("devil_closure_type_info"),
+            "__DEVIL_ENTER__": o("devil_enter"),
+            "__DEVIL_ENTER_ALT__": o("devil_enter_alt"),
+            "__DEVIL_ENTER_1E__": o("devil_enter_1e"),
+            "__DEVIL_NPC_CLICK__": o("devil_npc_click"),
+            "__DEVIL_IS_EVENT_MAP__": o("devil_is_event_map"),
+            "__TABLE_EVENT_ENTRY_LEVEL__": o("table_event_entry_level"),
+            "__HELPER_UI_GET_INSTANCE__": o("helper_ui_get_instance"),
+            "__HELPER_UI_SHOW_DIALOG__": o("helper_ui_show_dialog"),
+            "__HELPER_UI_SHOW_CONFIRM__": o("helper_ui_show_confirm"),
+            "__MODAL_MGR_GET_INSTANCE__": o("modal_manager_get_instance"),
+            "__MODAL_MGR_CREATE__": o("modal_manager_create"),
+            "__MODAL_BOX_SET_TEXT1__": o("modal_box_set_text1"),
+            "__MODAL_BOX_SET_TEXT2__": o("modal_box_set_text2"),
+            "__MODAL_BOX_SET_CONFIRM_TEXT__": o("modal_box_set_confirm_text"),
+            "__MODAL_BOX_SHOW__": o("modal_box_show"),
+            "__GET_GS_CONNECTION__": o("get_gs_connection"),
+            "__GS_SEND__": o("gs_send"),
+            "__GS_SEND_ALT__": o("gs_send_alt"),
+            "__PLAYER_POINT__": o("player_point"),
+            "__PLAYER_MASTER_POINT__": o("player_master_point"),
+            "__PLAYER_RESET_COUNT__": o("player_reset_count"),
+            "__PLAYER_NAME__": o("player_name"),
+            "__PLAYER_LEVEL__": o("player_level"),
+            "__PLAYER_CLASS__": o("player_class"),
+            "__PLAYER_COORD__": o("player_coord"),
+            "__PLAYER_MOVE__": o("player_move"),
+            "__PLAYER_INVENTORY__": o("player_inventory"),
+            "__PLAYER_HELPER__": o("player_helper"),
+            "__PLAYER_LAST_COORD__": o("player_last_coord"),
+            "__AUTO_MOVE_WORKING__": o("auto_move_working"),
+            "__AUTO_MOVE_TYPE__": o("auto_move_type"),
+            "__AUTO_MOVE_HELPER__": o("auto_move_helper"),
+            "__AUTO_MOVE_DEST__": o("auto_move_dest"),
+            "__MOVE_FLAG__": o("move_flag"),
+            "__HELPER_STATE__": o("helper_state"),
+            "__INVENTORY_ITEMS__": o("inventory_items"),
+            "__GAME_WORLD__": o("game_world"),
+            "__WORLD_SCENE_INDEX__": o("world_scene_index"),
+            "__VIEWPORT__": o("viewport"),
+            "__PARTY_INVITE_BY_KEY__": o("party_invite_by_key"),
+            "__UI_CHAT_FRAME__": o("ui_chat_frame"),
+            "__UI_MOSS_WINDOW__": o("ui_moss_window"),
+            "__UI_MERCHANT_WINDOW__": o("ui_merchant_window"),
+            "__UI_INVENTORY_WINDOW__": o("ui_inventory_window"),
+            "__UI_WAREHOUSE_WINDOW__": o("ui_warehouse_window"),
+            "__GREMORY_INSTANCE_GETTER__": o("gremory_instance_getter"),
+            "__GREMORY_CLAIM_ITEM__": o("gremory_claim_item"),
+            "__GREMORY_TYPE_INFO__": o("gremory_type_info"),
+            "__SET_TARGET_FPS__": o("set_target_framerate"),
+            "__GET_TARGET_FPS__": o("get_target_framerate"),
+            "__SET_VSYNC_COUNT__": o("set_vsync_count"),
+            "__GET_VSYNC_COUNT__": o("get_vsync_count"),
+            "__DOUBLEGOER_ENTER_RECV__": o("mirror_enter_recv"),
+            "__UNITY_GET_TIME__": o("unity_get_time"),
+            "__PKT_ENC_NIKINI__": o("pkt_enc_nikini"),
+            "__PKT_ENC_NGJG__": o("pkt_enc_ngjg"),
+            "__SOCKET_SEND_ERR__": o("socket_send_err"),
+            "__TCP_SET_NODELAY__": o("tcp_set_nodelay"),
+            "__GET_SCENE_HANDLER__": o("get_scene_handler"),
+            "__RUNTIME_CLASS_INIT__": o("runtime_class_init"),
+            "__GET_USER_ACCOUNT__": o("get_user_account"),
+            "__USER_ACCOUNT_SET_USERNAME__": o("user_account_set_username"),
+            "__USER_ACCOUNT_SET_TOKEN__": o("user_account_set_token"),
+            "__GET_CS_CONNECTION__": o("get_cs_connection"),
+            "__CS_CONNECT__": o("cs_connection_connect"),
+            "__MLOGIN_SET_STATE__": o("mlogin_set_state"),
+            "__AUTO_SELECT_CHARACTER__": o("auto_select_character"),
+            "__UNIT_SELECT_CHARACTER__": o("unit_select_character"),
+            "__UNIT_ENTRY_CHARACTER__": o("unit_entry_character"),
+            "__CONNECT_SERVER_SELECT__": o("connect_server_select"),
+            "__GET_HELPER_UI__": o("get_helper_ui"),
+            "__INPUT_FIELD_SET_TEXT__": o("input_field_set_text"),
+            "__MHELPER_SHOW_DIALOG_ID__": o("mhelper_show_dialog_id"),
+            "__MHELPER_SHOW_DIALOG_GENERIC__": o("mhelper_show_dialog_generic"),
+            "__USER_PARTY_SEND_RESPONSE__": o("user_party_send_response"),
+            "__USER_PARTY_C2_40__": o("user_party_c2_40"),
+            "__QUEST_GET_MANAGER__": o("quest_get_manager"),
+            "__QUEST_INSTANCE_OFFSET__": o("quest_instance_offset"),
+            "__QUEST_SEND_STATE__": o("quest_send_state"),
+            "__QUEST_SEND_STATE_ALT__": o("quest_send_state_alt"),
+            "__NPC_ENTER_BARRACKS__": o("npc_enter_barracks"),
+            "__NPC_ENTER_REFUGE__": o("npc_enter_refuge"),
+            "__PLAYER_CHANGE_UP__": o("player_change_up"),
+            "__UI_QUEST_NPC_WINDOW__": o("ui_quest_npc_window"),
+            "__CHAT_ADD_NOTICE__": o("chat_add_notice"),
+            "__DATA_TYPE_INFO__": o("data_type_info"),
+            "__DATA_GET_INSTANCE__": o("data_get_instance"),
+            "__UNIT_ENTER_GATE__": o("unit_enter_gate"),
+            "__ARKA_ENTER_ACHERON__": o("arka_enter_acheron"),
+            "__ARKA_ENTER_ZONE__": o("arka_enter_zone"),
+            "__PROTOCOL_WARP_8E__": o("protocol_warp_8e"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -9920,6 +11113,17 @@ class MegDirectEngine:
                             _safe_log(f"[MegDirectEngine] Native Chat đã gửi thành công: '{cmd_val}'")
                         else:
                             _safe_log(f"[MegDirectEngine] Native Chat gửi lỗi '{cmd_val}': {payload.get('error')}")
+                    elif p_type == "auto_gate_confirmed":
+                        cb = getattr(self, "on_gate_confirmed_callback", None)
+                        if cb:
+                            try:
+                                cb(payload)
+                            except Exception:
+                                pass
+                        _safe_log(
+                            f"[MegDirectEngine] PID {self.pid} AUTO-CONFIRM GATE (#{payload.get('count', 1)}): "
+                            f"{payload.get('title', '')} | {payload.get('message', '')}"
+                        )
                     elif p_type == "auto_party_confirmed":
                         title = payload.get("title", "")
                         msg = payload.get("message", "")
@@ -10017,6 +11221,14 @@ class MegDirectEngine:
             _safe_log("[MegDirectEngine] Thư viện frida chưa được cài đặt trong môi trường python.")
             return False
 
+        # BẮT BUỘC phải có Game Offsets trong RAM trước khi attach (Strict Online Zero-Offset-On-Disk)
+        if not (self.offsets.get("get_player") or self.offsets.get("move_to") or self.offsets.get("game_type_info")):
+            self._load_offsets_file()
+        if not (self.offsets.get("get_player") or self.offsets.get("move_to") or self.offsets.get("game_type_info")):
+            _safe_log("[MegDirectEngine] 🔒 Từ chối attach: Chưa có Game Offsets trong RAM (cần kích hoạt & đồng bộ bản quyền trực tuyến).")
+            self.is_ready = False
+            return False
+
         # Dọn sạch session và script cũ nếu còn sót lại để chống rò rỉ RAM / VirtualAllocEx
         if self.script:
             try:
@@ -10061,6 +11273,14 @@ class MegDirectEngine:
 
         if frida is None:
             _safe_log("[MegDirectEngine] Thư viện frida chưa được cài đặt trong môi trường python.")
+            return False
+
+        # BẮT BUỘC phải có Game Offsets trong RAM trước khi attach (Strict Online Zero-Offset-On-Disk)
+        if not (self.offsets.get("get_player") or self.offsets.get("move_to") or self.offsets.get("game_type_info")):
+            self._load_offsets_file()
+        if not (self.offsets.get("get_player") or self.offsets.get("move_to") or self.offsets.get("game_type_info")):
+            _safe_log("[MegDirectEngine] 🔒 Từ chối attach: Chưa có Game Offsets trong RAM (cần kích hoạt & đồng bộ bản quyền trực tuyến).")
+            self.is_ready = False
             return False
 
         try:
@@ -10529,7 +11749,7 @@ class MegDirectEngine:
     def send_chat(self, command: str, force_simulator: bool = False) -> bool:
         """
         Gửi lệnh chat (chuyển map /m hoặc lệnh trong game):
-        1. Ưu tiên tuyệt đối gửi qua Frida Native Hook (Unity Main Thread - Mega.Chat RVA 0xF78030).
+        1. Ưu tiên tuyệt đối gửi qua Frida Native Hook (Unity Main Thread - Mega.Chat).
            HOÀN TOÀN NGẦM 100%, không mở khung chat trên màn hình, không click chuột, không cướp tiêu điểm.
         2. Chỉ fallback qua Background PostMessage khi force_simulator=True hoặc Frida không sẵn sàng.
         """
@@ -10925,8 +12145,12 @@ class MegDirectEngine:
                 if not base:
                     return {"found": False}
 
-                type_info_off = int(self.offsets.get("game_type_info") or "0x549B980", 16)
-                vp_off = int(self.offsets.get("viewport") or "0x110", 16)
+                gti_raw = self.offsets.get("game_type_info")
+                if not gti_raw:
+                    return {"found": False}
+                type_info_off = int(gti_raw, 16) if isinstance(gti_raw, str) else int(gti_raw)
+                vp_raw = self.offsets.get("viewport") or "0x110"
+                vp_off = int(vp_raw, 16) if isinstance(vp_raw, str) else int(vp_raw)
 
                 type_info = read_ptr(base + type_info_off)
                 if not type_info: return {"found": False}
@@ -10981,7 +12205,7 @@ class MegDirectEngine:
     def interact_moss_npc(self, category_id: int = 0) -> Dict[str, Any]:
         """
         Tương tác/click trực tiếp vào NPC Moss thực tế:
-        Phát lệnh Native NPC Talk (Mega.NpcManager$$JBMPIOPHIHI 0x10B2B40) để Server mở phiên đối thoại
+        Phát lệnh Native NPC Talk (Mega.NpcManager) để Server mở phiên đối thoại
         và hiển thị bảng Moss Merchant chính thức.
         """
         if self.is_ready:
@@ -11224,7 +12448,7 @@ class MegDirectEngine:
         return False
 
     def is_mirror_event_map(self) -> bool:
-        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (SceneHandler.WorldIndex 82-90 theo chuẩn Mega.DoubleGoer$$PAGCDNAAHMO 0x100D680)."""
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (SceneHandler.WorldIndex 82-90 theo chuẩn Mega.DoubleGoer$$PAGCDNAAHMO RVA_DYNAMIC)."""
         # 1. Thử qua Frida / Fast Telemetry nếu engine đã hook
         if self.is_ready:
             try:
@@ -11267,7 +12491,7 @@ class MegDirectEngine:
         return False
 
     def get_double_goer_state(self) -> Dict[str, Any]:
-        """Đọc trạng thái sự kiện Double Goer trực tiếp từ Mega.DoubleGoer_TypeInfo (0x55612C8)."""
+        """Đọc trạng thái sự kiện Double Goer trực tiếp từ Mega.DoubleGoer_TypeInfo."""
         if self.is_ready:
             try:
                 res = self._call("getDoubleGoerState")
@@ -11293,7 +12517,7 @@ class MegDirectEngine:
         return {"ok": False, "chests": [], "items": []}
 
     def open_and_loot_mirror(self, chest_ptr: Any = 0, chest_index: int = -1, radius: float = 5.0) -> Dict[str, Any]:
-        """Mở rương sự kiện Mirror (gửi C3:30 qua NpcManager 0x102AA00 / 0x1023B10) và nhặt vật phẩm rơi xung quanh (gửi C3:22 qua UserInventory 0x1446400)."""
+        """Mở rương sự kiện Mirror (gửi C3:30 qua NpcManager) và nhặt vật phẩm rơi xung quanh (gửi C3:22 qua UserInventory)."""
         if self.is_ready:
             try:
                 ptr_str = hex(chest_ptr) if isinstance(chest_ptr, int) and chest_ptr > 0 else str(chest_ptr or "0")
@@ -11317,7 +12541,7 @@ class MegDirectEngine:
         if not self.is_ready:
             return {"ok": False, "success": False, "claimed": 0, "error": "not_ready"}
 
-        # 1. Đọc trực tiếp RAM qua Frida Native Hook (RVA 0xFD85C0) nếu danh sách quà đã đồng bộ sẵn
+        # 1. Đọc trực tiếp RAM qua Frida Native Hook nếu danh sách quà đã đồng bộ sẵn
         last_res: Dict[str, Any] = {"ok": False, "success": False, "claimed": 0}
         try:
             res_str = self._call("claimGremoryCaseItems")
@@ -11725,6 +12949,15 @@ class MegDirectEngine:
                 return True
         return self.set_party_auto_mode(enable=True)
 
+    def set_auto_gate_confirm(self, enabled: bool = True) -> Dict[str, Any]:
+        """Bật/tắt chế độ tự động xác nhận popup cổng Gate ('Do you want to teleport?') trong 0ms."""
+        self.auto_gate_confirm = bool(enabled)
+        return self._call_json("setAutoGateConfirm", bool(enabled), default={"ok": False, "enabled": False, "count": 0})
+
+    def get_auto_gate_confirm_status(self) -> Dict[str, Any]:
+        """Lấy trạng thái & số lần đã Auto-Confirm cổng Gate."""
+        return self._call_json("getAutoGateConfirmStatus", default={"ok": False, "enabled": False, "count": 0})
+
     def set_auto_confirm_party(self, enabled: bool = True) -> bool:
         """
         Bật/tắt chế độ tự động đồng ý / xác nhận lời mời Party từ các tài khoản khác.
@@ -12028,6 +13261,84 @@ class MegDirectEngine:
     def get_autologin_characters(self) -> List[Dict[str, Any]]:
         """Lấy danh sách các nhân vật đọc được từ bộ nhớ khi login vào Scene 3 (Lobby)."""
         return getattr(self, "last_autologin_characters", [])
+
+    # ==========================================================================
+    # AUTO QUEST (NHIỆM VỤ CẤP 2 / MARLON / CẤP 3) NATIVE RPC WRAPPERS
+    # ==========================================================================
+    def get_quest_state(self) -> Dict[str, Any]:
+        """Đọc toàn bộ trạng thái QuestManager (bitmap nhiệm vụ, MonsterKillCount, ChangeUp, Zen, Quest Items)."""
+        return self._call_json("getQuestState", default={"ok": False, "error": "not_ready"})
+
+    def find_npc_by_filter(self, skin_id: int = -1, name_sub: str = "") -> Dict[str, Any]:
+        """Tìm NPC trong Viewport theo Skin/Class ID (Sebina=235, Marlon=229, Devin=406, Werewolf=407, Gatekeeper=408) hoặc tên."""
+        return self._call_json("findNpcByFilter", int(skin_id), str(name_sub or ""), default={"found": False})
+
+    def talk_to_npc_by_ptr(self, npc_ptr: Any) -> Dict[str, Any]:
+        """Gửi lệnh nói chuyện NPC an toàn trên Unity MainThread."""
+        ptr_str = hex(npc_ptr) if isinstance(npc_ptr, int) and npc_ptr > 0 else str(npc_ptr or "0")
+        return self._call_json("talkToNpcByPtr", ptr_str, default={"ok": False})
+
+    def get_quest_npc_window_state(self) -> Dict[str, Any]:
+        """Kiểm tra cửa sổ hội thoại QuestNpcWindow có đang mở và có nút Accept/Continue không."""
+        return self._call_json("getQuestNpcWindowState", default={"ok": False, "isOpen": False, "hasNextBtn": False, "currentData": -1})
+
+    def click_quest_npc_next(self, quest_index: int = -1) -> Dict[str, Any]:
+        """Bấm nút Accept / Continue / OK trên MQuestNpcWindow trên Unity MainThread (kèm fallback gửi C1:A2)."""
+        return self._call_json("clickQuestNpcNext", int(quest_index), default={"done": False, "ok": False, "method": "", "error": "not_ready"})
+
+    def send_quest_state(self, quest_index: int, flag: bool = False) -> Dict[str, Any]:
+        """Gửi gói C1:A2 nhận hoặc trả nhiệm vụ (quest_index: 0..6) trên Unity MainThread."""
+        return self._call_json("sendQuestState", int(quest_index), bool(flag), default={"ok": False})
+
+    def enter_quest_dungeon(self, dungeon_type: str) -> Dict[str, Any]:
+        """Gửi gói C1:D0:07 vào Barracks hoặc C1:D0:08 vào Refuge trên Unity MainThread."""
+        return self._call_json("enterQuestDungeon", str(dungeon_type or ""), default={"ok": False})
+
+    def dump_world_gates(self) -> Dict[str, Any]:
+        """Đọc toàn bộ bảng TableWorld.Gate và TableWorld.Move trực tiếp từ RAM game."""
+        return self._call_json("dumpWorldGates", default={"ok": False, "gates": [], "moves": []})
+
+    def get_current_tile_gate(self) -> Dict[str, Any]:
+        """Kiểm tra xem ô tọa độ nhân vật đang đứng có thuộc Gate nào trong World.Gates[,] hay không."""
+        return self._call_json("getCurrentTileGate", default={"ok": False, "found": False})
+
+    def enter_gate(self, gate_id: int, x: int = -1, y: int = -1) -> Dict[str, Any]:
+        """Gọi trực tiếp Mega.Unit.HJDEPLPHNBO (gửi gói C1:1C) trên Unity MainThread để đi qua Gate."""
+        return self._call_json("enterGate", int(gate_id), int(x), int(y), default={"ok": False})
+
+    def get_last_gate_enter_result(self) -> Dict[str, Any]:
+        """Đọc kết quả thực thi lần gọi enter_gate gần nhất trên Unity MainThread."""
+        return self._call_json("getLastGateEnterResult", default={"done": False, "ok": False})
+
+    def enter_acheron_npc(self, zone: int = -1) -> Dict[str, Any]:
+        """Gửi gói C1:F8:30 (vào Acheron) hoặc C1:F8:34 (vào zone ArkaWar) trên Unity MainThread."""
+        return self._call_json("enterAcheronNpc", int(zone), default={"ok": False})
+
+    def send_warp_8e(self, warp_type: int, param: int, extra: int = 0) -> Dict[str, Any]:
+        """Gửi gói C1:8E (Protocol.EMHENMDBJIG) trên Unity MainThread."""
+        return self._call_json("sendWarp8E", int(warp_type), int(param), int(extra), default={"ok": False})
+
+    def close_quest_window(self) -> bool:
+        """Đóng cửa sổ hội thoại NPC Quest nếu đang mở."""
+        if self.is_ready:
+            try:
+                return bool(self._call("closeQuestWindow"))
+            except Exception:
+                pass
+        return False
+
+    def pickup_ground_quest_items(
+        self,
+        target_ids: List[int],
+        max_radius: float = 14.0,
+        item_level: Optional[int] = None,
+        keywords: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Quét ViewportItem trên đất khớp CHÍNH XÁC Quest Item (ID + Level hoặc từ khóa tên) và gọi UserInventory.MCJFNCGIHPP trên MainThread."""
+        payload = json.dumps([int(x) for x in (target_ids or [])])
+        lv_arg = int(item_level) if item_level is not None else -1
+        kw_payload = json.dumps([str(k) for k in (keywords or [])])
+        return self._call_json("pickupGroundQuestItems", payload, float(max_radius), lv_arg, kw_payload, default={"ok": False, "pickedCount": 0, "foundItems": []})
 
     def get_autologin_account(self) -> str:
         """Lấy tên tài khoản tương ứng với danh sách nhân vật vừa đọc được."""

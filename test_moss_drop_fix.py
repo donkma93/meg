@@ -404,9 +404,13 @@ class TestMossDropFix(unittest.TestCase):
             root_off = json.load(f)
         with open(os.path.join("config", "megamu_offsets.json"), "r", encoding="utf-8") as f:
             cfg_off = json.load(f)
+        with open(os.path.join("license-server", "storage", "app", "private", "game_offsets.json"), "r", encoding="utf-8") as f:
+            srv_off = json.load(f)
 
         for k, v in expected_offsets.items():
-            self.assertEqual(mde.DEFAULT_OFFSETS.get(k), v, f"DEFAULT_OFFSETS mismatch: {k}")
+            # Zero-Offset-On-Disk: DEFAULT_OFFSETS must NOT hardcode any RVA hex literals!
+            self.assertIsNone(mde.DEFAULT_OFFSETS.get(k), f"DEFAULT_OFFSETS leaked RVA: {k}")
+            self.assertEqual(srv_off.get(k), v, f"server game_offsets.json mismatch: {k}")
             self.assertEqual(root_off.get(k), v, f"megamu_offsets.json mismatch: {k}")
             self.assertEqual(cfg_off.get(k), v, f"config/megamu_offsets.json mismatch: {k}")
 

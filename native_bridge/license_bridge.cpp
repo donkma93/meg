@@ -1,15 +1,19 @@
 // ==============================================================================
-// MEGATEAM MEGAMU NATIVE C++ SECURITY BRIDGE DLL (v2.0 - ADVANCED ANTI-CRACK)
+// MEGATEAM MEGAMU NATIVE C++ SECURITY BRIDGE DLL (v3.0 - ZERO-OFFSET-ON-DISK)
 // ==============================================================================
-// 3 LỚP BẢO VỆ CAO CẤP:
-// LỚP 1: Mã hóa XOR URL Server & Secret Token (Không lưu chuỗi dạng Plaintext trong DLL)
-// LỚP 2: Chữ ký số HMAC-SHA256 chống Proxy / Fiddler / Giả mạo Server
-// LỚP 3: Giấu Offsets Game trong RAM mã hóa & Chống Debugger (Anti-Debugging)
+// 4 LỚP BẢO VỆ CAO CẤP:
+// LỚP 1: Mã hóa XOR URL Server & Secret Token (Không lưu chuỗi Plaintext trong DLL)
+// LỚP 2: Chữ ký số HMAC-SHA256 + Nonce ngẫu nhiên chống Proxy / Fiddler / Replay
+// LỚP 3: ZERO Hardcoded Offsets — Offsets chỉ được Server mã hóa AES-256-CBC + HMAC
+//        theo khóa phiên dùng 1 lần, giải mã vào vùng RAM ẩn (che phủ bởi khóa ngẫu nhiên
+//        theo từng tiến trình) và xóa sạch bằng SecureZeroMemory khi đóng/hết hạn!
+// LỚP 4: Anti-Debugging + Xác thực chứng chỉ HTTPS thật cho máy chủ từ xa
 // ==============================================================================
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winhttp.h>
+#include <bcrypt.h>
 #include <string>
 #include <sstream>
 #include <iomanip>
@@ -17,18 +21,77 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdint>
+#include <mutex>
 
 #pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "advapi32.lib")
 
 #define BRIDGE_API extern "C" __declspec(dllexport)
 
-// Biến trạng thái xác thực nội bộ trong bộ nhớ C++ (Chống patch GUI Python)
+// ==============================================================================
+// TRẠNG THÁI XÁC THỰC & KHO LƯU TRỮ OFFSET CHỈ NẰM TRÊN RAM (KHÔNG LƯU ĐĨA)
+// ==============================================================================
+static std::mutex g_vaultMutex;
 static volatile bool g_isLicenseAuthenticated = false;
 static std::string g_customServerUrl = "";
+static std::vector<uint8_t> g_ramMaskedOffsets;   // JSON offsets đã che phủ XOR bởi khóa runtime
+static uint8_t g_ramMaskKey[32] = { 0 };
+static bool g_ramMaskKeyReady = false;
+
+static void SecureWipeString(std::string& s) {
+    if (!s.empty()) {
+        SecureZeroMemory(&s[0], s.size());
+        s.clear();
+    }
+}
+
+static void SecureWipeVec(std::vector<uint8_t>& v) {
+    if (!v.empty()) {
+        SecureZeroMemory(v.data(), v.size());
+        v.clear();
+    }
+}
+
+static void EnsureRamMaskKey() {
+    if (!g_ramMaskKeyReady) {
+        if (BCryptGenRandom(NULL, g_ramMaskKey, sizeof(g_ramMaskKey), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+            // Fallback PRNG phòng hờ
+            uint64_t seed = GetTickCount64() ^ (uint64_t)GetCurrentProcessId() ^ (uintptr_t)&g_ramMaskKey;
+            for (size_t i = 0; i < sizeof(g_ramMaskKey); ++i) {
+                seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+                g_ramMaskKey[i] = (uint8_t)(seed >> 56);
+            }
+        }
+        g_ramMaskKeyReady = true;
+    }
+}
+
+static void ClearRamOffsetsLocked() {
+    SecureWipeVec(g_ramMaskedOffsets);
+}
+
+static void StoreRamOffsetsLocked(const std::string& plainJson) {
+    ClearRamOffsetsLocked();
+    if (plainJson.empty()) return;
+    EnsureRamMaskKey();
+    g_ramMaskedOffsets.resize(plainJson.size());
+    for (size_t i = 0; i < plainJson.size(); ++i) {
+        g_ramMaskedOffsets[i] = ((uint8_t)plainJson[i]) ^ g_ramMaskKey[i & 31];
+    }
+}
+
+static std::string LoadRamOffsetsLocked() {
+    if (g_ramMaskedOffsets.empty() || !g_ramMaskKeyReady) return "";
+    std::string out(g_ramMaskedOffsets.size(), '\0');
+    for (size_t i = 0; i < g_ramMaskedOffsets.size(); ++i) {
+        out[i] = (char)(g_ramMaskedOffsets[i] ^ g_ramMaskKey[i & 31]);
+    }
+    return out;
+}
 
 // ==============================================================================
-// 1. MÃ HÓA XOR CHUỖI NHẠY CẢM (URL VÀ SECRET TOKEN)
+// 1. MÃ HÓA XOR CHUỖI NHẠY CẢM (URL VÀ SECRET TOKEN) — ZERO OFFSET TRONG DLL
 // ==============================================================================
 
 // URL mặc định: "https://megamuoffical.com" (XOR key: 0x5C)
@@ -51,7 +114,7 @@ static std::string GetDecryptedDefaultUrl() {
     return s;
 }
 
-// Secret Salt: "MEGAMU_DONPV_2026_NATIVE_SECURE_TOKEN_#89a1" (XOR key: 0x6D)
+// Secret Salt (XOR key: 0x6D)
 static const unsigned char ENC_SECRET_SALT[] = {
     0x20, 0x28, 0x2A, 0x2C, 0x20, 0x38, 0x32, 0x29, 0x22, 0x23, 0x3D, 0x3B, 0x32, 0x5F, 0x5D, 0x5F,
     0x5B, 0x32, 0x23, 0x2C, 0x39, 0x24, 0x3B, 0x28, 0x32, 0x3E, 0x28, 0x2E, 0x38, 0x3F, 0x28, 0x32,
@@ -70,68 +133,10 @@ static std::string GetDecryptedSecretSalt() {
 }
 
 // ==============================================================================
-// 2. MÃ HÓA NATIVE GAME OFFSETS (CHỈ GIẢI MÃ KHI BẢN QUYỀN HỢP LỆ)
-// ==============================================================================
-static const unsigned char ENC_GAME_OFFSETS[] = {
-    0x2C, 0x75, 0x30, 0x36, 0x3A, 0x32, 0x08, 0x3A, 0x38, 0x33, 0x22, 0x3B, 0x32, 0x75, 0x6D, 0x75,
-    0x10, 0x36, 0x3A, 0x32, 0x16, 0x24, 0x24, 0x32, 0x3A, 0x35, 0x3B, 0x2E, 0x79, 0x33, 0x3B, 0x3B,
-    0x75, 0x7B, 0x75, 0x30, 0x32, 0x23, 0x08, 0x27, 0x3B, 0x36, 0x2E, 0x32, 0x25, 0x75, 0x6D, 0x75,
-    0x67, 0x2F, 0x66, 0x65, 0x64, 0x66, 0x67, 0x13, 0x67, 0x75, 0x7B, 0x75, 0x3A, 0x38, 0x21, 0x32,
-    0x08, 0x23, 0x38, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x15, 0x60, 0x62, 0x65, 0x64, 0x67, 0x75, 0x7B,
-    0x75, 0x24, 0x23, 0x36, 0x25, 0x23, 0x08, 0x36, 0x22, 0x23, 0x38, 0x08, 0x3A, 0x38, 0x21, 0x32,
-    0x75, 0x6D, 0x75, 0x67, 0x2F, 0x15, 0x6F, 0x6E, 0x65, 0x63, 0x67, 0x75, 0x7B, 0x75, 0x24, 0x23,
-    0x38, 0x27, 0x08, 0x36, 0x22, 0x23, 0x38, 0x08, 0x3A, 0x38, 0x21, 0x32, 0x75, 0x6D, 0x75, 0x67,
-    0x2F, 0x15, 0x6F, 0x61, 0x16, 0x65, 0x67, 0x75, 0x7B, 0x75, 0x34, 0x3F, 0x36, 0x23, 0x08, 0x24,
-    0x32, 0x39, 0x33, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x6F, 0x62, 0x15, 0x14, 0x64, 0x67, 0x75, 0x7B,
-    0x75, 0x34, 0x3F, 0x36, 0x23, 0x08, 0x22, 0x27, 0x33, 0x36, 0x23, 0x32, 0x75, 0x6D, 0x75, 0x67,
-    0x2F, 0x66, 0x63, 0x60, 0x63, 0x67, 0x13, 0x67, 0x75, 0x7B, 0x75, 0x3F, 0x32, 0x3B, 0x27, 0x32,
-    0x25, 0x08, 0x24, 0x23, 0x36, 0x25, 0x23, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x65, 0x60, 0x67, 0x62,
-    0x67, 0x62, 0x67, 0x75, 0x7B, 0x75, 0x3F, 0x32, 0x3B, 0x27, 0x32, 0x25, 0x08, 0x24, 0x23, 0x38,
-    0x27, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x65, 0x61, 0x11, 0x12, 0x64, 0x66, 0x67, 0x75, 0x7B, 0x75,
-    0x27, 0x3B, 0x36, 0x2E, 0x32, 0x25, 0x08, 0x39, 0x36, 0x3A, 0x32, 0x75, 0x6D, 0x75, 0x67, 0x2F,
-    0x65, 0x6F, 0x75, 0x7B, 0x75, 0x27, 0x3B, 0x36, 0x2E, 0x32, 0x25, 0x08, 0x3B, 0x32, 0x21, 0x32,
-    0x3B, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x64, 0x67, 0x75, 0x7B, 0x75, 0x27, 0x3B, 0x36, 0x2E, 0x32,
-    0x25, 0x08, 0x34, 0x3B, 0x36, 0x24, 0x24, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x64, 0x63, 0x75, 0x7B,
-    0x75, 0x27, 0x3B, 0x36, 0x2E, 0x32, 0x25, 0x08, 0x34, 0x38, 0x38, 0x25, 0x33, 0x75, 0x6D, 0x75,
-    0x67, 0x2F, 0x61, 0x6F, 0x75, 0x7B, 0x75, 0x27, 0x3B, 0x36, 0x2E, 0x32, 0x25, 0x08, 0x3A, 0x38,
-    0x21, 0x32, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x11, 0x67, 0x75, 0x7B, 0x75, 0x27, 0x3B, 0x36, 0x2E,
-    0x32, 0x25, 0x08, 0x3F, 0x32, 0x3B, 0x27, 0x32, 0x25, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x66, 0x12,
-    0x6F, 0x75, 0x7B, 0x75, 0x27, 0x3B, 0x36, 0x2E, 0x32, 0x25, 0x08, 0x3B, 0x36, 0x24, 0x23, 0x08,
-    0x34, 0x38, 0x38, 0x25, 0x33, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x63, 0x12, 0x67, 0x75, 0x7B, 0x75,
-    0x36, 0x22, 0x23, 0x38, 0x08, 0x3A, 0x38, 0x21, 0x32, 0x08, 0x20, 0x38, 0x25, 0x3C, 0x3E, 0x39,
-    0x30, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x63, 0x6E, 0x6F, 0x75, 0x7B, 0x75, 0x36, 0x22, 0x23, 0x38,
-    0x08, 0x3A, 0x38, 0x21, 0x32, 0x08, 0x23, 0x2E, 0x27, 0x32, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x63,
-    0x6E, 0x14, 0x75, 0x7B, 0x75, 0x36, 0x22, 0x23, 0x38, 0x08, 0x3A, 0x38, 0x21, 0x32, 0x08, 0x3F,
-    0x32, 0x3B, 0x27, 0x32, 0x25, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x63, 0x16, 0x67, 0x75, 0x7B, 0x75,
-    0x36, 0x22, 0x23, 0x38, 0x08, 0x3A, 0x38, 0x21, 0x32, 0x08, 0x33, 0x32, 0x24, 0x23, 0x75, 0x6D,
-    0x75, 0x67, 0x2F, 0x63, 0x16, 0x6F, 0x75, 0x7B, 0x75, 0x3A, 0x38, 0x21, 0x32, 0x08, 0x31, 0x3B,
-    0x36, 0x30, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x64, 0x14, 0x75, 0x7B, 0x75, 0x3F, 0x32, 0x3B, 0x27,
-    0x32, 0x25, 0x08, 0x24, 0x23, 0x36, 0x23, 0x32, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x65, 0x67, 0x75,
-    0x7B, 0x75, 0x30, 0x36, 0x3A, 0x32, 0x08, 0x23, 0x2E, 0x27, 0x32, 0x08, 0x3E, 0x39, 0x31, 0x38,
-    0x75, 0x6D, 0x75, 0x67, 0x2F, 0x62, 0x63, 0x12, 0x60, 0x66, 0x63, 0x67, 0x75, 0x7B, 0x75, 0x30,
-    0x36, 0x3A, 0x32, 0x08, 0x20, 0x38, 0x25, 0x3B, 0x33, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x65, 0x67,
-    0x67, 0x75, 0x7B, 0x75, 0x20, 0x38, 0x25, 0x3B, 0x33, 0x08, 0x24, 0x34, 0x32, 0x39, 0x32, 0x08,
-    0x3E, 0x39, 0x33, 0x32, 0x2F, 0x75, 0x6D, 0x75, 0x67, 0x2F, 0x65, 0x67, 0x75, 0x2A, 0x00
-};
-static const unsigned char XOR_KEY_OFFSETS = 0x57;
-
-
-static std::string GetDecryptedOffsetsJson() {
-    std::string s = "";
-    int i = 0;
-    while (ENC_GAME_OFFSETS[i] != 0x00) {
-        s += (char)(ENC_GAME_OFFSETS[i] ^ XOR_KEY_OFFSETS);
-        i++;
-    }
-    return s;
-}
-
-// ==============================================================================
-// 3. ANTI-DEBUGGING (PHÁT HIỆN TOOL HACK / DEBUGGER X64DBG, CHEAT ENGINE)
+// 2. ANTI-DEBUGGING
 // ==============================================================================
 static bool CheckDebuggerPresent() {
     if (IsDebuggerPresent()) return true;
-
     BOOL isRemote = FALSE;
     if (CheckRemoteDebuggerPresent(GetCurrentProcess(), &isRemote) && isRemote) {
         return true;
@@ -140,7 +145,7 @@ static bool CheckDebuggerPresent() {
 }
 
 // ==============================================================================
-// 4. MẬT MÃ SHA-256 & RFC 2104 HMAC-SHA256 (100% C++ TỰ CHỨA - ZERO DEPENDENCY)
+// 3. MẬT MÃ SHA-256, HMAC-SHA256, BASE64 & WINDOWS CNG AES-256-CBC
 // ==============================================================================
 namespace NativeCrypto {
     static inline uint32_t ror(uint32_t val, uint32_t shift) {
@@ -264,15 +269,15 @@ namespace NativeCrypto {
         return hexStr;
     }
 
-    static std::string ComputeHmacSha256(const std::string& data, const std::string& key) {
+    static std::vector<uint8_t> RawHmacSha256(const uint8_t* data, size_t dataLen, const uint8_t* key, size_t keyLen) {
         const size_t BLOCK_SIZE = 64;
         uint8_t k0[BLOCK_SIZE] = { 0 };
 
-        if (key.length() > BLOCK_SIZE) {
-            std::vector<uint8_t> keyHash = RawSha256((const uint8_t*)key.data(), key.length());
+        if (keyLen > BLOCK_SIZE) {
+            std::vector<uint8_t> keyHash = RawSha256(key, keyLen);
             memcpy(k0, keyHash.data(), 32);
         } else {
-            memcpy(k0, key.data(), key.length());
+            memcpy(k0, key, keyLen);
         }
 
         uint8_t ipad[BLOCK_SIZE];
@@ -282,9 +287,9 @@ namespace NativeCrypto {
             opad[i] = k0[i] ^ 0x5C;
         }
 
-        std::vector<uint8_t> innerData(BLOCK_SIZE + data.length());
+        std::vector<uint8_t> innerData(BLOCK_SIZE + dataLen);
         memcpy(innerData.data(), ipad, BLOCK_SIZE);
-        memcpy(innerData.data() + BLOCK_SIZE, data.data(), data.length());
+        if (dataLen > 0) memcpy(innerData.data() + BLOCK_SIZE, data, dataLen);
         std::vector<uint8_t> innerHash = RawSha256(innerData.data(), innerData.size());
 
         std::vector<uint8_t> outerData(BLOCK_SIZE + 32);
@@ -292,6 +297,17 @@ namespace NativeCrypto {
         memcpy(outerData.data() + BLOCK_SIZE, innerHash.data(), 32);
         std::vector<uint8_t> outerHash = RawSha256(outerData.data(), outerData.size());
 
+        SecureZeroMemory(k0, sizeof(k0));
+        SecureZeroMemory(ipad, sizeof(ipad));
+        SecureZeroMemory(opad, sizeof(opad));
+        return outerHash;
+    }
+
+    static std::string ComputeHmacSha256(const std::string& data, const std::string& key) {
+        std::vector<uint8_t> outerHash = RawHmacSha256(
+            (const uint8_t*)data.data(), data.length(),
+            (const uint8_t*)key.data(), key.length()
+        );
         const char hexDigits[] = "0123456789abcdef";
         std::string hexStr = "";
         for (size_t i = 0; i < 32; ++i) {
@@ -300,9 +316,111 @@ namespace NativeCrypto {
         }
         return hexStr;
     }
+
+    static bool ConstantTimeEquals(const uint8_t* a, const uint8_t* b, size_t len) {
+        uint8_t diff = 0;
+        for (size_t i = 0; i < len; ++i) {
+            diff |= (uint8_t)(a[i] ^ b[i]);
+        }
+        return diff == 0;
+    }
+
+    static std::string GenerateRandomHexNonce(size_t numBytes = 16) {
+        std::vector<uint8_t> buf(numBytes, 0);
+        if (BCryptGenRandom(NULL, buf.data(), (ULONG)buf.size(), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
+            uint64_t seed = GetTickCount64() ^ ((uint64_t)GetCurrentProcessId() << 16) ^ (uintptr_t)buf.data();
+            for (size_t i = 0; i < numBytes; ++i) {
+                seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+                buf[i] = (uint8_t)(seed >> 56);
+            }
+        }
+        const char hexDigits[] = "0123456789abcdef";
+        std::string out;
+        out.reserve(numBytes * 2);
+        for (uint8_t b : buf) {
+            out += hexDigits[(b >> 4) & 0x0F];
+            out += hexDigits[b & 0x0F];
+        }
+        return out;
+    }
+
+    static bool Base64Decode(const std::string& in, std::vector<uint8_t>& out) {
+        static const int T[256] = {
+            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-2,-1,-1,
+            -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+            -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
+            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1
+        };
+        out.clear();
+        int val = 0, valb = -8;
+        for (unsigned char c : in) {
+            if (c == '\\') continue; // JSON-escaped "\/" tolerance
+            int d = T[c];
+            if (d == -1) {
+                if (c == ' ' || c == '\r' || c == '\n' || c == '\t') continue;
+                return false;
+            }
+            if (d == -2) break;
+            val = (val << 6) + d;
+            valb += 6;
+            if (valb >= 0) {
+                out.push_back((uint8_t)((val >> valb) & 0xFF));
+                valb -= 8;
+            }
+        }
+        return !out.empty();
+    }
+
+    static bool Aes256CbcDecrypt(
+        const uint8_t key[32],
+        const uint8_t iv[16],
+        const uint8_t* cipher,
+        size_t cipherLen,
+        std::string& outPlain
+    ) {
+        if (!cipher || cipherLen == 0 || (cipherLen % 16) != 0) return false;
+
+        BCRYPT_ALG_HANDLE hAlg = NULL;
+        BCRYPT_KEY_HANDLE hKey = NULL;
+        bool ok = false;
+
+        if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_AES_ALGORITHM, NULL, 0) != 0) {
+            return false;
+        }
+        if (BCryptSetProperty(hAlg, BCRYPT_CHAINING_MODE, (PUCHAR)BCRYPT_CHAIN_MODE_CBC, sizeof(BCRYPT_CHAIN_MODE_CBC), 0) == 0) {
+            DWORD keyObjSize = 0, cbData = 0;
+            if (BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, (PUCHAR)&keyObjSize, sizeof(DWORD), &cbData, 0) == 0 && keyObjSize > 0) {
+                std::vector<uint8_t> keyObj(keyObjSize, 0);
+                if (BCryptGenerateSymmetricKey(hAlg, &hKey, keyObj.data(), keyObjSize, (PUCHAR)key, 32, 0) == 0) {
+                    uint8_t ivCopy[16];
+                    memcpy(ivCopy, iv, 16);
+                    ULONG plainLen = 0;
+                    if (BCryptDecrypt(hKey, (PUCHAR)cipher, (ULONG)cipherLen, NULL, ivCopy, 16, NULL, 0, &plainLen, BCRYPT_BLOCK_PADDING) == 0 && plainLen > 0) {
+                        std::vector<uint8_t> plainBuf(plainLen, 0);
+                        memcpy(ivCopy, iv, 16);
+                        ULONG written = 0;
+                        if (BCryptDecrypt(hKey, (PUCHAR)cipher, (ULONG)cipherLen, NULL, ivCopy, 16, plainBuf.data(), plainLen, &written, BCRYPT_BLOCK_PADDING) == 0 && written > 0) {
+                            outPlain.assign((const char*)plainBuf.data(), written);
+                            ok = true;
+                        }
+                        SecureWipeVec(plainBuf);
+                    }
+                    SecureZeroMemory(ivCopy, sizeof(ivCopy));
+                    BCryptDestroyKey(hKey);
+                }
+                SecureWipeVec(keyObj);
+            }
+        }
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+        return ok;
+    }
 }
 
-// Trích xuất giá trị String an toàn từ JSON
+// Trích xuất giá trị String/Number an toàn từ JSON (xử lý cả chuỗi escape \/)
 static std::string ExtractJsonField(const std::string& json, const std::string& field) {
     std::string keyPattern = "\"" + field + "\"";
     size_t pos = json.find(keyPattern);
@@ -317,9 +435,22 @@ static std::string ExtractJsonField(const std::string& json, const std::string& 
     if (pos >= json.length()) return "";
 
     if (json[pos] == '"') {
-        size_t endQ = json.find('"', pos + 1);
-        if (endQ != std::string::npos) {
-            return json.substr(pos + 1, endQ - pos - 1);
+        std::string res;
+        size_t i = pos + 1;
+        while (i < json.length()) {
+            if (json[i] == '\\' && i + 1 < json.length()) {
+                char nxt = json[i + 1];
+                if (nxt == '/' || nxt == '"' || nxt == '\\') {
+                    res += nxt;
+                    i += 2;
+                    continue;
+                }
+            }
+            if (json[i] == '"') {
+                return res;
+            }
+            res += json[i];
+            i++;
         }
         return "";
     }
@@ -329,8 +460,161 @@ static std::string ExtractJsonField(const std::string& json, const std::string& 
     return json.substr(pos, endVal - pos);
 }
 
+// Xóa các trường nhạy cảm (offsets_blob, offsets_sig, offsets_nonce, offsets_ts) khỏi JSON trước khi trả về Python
+static std::string StripFieldFromJson(const std::string& json, const std::string& field) {
+    std::string keyPattern = "\"" + field + "\"";
+    size_t pos = json.find(keyPattern);
+    if (pos == std::string::npos) return json;
+
+    size_t colon = json.find(':', pos + keyPattern.length());
+    if (colon == std::string::npos) return json;
+
+    size_t valStart = colon + 1;
+    while (valStart < json.length() && (json[valStart] == ' ' || json[valStart] == '\t' || json[valStart] == '\r' || json[valStart] == '\n')) {
+        valStart++;
+    }
+    if (valStart >= json.length()) return json;
+
+    size_t valEnd = valStart;
+    if (json[valStart] == '"') {
+        valEnd++;
+        while (valEnd < json.length()) {
+            if (json[valEnd] == '\\' && valEnd + 1 < json.length()) {
+                valEnd += 2;
+                continue;
+            }
+            if (json[valEnd] == '"') {
+                valEnd++;
+                break;
+            }
+            valEnd++;
+        }
+    } else {
+        valEnd = json.find_first_of(",}\r\n", valStart);
+        if (valEnd == std::string::npos) valEnd = json.length();
+    }
+
+    // Xóa luôn dấu phẩy trước hoặc sau field
+    size_t eraseStart = pos;
+    size_t eraseEnd = valEnd;
+    size_t prevNonSpace = pos;
+    while (prevNonSpace > 0 && (json[prevNonSpace - 1] == ' ' || json[prevNonSpace - 1] == '\t' || json[prevNonSpace - 1] == '\r' || json[prevNonSpace - 1] == '\n')) {
+        prevNonSpace--;
+    }
+    size_t nextNonSpace = valEnd;
+    while (nextNonSpace < json.length() && (json[nextNonSpace] == ' ' || json[nextNonSpace] == '\t' || json[nextNonSpace] == '\r' || json[nextNonSpace] == '\n')) {
+        nextNonSpace++;
+    }
+
+    if (prevNonSpace > 0 && json[prevNonSpace - 1] == ',') {
+        eraseStart = prevNonSpace - 1;
+    } else if (nextNonSpace < json.length() && json[nextNonSpace] == ',') {
+        eraseEnd = nextNonSpace + 1;
+    }
+
+    return json.substr(0, eraseStart) + json.substr(eraseEnd);
+}
+
+static std::string StripOffsetsFieldsFromJson(std::string json) {
+    json = StripFieldFromJson(json, "offsets_blob");
+    json = StripFieldFromJson(json, "offsets_sig");
+    json = StripFieldFromJson(json, "offsets_nonce");
+    json = StripFieldFromJson(json, "offsets_ts");
+    return json;
+}
+
+static std::string ToUpperStr(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+    return s;
+}
+
+// Giải mã offsets_blob từ Server và nạp thẳng vào RAM ẩn (trả true nếu giải mã & xác thực thành công)
+static bool VerifyAndStoreEncryptedOffsets(
+    const std::string& response,
+    const std::string& licenseKey,
+    const std::string& hwid,
+    const std::string& sentNonce,
+    const std::string& secretSalt
+) {
+    std::string blob = ExtractJsonField(response, "offsets_blob");
+    std::string sig = ExtractJsonField(response, "offsets_sig");
+    std::string respNonce = ExtractJsonField(response, "offsets_nonce");
+    std::string respTs = ExtractJsonField(response, "offsets_ts");
+
+    if (blob.empty() || sig.empty() || respNonce.empty() || respTs.empty()) {
+        return false;
+    }
+    if (respNonce != sentNonce) {
+        return false;
+    }
+
+    std::string upperKey = ToUpperStr(licenseKey);
+    std::string upperHwid = ToUpperStr(hwid);
+
+    // 1. Xác thực chữ ký toàn gói offsets_sig
+    std::string sigPayload = upperKey + "|" + upperHwid + "|active|" + respTs + "|" + respNonce + "|" + blob;
+    std::string expectedOffsetsSig = NativeCrypto::ComputeHmacSha256(sigPayload, secretSalt);
+    if (_stricmp(sig.c_str(), expectedOffsetsSig.c_str()) != 0) {
+        return false;
+    }
+
+    // 2. Base64 decode -> [16-byte IV][Ciphertext][32-byte HMAC-SHA256 Tag]
+    std::vector<uint8_t> raw;
+    if (!NativeCrypto::Base64Decode(blob, raw) || raw.size() < 64) {
+        return false;
+    }
+    size_t cipherLen = raw.size() - 16 - 32;
+    if (cipherLen == 0 || (cipherLen % 16) != 0) {
+        SecureWipeVec(raw);
+        return false;
+    }
+
+    const uint8_t* iv = raw.data();
+    const uint8_t* cipher = raw.data() + 16;
+    const uint8_t* tag = raw.data() + 16 + cipherLen;
+
+    // 3. Dẫn xuất khóa phiên 1 lần: encKey & macKey
+    std::string baseMaterial = secretSalt + "|" + upperKey + "|" + upperHwid + "|" + respNonce + "|" + respTs;
+    std::string encMat = "ENC|" + baseMaterial;
+    std::string macMat = "MAC|" + baseMaterial;
+    std::vector<uint8_t> encKey = NativeCrypto::RawSha256((const uint8_t*)encMat.data(), encMat.size());
+    std::vector<uint8_t> macKey = NativeCrypto::RawSha256((const uint8_t*)macMat.data(), macMat.size());
+    SecureWipeString(baseMaterial);
+    SecureWipeString(encMat);
+    SecureWipeString(macMat);
+
+    // 4. Kiểm tra Encrypt-then-MAC Tag (Constant-time)
+    std::vector<uint8_t> calcTag = NativeCrypto::RawHmacSha256(raw.data(), 16 + cipherLen, macKey.data(), macKey.size());
+    bool macOk = NativeCrypto::ConstantTimeEquals(calcTag.data(), tag, 32);
+    SecureWipeVec(macKey);
+    SecureWipeVec(calcTag);
+    if (!macOk) {
+        SecureWipeVec(encKey);
+        SecureWipeVec(raw);
+        return false;
+    }
+
+    // 5. Giải mã AES-256-CBC trong bộ nhớ C++
+    std::string plainJson;
+    bool decOk = NativeCrypto::Aes256CbcDecrypt(encKey.data(), iv, cipher, cipherLen, plainJson);
+    SecureWipeVec(encKey);
+    SecureWipeVec(raw);
+    if (!decOk || plainJson.empty() || plainJson[0] != '{') {
+        SecureWipeString(plainJson);
+        return false;
+    }
+
+    // 6. Lưu vào kho RAM đã che phủ XOR theo khóa tiến trình
+    {
+        std::lock_guard<std::mutex> lock(g_vaultMutex);
+        StoreRamOffsetsLocked(plainJson);
+    }
+    SecureWipeString(plainJson);
+    return true;
+}
+
 // ==============================================================================
-// 5. THU THẬP HWID VÀ WINHTTP NATIVE
+// 4. THU THẬP HWID VÀ WINHTTP NATIVE (XÁC THỰC CHỨNG CHỈ HTTPS THẬT)
 // ==============================================================================
 static std::string GetRawMachineGuid() {
     HKEY hKey;
@@ -378,10 +662,10 @@ static bool ParseHttpUrl(const std::string& urlStr, ParsedUrl& out) {
     std::wstring wUrl = Utf8ToWide(urlStr);
     URL_COMPONENTSW urlComp = { 0 };
     urlComp.dwStructSize = sizeof(urlComp);
-    
+
     wchar_t hostBuf[256] = { 0 };
     wchar_t pathBuf[1024] = { 0 };
-    
+
     urlComp.lpszHostName = hostBuf;
     urlComp.dwHostNameLength = sizeof(hostBuf) / sizeof(wchar_t);
     urlComp.lpszUrlPath = pathBuf;
@@ -398,7 +682,7 @@ static bool ParseHttpUrl(const std::string& urlStr, ParsedUrl& out) {
     return true;
 }
 
-static bool HttpPostJson(const std::string& fullUrl, const std::string& jsonPayload, std::string& outResponse, int timeoutMs = 8000) {
+static bool HttpPostJson(const std::string& fullUrl, const std::string& jsonPayload, std::string& outResponse, int timeoutMs = 10000) {
     ParsedUrl parsed;
     if (!ParseHttpUrl(fullUrl, parsed)) {
         outResponse = "{\"success\":false,\"message\":\"C++ Bridge: Invalid Server URL\"}";
@@ -417,10 +701,8 @@ static bool HttpPostJson(const std::string& fullUrl, const std::string& jsonPayl
         return false;
     }
 
-    // Dam bao ho tro TLS 1.2 va TLS 1.3 tren moi Windows
     DWORD secProtocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | 0x00002000;
     WinHttpSetOption(hSession, WINHTTP_OPTION_SECURE_PROTOCOLS, &secProtocols, sizeof(secProtocols));
-
     WinHttpSetTimeouts(hSession, timeoutMs, timeoutMs, timeoutMs, timeoutMs);
 
     HINTERNET hConnect = WinHttpConnect(hSession, parsed.host.c_str(), parsed.port, 0);
@@ -448,11 +730,11 @@ static bool HttpPostJson(const std::string& fullUrl, const std::string& jsonPayl
         return false;
     }
 
-    if (parsed.isHttps) {
+    // Chỉ bỏ kiểm tra chứng chỉ tự ký nếu là localhost dev; máy chủ từ xa BẮT BUỘC chứng chỉ TLS hợp lệ (chống MITM Fiddler)
+    if (parsed.isHttps && (parsed.host == L"127.0.0.1" || parsed.host == L"localhost")) {
         DWORD dwSecurityFlags = SECURITY_FLAG_IGNORE_UNKNOWN_CA |
                                 SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
-                                SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
-                                SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+                                SECURITY_FLAG_IGNORE_CERT_DATE_INVALID;
         WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURITY_FLAGS, &dwSecurityFlags, sizeof(dwSecurityFlags));
     }
 
@@ -520,28 +802,20 @@ static std::string JsonEscape(const std::string& s) {
     return o.str();
 }
 
-static std::string ToUpperStr(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), ::toupper);
-    return s;
-}
-
 // ==============================================================================
-// 6. EXPORTED C API DÀNH CHO APP PYTHON / C++
+// 5. EXPORTED C API
 // ==============================================================================
 
-// Lấy phiên bản Bridge C++
 BRIDGE_API int Bridge_GetVersion() {
-    return 200; // v2.0.0
+    return 300; // v3.0.0 — Zero-Offset-On-Disk + RAM-Only AES-256-CBC Vault
 }
 
-// Thiết lập URL API máy chủ nếu cần cấu hình động
 BRIDGE_API void Bridge_SetApiUrl(const char* url) {
     if (url && url[0]) {
         g_customServerUrl = url;
     }
 }
 
-// Lấy HWID máy tính duy nhất
 BRIDGE_API int Bridge_GetHwid(char* outBuffer, int maxLen) {
     if (!outBuffer || maxLen <= 0) return 0;
     std::string guid = GetRawMachineGuid();
@@ -551,16 +825,30 @@ BRIDGE_API int Bridge_GetHwid(char* outBuffer, int maxLen) {
     return 1;
 }
 
-// Kiểm tra trạng thái xác thực mật mã hiện tại
 BRIDGE_API int Bridge_IsAuthenticated() {
     if (CheckDebuggerPresent()) {
+        std::lock_guard<std::mutex> lock(g_vaultMutex);
         g_isLicenseAuthenticated = false;
+        ClearRamOffsetsLocked();
         return 0;
     }
     return g_isLicenseAuthenticated ? 1 : 0;
 }
 
-// Kích hoạt License qua Laravel API và xác thực chữ ký HMAC
+BRIDGE_API int Bridge_HasGameOffsets() {
+    if (CheckDebuggerPresent() || !g_isLicenseAuthenticated) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(g_vaultMutex);
+    return g_ramMaskedOffsets.empty() ? 0 : 1;
+}
+
+BRIDGE_API void Bridge_ClearOffsets() {
+    std::lock_guard<std::mutex> lock(g_vaultMutex);
+    g_isLicenseAuthenticated = false;
+    ClearRamOffsetsLocked();
+}
+
 BRIDGE_API int Bridge_ActivateLicense(
     const char* serverUrl,
     const char* licenseKey,
@@ -571,9 +859,8 @@ BRIDGE_API int Bridge_ActivateLicense(
 ) {
     if (!licenseKey || !outJson || maxLen <= 0) return 0;
 
-    // Kiểm tra debugger
     if (CheckDebuggerPresent()) {
-        g_isLicenseAuthenticated = false;
+        Bridge_ClearOffsets();
         strncpy_s(outJson, maxLen, "{\"success\":false,\"message\":\"Debugger detected! Access denied.\"}", _TRUNCATE);
         return 0;
     }
@@ -590,7 +877,8 @@ BRIDGE_API int Bridge_ActivateLicense(
     std::string fullUrl = srv + "/api/v1/license/activate";
 
     std::string pCode = (productCode && productCode[0]) ? productCode : "megamu-navigator";
-    std::string cVer = (clientVersion && clientVersion[0]) ? clientVersion : "v1.5.3";
+    std::string cVer = (clientVersion && clientVersion[0]) ? clientVersion : "v3.0.0";
+    std::string nonce = NativeCrypto::GenerateRandomHexNonce(16);
 
     std::ostringstream jsonStream;
     jsonStream << "{"
@@ -598,7 +886,8 @@ BRIDGE_API int Bridge_ActivateLicense(
                << "\"hwid\":\"" << JsonEscape(hwidBuf) << "\","
                << "\"machine_name\":\"" << JsonEscape(compName) << "\","
                << "\"client_version\":\"" << JsonEscape(cVer) << "\","
-               << "\"product_code\":\"" << JsonEscape(pCode) << "\""
+               << "\"product_code\":\"" << JsonEscape(pCode) << "\","
+               << "\"nonce\":\"" << nonce << "\""
                << "}";
 
     std::string response;
@@ -607,7 +896,6 @@ BRIDGE_API int Bridge_ActivateLicense(
     if (success) {
         std::string isSuccess = ExtractJsonField(response, "success");
         if (isSuccess == "true") {
-            // Xác minh chữ ký số trả về từ Laravel
             std::string serverSig = ExtractJsonField(response, "signature");
             std::string secretSalt = GetDecryptedSecretSalt();
             std::string expectedPayload = ToUpperStr(licenseKey) + "|" + ToUpperStr(hwidBuf) + "|active";
@@ -615,16 +903,19 @@ BRIDGE_API int Bridge_ActivateLicense(
 
             if (!serverSig.empty() && _stricmp(serverSig.c_str(), expectedSig.c_str()) == 0) {
                 g_isLicenseAuthenticated = true;
+                VerifyAndStoreEncryptedOffsets(response, licenseKey, hwidBuf, nonce, secretSalt);
+                // Xóa bỏ toàn bộ offsets_blob trước khi trả JSON cho Python (không bao giờ lưu ra license.json)
+                response = StripOffsetsFieldsFromJson(response);
             } else {
-                g_isLicenseAuthenticated = false;
+                Bridge_ClearOffsets();
                 response = "{\"success\":false,\"message\":\"Chữ ký bảo mật không khớp! Phát hiện giả mạo máy chủ.\"}";
             }
+            SecureWipeString(secretSalt);
         } else {
-            // Giữ nguyên thông báo lỗi chính xác từ Laravel Server (sai key, hết hạn, đổi máy...)
-            g_isLicenseAuthenticated = false;
+            Bridge_ClearOffsets();
         }
     } else {
-        g_isLicenseAuthenticated = false;
+        Bridge_ClearOffsets();
         response = "{\"success\":false,\"message\":\"Không thể kết nối đến máy chủ bản quyền! Vui lòng kiểm tra mạng.\"}";
     }
 
@@ -632,7 +923,6 @@ BRIDGE_API int Bridge_ActivateLicense(
     return g_isLicenseAuthenticated ? 1 : 0;
 }
 
-// Xác thực định kỳ License qua Laravel API và kiểm tra chữ ký HMAC
 BRIDGE_API int Bridge_VerifyLicense(
     const char* serverUrl,
     const char* licenseKey,
@@ -642,9 +932,8 @@ BRIDGE_API int Bridge_VerifyLicense(
 ) {
     if (!licenseKey || !outJson || maxLen <= 0) return 0;
 
-    // Kiểm tra debugger
     if (CheckDebuggerPresent()) {
-        g_isLicenseAuthenticated = false;
+        Bridge_ClearOffsets();
         strncpy_s(outJson, maxLen, "{\"valid\":false,\"status\":\"debugger_detected\",\"message\":\"Debugger detected!\"}", _TRUNCATE);
         return 0;
     }
@@ -656,13 +945,15 @@ BRIDGE_API int Bridge_VerifyLicense(
     while (!srv.empty() && srv.back() == '/') srv.pop_back();
     std::string fullUrl = srv + "/api/v1/license/verify";
 
-    std::string cVer = (clientVersion && clientVersion[0]) ? clientVersion : "v1.5.3";
+    std::string cVer = (clientVersion && clientVersion[0]) ? clientVersion : "v3.0.0";
+    std::string nonce = NativeCrypto::GenerateRandomHexNonce(16);
 
     std::ostringstream jsonStream;
     jsonStream << "{"
                << "\"license_key\":\"" << JsonEscape(licenseKey) << "\","
                << "\"hwid\":\"" << JsonEscape(hwidBuf) << "\","
-               << "\"client_version\":\"" << JsonEscape(cVer) << "\""
+               << "\"client_version\":\"" << JsonEscape(cVer) << "\","
+               << "\"nonce\":\"" << nonce << "\""
                << "}";
 
     std::string response;
@@ -674,33 +965,35 @@ BRIDGE_API int Bridge_VerifyLicense(
         std::string serverSig = ExtractJsonField(response, "signature");
 
         if (isValid == "true" && status == "active") {
-            // Xác thực chữ ký HMAC chống Proxy Fiddler
             std::string secretSalt = GetDecryptedSecretSalt();
             std::string expectedPayload = ToUpperStr(licenseKey) + "|" + ToUpperStr(hwidBuf) + "|active";
             std::string expectedSig = NativeCrypto::ComputeHmacSha256(expectedPayload, secretSalt);
 
             if (!serverSig.empty() && _stricmp(serverSig.c_str(), expectedSig.c_str()) == 0) {
                 g_isLicenseAuthenticated = true;
+                VerifyAndStoreEncryptedOffsets(response, licenseKey, hwidBuf, nonce, secretSalt);
+                response = StripOffsetsFieldsFromJson(response);
             } else {
-                g_isLicenseAuthenticated = false;
+                Bridge_ClearOffsets();
                 response = "{\"valid\":false,\"status\":\"tampered\",\"message\":\"Chữ ký bảo mật không khớp! Phát hiện giả mạo máy chủ.\"}";
             }
+            SecureWipeString(secretSalt);
         } else {
-            g_isLicenseAuthenticated = false;
+            Bridge_ClearOffsets();
         }
     } else {
-        g_isLicenseAuthenticated = false;
+        Bridge_ClearOffsets();
     }
 
     strncpy_s(outJson, maxLen, response.c_str(), _TRUNCATE);
     return g_isLicenseAuthenticated ? 1 : 0;
 }
 
-// Xác thực chữ ký số Offline trực tiếp từ file license local (HMAC-SHA256 theo HWID)
+// Xác thực chữ ký số Offline (CHỈ xác nhận metadata license; KHÔNG cấp offset vì Strict Online Zero-Offset-On-Disk)
 BRIDGE_API int Bridge_VerifyOfflineSignature(const char* licenseKey, const char* signature) {
     if (!licenseKey || !signature || !licenseKey[0] || !signature[0]) return 0;
     if (CheckDebuggerPresent()) {
-        g_isLicenseAuthenticated = false;
+        Bridge_ClearOffsets();
         return 0;
     }
     char hwidBuf[64] = { 0 };
@@ -708,6 +1001,7 @@ BRIDGE_API int Bridge_VerifyOfflineSignature(const char* licenseKey, const char*
     std::string secretSalt = GetDecryptedSecretSalt();
     std::string expectedPayload = ToUpperStr(licenseKey) + "|" + ToUpperStr(hwidBuf) + "|active";
     std::string expectedSig = NativeCrypto::ComputeHmacSha256(expectedPayload, secretSalt);
+    SecureWipeString(secretSalt);
 
     if (!expectedSig.empty() && _stricmp(signature, expectedSig.c_str()) == 0) {
         g_isLicenseAuthenticated = true;
@@ -716,18 +1010,36 @@ BRIDGE_API int Bridge_VerifyOfflineSignature(const char* licenseKey, const char*
     return 0;
 }
 
-// Giải mã Game Offsets - CHỈ CẤP KHI BẢN QUYỀN ĐÃ XÁC THỰC MẬT MÃ THÀNH CÔNG
-// Nếu cracker patch Python để bỏ qua màn hình khóa, hàm này vẫn trả về rỗng và Engine không thể chạy!
+// Đọc Game Offsets từ RAM ẩn — CHỈ TRẢ VỀ KHI ĐÃ NHẬN & GIẢI MÃ TỪ SERVER ONLINE TRONG PHIÊN HIỆN TẠI
 BRIDGE_API int Bridge_GetGameOffsets(char* outJson, int maxLen) {
     if (!outJson || maxLen <= 0) return 0;
 
-    // Kiểm tra debugger và tính hợp lệ bản quyền
     if (CheckDebuggerPresent() || !g_isLicenseAuthenticated) {
         strncpy_s(outJson, maxLen, "{}", _TRUNCATE);
         return 0;
     }
 
-    std::string offsets = GetDecryptedOffsetsJson();
+    std::string offsets;
+    {
+        std::lock_guard<std::mutex> lock(g_vaultMutex);
+        offsets = LoadRamOffsetsLocked();
+    }
+
+    if (offsets.empty() || (int)offsets.size() >= maxLen) {
+        SecureWipeString(offsets);
+        strncpy_s(outJson, maxLen, "{}", _TRUNCATE);
+        return 0;
+    }
+
     strncpy_s(outJson, maxLen, offsets.c_str(), _TRUNCATE);
+    SecureWipeString(offsets);
     return 1;
+}
+
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+    if (fdwReason == DLL_PROCESS_DETACH) {
+        Bridge_ClearOffsets();
+        SecureZeroMemory(g_ramMaskKey, sizeof(g_ramMaskKey));
+    }
+    return TRUE;
 }

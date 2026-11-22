@@ -14,11 +14,13 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [1/2] Dang bien dich DLL: native_bridge\license_bridge.cpp -> meg_license_bridge.dll...
-g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lcrypt32 -ladvapi32 -s -static-libgcc -static-libstdc++
+g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lbcrypt -lcrypt32 -ladvapi32 -s -static-libgcc -static-libstdc++
 if %ERRORLEVEL% NEQ 0 (
     echo [THAT BAI] Khong the bien dich meg_license_bridge.dll!
     exit /b 1
 )
+if not exist "native_bin" mkdir "native_bin"
+copy /Y "meg_license_bridge.dll" "native_bin\meg_license_bridge.dll" >nul 2>&1
 
 echo [2/2] Dang bien dich CLI: native_bridge\cli_test.cpp -> meg_bridge_cli.exe...
 g++ -O3 -std=c++17 "native_bridge\cli_test.cpp" -o "meg_bridge_cli.exe" -s -static-libgcc -static-libstdc++

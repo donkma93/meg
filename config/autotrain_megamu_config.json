@@ -15,52 +15,10 @@
   "stages": [
     {
       "min_level": 1,
-      "max_level": 29,
-      "map_name": "Lorencia",
-      "x": 8,
-      "y": 134
-    },
-    {
-      "min_level": 70,
-      "max_level": 79,
-      "map_name": "Devias 4",
-      "x": 80,
-      "y": 151
-    },
-    {
-      "min_level": 80,
-      "max_level": 159,
-      "map_name": "Atlans 2",
-      "x": 236,
-      "y": 16
-    },
-    {
-      "min_level": 30,
-      "max_level": 69,
-      "map_name": "Dungeon",
-      "x": 86,
-      "y": 212
-    },
-    {
-      "min_level": 320,
-      "max_level": 399,
-      "map_name": "Aida 2",
-      "x": 210,
-      "y": 200
-    },
-    {
-      "min_level": 400,
-      "max_level": 400,
-      "map_name": "Devias 4",
-      "x": 86,
-      "y": 15
-    },
-    {
-      "min_level": 160,
-      "max_level": 320,
-      "map_name": "Tarkan 2",
-      "x": 166,
-      "y": 200
+      "max_level": 1110,
+      "map_name": "Ubaid",
+      "x": 191,
+      "y": 153
     }
   ],
   "evade_on_kill": true,

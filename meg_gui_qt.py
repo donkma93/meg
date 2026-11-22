@@ -53,7 +53,9 @@ from ui_qt.train_tab import TrainTabQt, get_default_profile_options
 from ui_qt.profiles_tab import ProfilesTabQt
 from ui_qt.mirror_tab import MirrorTabQt
 from ui_qt.moss_tab import MossTabQt, moss_cat_id, moss_cat_name, MOSS_CAT_OPTIONS
+from ui_qt.quest_tab import QuestTabQt
 from ui_qt.logs_tab import LogsTabQt
+from meg_quest_automation import QuestConfigManager, QuestSlotRunner, summarize_quest_snapshot
 from ui_qt.dialogs import (
     JunkDisposalDialogQt,
     LicenseDialogQt,
@@ -328,6 +330,11 @@ class DashboardAppQt(QMainWindow):
         self.mirror_prefire_sec_entry = _FakeEntry(self.mirror_prefire_sec)
         self.mirror_stagger_ms_entry = _FakeEntry(self.mirror_stagger_ms)
 
+        # Auto Quest (Nhiệm vụ Cấp 2 / Marlon / Cấp 3)
+        self.quest_config_mgr = QuestConfigManager(BASE_DIR)
+        self.quest_config: Dict[str, Any] = self.quest_config_mgr.load()
+        self.quest_runners: Dict[int, QuestSlotRunner] = {}
+
         # Build Qt6 Shell
         self._build_shell()
 
@@ -349,9 +356,9 @@ class DashboardAppQt(QMainWindow):
         self.after(3500, self._periodic_mirror_scheduler)
         if hasattr(self, "_monitor_mirror_telemetry_for_telegram"):
             self.after(8000, self._monitor_mirror_telemetry_for_telegram)
-        if hasattr(self, "_periodic_license_monitor"):
-            self.after(60_000, self._periodic_license_monitor)
-        self.after(1500, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
+        self.after(3000, self._periodic_license_monitor)
+        self.after(1200, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
+        self.after(2800, self._check_initial_license)
         self.after(3500, lambda: threading.Thread(target=self._check_update_async, daemon=True).start())
 
         # Dựng trước nhẹ nhàng các tab Qt6 từng tab một sau khi cửa sổ hiện (~10-30ms/tab) để lần bấm đầu tiên cũng tức thì
@@ -360,6 +367,8 @@ class DashboardAppQt(QMainWindow):
         self.log_message("🚀 MEGAMU Dashboard V3 (Qt6 Native 60FPS) đã khởi động.", "SUCCESS")
         self.log_message(f"Đang quản lý {len(self.controllers)} slots · Auto Login đã ẩn theo yêu cầu.", "INFO")
         self._update_header_stats_internal()
+        self.update_modules_visibility()
+        self.apply_license_lock_state()
 
     # ==========================================================================
     # THREAD-SAFE `after()` BRIDGE (TƯƠNG THÍCH 100% TKINTER API)
@@ -471,6 +480,27 @@ class DashboardAppQt(QMainWindow):
             hl.addWidget(b)
         root.addWidget(hdr)
 
+        # 1.5. License Lock Banner (chỉ hiện khi chưa kích hoạt / hết hạn / thiếu DLL / bản cập nhật bắt buộc)
+        self.license_lock_banner = QFrame()
+        self.license_lock_banner.setStyleSheet(
+            "QFrame { background-color: #3b1219; border-bottom: 1px solid #ef4444; }"
+        )
+        self.license_lock_banner.setFixedHeight(34)
+        bl_lock = QHBoxLayout(self.license_lock_banner)
+        bl_lock.setContentsMargins(16, 2, 14, 2)
+        bl_lock.setSpacing(10)
+        self._license_banner_lbl = QLabel("🔒 BẢN QUYỀN CHƯA KÍCH HOẠT — CHỨC NĂNG ĐANG BỊ KHÓA")
+        self._license_banner_lbl.setStyleSheet("color: #fca5a5; font-weight: 700; font-size: 12px;")
+        self._license_banner_btn = QPushButton("🔑 Kích hoạt / Đồng Bộ")
+        self._license_banner_btn.setProperty("tone", "danger")
+        self._license_banner_btn.setFixedHeight(24)
+        self._license_banner_btn.clicked.connect(self.open_license_dialog)
+        bl_lock.addWidget(self._license_banner_lbl)
+        bl_lock.addStretch(1)
+        bl_lock.addWidget(self._license_banner_btn)
+        self.license_lock_banner.setVisible(False)
+        root.addWidget(self.license_lock_banner)
+
         # 2. Navigation Tabs Bar (ẩn Auto Login hoàn toàn)
         nav = QFrame()
         nav.setObjectName("NavBar")
@@ -485,7 +515,8 @@ class DashboardAppQt(QMainWindow):
             ("profiles", "⚙  02  Config"),
             ("mirror", "⚡  03  Mirror"),
             ("moss", "🎲  04  Moss"),
-            ("logs", "📋  05  Logs"),
+            ("quest", "⚔  05  Nhiệm Vụ"),
+            ("logs", "📋  06  Logs"),
         ]
         for tid, label in tab_defs:
             btn = QPushButton(label)
@@ -536,6 +567,7 @@ class DashboardAppQt(QMainWindow):
         self.profiles_view: Optional[ProfilesTabQt] = None
         self.mirror_view: Optional[MirrorTabQt] = None
         self.moss_view: Optional[MossTabQt] = None
+        self.quest_view: Optional[QuestTabQt] = None
         self.logs_view: Optional[LogsTabQt] = None
 
         # 4. Footer bar
@@ -617,6 +649,23 @@ class DashboardAppQt(QMainWindow):
             self.stack.addWidget(self.moss_view)
         return self.moss_view
 
+    def _ensure_quest_view(self) -> QuestTabQt:
+        if self.quest_view is None:
+            self.quest_view = QuestTabQt(
+                controllers=self.controllers,
+                quest_config=self.quest_config,
+                on_scan_all=self.scan_all_quests,
+                on_start_selected=self.start_selected_quests,
+                on_stop_all=self.stop_all_quests,
+                on_toggle_slot=self.toggle_quest_slot,
+                on_scan_slot=self.scan_quest_slot,
+                on_config_changed=self._on_quest_config_changed,
+                on_grab_current_coord=self.grab_current_quest_coord,
+            )
+            self.quest_view.append_log("⚔️ Auto Nhiệm Vụ Cấp 2 & Cấp 3 đã sẵn sàng. Nhấn 'Quét Trạng Thái NV' để đọc dữ liệu RAM.")
+            self.stack.addWidget(self.quest_view)
+        return self.quest_view
+
     def _ensure_logs_view(self) -> LogsTabQt:
         if self.logs_view is None:
             self.logs_view = LogsTabQt(on_clear=lambda: self.log_message("Nhật ký đã được làm sạch.", "INFO"))
@@ -636,19 +685,65 @@ class DashboardAppQt(QMainWindow):
         elif self.moss_view is None:
             self._ensure_moss_view()
             self.after(120, self._warmup_qt_tabs_step)
+        elif self.quest_view is None:
+            self._ensure_quest_view()
+            self.after(120, self._warmup_qt_tabs_step)
         elif self.profiles_view is None:
             self._ensure_profiles_view()
+
+    def update_modules_visibility(self):
+        """Ẩn/hiện các tab tính năng theo module bản quyền đã kích hoạt (train / mirror / moss)."""
+        if not hasattr(self, "nav_buttons"):
+            return
+        has_train = license_client.has_license_module("train") if license_client else True
+        has_moss = license_client.has_license_module("moss") if license_client else True
+        has_mirror = license_client.has_license_module("mirror") if license_client else True
+
+        for tid, visible in (
+            ("train", has_train),
+            ("profiles", has_train),
+            ("mirror", has_mirror),
+            ("moss", has_moss),
+            ("quest", has_train),
+            ("logs", True),
+        ):
+            btn = self.nav_buttons.get(tid)
+            if btn is not None:
+                btn.setVisible(bool(visible))
+
+        cur = getattr(self, "active_tab_name", "train")
+        allowed = {
+            "train": has_train,
+            "profiles": has_train,
+            "mirror": has_mirror,
+            "moss": has_moss,
+            "quest": has_train,
+            "logs": True,
+        }
+        if not allowed.get(cur, True):
+            for fallback in ("train", "mirror", "moss", "quest", "logs"):
+                if allowed.get(fallback, False):
+                    self.switch_tab(fallback)
+                    break
 
     def switch_tab(self, tab_id: str):
         if tab_id == "autologin":
             return
         if tab_id == "events":
             tab_id = "moss"
+        if license_client:
+            if tab_id in ("train", "profiles", "quest") and not license_client.has_license_module("train"):
+                return
+            if tab_id == "mirror" and not license_client.has_license_module("mirror"):
+                return
+            if tab_id == "moss" and not license_client.has_license_module("moss"):
+                return
         view_map = {
             "train": lambda: self.train_view,
             "profiles": self._ensure_profiles_view,
             "mirror": self._ensure_mirror_view,
             "moss": self._ensure_moss_view,
+            "quest": self._ensure_quest_view,
             "logs": self._ensure_logs_view,
         }
         getter = view_map.get(tab_id)
@@ -681,6 +776,8 @@ class DashboardAppQt(QMainWindow):
             ms = self.state_mgr.events.get("moss", {})
             self.moss_view.update_countdown(ms.get("countdown_sec", 0), ms.get("is_open", False), ms.get("next_time_str"))
             self.moss_view.refresh_moss_rows()
+        elif tab_id == "quest" and self.quest_view:
+            self.quest_view.update_from_state_snapshots(self.state_mgr.slots)
         elif tab_id == "logs" and self.logs_view:
             new_logs = self.state_mgr.pop_pending_logs()
             if new_logs:
@@ -715,6 +812,10 @@ class DashboardAppQt(QMainWindow):
                 if now - getattr(self, "_last_moss_ref_ts", 0.0) >= 1.0:
                     self._last_moss_ref_ts = now
                     self.moss_view.refresh_moss_rows()
+            elif self.active_tab_name == "quest" and self.quest_view:
+                if now - getattr(self, "_last_quest_ref_ts", 0.0) >= 0.8:
+                    self._last_quest_ref_ts = now
+                    self.quest_view.update_from_state_snapshots(self.state_mgr.slots)
 
             if self.state_mgr.is_events_dirty():
                 ev = self.state_mgr.events
@@ -763,6 +864,13 @@ class DashboardAppQt(QMainWindow):
     # ==========================================================================
     # AUTO TRAIN ACTIONS (1..50 SLOTS)
     # ==========================================================================
+    def _require_valid_license(self) -> bool:
+        if license_client and not license_client.is_license_valid():
+            self.apply_license_lock_state(force=True)
+            self.open_license_dialog()
+            return False
+        return True
+
     def on_slot_auto_toggle(self, slot_idx: int):
         if not (1 <= slot_idx <= len(self.controllers)):
             return
@@ -770,10 +878,14 @@ class DashboardAppQt(QMainWindow):
         if ctrl.worker and ctrl.worker.running:
             ctrl.stop_auto(reason="Người dùng nhấn nút DỪNG trên giao diện")
         else:
+            if not self._require_valid_license():
+                return
             ctrl.start_auto()
 
     def toggle_all_auto(self, start_all: bool):
         if start_all:
+            if not self._require_valid_license():
+                return
             self.log_message("▶ Đang bật Auto cho tất cả các slot có game...", "INFO")
             for ctrl in self.controllers:
                 if ctrl.assigned_pid and not (ctrl.worker and ctrl.worker.running):
@@ -789,6 +901,8 @@ class DashboardAppQt(QMainWindow):
         self.engine_sync.trigger_scan_now()
 
     def connect_all(self):
+        if not self._require_valid_license():
+            return
         self.log_message("🔗 Đang kiểm tra và kết nối lại các Slot...", "INFO")
         threading.Thread(target=self._worker_connect_all, daemon=True, name="ConnectAllQt").start()
 
@@ -825,6 +939,8 @@ class DashboardAppQt(QMainWindow):
             self.log_message(f"Lỗi connect_all: {e}", "ERROR")
 
     def assign_all(self):
+        if not self._require_valid_license():
+            return
         self.log_message("👥 Đang tự động gán tiến trình MEGAMU vào các Slot trống...", "INFO")
         threading.Thread(target=self._worker_assign_all, daemon=True, name="AssignAllQt").start()
 
@@ -1052,6 +1168,8 @@ class DashboardAppQt(QMainWindow):
             self.mirror_view.add_slot_row(ctrl)
         if self.moss_view:
             self.moss_view.add_slot_row(ctrl)
+        if self.quest_view:
+            self.quest_view.add_slot_row(ctrl)
 
         self.update_header_stats()
         self.log_message(f"➕ Đã thêm Account Slot #{new_idx:02d} (Hiện có {len(self.controllers)} slot).", "SUCCESS")
@@ -1089,6 +1207,14 @@ class DashboardAppQt(QMainWindow):
             self.mirror_view.remove_last_row()
         if self.moss_view:
             self.moss_view.remove_last_row()
+        q_runner = self.quest_runners.pop(last_idx, None)
+        if q_runner:
+            try:
+                q_runner.stop()
+            except Exception:
+                pass
+        if self.quest_view:
+            self.quest_view.remove_slot_row(last_idx)
         self.update_header_stats()
         self.log_message(f"➖ Đã xóa Slot #{last_idx:02d} (Còn {len(self.controllers)} slot).", "INFO")
 
@@ -1698,22 +1824,80 @@ class DashboardAppQt(QMainWindow):
     # ==========================================================================
     # LICENSE / UPDATE / HELP
     # ==========================================================================
+    def _on_license_changed(self):
+        """Đồng bộ toàn diện sau khi kích hoạt / đồng bộ / bỏ kích hoạt bản quyền."""
+        try:
+            import meg_navigator
+            if hasattr(meg_navigator, "refresh_navigator_offsets"):
+                meg_navigator.refresh_navigator_offsets()
+        except Exception:
+            pass
+        self._last_applied_lock_state = None
+        self._license_fail_count = 0
+        self._update_header_stats_internal()
+        self.update_modules_visibility()
+        self.apply_license_lock_state(force=True)
+
+    def _check_initial_license(self):
+        if not self.running or self._is_closing:
+            return
+        if license_client and not license_client.is_license_valid():
+            self.apply_license_lock_state(force=True)
+            self.open_license_dialog()
+
     def open_license_dialog(self):
         if not license_client:
             QMessageBox.information(self, "License", "Module license_client chưa khả dụng.")
             return
-        LicenseDialogQt(license_client, on_activated=self._update_header_stats_internal, parent=self).exec()
+        if getattr(self, "_license_dialog_open", False):
+            return
+        self._license_dialog_open = True
+        try:
+            LicenseDialogQt(license_client, on_activated=self._on_license_changed, parent=self).exec()
+        finally:
+            self._license_dialog_open = False
 
     def _verify_license_async(self):
-        if not license_client:
+        """Tự động đồng bộ bản quyền + RAM Offsets từ Web Server khi khởi động và định kỳ mỗi 5 phút."""
+        if not self.running or self._is_closing or not license_client:
             return
         try:
             lic_data = license_client.load_license_data() if hasattr(license_client, "load_license_data") else {}
             if lic_data and lic_data.get("license_key") and hasattr(license_client, "verify_license"):
-                license_client.verify_license()
+                ok, msg, _info = license_client.verify_license()
+                if not ok:
+                    self.after(0, lambda m=msg: self.log_message(f"🔒 Xác thực bản quyền thất bại: {m}", "WARNING"))
+                    self.after(0, lambda: self.apply_license_lock_state(force=True))
+                    self.after(0, self.open_license_dialog)
+                else:
+                    try:
+                        import meg_navigator
+                        if hasattr(meg_navigator, "refresh_navigator_offsets"):
+                            meg_navigator.refresh_navigator_offsets()
+                    except Exception:
+                        pass
             self.after(0, self._update_header_stats_internal)
+            self.after(0, self.update_modules_visibility)
+            self.after(0, self.apply_license_lock_state)
         except Exception:
             pass
+        if self.running and not self._is_closing:
+            self.after(300_000, lambda: threading.Thread(target=self._verify_license_async, daemon=True).start())
+
+    def _periodic_license_monitor(self):
+        """Giám sát liên tục sự tồn tại của meg_license_bridge.dll & trạng thái bản quyền mỗi 3 giây."""
+        if not self.running or self._is_closing:
+            return
+        try:
+            self.apply_license_lock_state()
+            lic_str = license_client.get_license_display_text() if license_client else "Free"
+            if getattr(self, "_last_lic_display", None) != lic_str:
+                self._last_lic_display = lic_str
+                self._update_header_stats_internal()
+        except Exception:
+            pass
+        if self.running and not self._is_closing:
+            self.after(3000, self._periodic_license_monitor)
 
     def _check_update_async(self, manual: bool = False):
         time.sleep(3)
@@ -1864,8 +2048,240 @@ class DashboardAppQt(QMainWindow):
             else:
                 self.after(0, lambda s=silent: self.profiles_view and self.profiles_view.save_current_profile(silent=s))
 
-    def apply_license_lock_state(self, *args, **kwargs):
-        self.update_header_stats()
+    def apply_license_lock_state(self, force: bool = False, *args, **kwargs):
+        """Khóa hoặc mở khóa toàn bộ chức năng trên giao diện Qt6 theo trạng thái bản quyền & DLL."""
+        if not hasattr(self, "license_lock_banner"):
+            return
+
+        if license_client and not license_client.is_native_bridge_active():
+            license_client.is_native_bridge_active(force_reload=True)
+
+        is_mandatory_upd = bool(getattr(self, "is_update_mandatory", False))
+        is_valid = (not is_mandatory_upd) and (license_client.is_license_valid() if license_client else False)
+
+        if is_valid:
+            self._license_fail_count = 0
+            want_locked = False
+        else:
+            self._license_fail_count = getattr(self, "_license_fail_count", 0) + 1
+            if not force and not is_mandatory_upd and self._license_fail_count < 3:
+                return
+            want_locked = True
+
+        prev_locked = getattr(self, "_last_applied_lock_state", None)
+        if prev_locked == want_locked and not force:
+            return
+        self._last_applied_lock_state = want_locked
+
+        if want_locked:
+            # Dừng lập tức mọi luồng Auto Train / Moss / Mirror đang chạy
+            reason = "Phát hiện bản cập nhật bắt buộc" if is_mandatory_upd else (
+                "Thiếu file meg_license_bridge.dll"
+                if (license_client and not license_client.is_native_bridge_active())
+                else "Bản quyền chưa kích hoạt hoặc đã hết hạn"
+            )
+            for ctrl in list(self.controllers):
+                try:
+                    if ctrl.auto_requested or (ctrl.worker and ctrl.worker.running):
+                        ctrl.stop_auto(reason=f"Hệ thống khóa: {reason}", trigger_by="SYSTEM")
+                    for fn_name in ("stop_moss", "stop_mirror_auto", "stop_mirror_turbo_sniping"):
+                        if hasattr(ctrl, fn_name):
+                            getattr(ctrl, fn_name)()
+                except Exception:
+                    pass
+            if is_mandatory_upd:
+                ver_t = (self.update_info or {}).get("latest_version", "MỚI")
+                self._license_banner_lbl.setText(f"⚠️ BẢN CẬP NHẬT BẮT BUỘC {ver_t} — VUI LÒNG CẬP NHẬT ĐỂ TIẾP TỤC")
+                self._license_banner_btn.setText("🔄 Cập Nhật")
+            elif license_client and not license_client.is_native_bridge_active():
+                self._license_banner_lbl.setText("🔒 THIẾU TỆP BẢO MẬT meg_license_bridge.dll — ĐÃ KHÓA CHỨC NĂNG")
+                self._license_banner_btn.setText("🔑 Kiểm Tra License")
+            else:
+                self._license_banner_lbl.setText("🔒 BẢN QUYỀN CHƯA KÍCH HOẠT HOẶC HẾT HẠN — ĐÃ KHÓA CHỨC NĂNG")
+                self._license_banner_btn.setText("🔑 Kích hoạt / Đồng Bộ")
+            self.license_lock_banner.setVisible(True)
+        else:
+            self.license_lock_banner.setVisible(False)
+
+        for view in (self.train_view, self.mirror_view, self.moss_view, self.quest_view, self.profiles_view):
+            if view is not None:
+                view.setEnabled(not want_locked)
+        if want_locked:
+            self.stop_all_quests(silent=True)
+
+        self.update_modules_visibility()
+        self._update_header_stats_internal()
+
+    # ==========================================================================
+    # AUTO QUEST (NHIỆM VỤ CẤP 2 / MARLON / CẤP 3) CONTROLLERS
+    # ==========================================================================
+    def _find_controller_by_slot(self, slot_idx: int):
+        for c in self.controllers:
+            if int(c.slot_idx) == int(slot_idx):
+                return c
+        return None
+
+    def _on_quest_config_changed(self, new_cfg: Dict[str, Any]):
+        self.quest_config = dict(new_cfg or {})
+        self.quest_config_mgr.save(self.quest_config)
+
+    def grab_current_quest_coord(self) -> Optional[Dict[str, Any]]:
+        """Lấy tọa độ (X, Y) hiện tại của slot đang chọn (hoặc slot kết nối đầu tiên) cho thanh tọa độ NV."""
+        sel = self.quest_view.get_selected_slots() if self.quest_view else []
+        candidates = list(sel) + [c.slot_idx for c in self.controllers if c.slot_idx not in sel]
+        for s_idx in candidates:
+            ctrl = self._find_controller_by_slot(s_idx)
+            if not ctrl or not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+                continue
+            eng = ctrl.engine
+            if eng and getattr(eng, "is_ready", False):
+                info = eng.get_player_info(max_age=0.2) or {}
+                x = info.get("x") if info.get("x") is not None else info.get("tileX")
+                y = info.get("y") if info.get("y") is not None else info.get("tileY")
+                mid = info.get("mapId") if info.get("mapId") is not None else info.get("map_id", -1)
+                if x is not None and y is not None:
+                    return {"ok": True, "slot": s_idx, "map_id": int(mid), "x": int(x), "y": int(y)}
+        return {"ok": False}
+
+    def _on_quest_log(self, msg: str, level: str = "INFO"):
+        def _ui():
+            if self.quest_view:
+                self.quest_view.append_log(msg)
+        self.after(0, _ui)
+        self.log_message(f"[Quest] {msg}", level)
+
+    def _on_quest_slot_status(self, slot_idx: int, payload: Dict[str, Any]):
+        enriched = dict(payload or {})
+        ctrl = self._find_controller_by_slot(slot_idx)
+        slot_state = self.state_mgr.slots.get(int(slot_idx), {}) if hasattr(self, "state_mgr") else {}
+        if ctrl:
+            enriched.setdefault("pid", ctrl.assigned_pid)
+            c_name = (slot_state.get("char_name") if isinstance(slot_state, dict) else "") or getattr(ctrl, "char_name", "")
+            if c_name and c_name not in ("--", "---"):
+                enriched.setdefault("char_name", c_name)
+        def _ui():
+            if self.quest_view:
+                self.quest_view.set_slot_quest_state(slot_idx, enriched)
+        self.after(0, _ui)
+
+    def _get_or_create_quest_runner(self, slot_idx: int) -> QuestSlotRunner:
+        s_idx = int(slot_idx)
+        runner = self.quest_runners.get(s_idx)
+        if runner is not None:
+            return runner
+
+        def _get_eng():
+            ctrl = self._find_controller_by_slot(s_idx)
+            if not ctrl or not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+                return None
+            if not ctrl.engine and MegDirectEngine:
+                try:
+                    ctrl.engine = MegDirectEngine.get_engine(ctrl.assigned_pid)
+                except Exception:
+                    return None
+            return ctrl.engine
+
+        def _stop_train():
+            ctrl = self._find_controller_by_slot(s_idx)
+            if ctrl and (ctrl.auto_requested or (ctrl.worker and ctrl.worker.running)):
+                ctrl.stop_auto(reason="Tạm dừng Auto Train để chạy Auto Nhiệm Vụ", trigger_by="AUTO")
+
+        runner = QuestSlotRunner(
+            slot_idx=s_idx,
+            engine_getter=_get_eng,
+            config_getter=lambda: self.quest_config,
+            on_log=self._on_quest_log,
+            on_status=self._on_quest_slot_status,
+            on_stop_train=_stop_train,
+        )
+        self.quest_runners[s_idx] = runner
+        return runner
+
+    def scan_quest_slot(self, slot_idx: int):
+        s_idx = int(slot_idx)
+        def _worker():
+            ctrl = self._find_controller_by_slot(s_idx)
+            runner = self.quest_runners.get(s_idx)
+            is_running = bool(runner and runner.running)
+            if not ctrl or not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+                self._on_quest_slot_status(
+                    s_idx,
+                    {"running": is_running, "status_text": "Chưa gán game", "status_color": "#64748b", "summary": {}},
+                )
+                return
+            eng = ctrl.engine
+            if not eng and MegDirectEngine:
+                try:
+                    eng = MegDirectEngine.get_engine(ctrl.assigned_pid)
+                    ctrl.engine = eng
+                except Exception as e:
+                    self._on_quest_log(f"[Slot {s_idx}] Lỗi attach engine: {e}", "ERROR")
+                    return
+            if not eng:
+                return
+            if not getattr(eng, "is_ready", False):
+                try:
+                    eng.attach()
+                    time.sleep(0.4)
+                except Exception:
+                    pass
+            snap = eng.get_quest_state() if getattr(eng, "is_ready", False) else {"ok": False, "error": "Chưa kết nối Frida"}
+            summary = summarize_quest_snapshot(snap, self.quest_config)
+            st_txt = summary.get("reason") or (
+                "Hoàn tất ✓" if summary.get("next_action") == "DONE" else "Sẵn sàng chạy"
+            )
+            st_col = "#22c55e" if summary.get("next_action") == "DONE" else ("#f59e0b" if summary.get("reason") else "#38bdf8")
+            self._on_quest_slot_status(
+                s_idx,
+                {"running": is_running, "status_text": st_txt, "status_color": st_col, "summary": summary},
+            )
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def scan_all_quests(self):
+        self._on_quest_log("🔍 Đang quét trạng thái nhiệm vụ cho toàn bộ slot đã kết nối...", "INFO")
+        if self.quest_view:
+            self.quest_view.update_from_state_snapshots(self.state_mgr.slots)
+        for ctrl in self.controllers:
+            if ctrl.assigned_pid and psutil.pid_exists(ctrl.assigned_pid):
+                self.scan_quest_slot(ctrl.slot_idx)
+
+    def toggle_quest_slot(self, slot_idx: int):
+        s_idx = int(slot_idx)
+        runner = self._get_or_create_quest_runner(s_idx)
+        if runner.running:
+            runner.stop()
+            self._on_quest_log(f"[Slot {s_idx}] ⏹ Đã dừng Auto Nhiệm Vụ.", "INFO")
+        else:
+            if license_client and not license_client.is_license_valid():
+                QMessageBox.warning(self, "Bản quyền", "Vui lòng kích hoạt bản quyền trước khi chạy Auto Nhiệm Vụ.")
+                return
+            runner.start()
+
+    def start_selected_quests(self, slot_ids: List[int]):
+        if license_client and not license_client.is_license_valid():
+            QMessageBox.warning(self, "Bản quyền", "Vui lòng kích hoạt bản quyền trước khi chạy Auto Nhiệm Vụ.")
+            return
+        started = 0
+        for s_idx in (slot_ids or []):
+            ctrl = self._find_controller_by_slot(s_idx)
+            if not ctrl or not ctrl.assigned_pid or not psutil.pid_exists(ctrl.assigned_pid):
+                continue
+            runner = self._get_or_create_quest_runner(s_idx)
+            if not runner.running and runner.start():
+                started += 1
+        self._on_quest_log(
+            f"▶ Đã khởi chạy Auto Nhiệm Vụ cho {started} slot." if started else "⚠️ Không có slot nào đã kết nối trong danh sách chọn.",
+            "SUCCESS" if started else "WARNING",
+        )
+
+    def stop_all_quests(self, silent: bool = False):
+        stopped = 0
+        for runner in list(self.quest_runners.values()):
+            if runner.running:
+                runner.stop()
+                stopped += 1
+        if not silent:
+            self._on_quest_log(f"⏹ Đã dừng Auto Nhiệm Vụ ({stopped} slot).", "INFO")
 
     # ==========================================================================
     # SHUTDOWN
@@ -1875,6 +2291,10 @@ class DashboardAppQt(QMainWindow):
             return
         self._is_closing = True
         self.running = False
+        try:
+            self.stop_all_quests(silent=True)
+        except Exception:
+            pass
         try:
             self._heartbeat_timer.stop()
         except Exception:
@@ -1897,6 +2317,11 @@ class DashboardAppQt(QMainWindow):
                     ctrl.engine.detach()
                 except Exception:
                     pass
+        if license_client and hasattr(license_client, "clear_secure_game_offsets"):
+            try:
+                license_client.clear_secure_game_offsets()
+            except Exception:
+                pass
 
     def closeEvent(self, event):
         self.on_closing()
