@@ -185,6 +185,20 @@ if __name__ == "__main__":
     body = f"""## Phiên bản chính thức MEGAMU Auto Train Dashboard {version} (MEGATEAM)
 
 ### Điểm nổi bật & Nâng cấp quan trọng trong bản {version}:
+- **Tự Động Ra Bãi Mirror (Auto Mirror Move & Spot Positioning):**
+  - Tự động di chuyển ra đúng tọa độ bãi quái trong Mirror sau khi vào sự kiện.
+  - Tối ưu hóa chu kỳ quét Zero-Confirm và nhận thưởng Gremory Case (phím K) Native Hook.
+
+- **Cải Tiến Hệ Thống Moss Merchant & Dọn Đồ (Moss Drop & Clean):**
+  - Hỗ trợ cơ chế tự động ném đồ rác và bán đồ rác tại NPC Silvia với opcode trực tiếp 0xF9 (XOR 0xCB), triệt để tránh đầy rương.
+
+- **Khắc Phục Lỗi Tự Động Quay Lại Vị Trí (Death & Respawn Recovery):**
+  - Xử lý mượt mà việc nhân vật bị kill hoặc về làng tự động quay lại bãi theo thời gian thực.
+
+- **Bổ Sung Giao Diện Native Qt6 60FPS Siêu Nhẹ (PySide6 Edition):**
+  - Giao diện `meg_gui_qt.py` chuẩn Qt6 60fps native với bộ chuyển tab tức thì < 1ms, bảng đa slot mượt mà và script khởi chạy nhanh `run_gui_qt.bat`.
+  - Cập nhật thư viện `PySide6` vào requirements hệ thống.
+
 - **Tự Động Ghép Nhiều Party Độc Lập (Auto Multi-PT System):**
   - **Cơ chế tự động chia nhóm 5 acc**: Hệ thống tự động phân chia toàn bộ dàn tài khoản theo quy tắc 5 acc/nhóm (Slot 1–5 vào PT 1, Slot 6–10 vào PT 2, Slot 11–15 vào PT 3...).
   - **Chủ PT độc lập từng nhóm**: Cho phép tự do chỉ định Chủ PT riêng biệt cho từng nhóm (ví dụ PT 1 chủ Slot 2, PT 2 chủ Slot 8), hệ thống tự động hoán đổi vai trò và bảo lưu vĩnh viễn cấu hình.
@@ -195,20 +209,10 @@ if __name__ == "__main__":
   - Chuẩn hóa đường dẫn nạp DLL tuyệt đối, loại bỏ hoàn toàn lỗi thiếu file DLL trên các môi trường chạy khác nhau.
   - Đồng bộ alias `get_hwid()` và trạng thái hiển thị bản quyền Pro (Vĩnh viễn) trên giao diện.
 
-- **Mirror Turbo Burst & Zero-Confirm:**
-  - Tối ưu hóa chu kỳ quét và gửi packet liên tục, triệt tiêu độ trễ chuyển map và gom đồ.
-  - Tự động nhận thưởng Gremory Case (phím K) Native Hook.
-
 - **Giao Diện & Cơ Chế Cập Nhật Tự Động (Auto Updater UI):**
   - Tích hợp cửa sổ `UpdateModal` trực quan: so sánh phiên bản hiện tại vs mới nhất, xem ghi chú phát hành, thanh tiến trình tải xuống realtime.
   - Tự động thay thế tệp .exe và khởi động lại phiên bản mới an toàn, không lo lock tiến trình.
   - Tự động kiểm tra bản mới ngầm và báo hiệu trực quan `🔥 Có bản mới!` ngay trên thanh Header.
-  - Ưu tiên cập nhật trực tiếp file Dashboard và cung cấp nút mở tải bộ cài đặt trên trình duyệt.
-
-- **Kế thừa toàn diện các tính năng Promax:**
-  - Phân loại vé Devil Square chuẩn 7 tầng MEGAMU và vé Master.
-  - Tự động bán đồ rác Moss tại NPC Silvia với wire packet opcode 0xF9 (mã hóa XOR 0xCB).
-  - Khắc phục triệt để crash GUI bằng Thread-Safe Dispatching và Font/Tooltip caching.
 """
 
     release = create_or_get_release(token, version, title, body)
