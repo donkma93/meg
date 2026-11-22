@@ -180,10 +180,10 @@ def ensure_desktop_attached():
 ensure_desktop_attached()
 
 # ==============================================================================
-# IL2CPP RVA & Offsets (GameAssembly.dll)
+# IL2CPP RVA & Offsets (GameAssembly.dll) — ZERO HARDCODED RVA (NẠP TỪ RAM LICENSE)
 # ==============================================================================
 
-GAME_TYPE_INFO_RVA = 0x55A4D00 # Đồng bộ megamu_offsets.json mới nhất
+GAME_TYPE_INFO_RVA = 0
 KLASS_STATIC_FIELDS_OFFSET = 0xB8
 GAME_STATIC_INSTANCE_OFFSET = 0x8
 GAME_PLAYER_OFFSET = 0x208
@@ -203,35 +203,60 @@ AUTO_MOVE_WORKING_OFFSET = 0x4C0
 AUTO_MOVE_TYPE_OFFSET = 0x4C4
 AUTO_MOVE_HELPER_OFFSET = 0x4C8
 AUTO_MOVE_DEST_OFFSET = 0x4D0
-START_AUTO_MOVE_RVA = 0xC43C50
-STOP_AUTO_MOVE_RVA = 0xC43E10
+START_AUTO_MOVE_RVA = 0
+STOP_AUTO_MOVE_RVA = 0
+
+def _apply_navigator_offsets_dict(data: dict) -> bool:
+    global GAME_TYPE_INFO_RVA, START_AUTO_MOVE_RVA, STOP_AUTO_MOVE_RVA
+    if not isinstance(data, dict) or not data:
+        return False
+    loaded = False
+    if data.get("game_type_info"):
+        v = data["game_type_info"]
+        GAME_TYPE_INFO_RVA = int(v, 16) if isinstance(v, str) else int(v)
+        loaded = True
+    if data.get("start_auto_move") or data.get("move_to"):
+        v = data.get("start_auto_move") or data.get("move_to")
+        START_AUTO_MOVE_RVA = int(v, 16) if isinstance(v, str) else int(v)
+        loaded = True
+    if data.get("stop_auto_move"):
+        v = data["stop_auto_move"]
+        STOP_AUTO_MOVE_RVA = int(v, 16) if isinstance(v, str) else int(v)
+        loaded = True
+    return loaded
 
 def _load_navigator_offsets():
-    """Tự động đồng bộ các RVA quan trọng từ file cấu hình megamu_offsets.json."""
-    global GAME_TYPE_INFO_RVA, START_AUTO_MOVE_RVA, STOP_AUTO_MOVE_RVA
+    """Nạp RVA từ RAM của meg_license_bridge.dll (Strict Online trên bản phát hành; dev local mới đọc JSON)."""
+    # 1. Ưu tiên tuyệt đối: RAM Vault từ C++ Native Security Bridge
+    try:
+        from license_client import get_secure_game_offsets
+        sec = get_secure_game_offsets()
+        if sec and _apply_navigator_offsets_dict(sec):
+            return
+    except Exception:
+        pass
+
+    # 2. Bản đóng gói (.exe frozen): TUYỆT ĐỐI KHÔNG đọc file megamu_offsets.json từ đĩa!
+    if getattr(sys, "frozen", False):
+        return
+
+    # 3. Môi trường Dev nội bộ (.py chưa đóng gói)
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(base_dir, "megamu_offsets.json"),
         os.path.join(base_dir, "config", "megamu_offsets.json"),
+        os.path.join(base_dir, "megamu_offsets.json"),
     ]
     for p in candidates:
         if os.path.exists(p):
             try:
                 with open(p, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                if "game_type_info" in data:
-                    v = data["game_type_info"]
-                    GAME_TYPE_INFO_RVA = int(v, 16) if isinstance(v, str) else int(v)
-                if "start_auto_move" in data:
-                    v = data["start_auto_move"]
-                    START_AUTO_MOVE_RVA = int(v, 16) if isinstance(v, str) else int(v)
-                if "stop_auto_move" in data:
-                    v = data["stop_auto_move"]
-                    STOP_AUTO_MOVE_RVA = int(v, 16) if isinstance(v, str) else int(v)
-                break
+                if _apply_navigator_offsets_dict(data):
+                    return
             except Exception:
                 pass
 
+refresh_navigator_offsets = _load_navigator_offsets
 _load_navigator_offsets()
 
 # MuHelper (Auto Attack) Offsets

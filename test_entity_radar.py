@@ -293,16 +293,27 @@ MAP_SPOTS = {
 
 def load_game_type_info_offset() -> int:
     try:
-        offsets_path = get_resource_path("megamu_offsets.json")
-        if os.path.exists(offsets_path):
-            with open(offsets_path, "r", encoding="utf-8") as f:
-                d = json.load(f)
-                val = d.get("game_type_info")
-                if val:
-                    return int(val, 16) if isinstance(val, str) else int(val)
+        from license_client import get_secure_game_offsets
+        sec = get_secure_game_offsets()
+        val = sec.get("game_type_info") if isinstance(sec, dict) else None
+        if val:
+            return int(val, 16) if isinstance(val, str) else int(val)
     except Exception:
         pass
-    return 0x553B900
+    if getattr(sys, "frozen", False):
+        return 0
+    try:
+        for rel in (os.path.join("config", "megamu_offsets.json"), "megamu_offsets.json"):
+            offsets_path = get_resource_path(rel)
+            if os.path.exists(offsets_path):
+                with open(offsets_path, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                    val = d.get("game_type_info")
+                    if val:
+                        return int(val, 16) if isinstance(val, str) else int(val)
+    except Exception:
+        pass
+    return 0
 
 GAME_TYPE_INFO_RVA = load_game_type_info_offset()
 
@@ -351,7 +362,10 @@ class MemoryScanner:
         if not self.hProc or not self.base_addr:
             return items
         try:
-            type_info = self.read_ptr(self.base_addr + 0x553B900)
+            gti_rva = GAME_TYPE_INFO_RVA or load_game_type_info_offset()
+            if not gti_rva:
+                return items
+            type_info = self.read_ptr(self.base_addr + gti_rva)
             if not type_info: return items
             static_fields = self.read_ptr(type_info + 0xB8)
             if not static_fields: return items

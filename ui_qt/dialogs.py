@@ -4,8 +4,9 @@ MEGAMU DASHBOARD QT6 - NATIVE MODAL DIALOGS
 Các hộp thoại native Qt6: Dọn Rác Hòm Đồ, Bản Quyền, Devil Square, Cộng Point, Auto PT, Telegram.
 """
 
+import threading
 from typing import Any, Callable, Dict, List, Optional
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QFrame, QLabel,
     QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox, QPlainTextEdit,
@@ -119,31 +120,50 @@ class JunkDisposalDialogQt(QDialog):
 
 
 class LicenseDialogQt(QDialog):
-    """Hộp thoại xem & kích hoạt License Key."""
+    """Hộp thoại quản lý, kích hoạt & đồng bộ Bản Quyền + Kho Offset RAM (v3.0)."""
+
+    _activate_done_sig = Signal(bool, str)
+    _sync_done_sig = Signal(bool, str)
 
     def __init__(self, license_client: Any, on_activated: Optional[Callable[[], None]] = None, parent=None):
         super().__init__(parent)
+        self._activate_done_sig.connect(self._on_activate_done, Qt.QueuedConnection)
+        self._sync_done_sig.connect(self._on_sync_done, Qt.QueuedConnection)
         self.license_client = license_client
         self.on_activated = on_activated
+        self._busy = False
         self.setWindowTitle("🔑 Quản lý Bản Quyền - MEGAMU Auto Train")
-        self.setFixedSize(470, 330)
+        self.setFixedSize(520, 420)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(10)
 
-        t = QLabel("QUẢN LÝ BẢN QUYỀN")
-        t.setStyleSheet("font-size: 15px; font-weight: 700; color: #f1f5f9;")
+        t = QLabel("QUẢN LÝ BẢN QUYỀN & ĐỒNG BỘ SERVER")
+        t.setStyleSheet("font-size: 15px; font-weight: 800; color: #f1f5f9;")
         root.addWidget(t)
 
-        status = license_client.get_license_display_text() if hasattr(license_client, "get_license_display_text") else "N/A"
         card = QFrame()
         card.setProperty("surface", "card")
         cl = QVBoxLayout(card)
         cl.setContentsMargins(12, 10, 12, 10)
-        lbl_s = QLabel(f"Trạng thái: {status}")
-        lbl_s.setStyleSheet("color: #38bdf8; font-weight: 700;")
-        cl.addWidget(lbl_s)
+        cl.setSpacing(5)
+
+        self.lbl_status = QLabel("Trạng thái: ...")
+        self.lbl_status.setStyleSheet("color: #38bdf8; font-weight: 700; font-size: 13px;")
+        cl.addWidget(self.lbl_status)
+
+        self.lbl_details = QLabel("Gói: -- | Hạn dùng: -- | Slot tối đa: --")
+        self.lbl_details.setStyleSheet("color: #cbd5e1; font-size: 11px;")
+        cl.addWidget(self.lbl_details)
+
+        self.lbl_modules = QLabel("Modules: --")
+        self.lbl_modules.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        cl.addWidget(self.lbl_modules)
+
+        self.lbl_vault = QLabel("Bảo mật DLL / RAM Offset: ...")
+        self.lbl_vault.setStyleSheet("color: #2dd4bf; font-size: 11px;")
+        cl.addWidget(self.lbl_vault)
         root.addWidget(card)
 
         hwid = ""
@@ -153,43 +173,191 @@ class LicenseDialogQt(QDialog):
             pass
 
         form = QFormLayout()
-        ed_hwid = QLineEdit(hwid)
-        ed_hwid.setReadOnly(True)
-        form.addRow("HWID:", ed_hwid)
+        form.setSpacing(8)
+
+        hwid_row = QHBoxLayout()
+        hwid_row.setSpacing(6)
+        self.ed_hwid = QLineEdit(hwid)
+        self.ed_hwid.setReadOnly(True)
+        btn_copy = QPushButton("📋 Copy")
+        btn_copy.setProperty("tone", "ghost")
+        btn_copy.setFixedSize(70, 28)
+        btn_copy.clicked.connect(self._copy_hwid)
+        hwid_row.addWidget(self.ed_hwid, 1)
+        hwid_row.addWidget(btn_copy)
+        form.addRow("HWID:", hwid_row)
 
         self.ed_key = QLineEdit()
-        self.ed_key.setPlaceholderText("Nhập License Key...")
+        self.ed_key.setPlaceholderText("Nhập License Key (VD: MEGAMU-XXXX-XXXX)...")
+        try:
+            cur_k = (license_client.load_license_data() or {}).get("license_key", "")
+            if cur_k:
+                self.ed_key.setText(str(cur_k))
+        except Exception:
+            pass
         form.addRow("License Key:", self.ed_key)
         root.addLayout(form)
 
+        self.lbl_msg = QLabel("")
+        self.lbl_msg.setWordWrap(True)
+        self.lbl_msg.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        root.addWidget(self.lbl_msg)
+
         root.addStretch(1)
 
-        btn_act = QPushButton("✔ Kích hoạt bản quyền")
-        btn_act.setProperty("tone", "success")
-        btn_act.setFixedHeight(34)
-        btn_act.clicked.connect(self._activate)
-        root.addWidget(btn_act)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        self.btn_act = QPushButton("✔ Kích hoạt")
+        self.btn_act.setProperty("tone", "success")
+        self.btn_act.setFixedHeight(34)
+        self.btn_act.clicked.connect(self._activate)
+
+        self.btn_sync = QPushButton("🔄 Đồng Bộ")
+        self.btn_sync.setProperty("tone", "primary")
+        self.btn_sync.setFixedHeight(34)
+        self.btn_sync.clicked.connect(self._sync)
+
+        self.btn_deact = QPushButton("✕ Bỏ kích hoạt")
+        self.btn_deact.setProperty("tone", "danger")
+        self.btn_deact.setFixedHeight(34)
+        self.btn_deact.clicked.connect(self._deactivate)
+
+        btn_row.addWidget(self.btn_act, 1)
+        btn_row.addWidget(self.btn_sync, 1)
+        btn_row.addWidget(self.btn_deact, 1)
+        root.addLayout(btn_row)
 
         btn_close = QPushButton("Đóng")
         btn_close.setProperty("tone", "ghost")
-        btn_close.setFixedHeight(30)
+        btn_close.setFixedHeight(28)
         btn_close.clicked.connect(self.reject)
         root.addWidget(btn_close)
 
+        self._refresh_info()
+
+    def _copy_hwid(self):
+        try:
+            from PySide6.QtWidgets import QApplication
+            QApplication.clipboard().setText(self.ed_hwid.text())
+            self.lbl_msg.setText("✓ Đã sao chép mã HWID vào Clipboard.")
+            self.lbl_msg.setStyleSheet("color: #4ade80; font-size: 11px;")
+        except Exception:
+            pass
+
+    def _set_busy(self, busy: bool, msg: str = ""):
+        self._busy = busy
+        for b in (self.btn_act, self.btn_sync, self.btn_deact):
+            b.setEnabled(not busy)
+        if msg:
+            self.lbl_msg.setText(msg)
+            self.lbl_msg.setStyleSheet("color: #38bdf8; font-size: 11px;")
+
+    def _refresh_info(self):
+        lc = self.license_client
+        try:
+            if hasattr(lc, "is_native_bridge_active") and not lc.is_native_bridge_active():
+                lc.is_native_bridge_active(force_reload=True)
+            data = lc.load_license_data() if hasattr(lc, "load_license_data") else {}
+            is_valid = lc.is_license_valid() if hasattr(lc, "is_license_valid") else False
+            status_txt = lc.get_license_display_text() if hasattr(lc, "get_license_display_text") else "N/A"
+            dll_ok = lc.is_native_bridge_active() if hasattr(lc, "is_native_bridge_active") else False
+            dll_ver = lc.get_bridge_version() if hasattr(lc, "get_bridge_version") else 0
+            has_off = lc.has_secure_game_offsets() if hasattr(lc, "has_secure_game_offsets") else False
+            mods = lc.get_licensed_modules() if hasattr(lc, "get_licensed_modules") else []
+
+            if is_valid:
+                self.lbl_status.setText(f"Trạng thái: ✅ ĐÃ KÍCH HOẠT — {status_txt}")
+                self.lbl_status.setStyleSheet("color: #4ade80; font-weight: 700; font-size: 13px;")
+            else:
+                self.lbl_status.setText(f"Trạng thái: 🔒 CHƯA KÍCH HOẠT ({status_txt})")
+                self.lbl_status.setStyleSheet("color: #f87171; font-weight: 700; font-size: 13px;")
+
+            plan = data.get("plan_type", "--") if is_valid else "--"
+            exp = "Vĩnh viễn" if (is_valid and (data.get("is_lifetime") or not data.get("expires_at"))) else (str(data.get("expires_at", "--")).split(" ")[0] if is_valid else "--")
+            slots = data.get("max_slots", "--") if is_valid else "--"
+            last_v = data.get("last_verified_at", "--") if is_valid else "--"
+            self.lbl_details.setText(f"Gói: {plan}   |   Hạn dùng: {exp}   |   Slot tối đa: {slots}   |   Sync: {last_v}")
+            self.lbl_modules.setText("Modules: " + (", ".join(m.upper() for m in mods) if mods else "Chưa cấp quyền"))
+            dll_lbl = f"C++ DLL v{dll_ver/100:.1f} ✅" if dll_ok else "Thiếu meg_license_bridge.dll ❌"
+            ram_lbl = "RAM Offset: Đã nạp từ Server ✅" if has_off else "RAM Offset: Chưa đồng bộ (bấm Đồng Bộ) ⏳"
+            self.lbl_vault.setText(f"{dll_lbl}   |   {ram_lbl}")
+        except Exception as e:
+            self.lbl_msg.setText(f"Lỗi đọc trạng thái bản quyền: {e}")
+
     def _activate(self):
+        if self._busy:
+            return
         key = self.ed_key.text().strip()
         if not key:
             QMessageBox.warning(self, "License", "Vui lòng nhập license key.")
             return
+        self._set_busy(True, "⏳ Đang gửi yêu cầu kích hoạt và tải khóa phiên từ máy chủ...")
+
+        def _w():
+            try:
+                ok, msg, _info = self.license_client.activate_license(key)
+            except Exception as e:
+                ok, msg = False, str(e)
+            self._activate_done_sig.emit(bool(ok), str(msg or ""))
+
+        threading.Thread(target=_w, daemon=True).start()
+
+    def _on_activate_done(self, ok: bool, msg: str):
+        self._set_busy(False)
+        self._refresh_info()
+        if ok:
+            self.lbl_msg.setText(f"✓ {msg or 'Kích hoạt thành công!'}")
+            self.lbl_msg.setStyleSheet("color: #4ade80; font-size: 11px;")
+            if self.on_activated:
+                self.on_activated()
+            QMessageBox.information(self, "License", msg or "Kích hoạt bản quyền thành công!")
+            self.accept()
+        else:
+            self.lbl_msg.setText(f"✗ {msg or 'Kích hoạt thất bại.'}")
+            self.lbl_msg.setStyleSheet("color: #f87171; font-size: 11px;")
+            QMessageBox.critical(self, "License", msg or "Kích hoạt thất bại.")
+
+    def _sync(self):
+        if self._busy:
+            return
+        self._set_busy(True, "⏳ Đang đồng bộ bản quyền, modules và RAM Offsets từ máy chủ...")
+
+        def _w():
+            try:
+                ok, msg, _info = self.license_client.verify_license()
+            except Exception as e:
+                ok, msg = False, str(e)
+            self._sync_done_sig.emit(bool(ok), str(msg or ""))
+
+        threading.Thread(target=_w, daemon=True).start()
+
+    def _on_sync_done(self, ok: bool, msg: str):
+        self._set_busy(False)
+        self._refresh_info()
+        if self.on_activated:
+            self.on_activated()
+        if ok:
+            self.lbl_msg.setText(f"✓ Đồng bộ thành công! ({msg})")
+            self.lbl_msg.setStyleSheet("color: #4ade80; font-size: 11px;")
+        else:
+            self.lbl_msg.setText(f"✗ {msg or 'Đồng bộ thất bại.'}")
+            self.lbl_msg.setStyleSheet("color: #f87171; font-size: 11px;")
+
+    def _deactivate(self):
+        if self._busy:
+            return
+        ans = QMessageBox.question(self, "Xác nhận", "Bạn có chắc chắn muốn bỏ kích hoạt bản quyền trên máy này?")
+        if ans != QMessageBox.Yes:
+            return
         try:
-            ok, msg, _info = self.license_client.activate_license(key)
-            if ok:
-                QMessageBox.information(self, "License", msg or "Kích hoạt thành công.")
-                if self.on_activated:
-                    self.on_activated()
-                self.accept()
-            else:
-                QMessageBox.critical(self, "License", msg or "Kích hoạt thất bại.")
+            self.license_client.deactivate_license()
+            self.ed_key.clear()
+            self._refresh_info()
+            self.lbl_msg.setText("✓ Đã bỏ kích hoạt bản quyền và xóa sạch RAM Offsets trên máy này.")
+            self.lbl_msg.setStyleSheet("color: #facc15; font-size: 11px;")
+            if self.on_activated:
+                self.on_activated()
         except Exception as e:
             QMessageBox.critical(self, "License", str(e))
 

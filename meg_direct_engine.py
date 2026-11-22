@@ -5,8 +5,8 @@ MEGAMU Direct Frida IL2CPP Engine
 =================================
 Giao tiếp trực tiếp và an toàn với GameAssembly.dll qua Frida Dynamic Instrumentation.
 Mô phỏng 100% cơ chế MEGAMUCore của MEGAMU Auto Train Dashboard gốc:
-- Hook onEnter vào chat_update (offset 0x14B6AF0) trên Unity Main Thread.
-- Thực thi MoveTo (0xD72750), ChatSend (0x14B9250), HelperStart (0x2A3B580), HelperStop (0x2A3C660).
+- Hook onEnter vào chat_update (tải động từ RAM License Vault) trên Unity Main Thread.
+- Thực thi MoveTo, ChatSend, HelperStart, HelperStop qua địa chỉ giải mã trong RAM.
 - Push Fast Telemetry mỗi 150ms từ trong RAM tiến trình game ra Python (Zero-Polling).
 - 3-Phase Safe Detach với Interceptor.flush() chống crash 0xc0000005 frida-agent.dll_unloaded.
 - Mutex Process Guard tránh đa phiên Frida đồng thời trên cùng 1 Game PID.
@@ -52,160 +52,10 @@ def _safe_log(msg: str):
     except Exception:
         pass
 
-DEFAULT_OFFSETS = {
+# ZERO HARDCODED OFFSETS: Toàn bộ giá trị offset thực tế được Server mã hóa AES-256-CBC
+# và giải mã tạm trên RAM bởi meg_license_bridge.dll (không lưu trong source hay đĩa phát hành).
+DEFAULT_OFFSETS: Dict[str, Any] = {
     "game_module": "GameAssembly.dll",
-    "get_player": "0x10D7DD0",
-    "get_game_ui": "0x10D7E40",
-    "get_world": "0x10D7EB0",
-    "get_auto_login": "0x10D7BB0",
-    "get_window_handler": "0x10D6F90",
-    "game_update": "0x10CFF50",
-    "game_ui_update": "0x13F37D0",
-    "game_type_info": "0x55A4D00",
-    "item_storage_type_info": "0x5574B18",
-    "mlogin_ui_type_info": "0x559CF00",
-    "mlogin_submit": "0x1CF98A0",
-    "mlogin_token_login": "0x1CFA990",
-    "set_auto_login": "0xF68780",
-    "move_to": "0xC43C50",
-    "start_auto_move": "0xC43C50",
-    "stop_auto_move": "0xC43E10",
-    "chat_send": "0x134B040",
-    "chat_frame_send": "0x134B040",
-    "chat_send_cmd": "0xF79E70",
-    "command_mgr_process": "0xF79E70",
-    "static_chat_send": "0xF78030",
-    "chat_update": "0x1359450",
-    "helper_start": "0x478B40",
-    "helper_stop": "0x469600",
-    "helper_action": "0x472030",
-    "helper_toggle": "0x472030",
-    "helper_send_bf51": "0x472030",
-    "helper_req_start": "0x478B40",
-    "helper_req_stop": "0x469600",
-    "ui_location_frame": "0x88",
-    "location_helper_on": "0x60",
-    "location_helper_off": "0x68",
-    "location_update_helper": "0x26A2E80",
-    "npc_talk": "0x10E3010",
-    "npc_send_talk": "0x10E9C10",
-    "npc_close_talk": "0x10ECB60",
-    "npc_click": "0x10E3010",
-    "get_config": "0x10D72F0",
-    "get_user_2fa": "0x10D5080",
-    "inv_trash_item": "0x0",
-    "inv_sell_item": "0x0",
-    "inv_drop_item": "0x0",
-    "user_inv_trash": "0x1450900",
-    "user_inv_drop": "0x14581E0",
-    "user_inv_drop_recv": "0x1457C40",
-    "user_inv_action": "0x14521D0",
-    "user_inv_sell": "0x14521D0",
-    "user_inv_sell_5": "0x14557E0",
-    "item_storage_drop": "0x22EEA70",
-    "merchant_sell_item": "0x2858700",
-    "slot_quick_action": "0x24B1E10",
-    "item_storage_move": "0x2309F10",
-    "window_show": "0x2814390",
-    "window_hide": "0x27ABAF0",
-    "window_set_state": "0x2808DB0",
-    "moss_roll": "0x286FE70",
-    "moss_open": "0x2808DB0",
-    "moss_roll_handler": "0x2872990",
-    "moss_init": "0x2876A90",
-    "moss_select_cat": "0x2871370",
-    "moss_send_roll": "0x24CE7B0",
-    "moss_roll_click": "0x286FE70",
-    "moss_window_close": "0x27ABAF0",
-    "game_object_set_active": "0x46263E0",
-    "component_get_game_object": "0x4621FC0",
-    "mirror_enter": "0x100A910",
-    "mirror_enter_alt": "0x100A910",
-    "mirror_npc_click": "0x100B2E0",
-    "mirror_is_event_map": "0x100D680",
-    "mirror_teleport_event": "0x100D800",
-    "doublegoer_type_info": "0x55612C8",
-    "item_mirror_ticket": 7279,
-    "devil_closure_enter": "0xFED530",
-    "devil_closure_type_info": "0x55615E8",
-    "devil_enter": "0xFED530",
-    "devil_enter_alt": "0xFED6A0",
-    "devil_enter_1e": "0xFED530",
-    "devil_npc_click": "0xFFDF30",
-    "devil_is_event_map": "0xFEE4D0",
-    "item_devil_ticket": 7187,
-    "item_devil_ticket_master": 6702,
-    "table_event_entry_level": "0xD82E90",
-    "helper_ui_get_instance": "0x10D27B0",
-    "helper_ui_show_dialog": "0x1CDD220",
-    "helper_ui_show_confirm": "0x1CDBEB0",
-    "modal_manager_get_instance": "0x95AFA0",
-    "modal_manager_create": "0x95B300",
-    "modal_box_set_text1": "0x9598B0",
-    "modal_box_set_text2": "0x959A60",
-    "modal_box_set_confirm_text": "0x959C10",
-    "modal_box_show": "0x959E10",
-    "get_gs_connection": "0x10D59E0",
-    "gs_send": "0x122DCD0",
-    "gs_send_alt": "0x122DCD0",
-    "player_point": "0x238",
-    "player_master_point": "0x23C",
-    "player_reset_count": "0x2B4",
-    "player_name": "0x28",
-    "player_level": "0x30",
-    "player_class": "0x34",
-    "player_coord": "0x68",
-    "player_move": "0xE8",
-    "player_inventory": "0x1B0",
-    "player_helper": "0x1E0",
-    "player_last_coord": "0x508",
-    "auto_move_working": "0x4C0",
-    "auto_move_type": "0x4C4",
-    "auto_move_helper": "0x4C8",
-    "auto_move_dest": "0x4D0",
-    "move_flag": "0x3C",
-    "helper_state": "0x20",
-    "inventory_items": "0x28",
-    "game_world": "0x200",
-    "world_scene_index": "0x20",
-    "viewport": "0x110",
-    "ui_chat_frame": "0x50",
-    "ui_moss_window": "0x1D0",
-    "ui_merchant_window": "0x1A0",
-    "ui_inventory_window": "0x190",
-    "ui_warehouse_window": "0x290",
-    "ui_gremory_window": "0x170",
-    "gremory_type_info": "0x55A4D00",
-    "gremory_claim_item": "0x109D830",
-    "gremory_instance_offset": "0x138",
-    "gremory_dict_offset": "0x20",
-    "window_toggle": "0x2810F10",
-    "button_press": "0x4705530",
-    "unity_event_invoke": "0x463F230",
-    "mdialog_confirm_yes": "0x1C6C860",
-    "mirror_enter_recv": "0x100C180",
-    "set_target_framerate": "0x45E4B80",
-    "get_target_framerate": "0x45E4B30",
-    "set_vsync_count": "0x45F94B0",
-    "get_vsync_count": "0x45F9460",
-    "pkt_enc_nikini": "0x126BC00",
-    "pkt_enc_ngjg": "0x126B4A0",
-    "socket_send_err": "0x42DF4D0",
-    "tcp_set_nodelay": "0x42EB350",
-    "unity_get_time": "0x462F900",
-    "get_user_account": "0x10D8BD0",
-    "user_account_set_username": "0x14187B0",
-    "user_account_set_token": "0x1418E10",
-    "get_scene_handler": "0x10D8460",
-    "get_cs_connection": "0x10D85B0",
-    "cs_connection_connect": "0x121DE20",
-    "runtime_class_init": "0x2EC0A0",
-    "party_invite_by_key": "0x1485BB0",
-    "get_helper_ui": "0x10D27B0",
-    "mhelper_show_dialog_id": "0x1CDC490",
-    "mhelper_show_dialog_generic": "0x1CDE0E0",
-    "user_party_send_response": "0x1488D90",
-    "user_party_c2_40": "0x148C830"
 }
 
 FRIDA_AGENT_JS = r"""
@@ -958,8 +808,6 @@ try {
     var gcOff = off('__GET_CONFIG__');
     if (!gcOff.isNull()) {
         nativeGetConfig = new NativeFunction(baseAddr.add(gcOff), 'pointer', []);
-    } else {
-        nativeGetConfig = new NativeFunction(baseAddr.add(ptr('0x107B360')), 'pointer', []);
     }
 } catch (eGC) {}
 
@@ -968,8 +816,6 @@ try {
     var u2faOff = off('__GET_USER_2FA__');
     if (!u2faOff.isNull()) {
         nativeGetUser2FA = new NativeFunction(baseAddr.add(u2faOff), 'pointer', []);
-    } else {
-        nativeGetUser2FA = new NativeFunction(baseAddr.add(ptr('0x10D5080')), 'pointer', []);
     }
 } catch (e2fa) {}
 
@@ -978,8 +824,6 @@ try {
     var uitOff = off('__USER_INV_TRASH__');
     if (!uitOff.isNull()) {
         nativeUserInvTrash = new NativeFunction(baseAddr.add(uitOff), 'void', ['int', 'int', 'pointer']);
-    } else {
-        nativeUserInvTrash = new NativeFunction(baseAddr.add(ptr('0x144C8A0')), 'void', ['int', 'int', 'pointer']);
     }
 } catch (eUIT) {}
 
@@ -988,8 +832,6 @@ try {
     var uiaOff = off('__USER_INV_ACTION__');
     if (!uiaOff.isNull()) {
         nativeUserInvAction = new NativeFunction(baseAddr.add(uiaOff), 'void', ['int', 'pointer']);
-    } else {
-        nativeUserInvAction = new NativeFunction(baseAddr.add(ptr('0x14521D0')), 'void', ['int', 'pointer']);
     }
 } catch (eUIA) {}
 
@@ -998,8 +840,6 @@ try {
     var isdOff = off('__ITEM_STORAGE_DROP__');
     if (!isdOff.isNull()) {
         nativeItemStorageDrop = new NativeFunction(baseAddr.add(isdOff), 'void', ['pointer', 'pointer']);
-    } else {
-        nativeItemStorageDrop = new NativeFunction(baseAddr.add(ptr('0x22EEA70')), 'void', ['pointer', 'pointer']);
     }
 } catch (eISD) {}
 
@@ -6960,7 +6800,8 @@ rpc.exports = {
             // +0x08: int ECBFKNFEGDP (passedMonsters)
             // +0x0C: int DKNEMBJBPJB (maxPassedMonsters - chuyển > 0 khi trận đấu bắt đầu!)
             var dgOff = off('__DOUBLEGOER_TYPE_INFO__');
-            var dgTypeInfo = baseAddr.add(!dgOff.isNull() ? dgOff : ptr('0x55612C8')).readPointer();
+            if (dgOff.isNull()) return JSON.stringify({ ok: false, active: false, timer: 0, passed: 0, maxPassed: 0 });
+            var dgTypeInfo = baseAddr.add(dgOff).readPointer();
             if (!dgTypeInfo.isNull()) {
                 var sf = dgTypeInfo.add(0xB8).readPointer();
                 if (!sf.isNull()) {
@@ -7991,7 +7832,10 @@ rpc.exports = {
             var base = Process.findModuleByName('GameAssembly.dll').base;
             var gTypeOff = off('__GREMORY_TYPE_INFO__');
             var gClaimOff = off('__GREMORY_CLAIM_ITEM__');
-            var typeInfo = base.add(!gTypeOff.isNull() ? gTypeOff : ptr('0x55A4D00')).readPointer();
+            if (gTypeOff.isNull() || gClaimOff.isNull()) {
+                return JSON.stringify({ ok: false, claimed: 0, reason: "gremory_offsets_missing" });
+            }
+            var typeInfo = base.add(gTypeOff).readPointer();
             if (typeInfo.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "typeInfo_null" });
             var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
             if (staticFields.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "staticFields_null" });
@@ -8011,7 +7855,7 @@ rpc.exports = {
             try { outerArrLen = outerEntries.add(ptr('0x18')).readS32(); } catch (eOAL) { outerArrLen = outerCount; }
             var outerLimit = Math.min(outerCount, outerArrLen, 16);
 
-            var claimFunc = new NativeFunction(base.add(!gClaimOff.isNull() ? gClaimOff : ptr('0x109D830')), 'void', ['pointer', 'pointer']);
+            var claimFunc = new NativeFunction(base.add(gClaimOff), 'void', ['pointer', 'pointer']);
             var claimedCount = 0;
             var claimedItems = [];
 
@@ -9636,63 +9480,74 @@ class MegDirectEngine:
             self.telemetry_callbacks.remove(cb)
 
     def _load_offsets_file(self):
-        # 1. Khởi tạo toàn bộ offset mặc định (Chuẩn xác 100% của bản MEGAMU hiện tại)
+        """
+        Nạp Game Offsets theo kiến trúc Zero-Offset-On-Disk (RAM-Only):
+        1. Ưu tiên tuyệt đối: Lấy trực tiếp từ kho RAM mã hóa của `meg_license_bridge.dll`
+           (đã được Web License Server mã hóa AES-256-CBC và giải mã trong RAM).
+        2. Nếu RAM chưa có offset mà license đang hợp lệ -> tự động gọi `verify_license()`
+           để đồng bộ trực tuyến từ Web Server vào RAM ngay lập tức.
+        3. Bản phát hành đóng gói (frozen `.exe`): TUYỆT ĐỐI KHÔNG đọc bất kỳ file
+           `megamu_offsets.json` nào từ ổ cứng!
+        4. Chỉ khi đang chạy mã nguồn mở (dev local, chưa đóng gói) mới cho phép fallback
+           đọc `config/megamu_offsets.json` phục vụ kiểm thử nội bộ.
+        """
         self.offsets = dict(DEFAULT_OFFSETS)
+        is_frozen = bool(getattr(sys, "frozen", False))
 
-        # 2. Bổ sung các offset mới từ Native C++ Security Bridge nếu chưa có trong DEFAULT_OFFSETS
+        # 1. Nạp từ RAM của Native C++ Security Bridge (Strict Online)
         try:
-            from license_client import get_secure_game_offsets, is_native_bridge_active
+            from license_client import (
+                get_secure_game_offsets,
+                is_native_bridge_active,
+                is_license_valid,
+                verify_license,
+            )
             if is_native_bridge_active():
                 sec_offsets = get_secure_game_offsets()
+                if not sec_offsets and is_frozen and is_license_valid():
+                    try:
+                        verify_license()
+                        sec_offsets = get_secure_game_offsets(force_refresh=True)
+                    except Exception:
+                        pass
                 if sec_offsets and isinstance(sec_offsets, dict):
                     for k, v in sec_offsets.items():
-                        if v and k not in self.offsets:
+                        if v is not None and v != "":
                             self.offsets[k] = v
-                    _safe_log("[MegDirectEngine] Đã nạp thành công Game Offsets từ Native C++ Security Bridge.")
+                    _safe_log(f"[MegDirectEngine] Đã nạp {len(sec_offsets)} Game Offsets trực tiếp từ RAM (Native C++ Vault).")
+                    return
         except Exception as e:
-            _safe_log(f"[MegDirectEngine] Lỗi trích xuất Native Offsets: {e}")
+            _safe_log(f"[MegDirectEngine] Lỗi trích xuất Native RAM Offsets: {e}")
 
-        # 3. Đọc cấu hình đĩa JSON để nạp bản cập nhật mới nhất (ƯU TIÊN TUYỆT ĐỐI ghi đè)
-        if getattr(sys, "frozen", False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-        candidate_paths = [
+        # 2. BẢN PHÁT HÀNH ĐÓNG GÓI (.EXE): TUYỆT ĐỐI KHÔNG ĐỌC OFFSET TỪ Ổ CỨNG
+        if is_frozen:
+            _safe_log("[MegDirectEngine] ⚠️ Chưa có Game Offsets trong RAM — hãy kết nối mạng và Đồng Bộ / Kích Hoạt bản quyền.")
+            return
+
+        # 3. CHẾ ĐỘ DEV NỘI BỘ (chỉ hoạt động khi chạy script .py chưa đóng gói)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        for p in (
             os.path.join(base_dir, "config", "megamu_offsets.json"),
             os.path.join(base_dir, "megamu_offsets.json"),
-        ]
-        meipass = os.environ.get("NUITKA_ONEFILE_DIRECTORY") or getattr(sys, "_MEIPASS", None)
-        if meipass:
-            candidate_paths.append(os.path.join(meipass, "config", "megamu_offsets.json"))
-            candidate_paths.append(os.path.join(meipass, "megamu_offsets.json"))
-
-        for p in candidate_paths:
+        ):
             if os.path.exists(p):
                 try:
                     with open(p, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     if isinstance(data, dict):
                         for k, v in data.items():
-                            if v:
+                            if v is not None and v != "":
                                 self.offsets[k] = v
-                        _safe_log(f"[MegDirectEngine] Đã nạp và ưu tiên cấu hình offsets từ tệp đĩa: {p}")
+                        _safe_log(f"[MegDirectEngine] [DEV] Đã nạp offsets từ đĩa cục bộ: {p}")
                         break
                 except Exception as e:
-                    _safe_log(f"[MegDirectEngine] Lỗi đọc megamu_offsets.json: {e}")
+                    _safe_log(f"[MegDirectEngine] [DEV] Lỗi đọc offsets cục bộ: {e}")
 
-        # 4. Tự động làm sạch các offset NpcManager bị dính hàm bẫy (obfuscated decoy) từ bản cấu hình cũ
-        if self.offsets.get("npc_talk") == "0x1015210":
-            self.offsets["npc_talk"] = "0x102AA00"
-        if self.offsets.get("npc_close_talk") == "0x1025540":
-            self.offsets["npc_close_talk"] = "0x101B1C0"
-        if self.offsets.get("npc_click") in ("0x1013520", "0x1015210"):
-            self.offsets["npc_click"] = "0x102AA00"
-        if not self.offsets.get("npc_send_talk"):
-            self.offsets["npc_send_talk"] = "0x1023B10"
-        if not self.offsets.get("user_inv_pick_item"):
-            self.offsets["user_inv_pick_item"] = "0x1446400"
-        if not self.offsets.get("local_pick_nearest"):
-            self.offsets["local_pick_nearest"] = "0xB92800"
+    def _off(self, key: str, default: str = "0x0") -> str:
+        val = self.offsets.get(key)
+        if val is None or val == "":
+            return default
+        return str(val)
 
     def _claim_mutex(self):
         """Khóa Named Mutex trên Windows để đảm bảo mỗi PID chỉ gắn 1 Frida engine duy nhất."""
@@ -9715,166 +9570,171 @@ class MegDirectEngine:
             self._mutex_handle = None
 
     def _generate_js(self) -> str:
+        # Đảm bảo offsets đã được nạp vào RAM (hoặc dev JSON khi chạy unittest chưa gọi _load_offsets_file)
+        if len(self.offsets) <= 1:
+            self._load_offsets_file()
+
         js = FRIDA_AGENT_JS
+        o = self._off
         mapping = {
-            "__GET_PLAYER__": str(self.offsets.get("get_player") or DEFAULT_OFFSETS.get("get_player", "0x10D7DD0")),
-            "__GET_GAME_UI__": str(self.offsets.get("get_game_ui") or DEFAULT_OFFSETS.get("get_game_ui", "0x10D7E40")),
-            "__GET_WORLD__": str(self.offsets.get("get_world") or DEFAULT_OFFSETS.get("get_world", "0x10D7EB0")),
-            "__GET_AUTO_LOGIN__": str(self.offsets.get("get_auto_login") or DEFAULT_OFFSETS.get("get_auto_login", "0x10D7BB0")),
-            "__GET_WINDOW_HANDLER__": str(self.offsets.get("get_window_handler") or DEFAULT_OFFSETS.get("get_window_handler", "0x10D6F90")),
-            "__GAME_UPDATE__": str(self.offsets.get("game_update") or DEFAULT_OFFSETS.get("game_update", "0x10CFF50")),
-            "__GAME_UI_UPDATE__": str(self.offsets.get("game_ui_update") or DEFAULT_OFFSETS.get("game_ui_update", "0x13F37D0")),
-            "__GAME_TYPE_INFO__": str(self.offsets.get("game_type_info") or DEFAULT_OFFSETS.get("game_type_info", "0x55A4D00")),
-            "__ITEM_STORAGE_TYPE_INFO__": str(self.offsets.get("item_storage_type_info") or DEFAULT_OFFSETS.get("item_storage_type_info", "0x5574B18")),
-            "__MLOGIN_UI_TYPE_INFO__": str(self.offsets.get("mlogin_ui_type_info") or DEFAULT_OFFSETS.get("mlogin_ui_type_info", "0x559CF00")),
-            "__MLOGIN_SUBMIT__": str(self.offsets.get("mlogin_submit") or DEFAULT_OFFSETS.get("mlogin_submit", "0x1CF98A0")),
-            "__MLOGIN_TOKEN_LOGIN__": str(self.offsets.get("mlogin_token_login") or DEFAULT_OFFSETS.get("mlogin_token_login", "0x1CFA990")),
-            "__SET_AUTO_LOGIN__": str(self.offsets.get("set_auto_login") or DEFAULT_OFFSETS.get("set_auto_login", "0xF68780")),
-            "__MOVE_TO__": str(self.offsets.get("move_to") or DEFAULT_OFFSETS.get("move_to", "0xC43C50")),
-            "__START_AUTO_MOVE__": str(self.offsets.get("start_auto_move") or DEFAULT_OFFSETS.get("start_auto_move", "0xC43C50")),
-            "__STOP_AUTO_MOVE__": str(self.offsets.get("stop_auto_move") or DEFAULT_OFFSETS.get("stop_auto_move", "0xC43E10")),
-            "__CHAT_SEND__": str(self.offsets.get("chat_send") or DEFAULT_OFFSETS.get("chat_send", "0x134B040")),
-            "__CHAT_FRAME_SEND__": str(self.offsets.get("chat_frame_send") or DEFAULT_OFFSETS.get("chat_frame_send", "0x134B040")),
-            "__CHAT_SEND_CMD__": str(self.offsets.get("chat_send_cmd") or DEFAULT_OFFSETS.get("chat_send_cmd", "0xF79E70")),
-            "__COMMAND_MGR_PROCESS__": str(self.offsets.get("command_mgr_process") or DEFAULT_OFFSETS.get("command_mgr_process", "0xF79E70")),
-            "__STATIC_CHAT_SEND__": str(self.offsets.get("static_chat_send") or DEFAULT_OFFSETS.get("static_chat_send", "0xF78030")),
-            "__MDIALOG_CONFIRM_YES__": str(self.offsets.get("mdialog_confirm_yes") or DEFAULT_OFFSETS.get("mdialog_confirm_yes", "0x1C6C860")),
-            "__CHAT_UPDATE__": str(self.offsets.get("chat_update") or DEFAULT_OFFSETS.get("chat_update", "0x1359450")),
-            "__HELPER_START__": str(self.offsets.get("helper_start") or DEFAULT_OFFSETS.get("helper_start", "0x478B40")),
-            "__HELPER_STOP__": str(self.offsets.get("helper_stop") or DEFAULT_OFFSETS.get("helper_stop", "0x469600")),
-            "__HELPER_ACTION__": str(self.offsets.get("helper_action") or DEFAULT_OFFSETS.get("helper_action", "0x472030")),
-            "__HELPER_TOGGLE__": str(self.offsets.get("helper_toggle") or DEFAULT_OFFSETS.get("helper_toggle", "0x472030")),
-            "__HELPER_SEND_BF51__": str(self.offsets.get("helper_send_bf51") or DEFAULT_OFFSETS.get("helper_send_bf51", "0x472030")),
-            "__HELPER_REQ_START__": str(self.offsets.get("helper_req_start") or DEFAULT_OFFSETS.get("helper_req_start", "0x478B40")),
-            "__HELPER_REQ_STOP__": str(self.offsets.get("helper_req_stop") or DEFAULT_OFFSETS.get("helper_req_stop", "0x469600")),
-            "__UI_LOCATION_FRAME__": str(self.offsets.get("ui_location_frame") or DEFAULT_OFFSETS.get("ui_location_frame", "0x88")),
-            "__LOCATION_HELPER_ON__": str(self.offsets.get("location_helper_on") or DEFAULT_OFFSETS.get("location_helper_on", "0x60")),
-            "__LOCATION_HELPER_OFF__": str(self.offsets.get("location_helper_off") or DEFAULT_OFFSETS.get("location_helper_off", "0x68")),
-            "__LOCATION_UPDATE_HELPER__": str(self.offsets.get("location_update_helper") or DEFAULT_OFFSETS.get("location_update_helper", "0x26A2E80")),
-            "__NPC_TALK__": str(self.offsets.get("npc_talk") or DEFAULT_OFFSETS.get("npc_talk", "0x10E3010")),
-            "__NPC_CLOSE_TALK__": str(self.offsets.get("npc_close_talk") or DEFAULT_OFFSETS.get("npc_close_talk", "0x10ECB60")),
-            "__NPC_CLICK__": str(self.offsets.get("npc_click") or DEFAULT_OFFSETS.get("npc_click", "0x10E3010")),
-            "__NPC_SEND_TALK__": str(self.offsets.get("npc_send_talk") or DEFAULT_OFFSETS.get("npc_send_talk", "0x10E9C10")),
-            "__USER_INV_PICK_ITEM__": str(self.offsets.get("user_inv_pick_item") or DEFAULT_OFFSETS.get("user_inv_pick_item", "0x0")),
-            "__LOCAL_PICK_NEAREST__": str(self.offsets.get("local_pick_nearest") or DEFAULT_OFFSETS.get("local_pick_nearest", "0x0")),
-            "__GET_CONFIG__": str(self.offsets.get("get_config") or DEFAULT_OFFSETS.get("get_config", "0x10D72F0")),
-            "__GET_USER_2FA__": str(self.offsets.get("get_user_2fa") or DEFAULT_OFFSETS.get("get_user_2fa", "0x10D5080")),
-            "__INV_TRASH_ITEM__": str(self.offsets.get("inv_trash_item") or "0x0"),
-            "__INV_DROP_ITEM__": str(self.offsets.get("inv_drop_item") or "0x0"),
-            "__INV_SELL_ITEM__": str(self.offsets.get("inv_sell_item") or "0x0"),
-            "__USER_INV_TRASH__": str(self.offsets.get("user_inv_trash") or DEFAULT_OFFSETS.get("user_inv_trash", "0x1450900")),
-            "__USER_INV_DROP__": str(self.offsets.get("user_inv_drop") or DEFAULT_OFFSETS.get("user_inv_drop", "0x14581E0")),
-            "__USER_INV_DROP_RECV__": str(self.offsets.get("user_inv_drop_recv") or DEFAULT_OFFSETS.get("user_inv_drop_recv", "0x1457C40")),
-            "__USER_INV_ACTION__": str(self.offsets.get("user_inv_action") or DEFAULT_OFFSETS.get("user_inv_action", "0x14521D0")),
-            "__USER_INV_SELL__": str(self.offsets.get("user_inv_sell") or DEFAULT_OFFSETS.get("user_inv_sell", "0x14521D0")),
-            "__USER_INV_SELL_5__": str(self.offsets.get("user_inv_sell_5") or DEFAULT_OFFSETS.get("user_inv_sell_5", "0x14557E0")),
-            "__ITEM_STORAGE_DROP__": str(self.offsets.get("item_storage_drop") or DEFAULT_OFFSETS.get("item_storage_drop", "0x22EEA70")),
-            "__ITEM_STORAGE_SELL__": str(self.offsets.get("item_storage_sell") or DEFAULT_OFFSETS.get("item_storage_sell", "0x2250560")),
-            "__MERCHANT_SELL_ITEM__": str(self.offsets.get("merchant_sell_item") or DEFAULT_OFFSETS.get("merchant_sell_item", "0x2858700")),
-            "__SLOT_QUICK_ACTION__": str(self.offsets.get("slot_quick_action") or DEFAULT_OFFSETS.get("slot_quick_action", "0x24B1E10")),
-            "__ITEM_STORAGE_MOVE__": str(self.offsets.get("item_storage_move") or DEFAULT_OFFSETS.get("item_storage_move", "0x2309F10")),
-            "__WINDOW_SHOW__": str(self.offsets.get("window_show") or DEFAULT_OFFSETS.get("window_show", "0x2814390")),
-            "__WINDOW_HIDE__": str(self.offsets.get("window_hide") or DEFAULT_OFFSETS.get("window_hide", "0x27ABAF0")),
-            "__WINDOW_SET_STATE__": str(self.offsets.get("window_set_state") or DEFAULT_OFFSETS.get("window_set_state", "0x2808DB0")),
-            "__WINDOW_TOGGLE__": str(self.offsets.get("window_toggle") or DEFAULT_OFFSETS.get("window_toggle", "0x2810F10")),
-            "__BUTTON_PRESS__": str(self.offsets.get("button_press") or DEFAULT_OFFSETS.get("button_press", "0x4705530")),
-            "__UNITY_EVENT_INVOKE__": str(self.offsets.get("unity_event_invoke") or DEFAULT_OFFSETS.get("unity_event_invoke", "0x463F230")),
-            "__MOSS_ROLL__": str(self.offsets.get("moss_roll") or DEFAULT_OFFSETS.get("moss_roll", "0x286FE70")),
-            "__MOSS_OPEN__": str(self.offsets.get("moss_open") or DEFAULT_OFFSETS.get("moss_open", "0x2808DB0")),
-            "__MOSS_ROLL_HANDLER__": str(self.offsets.get("moss_roll_handler") or DEFAULT_OFFSETS.get("moss_roll_handler", "0x2872990")),
-            "__MOSS_INIT__": str(self.offsets.get("moss_init") or DEFAULT_OFFSETS.get("moss_init", "0x2876A90")),
-            "__MOSS_SELECT_CAT__": str(self.offsets.get("moss_select_cat") or DEFAULT_OFFSETS.get("moss_select_cat", "0x2871370")),
-            "__MOSS_SEND_ROLL__": str(self.offsets.get("moss_send_roll") or DEFAULT_OFFSETS.get("moss_send_roll", "0x24CE7B0")),
-            "__MOSS_ROLL_CLICK__": str(self.offsets.get("moss_roll_click") or DEFAULT_OFFSETS.get("moss_roll_click", "0x286FE70")),
-            "__MOSS_WINDOW_CLOSE__": str(self.offsets.get("moss_window_close") or DEFAULT_OFFSETS.get("moss_window_close", "0x27ABAF0")),
-            "__GAME_OBJECT_SET_ACTIVE__": str(self.offsets.get("game_object_set_active") or DEFAULT_OFFSETS.get("game_object_set_active", "0x46263E0")),
-            "__COMPONENT_GET_GAME_OBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x4621FC0")),
-            "__COMPONENT_GET_GAMEOBJECT__": str(self.offsets.get("component_get_game_object") or DEFAULT_OFFSETS.get("component_get_game_object", "0x4621FC0")),
-            "__MIRROR_ENTER__": str(self.offsets.get("mirror_enter") or DEFAULT_OFFSETS.get("mirror_enter", "0x100A910")),
-            "__MIRROR_ENTER_ALT__": str(self.offsets.get("mirror_enter_alt") or DEFAULT_OFFSETS.get("mirror_enter_alt", "0x100A910")),
-            "__MIRROR_NPC_CLICK__": str(self.offsets.get("mirror_npc_click") or DEFAULT_OFFSETS.get("mirror_npc_click", "0x100B2E0")),
-            "__MIRROR_IS_EVENT_MAP__": str(self.offsets.get("mirror_is_event_map") or DEFAULT_OFFSETS.get("mirror_is_event_map", "0x100D680")),
+            "__GET_PLAYER__": o("get_player"),
+            "__GET_GAME_UI__": o("get_game_ui"),
+            "__GET_WORLD__": o("get_world"),
+            "__GET_AUTO_LOGIN__": o("get_auto_login"),
+            "__GET_WINDOW_HANDLER__": o("get_window_handler"),
+            "__GAME_UPDATE__": o("game_update"),
+            "__GAME_UI_UPDATE__": o("game_ui_update"),
+            "__GAME_TYPE_INFO__": o("game_type_info"),
+            "__ITEM_STORAGE_TYPE_INFO__": o("item_storage_type_info"),
+            "__MLOGIN_UI_TYPE_INFO__": o("mlogin_ui_type_info"),
+            "__MLOGIN_SUBMIT__": o("mlogin_submit"),
+            "__MLOGIN_TOKEN_LOGIN__": o("mlogin_token_login"),
+            "__SET_AUTO_LOGIN__": o("set_auto_login"),
+            "__MOVE_TO__": o("move_to"),
+            "__START_AUTO_MOVE__": o("start_auto_move"),
+            "__STOP_AUTO_MOVE__": o("stop_auto_move"),
+            "__CHAT_SEND__": o("chat_send"),
+            "__CHAT_FRAME_SEND__": o("chat_frame_send"),
+            "__CHAT_SEND_CMD__": o("chat_send_cmd"),
+            "__COMMAND_MGR_PROCESS__": o("command_mgr_process"),
+            "__STATIC_CHAT_SEND__": o("static_chat_send"),
+            "__MDIALOG_CONFIRM_YES__": o("mdialog_confirm_yes"),
+            "__CHAT_UPDATE__": o("chat_update"),
+            "__HELPER_START__": o("helper_start"),
+            "__HELPER_STOP__": o("helper_stop"),
+            "__HELPER_ACTION__": o("helper_action"),
+            "__HELPER_TOGGLE__": o("helper_toggle"),
+            "__HELPER_SEND_BF51__": o("helper_send_bf51"),
+            "__HELPER_REQ_START__": o("helper_req_start"),
+            "__HELPER_REQ_STOP__": o("helper_req_stop"),
+            "__UI_LOCATION_FRAME__": o("ui_location_frame"),
+            "__LOCATION_HELPER_ON__": o("location_helper_on"),
+            "__LOCATION_HELPER_OFF__": o("location_helper_off"),
+            "__LOCATION_UPDATE_HELPER__": o("location_update_helper"),
+            "__NPC_TALK__": o("npc_talk"),
+            "__NPC_CLOSE_TALK__": o("npc_close_talk"),
+            "__NPC_CLICK__": o("npc_click"),
+            "__NPC_SEND_TALK__": o("npc_send_talk"),
+            "__USER_INV_PICK_ITEM__": o("user_inv_pick_item"),
+            "__LOCAL_PICK_NEAREST__": o("local_pick_nearest"),
+            "__GET_CONFIG__": o("get_config"),
+            "__GET_USER_2FA__": o("get_user_2fa"),
+            "__INV_TRASH_ITEM__": o("inv_trash_item"),
+            "__INV_DROP_ITEM__": o("inv_drop_item"),
+            "__INV_SELL_ITEM__": o("inv_sell_item"),
+            "__USER_INV_TRASH__": o("user_inv_trash"),
+            "__USER_INV_DROP__": o("user_inv_drop"),
+            "__USER_INV_DROP_RECV__": o("user_inv_drop_recv"),
+            "__USER_INV_ACTION__": o("user_inv_action"),
+            "__USER_INV_SELL__": o("user_inv_sell"),
+            "__USER_INV_SELL_5__": o("user_inv_sell_5"),
+            "__ITEM_STORAGE_DROP__": o("item_storage_drop"),
+            "__ITEM_STORAGE_SELL__": o("item_storage_sell"),
+            "__MERCHANT_SELL_ITEM__": o("merchant_sell_item"),
+            "__SLOT_QUICK_ACTION__": o("slot_quick_action"),
+            "__ITEM_STORAGE_MOVE__": o("item_storage_move"),
+            "__WINDOW_SHOW__": o("window_show"),
+            "__WINDOW_HIDE__": o("window_hide"),
+            "__WINDOW_SET_STATE__": o("window_set_state"),
+            "__WINDOW_TOGGLE__": o("window_toggle"),
+            "__BUTTON_PRESS__": o("button_press"),
+            "__UNITY_EVENT_INVOKE__": o("unity_event_invoke"),
+            "__MOSS_ROLL__": o("moss_roll"),
+            "__MOSS_OPEN__": o("moss_open"),
+            "__MOSS_ROLL_HANDLER__": o("moss_roll_handler"),
+            "__MOSS_INIT__": o("moss_init"),
+            "__MOSS_SELECT_CAT__": o("moss_select_cat"),
+            "__MOSS_SEND_ROLL__": o("moss_send_roll"),
+            "__MOSS_ROLL_CLICK__": o("moss_roll_click"),
+            "__MOSS_WINDOW_CLOSE__": o("moss_window_close"),
+            "__GAME_OBJECT_SET_ACTIVE__": o("game_object_set_active"),
+            "__COMPONENT_GET_GAME_OBJECT__": o("component_get_game_object"),
+            "__COMPONENT_GET_GAMEOBJECT__": o("component_get_game_object"),
+            "__MIRROR_ENTER__": o("mirror_enter"),
+            "__MIRROR_ENTER_ALT__": o("mirror_enter_alt"),
+            "__MIRROR_NPC_CLICK__": o("mirror_npc_click"),
+            "__MIRROR_IS_EVENT_MAP__": o("mirror_is_event_map"),
             "__MIRROR_IS_EVENT_MAP_ALT__": "0x0",
-            "__MIRROR_TELEPORT_EVENT__": str(self.offsets.get("mirror_teleport_event") or DEFAULT_OFFSETS.get("mirror_teleport_event", "0x100D800")),
-            "__DOUBLEGOER_TYPE_INFO__": str(self.offsets.get("doublegoer_type_info") or DEFAULT_OFFSETS.get("doublegoer_type_info", "0x55612C8")),
-            "__DEVIL_CLOSURE_ENTER__": str(self.offsets.get("devil_closure_enter") or DEFAULT_OFFSETS.get("devil_closure_enter", "0xFED530")),
-            "__DEVIL_CLOSURE_TYPE_INFO__": str(self.offsets.get("devil_closure_type_info") or DEFAULT_OFFSETS.get("devil_closure_type_info", "0x55615E8")),
-            "__DEVIL_ENTER__": str(self.offsets.get("devil_enter") or DEFAULT_OFFSETS.get("devil_enter", "0xFED530")),
-            "__DEVIL_ENTER_ALT__": str(self.offsets.get("devil_enter_alt") or DEFAULT_OFFSETS.get("devil_enter_alt", "0xFED6A0")),
-            "__DEVIL_ENTER_1E__": str(self.offsets.get("devil_enter_1e") or DEFAULT_OFFSETS.get("devil_enter_1e", "0xFED530")),
-            "__DEVIL_NPC_CLICK__": str(self.offsets.get("devil_npc_click") or DEFAULT_OFFSETS.get("devil_npc_click", "0xFFDF30")),
-            "__DEVIL_IS_EVENT_MAP__": str(self.offsets.get("devil_is_event_map") or DEFAULT_OFFSETS.get("devil_is_event_map", "0xFEE4D0")),
-            "__TABLE_EVENT_ENTRY_LEVEL__": str(self.offsets.get("table_event_entry_level") or DEFAULT_OFFSETS.get("table_event_entry_level", "0xD82E90")),
-            "__HELPER_UI_GET_INSTANCE__": str(self.offsets.get("helper_ui_get_instance") or DEFAULT_OFFSETS.get("helper_ui_get_instance", "0x10D27B0")),
-            "__HELPER_UI_SHOW_DIALOG__": str(self.offsets.get("helper_ui_show_dialog") or DEFAULT_OFFSETS.get("helper_ui_show_dialog", "0x1CDD220")),
-            "__HELPER_UI_SHOW_CONFIRM__": str(self.offsets.get("helper_ui_show_confirm") or DEFAULT_OFFSETS.get("helper_ui_show_confirm", "0x1CDBEB0")),
-            "__MODAL_MGR_GET_INSTANCE__": str(self.offsets.get("modal_manager_get_instance") or DEFAULT_OFFSETS.get("modal_manager_get_instance", "0x95AFA0")),
-            "__MODAL_MGR_CREATE__": str(self.offsets.get("modal_manager_create") or DEFAULT_OFFSETS.get("modal_manager_create", "0x95B300")),
-            "__MODAL_BOX_SET_TEXT1__": str(self.offsets.get("modal_box_set_text1") or DEFAULT_OFFSETS.get("modal_box_set_text1", "0x9598B0")),
-            "__MODAL_BOX_SET_TEXT2__": str(self.offsets.get("modal_box_set_text2") or DEFAULT_OFFSETS.get("modal_box_set_text2", "0x959A60")),
-            "__MODAL_BOX_SET_CONFIRM_TEXT__": str(self.offsets.get("modal_box_set_confirm_text") or DEFAULT_OFFSETS.get("modal_box_set_confirm_text", "0x959C10")),
-            "__MODAL_BOX_SHOW__": str(self.offsets.get("modal_box_show") or DEFAULT_OFFSETS.get("modal_box_show", "0x959E10")),
-            "__GET_GS_CONNECTION__": str(self.offsets.get("get_gs_connection") or DEFAULT_OFFSETS.get("get_gs_connection", "0x10D59E0")),
-            "__GS_SEND__": str(self.offsets.get("gs_send") or DEFAULT_OFFSETS.get("gs_send", "0x122DCD0")),
-            "__GS_SEND_ALT__": str(self.offsets.get("gs_send_alt") or DEFAULT_OFFSETS.get("gs_send_alt", "0x122DCD0")),
-            "__PLAYER_POINT__": str(self.offsets.get("player_point") or DEFAULT_OFFSETS.get("player_point", "0x238")),
-            "__PLAYER_MASTER_POINT__": str(self.offsets.get("player_master_point") or DEFAULT_OFFSETS.get("player_master_point", "0x23C")),
-            "__PLAYER_RESET_COUNT__": str(self.offsets.get("player_reset_count") or DEFAULT_OFFSETS.get("player_reset_count", "0x2B4")),
-            "__PLAYER_NAME__": str(self.offsets.get("player_name") or DEFAULT_OFFSETS.get("player_name", "0x28")),
-            "__PLAYER_LEVEL__": str(self.offsets.get("player_level") or DEFAULT_OFFSETS.get("player_level", "0x30")),
-            "__PLAYER_CLASS__": str(self.offsets.get("player_class") or DEFAULT_OFFSETS.get("player_class", "0x34")),
-            "__PLAYER_COORD__": str(self.offsets.get("player_coord") or DEFAULT_OFFSETS.get("player_coord", "0x68")),
-            "__PLAYER_MOVE__": str(self.offsets.get("player_move") or DEFAULT_OFFSETS.get("player_move", "0xE8")),
-            "__PLAYER_INVENTORY__": str(self.offsets.get("player_inventory") or DEFAULT_OFFSETS.get("player_inventory", "0x1B0")),
-            "__PLAYER_HELPER__": str(self.offsets.get("player_helper") or DEFAULT_OFFSETS.get("player_helper", "0x1E0")),
-            "__PLAYER_LAST_COORD__": str(self.offsets.get("player_last_coord") or DEFAULT_OFFSETS.get("player_last_coord", "0x508")),
-            "__AUTO_MOVE_WORKING__": str(self.offsets.get("auto_move_working") or DEFAULT_OFFSETS.get("auto_move_working", "0x4C0")),
-            "__AUTO_MOVE_TYPE__": str(self.offsets.get("auto_move_type") or DEFAULT_OFFSETS.get("auto_move_type", "0x4C4")),
-            "__AUTO_MOVE_HELPER__": str(self.offsets.get("auto_move_helper") or DEFAULT_OFFSETS.get("auto_move_helper", "0x4C8")),
-            "__AUTO_MOVE_DEST__": str(self.offsets.get("auto_move_dest") or DEFAULT_OFFSETS.get("auto_move_dest", "0x4D0")),
-            "__MOVE_FLAG__": str(self.offsets.get("move_flag") or DEFAULT_OFFSETS.get("move_flag", "0x3C")),
-            "__HELPER_STATE__": str(self.offsets.get("helper_state") or DEFAULT_OFFSETS.get("helper_state", "0x20")),
-            "__INVENTORY_ITEMS__": str(self.offsets.get("inventory_items") or DEFAULT_OFFSETS.get("inventory_items", "0x28")),
-            "__GAME_WORLD__": str(self.offsets.get("game_world") or DEFAULT_OFFSETS.get("game_world", "0x200")),
-            "__WORLD_SCENE_INDEX__": str(self.offsets.get("world_scene_index") or DEFAULT_OFFSETS.get("world_scene_index", "0x20")),
-            "__VIEWPORT__": str(self.offsets.get("viewport") or DEFAULT_OFFSETS.get("viewport", "0x110")),
-            "__PARTY_INVITE_BY_KEY__": str(self.offsets.get("party_invite_by_key") or DEFAULT_OFFSETS.get("party_invite_by_key", "0x1485BB0")),
-            "__UI_CHAT_FRAME__": str(self.offsets.get("ui_chat_frame") or DEFAULT_OFFSETS.get("ui_chat_frame", "0x50")),
-            "__UI_MOSS_WINDOW__": str(self.offsets.get("ui_moss_window") or DEFAULT_OFFSETS.get("ui_moss_window", "0x1D0")),
-            "__UI_MERCHANT_WINDOW__": str(self.offsets.get("ui_merchant_window") or DEFAULT_OFFSETS.get("ui_merchant_window", "0x1A0")),
-            "__UI_INVENTORY_WINDOW__": str(self.offsets.get("ui_inventory_window") or DEFAULT_OFFSETS.get("ui_inventory_window", "0x190")),
-            "__UI_WAREHOUSE_WINDOW__": str(self.offsets.get("ui_warehouse_window") or DEFAULT_OFFSETS.get("ui_warehouse_window", "0x290")),
-            "__GREMORY_INSTANCE_GETTER__": str(self.offsets.get("gremory_instance_getter") or DEFAULT_OFFSETS.get("gremory_instance_getter", "0x0")),
-            "__GREMORY_CLAIM_ITEM__": str(self.offsets.get("gremory_claim_item") or DEFAULT_OFFSETS.get("gremory_claim_item", "0x109D830")),
-            "__GREMORY_TYPE_INFO__": str(self.offsets.get("gremory_type_info") or DEFAULT_OFFSETS.get("gremory_type_info", "0x55A4D00")),
-            "__SET_TARGET_FPS__": str(self.offsets.get("set_target_framerate") or DEFAULT_OFFSETS.get("set_target_framerate", "0x45E4B80")),
-            "__GET_TARGET_FPS__": str(self.offsets.get("get_target_framerate") or DEFAULT_OFFSETS.get("get_target_framerate", "0x45E4B30")),
-            "__SET_VSYNC_COUNT__": str(self.offsets.get("set_vsync_count") or DEFAULT_OFFSETS.get("set_vsync_count", "0x45F94B0")),
-            "__GET_VSYNC_COUNT__": str(self.offsets.get("get_vsync_count") or DEFAULT_OFFSETS.get("get_vsync_count", "0x45F9460")),
-            "__DOUBLEGOER_ENTER_RECV__": str(self.offsets.get("mirror_enter_recv") or DEFAULT_OFFSETS.get("mirror_enter_recv", "0x100C180")),
-            "__UNITY_GET_TIME__": str(self.offsets.get("unity_get_time") or DEFAULT_OFFSETS.get("unity_get_time", "0x462F900")),
-            "__PKT_ENC_NIKINI__": str(self.offsets.get("pkt_enc_nikini") or DEFAULT_OFFSETS.get("pkt_enc_nikini", "0x126BC00")),
-            "__PKT_ENC_NGJG__": str(self.offsets.get("pkt_enc_ngjg") or DEFAULT_OFFSETS.get("pkt_enc_ngjg", "0x126B4A0")),
-            "__SOCKET_SEND_ERR__": str(self.offsets.get("socket_send_err") or DEFAULT_OFFSETS.get("socket_send_err", "0x42DF4D0")),
-            "__TCP_SET_NODELAY__": str(self.offsets.get("tcp_set_nodelay") or DEFAULT_OFFSETS.get("tcp_set_nodelay", "0x42EB350")),
-            "__GET_SCENE_HANDLER__": str(self.offsets.get("get_scene_handler") or DEFAULT_OFFSETS.get("get_scene_handler", "0x10D8460")),
-            "__RUNTIME_CLASS_INIT__": str(self.offsets.get("runtime_class_init") or DEFAULT_OFFSETS.get("runtime_class_init", "0x2EC0A0")),
-            "__GET_USER_ACCOUNT__": str(self.offsets.get("get_user_account") or DEFAULT_OFFSETS.get("get_user_account", "0x10D8BD0")),
-            "__USER_ACCOUNT_SET_USERNAME__": str(self.offsets.get("user_account_set_username") or DEFAULT_OFFSETS.get("user_account_set_username", "0x14187B0")),
-            "__USER_ACCOUNT_SET_TOKEN__": str(self.offsets.get("user_account_set_token") or DEFAULT_OFFSETS.get("user_account_set_token", "0x1418E10")),
-            "__GET_CS_CONNECTION__": str(self.offsets.get("get_cs_connection") or DEFAULT_OFFSETS.get("get_cs_connection", "0x10D85B0")),
-            "__CS_CONNECT__": str(self.offsets.get("cs_connection_connect") or DEFAULT_OFFSETS.get("cs_connection_connect", "0x121DE20")),
-            "__MLOGIN_SET_STATE__": str(self.offsets.get("mlogin_set_state") or DEFAULT_OFFSETS.get("mlogin_set_state", "0x1C33070")),
-            "__AUTO_SELECT_CHARACTER__": str(self.offsets.get("auto_select_character") or DEFAULT_OFFSETS.get("auto_select_character", "0xEC6020")),
-            "__UNIT_SELECT_CHARACTER__": str(self.offsets.get("unit_select_character") or DEFAULT_OFFSETS.get("unit_select_character", "0x111C0F0")),
-            "__UNIT_ENTRY_CHARACTER__": str(self.offsets.get("unit_entry_character") or DEFAULT_OFFSETS.get("unit_entry_character", "0x11203D0")),
-            "__CONNECT_SERVER_SELECT__": str(self.offsets.get("connect_server_select") or DEFAULT_OFFSETS.get("connect_server_select", "0x11F2A50")),
-            "__GET_HELPER_UI__": str(self.offsets.get("get_helper_ui") or DEFAULT_OFFSETS.get("get_helper_ui", "0x10D27B0")),
-            "__INPUT_FIELD_SET_TEXT__": str(self.offsets.get("input_field_set_text") or DEFAULT_OFFSETS.get("input_field_set_text", "0x46C8EB0")),
-            "__MHELPER_SHOW_DIALOG_ID__": str(self.offsets.get("mhelper_show_dialog_id") or DEFAULT_OFFSETS.get("mhelper_show_dialog_id", "0x1CDC490")),
-            "__MHELPER_SHOW_DIALOG_GENERIC__": str(self.offsets.get("mhelper_show_dialog_generic") or DEFAULT_OFFSETS.get("mhelper_show_dialog_generic", "0x1CDE0E0")),
-            "__USER_PARTY_SEND_RESPONSE__": str(self.offsets.get("user_party_send_response") or DEFAULT_OFFSETS.get("user_party_send_response", "0x1488D90")),
-            "__USER_PARTY_C2_40__": str(self.offsets.get("user_party_c2_40") or DEFAULT_OFFSETS.get("user_party_c2_40", "0x148C830")),
+            "__MIRROR_TELEPORT_EVENT__": o("mirror_teleport_event"),
+            "__DOUBLEGOER_TYPE_INFO__": o("doublegoer_type_info"),
+            "__DEVIL_CLOSURE_ENTER__": o("devil_closure_enter"),
+            "__DEVIL_CLOSURE_TYPE_INFO__": o("devil_closure_type_info"),
+            "__DEVIL_ENTER__": o("devil_enter"),
+            "__DEVIL_ENTER_ALT__": o("devil_enter_alt"),
+            "__DEVIL_ENTER_1E__": o("devil_enter_1e"),
+            "__DEVIL_NPC_CLICK__": o("devil_npc_click"),
+            "__DEVIL_IS_EVENT_MAP__": o("devil_is_event_map"),
+            "__TABLE_EVENT_ENTRY_LEVEL__": o("table_event_entry_level"),
+            "__HELPER_UI_GET_INSTANCE__": o("helper_ui_get_instance"),
+            "__HELPER_UI_SHOW_DIALOG__": o("helper_ui_show_dialog"),
+            "__HELPER_UI_SHOW_CONFIRM__": o("helper_ui_show_confirm"),
+            "__MODAL_MGR_GET_INSTANCE__": o("modal_manager_get_instance"),
+            "__MODAL_MGR_CREATE__": o("modal_manager_create"),
+            "__MODAL_BOX_SET_TEXT1__": o("modal_box_set_text1"),
+            "__MODAL_BOX_SET_TEXT2__": o("modal_box_set_text2"),
+            "__MODAL_BOX_SET_CONFIRM_TEXT__": o("modal_box_set_confirm_text"),
+            "__MODAL_BOX_SHOW__": o("modal_box_show"),
+            "__GET_GS_CONNECTION__": o("get_gs_connection"),
+            "__GS_SEND__": o("gs_send"),
+            "__GS_SEND_ALT__": o("gs_send_alt"),
+            "__PLAYER_POINT__": o("player_point"),
+            "__PLAYER_MASTER_POINT__": o("player_master_point"),
+            "__PLAYER_RESET_COUNT__": o("player_reset_count"),
+            "__PLAYER_NAME__": o("player_name"),
+            "__PLAYER_LEVEL__": o("player_level"),
+            "__PLAYER_CLASS__": o("player_class"),
+            "__PLAYER_COORD__": o("player_coord"),
+            "__PLAYER_MOVE__": o("player_move"),
+            "__PLAYER_INVENTORY__": o("player_inventory"),
+            "__PLAYER_HELPER__": o("player_helper"),
+            "__PLAYER_LAST_COORD__": o("player_last_coord"),
+            "__AUTO_MOVE_WORKING__": o("auto_move_working"),
+            "__AUTO_MOVE_TYPE__": o("auto_move_type"),
+            "__AUTO_MOVE_HELPER__": o("auto_move_helper"),
+            "__AUTO_MOVE_DEST__": o("auto_move_dest"),
+            "__MOVE_FLAG__": o("move_flag"),
+            "__HELPER_STATE__": o("helper_state"),
+            "__INVENTORY_ITEMS__": o("inventory_items"),
+            "__GAME_WORLD__": o("game_world"),
+            "__WORLD_SCENE_INDEX__": o("world_scene_index"),
+            "__VIEWPORT__": o("viewport"),
+            "__PARTY_INVITE_BY_KEY__": o("party_invite_by_key"),
+            "__UI_CHAT_FRAME__": o("ui_chat_frame"),
+            "__UI_MOSS_WINDOW__": o("ui_moss_window"),
+            "__UI_MERCHANT_WINDOW__": o("ui_merchant_window"),
+            "__UI_INVENTORY_WINDOW__": o("ui_inventory_window"),
+            "__UI_WAREHOUSE_WINDOW__": o("ui_warehouse_window"),
+            "__GREMORY_INSTANCE_GETTER__": o("gremory_instance_getter"),
+            "__GREMORY_CLAIM_ITEM__": o("gremory_claim_item"),
+            "__GREMORY_TYPE_INFO__": o("gremory_type_info"),
+            "__SET_TARGET_FPS__": o("set_target_framerate"),
+            "__GET_TARGET_FPS__": o("get_target_framerate"),
+            "__SET_VSYNC_COUNT__": o("set_vsync_count"),
+            "__GET_VSYNC_COUNT__": o("get_vsync_count"),
+            "__DOUBLEGOER_ENTER_RECV__": o("mirror_enter_recv"),
+            "__UNITY_GET_TIME__": o("unity_get_time"),
+            "__PKT_ENC_NIKINI__": o("pkt_enc_nikini"),
+            "__PKT_ENC_NGJG__": o("pkt_enc_ngjg"),
+            "__SOCKET_SEND_ERR__": o("socket_send_err"),
+            "__TCP_SET_NODELAY__": o("tcp_set_nodelay"),
+            "__GET_SCENE_HANDLER__": o("get_scene_handler"),
+            "__RUNTIME_CLASS_INIT__": o("runtime_class_init"),
+            "__GET_USER_ACCOUNT__": o("get_user_account"),
+            "__USER_ACCOUNT_SET_USERNAME__": o("user_account_set_username"),
+            "__USER_ACCOUNT_SET_TOKEN__": o("user_account_set_token"),
+            "__GET_CS_CONNECTION__": o("get_cs_connection"),
+            "__CS_CONNECT__": o("cs_connection_connect"),
+            "__MLOGIN_SET_STATE__": o("mlogin_set_state"),
+            "__AUTO_SELECT_CHARACTER__": o("auto_select_character"),
+            "__UNIT_SELECT_CHARACTER__": o("unit_select_character"),
+            "__UNIT_ENTRY_CHARACTER__": o("unit_entry_character"),
+            "__CONNECT_SERVER_SELECT__": o("connect_server_select"),
+            "__GET_HELPER_UI__": o("get_helper_ui"),
+            "__INPUT_FIELD_SET_TEXT__": o("input_field_set_text"),
+            "__MHELPER_SHOW_DIALOG_ID__": o("mhelper_show_dialog_id"),
+            "__MHELPER_SHOW_DIALOG_GENERIC__": o("mhelper_show_dialog_generic"),
+            "__USER_PARTY_SEND_RESPONSE__": o("user_party_send_response"),
+            "__USER_PARTY_C2_40__": o("user_party_c2_40"),
         }
         for k, v in mapping.items():
             js = js.replace(k, str(v))
@@ -10017,6 +9877,14 @@ class MegDirectEngine:
             _safe_log("[MegDirectEngine] Thư viện frida chưa được cài đặt trong môi trường python.")
             return False
 
+        # BẮT BUỘC phải có Game Offsets trong RAM trước khi attach (Strict Online Zero-Offset-On-Disk)
+        if not (self.offsets.get("get_player") or self.offsets.get("move_to") or self.offsets.get("game_type_info")):
+            self._load_offsets_file()
+        if not (self.offsets.get("get_player") or self.offsets.get("move_to") or self.offsets.get("game_type_info")):
+            _safe_log("[MegDirectEngine] 🔒 Từ chối attach: Chưa có Game Offsets trong RAM (cần kích hoạt & đồng bộ bản quyền trực tuyến).")
+            self.is_ready = False
+            return False
+
         # Dọn sạch session và script cũ nếu còn sót lại để chống rò rỉ RAM / VirtualAllocEx
         if self.script:
             try:
@@ -10061,6 +9929,14 @@ class MegDirectEngine:
 
         if frida is None:
             _safe_log("[MegDirectEngine] Thư viện frida chưa được cài đặt trong môi trường python.")
+            return False
+
+        # BẮT BUỘC phải có Game Offsets trong RAM trước khi attach (Strict Online Zero-Offset-On-Disk)
+        if not (self.offsets.get("get_player") or self.offsets.get("move_to") or self.offsets.get("game_type_info")):
+            self._load_offsets_file()
+        if not (self.offsets.get("get_player") or self.offsets.get("move_to") or self.offsets.get("game_type_info")):
+            _safe_log("[MegDirectEngine] 🔒 Từ chối attach: Chưa có Game Offsets trong RAM (cần kích hoạt & đồng bộ bản quyền trực tuyến).")
+            self.is_ready = False
             return False
 
         try:
@@ -10529,7 +10405,7 @@ class MegDirectEngine:
     def send_chat(self, command: str, force_simulator: bool = False) -> bool:
         """
         Gửi lệnh chat (chuyển map /m hoặc lệnh trong game):
-        1. Ưu tiên tuyệt đối gửi qua Frida Native Hook (Unity Main Thread - Mega.Chat RVA 0xF78030).
+        1. Ưu tiên tuyệt đối gửi qua Frida Native Hook (Unity Main Thread - Mega.Chat).
            HOÀN TOÀN NGẦM 100%, không mở khung chat trên màn hình, không click chuột, không cướp tiêu điểm.
         2. Chỉ fallback qua Background PostMessage khi force_simulator=True hoặc Frida không sẵn sàng.
         """
@@ -10925,8 +10801,12 @@ class MegDirectEngine:
                 if not base:
                     return {"found": False}
 
-                type_info_off = int(self.offsets.get("game_type_info") or "0x549B980", 16)
-                vp_off = int(self.offsets.get("viewport") or "0x110", 16)
+                gti_raw = self.offsets.get("game_type_info")
+                if not gti_raw:
+                    return {"found": False}
+                type_info_off = int(gti_raw, 16) if isinstance(gti_raw, str) else int(gti_raw)
+                vp_raw = self.offsets.get("viewport") or "0x110"
+                vp_off = int(vp_raw, 16) if isinstance(vp_raw, str) else int(vp_raw)
 
                 type_info = read_ptr(base + type_info_off)
                 if not type_info: return {"found": False}
@@ -10981,7 +10861,7 @@ class MegDirectEngine:
     def interact_moss_npc(self, category_id: int = 0) -> Dict[str, Any]:
         """
         Tương tác/click trực tiếp vào NPC Moss thực tế:
-        Phát lệnh Native NPC Talk (Mega.NpcManager$$JBMPIOPHIHI 0x10B2B40) để Server mở phiên đối thoại
+        Phát lệnh Native NPC Talk (Mega.NpcManager) để Server mở phiên đối thoại
         và hiển thị bảng Moss Merchant chính thức.
         """
         if self.is_ready:
@@ -11224,7 +11104,7 @@ class MegDirectEngine:
         return False
 
     def is_mirror_event_map(self) -> bool:
-        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (SceneHandler.WorldIndex 82-90 theo chuẩn Mega.DoubleGoer$$PAGCDNAAHMO 0x100D680)."""
+        """Kiểm tra nhân vật hiện có đang trong map sự kiện Double Goer (SceneHandler.WorldIndex 82-90 theo chuẩn Mega.DoubleGoer$$PAGCDNAAHMO RVA_DYNAMIC)."""
         # 1. Thử qua Frida / Fast Telemetry nếu engine đã hook
         if self.is_ready:
             try:
@@ -11267,7 +11147,7 @@ class MegDirectEngine:
         return False
 
     def get_double_goer_state(self) -> Dict[str, Any]:
-        """Đọc trạng thái sự kiện Double Goer trực tiếp từ Mega.DoubleGoer_TypeInfo (0x55612C8)."""
+        """Đọc trạng thái sự kiện Double Goer trực tiếp từ Mega.DoubleGoer_TypeInfo."""
         if self.is_ready:
             try:
                 res = self._call("getDoubleGoerState")
@@ -11293,7 +11173,7 @@ class MegDirectEngine:
         return {"ok": False, "chests": [], "items": []}
 
     def open_and_loot_mirror(self, chest_ptr: Any = 0, chest_index: int = -1, radius: float = 5.0) -> Dict[str, Any]:
-        """Mở rương sự kiện Mirror (gửi C3:30 qua NpcManager 0x102AA00 / 0x1023B10) và nhặt vật phẩm rơi xung quanh (gửi C3:22 qua UserInventory 0x1446400)."""
+        """Mở rương sự kiện Mirror (gửi C3:30 qua NpcManager) và nhặt vật phẩm rơi xung quanh (gửi C3:22 qua UserInventory)."""
         if self.is_ready:
             try:
                 ptr_str = hex(chest_ptr) if isinstance(chest_ptr, int) and chest_ptr > 0 else str(chest_ptr or "0")
@@ -11317,7 +11197,7 @@ class MegDirectEngine:
         if not self.is_ready:
             return {"ok": False, "success": False, "claimed": 0, "error": "not_ready"}
 
-        # 1. Đọc trực tiếp RAM qua Frida Native Hook (RVA 0xFD85C0) nếu danh sách quà đã đồng bộ sẵn
+        # 1. Đọc trực tiếp RAM qua Frida Native Hook nếu danh sách quà đã đồng bộ sẵn
         last_res: Dict[str, Any] = {"ok": False, "success": False, "claimed": 0}
         try:
             res_str = self._call("claimGremoryCaseItems")

@@ -173,7 +173,7 @@ def _get_native_bridge(force_reload: bool = False):
             ]
             dll.Bridge_VerifyLicense.restype = ctypes.c_int
 
-            # Lớp 2 & 3: Xác thực bộ nhớ C++ và giải mã game offsets
+            # Lớp 2 & 3: Xác thực bộ nhớ C++ và kho Game Offsets chỉ lưu trên RAM
             if hasattr(dll, "Bridge_IsAuthenticated"):
                 dll.Bridge_IsAuthenticated.restype = ctypes.c_int
             if hasattr(dll, "Bridge_VerifyOfflineSignature"):
@@ -182,6 +182,10 @@ def _get_native_bridge(force_reload: bool = False):
             if hasattr(dll, "Bridge_GetGameOffsets"):
                 dll.Bridge_GetGameOffsets.argtypes = [ctypes.c_char_p, ctypes.c_int]
                 dll.Bridge_GetGameOffsets.restype = ctypes.c_int
+            if hasattr(dll, "Bridge_HasGameOffsets"):
+                dll.Bridge_HasGameOffsets.restype = ctypes.c_int
+            if hasattr(dll, "Bridge_ClearOffsets"):
+                dll.Bridge_ClearOffsets.restype = None
             if hasattr(dll, "Bridge_SetApiUrl"):
                 dll.Bridge_SetApiUrl.argtypes = [ctypes.c_char_p]
                 dll.Bridge_SetApiUrl.restype = ctypes.c_int
@@ -220,22 +224,30 @@ def is_native_authenticated() -> bool:
             return False
     return False
 
-def get_secure_game_offsets() -> Dict[str, Any]:
-    """
-    Lớp 3: Giải mã game offsets trực tiếp từ C++ DLL.
-    Chỉ trả về offsets khi bản quyền đã được xác thực HMAC hợp lệ và không có debugger.
-    """
+_ram_offsets_lock = threading.Lock()
+_ram_offsets_cache: Dict[str, Any] = {}
+
+def has_secure_game_offsets() -> bool:
+    """Kiểm tra kho RAM trong C++ DLL đã có Game Offsets giải mã từ Server hay chưa."""
     bridge = _get_native_bridge()
-    if bridge and hasattr(bridge, "Bridge_GetGameOffsets"):
+    if bridge and hasattr(bridge, "Bridge_HasGameOffsets"):
         try:
-            buf = ctypes.create_string_buffer(4096)
-            if bridge.Bridge_GetGameOffsets(buf, 4096) == 1:
-                raw_str = buf.value.decode("utf-8").strip()
-                if raw_str and raw_str != "{}":
-                    return json.loads(raw_str)
+            return bool(bridge.Bridge_HasGameOffsets() == 1)
+        except Exception:
+            return False
+    return bool(_ram_offsets_cache)
+
+def clear_secure_game_offsets() -> None:
+    """Xóa sạch Game Offsets khỏi RAM (cả Python cache lẫn bộ nhớ C++ DLL bằng SecureZeroMemory)."""
+    global _ram_offsets_cache
+    with _ram_offsets_lock:
+        _ram_offsets_cache.clear()
+    bridge = _get_native_bridge()
+    if bridge and hasattr(bridge, "Bridge_ClearOffsets"):
+        try:
+            bridge.Bridge_ClearOffsets()
         except Exception:
             pass
-    return {}
 
 def get_bridge_version() -> int:
     """Lấy phiên bản của C++ Native Bridge (ví dụ: 100 cho v1.0.0)."""
@@ -385,43 +397,57 @@ def _http_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         return False, f"Lỗi kết nối máy chủ ({e})", {}
 
 def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any]]:
+    is_frozen = bool(getattr(sys, "frozen", False))
     bridge = _get_native_bridge()
     if not bridge:
+        if is_frozen:
+            return False, "Thiếu tệp bảo mật meg_license_bridge.dll!", {}
         return _http_activate(cleaned_key, srv)
 
     try:
-        out_buf = ctypes.create_string_buffer(8192)
+        out_buf = ctypes.create_string_buffer(65536)
         srv_bytes = srv.encode("utf-8")
         key_bytes = cleaned_key.encode("utf-8")
         prod_bytes = b"megamu-navigator"
-        ver_bytes = b"v1.6.4"
-        ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 8192)
-        res_str = out_buf.value.decode("utf-8")
+        ver_bytes = b"v3.0.0"
+        ret = bridge.Bridge_ActivateLicense(srv_bytes, key_bytes, prod_bytes, ver_bytes, out_buf, 65536)
+        res_str = out_buf.value.decode("utf-8", errors="ignore")
         if res_str:
-            # Phát hiện nếu WAF/Imunify360 chặn WinHTTP của C++ Bridge
-            if "imunify" in res_str.lower() or "bot-protection" in res_str.lower() or "access denied" in res_str.lower():
+            if not is_frozen and ("imunify" in res_str.lower() or "bot-protection" in res_str.lower() or "access denied" in res_str.lower()):
                 return _http_activate(cleaned_key, srv)
 
             try:
                 data = json.loads(res_str)
             except Exception:
+                if is_frozen:
+                    return False, "Phản hồi máy chủ không hợp lệ.", {}
                 return _http_activate(cleaned_key, srv)
 
             if data.get("success"):
                 lic_info = data.get("data", {})
                 lic_info["server_url"] = srv
+                for k_strip in ("offsets_blob", "offsets_sig", "offsets_nonce", "offsets_ts"):
+                    lic_info.pop(k_strip, None)
+                with _ram_offsets_lock:
+                    _ram_offsets_cache.clear()
                 save_license_data(lic_info)
+                # Nạp sẵn RAM offsets ngay sau khi kích hoạt thành công
+                get_secure_game_offsets(force_refresh=True)
                 return True, data.get("message", "Kích hoạt thành công!"), lic_info
 
-            # Nếu lỗi là thông báo nghiệp vụ từ Laravel (key sai, hết hạn, đổi máy...), trả về ngay
             msg = data.get("message", "")
-            if msg and ("key" in msg.lower() or "thiết bị" in msg.lower() or "hết hạn" in msg.lower() or "khóa" in msg.lower()):
+            if msg and ("key" in msg.lower() or "thiết bị" in msg.lower() or "hết hạn" in msg.lower() or "khóa" in msg.lower() or "debugger" in msg.lower() or "chữ ký" in msg.lower()):
                 return False, msg, {}
 
-            # Nếu C++ báo không kết nối được hoặc lỗi mạng, fallback qua HTTPS
+            if is_frozen:
+                return False, msg or "Không thể kết nối máy chủ bản quyền.", {}
             return _http_activate(cleaned_key, srv)
+        if is_frozen:
+            return False, "Không nhận được phản hồi từ máy chủ bản quyền.", {}
         return _http_activate(cleaned_key, srv)
-    except Exception:
+    except Exception as e:
+        if is_frozen:
+            return False, f"Lỗi cầu nối bảo mật: {e}", {}
         return _http_activate(cleaned_key, srv)
 
 def activate_license(license_key: str, server_url: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
@@ -507,68 +533,91 @@ def _http_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
                 return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
     except urllib.error.HTTPError as e:
         try:
-            err_data = json.loads(e.read().decode("utf-8", errors="ignore"))
-            st = err_data.get("status", "")
-            lic_data["valid"] = False
-            lic_data["status"] = st or "revoked"
-            if st in ("not_found", "revoked", "banned") or e.code == 404:
-                deactivate_license()
-            else:
-                save_license_data(lic_data)
-            return False, err_data.get("message", "Bản quyền không hợp lệ."), lic_data
+            raw_err = e.read().decode("utf-8", errors="ignore")
+            low_err = raw_err.lower()
+            # KHÔNG bao giờ đánh dấu revoked nếu bị WAF / Imunify360 / Cloudflare chặn tạm thời!
+            if "imunify" in low_err or "bot-protection" in low_err or "cloudflare" in low_err or "access denied by" in low_err:
+                return False, "Máy chủ tạm chặn bởi tường lửa WAF (Imunify360). Vui lòng thử lại sau hoặc whitelist IP/API.", lic_data
+            err_data = json.loads(raw_err)
+            st = str(err_data.get("status") or "").strip().lower()
+            # Chỉ khóa/hủy khi Laravel trả về đúng mã trạng thái nghiệp vụ
+            if st in ("not_found", "revoked", "banned", "expired", "suspended", "hwid_mismatch"):
+                lic_data["valid"] = False
+                lic_data["status"] = st
+                clear_secure_game_offsets()
+                if st in ("not_found", "revoked", "banned"):
+                    deactivate_license()
+                else:
+                    save_license_data(lic_data)
+                return False, err_data.get("message", "Bản quyền không hợp lệ."), lic_data
+            return False, err_data.get("message", f"Máy chủ trả lỗi HTTP {e.code}."), lic_data
         except Exception:
             pass
         if e.code == 404:
-            lic_data["valid"] = False
-            lic_data["status"] = "not_found"
-            deactivate_license()
-            return False, "Key bản quyền không tồn tại trong hệ thống (đã bị xóa).", lic_data
+            return False, "Không tìm thấy API xác thực (HTTP 404).", lic_data
     except Exception:
         pass
     return False, "Không nhận được phản hồi từ máy chủ.", lic_data
 
 def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+    is_frozen = bool(getattr(sys, "frozen", False))
     bridge = _get_native_bridge()
     if not bridge:
+        if is_frozen:
+            return False, "Thiếu tệp bảo mật meg_license_bridge.dll!", lic_data
         return _http_verify(key, srv, lic_data)
 
     try:
-        out_buf = ctypes.create_string_buffer(8192)
+        out_buf = ctypes.create_string_buffer(65536)
         srv_bytes = srv.encode("utf-8")
         key_bytes = str(key).encode("utf-8")
-        ver_bytes = b"v1.6.4"
-        ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 8192)
-        res_str = out_buf.value.decode("utf-8")
+        ver_bytes = b"v3.0.0"
+        ret = bridge.Bridge_VerifyLicense(srv_bytes, key_bytes, ver_bytes, out_buf, 65536)
+        res_str = out_buf.value.decode("utf-8", errors="ignore")
         if res_str:
-            if "imunify" in res_str.lower() or "bot-protection" in res_str.lower() or "access denied" in res_str.lower():
+            if not is_frozen and ("imunify" in res_str.lower() or "bot-protection" in res_str.lower() or "access denied" in res_str.lower()):
                 return _http_verify(key, srv, lic_data)
 
             try:
                 data = json.loads(res_str)
             except Exception:
+                if is_frozen:
+                    return False, "Phản hồi xác thực không hợp lệ.", lic_data
                 return _http_verify(key, srv, lic_data)
 
             if data.get("valid"):
+                for k_strip in ("offsets_blob", "offsets_sig", "offsets_nonce", "offsets_ts"):
+                    data.pop(k_strip, None)
                 lic_data.update(data)
                 lic_data["valid"] = True
                 lic_data["server_url"] = srv
                 lic_data["last_verified_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                with _ram_offsets_lock:
+                    _ram_offsets_cache.clear()
                 save_license_data(lic_data)
+                get_secure_game_offsets(force_refresh=True)
                 return True, "Bản quyền hợp lệ.", lic_data
             else:
                 st = data.get("status", "")
-                if st in ("revoked", "banned", "expired", "hwid_mismatch", "suspended", "not_found"):
+                if st in ("revoked", "banned", "expired", "hwid_mismatch", "suspended", "not_found", "tampered", "debugger_detected"):
                     lic_data["valid"] = False
                     lic_data["status"] = st
+                    clear_secure_game_offsets()
                     if st in ("not_found", "revoked", "banned"):
                         deactivate_license()
                     else:
                         save_license_data(lic_data)
                     return False, data.get("message", "Bản quyền không hợp lệ."), lic_data
                 else:
+                    if is_frozen:
+                        return False, data.get("message", "Không thể xác thực trực tuyến."), lic_data
                     return _http_verify(key, srv, lic_data)
+        if is_frozen:
+            return False, "Không nhận được phản hồi từ máy chủ bản quyền.", lic_data
         return _http_verify(key, srv, lic_data)
-    except Exception:
+    except Exception as e:
+        if is_frozen:
+            return False, f"Lỗi cầu nối bảo mật: {e}", lic_data
         return _http_verify(key, srv, lic_data)
 
 def verify_license(server_url: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
@@ -610,8 +659,9 @@ def verify_license(server_url: Optional[str] = None) -> Tuple[bool, str, Dict[st
         return False, f"Lỗi xác thực C++ Bridge ({e})", lic_data
 
 def deactivate_license() -> bool:
-    """Xóa bỏ thông tin bản quyền trên máy và chuyển sang trạng thái chưa kích hoạt."""
-    global _cached_license_data
+    """Xóa bỏ thông tin bản quyền trên máy và xóa sạch Game Offsets khỏi RAM."""
+    global _cached_license_data, _last_valid_check_time, _last_valid_result
+    clear_secure_game_offsets()
     with _license_lock:
         _cached_license_data = {
             "license_key": "",
@@ -619,6 +669,8 @@ def deactivate_license() -> bool:
             "status": "unregistered",
             "modules": []
         }
+        _last_valid_check_time = 0.0
+        _last_valid_result = False
         try:
             if LICENSE_FILE.exists():
                 LICENSE_FILE.unlink()
@@ -721,37 +773,34 @@ def get_license_display_text() -> str:
     exp_date = str(exp).split(" ")[0] if exp else "--"
     return f"{plan} (Hạn: {exp_date})"
 
-def get_secure_game_offsets() -> Dict[str, Any]:
+def get_secure_game_offsets(force_refresh: bool = False) -> Dict[str, Any]:
     """
-    Trích xuất Game Offsets được giải mã an toàn trong RAM từ Native C++ Bridge.
-    Hoàn toàn không cần để file megamu_offsets.json lộ ngoài đĩa.
+    Trích xuất Game Offsets được Server gửi về & giải mã trực tiếp trong RAM của Native C++ Bridge.
+    Strict Online Zero-Offset-On-Disk: tuyệt đối KHÔNG đọc hay ghi file offset xuống đĩa trên bản phát hành!
     """
+    global _ram_offsets_cache
+    with _ram_offsets_lock:
+        if _ram_offsets_cache and not force_refresh:
+            return dict(_ram_offsets_cache)
+
     bridge = _get_native_bridge()
     if not bridge:
         return {}
 
     try:
-        # Nếu chưa authenticated, thử xác thực offline qua signature đã lưu trong license.json
-        if not bridge.Bridge_IsAuthenticated():
-            lic = load_license_data()
-            k = lic.get("license_key", "")
-            sig = lic.get("signature", "")
-            if k and sig:
-                bridge.Bridge_VerifyOfflineSignature.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
-                bridge.Bridge_VerifyOfflineSignature.restype = ctypes.c_int
-                bridge.Bridge_VerifyOfflineSignature(k.encode("utf-8"), sig.encode("utf-8"))
-
         bridge.Bridge_GetGameOffsets.argtypes = [ctypes.c_char_p, ctypes.c_int]
         bridge.Bridge_GetGameOffsets.restype = ctypes.c_int
-        buf = ctypes.create_string_buffer(4096)
-        if bridge.Bridge_GetGameOffsets(buf, 4096) == 1:
+        buf = ctypes.create_string_buffer(65536)
+        if bridge.Bridge_GetGameOffsets(buf, 65536) == 1:
             raw = buf.value.decode("utf-8", errors="ignore")
             if raw and raw.startswith("{"):
                 data = json.loads(raw)
-                if isinstance(data, dict) and data.get("move_to"):
-                    return data
+                if isinstance(data, dict) and (data.get("move_to") or data.get("get_player") or data.get("game_type_info")):
+                    with _ram_offsets_lock:
+                        _ram_offsets_cache = dict(data)
+                    return dict(data)
     except Exception as e:
-        print(f"[LicenseClient] Lỗi trích xuất Native Offsets: {e}", flush=True)
+        print(f"[LicenseClient] Lỗi trích xuất Native RAM Offsets: {e}", flush=True)
 
     return {}
 
