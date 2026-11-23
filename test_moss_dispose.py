@@ -114,6 +114,8 @@ function buildWorld() {
 let WORLD = null;
 var nativeUserInvDrop = null;   // test chạy đường packet thuần
 var lastSendError = "";
+var _dropRecvSeq = 0;
+var _dropRecvBySlot = {};
 function getPlayerPtr() { return W(WORLD.player, 0); }
 function getGSConnection() { return W(STATE.gsOk ? obj({}) : null, 0); }
 const nativeGetGameUI = () => W(WORLD.gui, 0);
@@ -212,7 +214,7 @@ console.log("ALL_PASSED");
 class TestMossDispose(unittest.TestCase):
     def test_dispose_pipeline(self):
         js = _extract_js() + HARNESS
-        proc = subprocess.run(["node", "-e", js], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        proc = subprocess.run(["node"], input=js, capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(proc.returncode, 0, f"Node test failed:\n{proc.stderr}\n{proc.stdout}")
         self.assertIn("ALL_PASSED", proc.stdout)
 

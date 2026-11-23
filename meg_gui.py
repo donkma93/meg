@@ -3355,12 +3355,12 @@ class SlotController:
                                     self._moss_log_disposal_failure(c_res)
                                     if self._moss_try_sell_fallback(eng):
                                         time.sleep(0.3)
-                                        inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
+                                        inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6), clean_equipment_trash=clean_equip)
                                         if inv and not inv.get("error"):
                                             free_slots = int(inv.get("free", 64))
                                             junk_count = int(inv.get("junkCount", 0))
                                 time.sleep(0.3)
-                                inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=6)
+                                inv = eng.get_inventory_summary(category=self.moss_category, max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6), clean_equipment_trash=clean_equip)
                                 if inv and not inv.get("error"):
                                     free_slots = int(inv.get("free", 64))
                                     junk_count = int(inv.get("junkCount", 0))
@@ -4055,22 +4055,57 @@ class SlotController:
                 eng.unlock_character_and_inventory()
 
                 # 2. Thực hiện ném đồ rác tại chỗ (category=-1 nghĩa là dọn sạch mọi đồ rác thường +0..+6 trong hòm đồ)
-                # (bảo vệ tuyệt đối đồ Divine/Rồng/Exc/Socket/Set/May Mắn/Ngọc/Đồ >= +7)
+                # (bảo vệ tuyệt đối đồ Divine/Rồng/Exc/Socket/Set/Ngọc/Đồ >= +7)
                 clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
+                max_lvl = int(getattr(self, "moss_max_junk_level", 6) or 6)
+                prot_slots = [] if force_clean else list(getattr(self, "moss_initial_slots", None) or [])
+                ign_type = bool(getattr(self, "moss_ignore_junk_type", False))
+
                 c_res = eng.clean_inventory_junk(
                     str(method),
-                    protected_slots=[] if force_clean else list(getattr(self, "moss_initial_slots", None) or []),
+                    protected_slots=prot_slots,
                     category=category,
                     include_extended=True,
-                    max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
-                    ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                    max_junk_level=max_lvl,
+                    ignore_type_heuristics=ign_type,
                     clean_equipment_trash=clean_equip,
                 )
                 cleaned = int(c_res.get("cleaned", 0)) if isinstance(c_res, dict) else 0
                 total_junk = int(c_res.get("total", c_res.get("totalJunk", 0)) or 0) if isinstance(c_res, dict) else 0
                 failed = int(c_res.get("failed", 0)) if isinstance(c_res, dict) else 0
+                dropped_n = int(c_res.get("dropped", 0) or 0) if isinstance(c_res, dict) else 0
+                sold_n = int(c_res.get("sold", 0) or 0) if isinstance(c_res, dict) else 0
                 reason = str(c_res.get("reason", "") or "") if isinstance(c_res, dict) else ""
                 err_msg = c_res.get("error", "") if isinstance(c_res, dict) else ""
+
+                # Nếu dọn được một phần (reason == "partial" / failed > 0 do trùng ô đất) hoặc đầy batch >= 80
+                # -> tự động chạy thêm tối đa 2 lượt vét sạch toàn bộ đồ rác còn sót trong túi chính & túi mở rộng!
+                for _extra_round in range(2):
+                    if cleaned <= 0 or (failed <= 0 and reason != "partial" and total_junk < 80):
+                        break
+                    time.sleep(0.35)
+                    extra_res = eng.clean_inventory_junk(
+                        str(method),
+                        protected_slots=prot_slots,
+                        category=category,
+                        include_extended=True,
+                        max_junk_level=max_lvl,
+                        ignore_type_heuristics=ign_type,
+                        clean_equipment_trash=clean_equip,
+                    )
+                    if not isinstance(extra_res, dict):
+                        break
+                    ex_cleaned = int(extra_res.get("cleaned", 0) or 0)
+                    ex_failed = int(extra_res.get("failed", 0) or 0)
+                    ex_reason = str(extra_res.get("reason", "") or "")
+                    cleaned += ex_cleaned
+                    dropped_n += int(extra_res.get("dropped", 0) or 0)
+                    sold_n += int(extra_res.get("sold", 0) or 0)
+                    failed = ex_failed
+                    reason = ex_reason
+                    c_res = extra_res
+                    if ex_cleaned <= 0:
+                        break
 
                 # Nếu vứt không được mà Merchant đang MỞ SẴN -> bán luôn tại chỗ (không cần di chuyển).
                 if cleaned == 0 and total_junk > 0 and isinstance(c_res, dict) and c_res.get("merchantOpen"):
@@ -4079,25 +4114,26 @@ class SlotController:
                     )
                     sell_res = eng.clean_inventory_junk(
                         "sell",
-                        protected_slots=[] if force_clean else list(getattr(self, "moss_initial_slots", None) or []),
+                        protected_slots=prot_slots,
                         category=category,
                         include_extended=True,
-                        max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
-                        ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
+                        max_junk_level=max_lvl,
+                        ignore_type_heuristics=ign_type,
                         clean_equipment_trash=clean_equip,
                     )
                     if isinstance(sell_res, dict) and int(sell_res.get("cleaned", 0) or 0) > 0:
                         c_res = sell_res
                         cleaned = int(sell_res.get("cleaned", 0) or 0)
+                        dropped_n = int(sell_res.get("dropped", 0) or 0)
+                        sold_n = int(sell_res.get("sold", 0) or 0)
                         total_junk = int(sell_res.get("total", total_junk) or total_junk)
                         reason = str(sell_res.get("reason", "") or "")
 
                 if cleaned > 0:
-                    dropped_n = int(c_res.get("dropped", 0) or 0) if isinstance(c_res, dict) else 0
-                    sold_n = int(c_res.get("sold", 0) or 0) if isinstance(c_res, dict) else 0
+                    rem_tag = f" (còn {failed} món bị chặn)" if failed > 0 else ""
                     self.app.append_moss_log(
-                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã dọn {cleaned}/{total_junk or cleaned} món rác "
-                        f"(vứt {dropped_n}, bán {sold_n}). Bảo tồn: Divine/Rồng/Exc/Socket/Set/Ngọc/Đồ >= +7."
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🗑️ Đã dọn {cleaned}/{max(total_junk, cleaned)} món rác{rem_tag} "
+                        f"(vứt {dropped_n}, bán {sold_n}). Bảo tồn: Divine/Rồng/Exc/Socket/Set/Ngọc/Đồ >= +7 (đồ rác +7 dùng '💰 Bán Silvia')."
                     )
                 elif total_junk > 0:
                     self._moss_log_disposal_failure(c_res)

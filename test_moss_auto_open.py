@@ -107,6 +107,64 @@ class TestMossAutoOpen(unittest.TestCase):
         import build_secure_release
         self.assertTrue(build_secure_release.audit_zero_offset_leaks())
 
+    def test_09_junk_filter_does_not_block_bluewing_or_normal_weapons(self):
+        """Bluewing Crossbow / Lightning Sword / Chaos Nature Bow thường (+0..+6) phải ném được,
+        nhưng ngọc/cánh/vé/Divine/Exc/Set vẫn phải được bảo vệ 100%."""
+        start = self.engine_src.index("function isDivineOrDragonItem")
+        end = self.engine_src.index("var nativeGetGameUI = null;", start)
+        block = self.engine_src[start:end]
+        runner = (
+            'function getItemName(p){ return (p && p.name) ? p.name : ""; }\n'
+            + block
+            + r"""
+const mustDrop = [
+    { n: "Bluewing Crossbow", idx: 4*512+13, lvl: 0 },
+    { n: "Bluewing Crossbow", idx: 4*512+13, lvl: 5 },
+    { n: "Bluewing Crossbow", idx: 4*512+13, lvl: 6 },
+    { n: "Saint Crossbow",    idx: 4*512+16, lvl: 5 },
+    { n: "Arrow Viper Bow",   idx: 4*512+20, lvl: 5 },
+    { n: "Celestial Bow",     idx: 4*512+17, lvl: 6 },
+    { n: "Light Crossbow",    idx: 4*512+11, lvl: 6 },
+    { n: "Lightning Sword",   idx: 0*512+11, lvl: 3 },
+    { n: "Chaos Nature Bow",  idx: 4*512+6,  lvl: 2 },
+];
+for (const c of mustDrop) {
+    const prot = isItemProtected({ name: c.n }, c.idx, c.lvl, 0, 0, 0, 0, 1, -1, 6, false, true);
+    const why = itemProtectionReason({ name: c.n }, c.idx, c.lvl, 0, 0, 0, 0, 1, -1, 6, false, true);
+    if (prot || why !== null) {
+        console.error("FALSE_PROTECTED:", c.n, c.lvl, prot, why);
+        process.exit(1);
+    }
+}
+const mustKeep = [
+    { n: "Bluewing Crossbow", idx: 4*512+13, lvl: 1, exc: 32 },
+    { n: "Arrow Viper Bow",   idx: 4*512+20, lvl: 7, exc: 0 },
+    { n: "Divine Crossbow of Archangel", idx: 4*512+18, lvl: 0, exc: 0 },
+    { n: "Wings of Elf",      idx: 12*512+3, lvl: 0, exc: 0 },
+    { n: "Jewel of Bless",    idx: 0,        lvl: 0, exc: 0 },
+    { n: "Mirror of Dimensions", idx: 14*512+111, lvl: 0, exc: 0 },
+    { n: "Talisman of Luck",  idx: 14*512+53, lvl: 0, exc: 0 },
+];
+for (const c of mustKeep) {
+    const prot = isItemProtected({ name: c.n }, c.idx, c.lvl, c.exc, 0, 0, 0, 0, -1, 6, false, true);
+    const why = itemProtectionReason({ name: c.n }, c.idx, c.lvl, c.exc, 0, 0, 0, 0, -1, 6, false, true);
+    if (!prot || why === null) {
+        console.error("FALSE_DROPPED:", c.n, c.lvl, c.exc, prot, why);
+        process.exit(1);
+    }
+}
+console.log("JUNK_CLASSIFY_OK");
+"""
+        )
+        res = subprocess.run(["node", "-e", runner], capture_output=True, text=True, encoding="utf-8", errors="replace")
+        self.assertEqual(res.returncode, 0, f"Lỗi kiểm tra phân loại rác:\n{res.stderr}\n{res.stdout}")
+        self.assertIn("JUNK_CLASSIFY_OK", res.stdout)
+
+    def test_10_drop_engine_has_25_tile_spiral_and_3_passes(self):
+        self.assertIn("[2, 2], [-2, 2], [2, -2], [-2, -2]", self.js)
+        self.assertIn('job.phase === "drop_pass3"', self.js)
+        self.assertIn('drop_pass3_wait', self.js)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

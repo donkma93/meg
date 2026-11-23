@@ -1745,7 +1745,7 @@ class AutoTrainWorker:
                     if self.auto_clean_junk and (now - self.last_junk_clean_time) >= self.junk_clean_interval:
                         self.last_junk_clean_time = now
                         try:
-                            max_lvl = int(self.config.get("max_junk_level", 4))
+                            max_lvl = int(self.config.get("max_junk_level", 6))
                             c_res = self.core.clean_inventory_junk(
                                 method="drop",
                                 category=-1,

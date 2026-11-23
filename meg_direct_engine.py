@@ -1814,7 +1814,10 @@ function readDisposalContext() {
 var _DROP_SPIRAL_OFFSETS = [
     [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1],
     [1, 1], [-1, 1], [1, -1], [-1, -1],
-    [2, 0], [-2, 0], [0, 2], [0, -2]
+    [2, 0], [-2, 0], [0, 2], [0, -2],
+    [2, 1], [2, -1], [-2, 1], [-2, -1],
+    [1, 2], [-1, 2], [1, -2], [-1, -2],
+    [2, 2], [-2, 2], [2, -2], [-2, -2]
 ];
 function runDropPass(slots, itemsArr, ctx, offsetX, offsetY, useNativeRandom) {
     var out = { dropped: [], stayed: [], sendFailed: 0, attempted: 0, serverRejected: 0, serverAccepted: 0 };
@@ -2071,7 +2074,7 @@ function tickJunkDisposalMainThread() {
             return;
         }
 
-        if (job.phase === "drop_pass1" || job.phase === "drop_pass2") {
+        if (job.phase === "drop_pass1" || job.phase === "drop_pass2" || job.phase === "drop_pass3") {
             if (!job.dropAllowedApplied) {
                 ensureDropAllowed(true);
                 job.dropAllowedApplied = true;
@@ -2079,6 +2082,7 @@ function tickJunkDisposalMainThread() {
             if (now < job.nextActionAtMs) return;
 
             var isPass2 = (job.phase === "drop_pass2");
+            var isPass3 = (job.phase === "drop_pass3");
             while (job.idx < job.queue.length) {
                 var s = job.queue[job.idx];
                 var curIdx = job.idx;
@@ -2090,16 +2094,17 @@ function tickJunkDisposalMainThread() {
                 job.passAttempted++;
                 job.triedSlots.push(s);
 
-                var sp = _DROP_SPIRAL_OFFSETS[curIdx % _DROP_SPIRAL_OFFSETS.length];
-                var offX = isPass2 ? -1 : 0;
-                var offY = isPass2 ? 1 : 0;
-                var tx = (job.ctx.x > 0) ? Math.max(1, Math.min(254, job.ctx.x + offX + sp[0])) : 0;
-                var ty = (job.ctx.y > 0) ? Math.max(1, Math.min(254, job.ctx.y + offY + sp[1])) : 0;
+                var spiralIdx = isPass2 ? ((curIdx + 11) % _DROP_SPIRAL_OFFSETS.length)
+                              : (isPass3 ? ((curIdx + 19) % _DROP_SPIRAL_OFFSETS.length) : (curIdx % _DROP_SPIRAL_OFFSETS.length));
+                var sp = _DROP_SPIRAL_OFFSETS[spiralIdx];
+                var tx = (job.ctx.x > 0) ? Math.max(1, Math.min(254, job.ctx.x + sp[0])) : 0;
+                var ty = (job.ctx.y > 0) ? Math.max(1, Math.min(254, job.ctx.y + sp[1])) : 0;
 
                 var sent = false;
                 try {
                     if (nativeUserInvDrop !== null) {
-                        sent = isPass2 ? dropSlotNative(s, 0, 0) : dropSlotNative(s, tx, ty);
+                        // Pass 1 & Pass 2: thả theo lưới 25 ô 5x5 tránh trùng ô đã rơi; Pass 3: để client tự chọn ô trống ngẫu nhiên
+                        sent = isPass3 ? dropSlotNative(s, 0, 0) : dropSlotNative(s, tx, ty);
                     }
                     if (!sent) sent = sendDropPacket(s, tx || (job.ctx.x + 1), ty || job.ctx.y);
                 } catch (eSendDrop) { sent = false; }
@@ -2107,18 +2112,19 @@ function tickJunkDisposalMainThread() {
                 if (!sent) {
                     job.sendFailed++;
                 }
-                job.nextActionAtMs = now + 90;
-                return; // Chỉ gửi tối đa 1 món mỗi 90ms -> 0ms lag, 0ms treo Unity MainThread!
+                job.nextActionAtMs = now + (isPass3 ? 155 : (isPass2 ? 120 : 95));
+                return; // Gửi tối đa 1 món mỗi nhịp -> 0ms lag, tránh rate-limit & trùng ô rơi!
             }
 
             // Đã gửi hết hàng đợi của pass hiện tại -> chuyển sang pha chờ xác minh non-blocking
-            job.phase = isPass2 ? "drop_pass2_wait" : "drop_pass1_wait";
-            job.verifyDeadlineMs = now + 650;
+            job.phase = isPass3 ? "drop_pass3_wait" : (isPass2 ? "drop_pass2_wait" : "drop_pass1_wait");
+            job.verifyDeadlineMs = now + (isPass3 ? 1000 : (isPass2 ? 900 : 850));
             return;
         }
 
-        if (job.phase === "drop_pass1_wait" || job.phase === "drop_pass2_wait") {
+        if (job.phase === "drop_pass1_wait" || job.phase === "drop_pass2_wait" || job.phase === "drop_pass3_wait") {
             var isP1Wait = (job.phase === "drop_pass1_wait");
+            var isP2Wait = (job.phase === "drop_pass2_wait");
             var allResolved = true;
             for (var k = 0; k < job.triedSlots.length; k++) {
                 var ts = job.triedSlots[k];
@@ -2161,7 +2167,19 @@ function tickJunkDisposalMainThread() {
                     job.triedSlots = [];
                     job.passAttempted = 0;
                     job.passStartSeq = _dropRecvSeq;
-                    job.nextActionAtMs = now;
+                    job.nextActionAtMs = now + 120;
+                    return;
+                }
+            } else if (isP2Wait) {
+                var allExplicitlyRejected2 = (job.passAttempted >= 2 && passDropped === 0 && passRejected >= job.passAttempted);
+                if (stayed.length > 0 && (job.dropped.length > 0 || !allExplicitlyRejected2)) {
+                    job.phase = "drop_pass3";
+                    job.queue = stayed;
+                    job.idx = 0;
+                    job.triedSlots = [];
+                    job.passAttempted = 0;
+                    job.passStartSeq = _dropRecvSeq;
+                    job.nextActionAtMs = now + 150;
                     return;
                 }
             }
@@ -2582,23 +2600,41 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
     // 2. Phân loại theo tên native của vật phẩm trong Game Memory (Hỗ trợ đa ngôn ngữ EN, PT, ES, VN):
     var name = getItemName(itemPtr).toLowerCase();
     if (name.length > 0) {
-        var keywords = [
+        // 2a. Từ khóa trang bị/vũ khí cao cấp (áp dụng cho cả trang bị sec 0..11)
+        // LƯU Ý: KHÔNG đưa các từ "wing", "chaos", "soul", "life", "horn", "stone", "gem", "box", "feather" vào đây
+        // vì sẽ chặn nhầm đồ rác thường như "Bluewing Crossbow" ("wing"), "Chaos Nature Bow" ("chaos"), v.v.!
+        var equipKeywords = [
             "divine", "divino", "divina", "archangel", "arcanjo", "thiên sứ", "nữ thần",
             "dragon", "dragao", "dragão", "rồng",
-            "bloodangel", "darkangel", "holyangel", "awakening", "blue eye", "silver heart", "manticore", "brilliant", "apocalypse", "lightning", "ruud",
-            // --- LƯỚI AN TOÀN: các vật phẩm quý KHÔNG BAO GIỜ được dọn ---
-            // (kể cả khi đọc Index thất bại: ngọc, vé sự kiện, rương, cánh, pet...)
-            "jewel", "jóia", "joia", "pedra", "gema", "ngọc",
-            "bless", "soul", "chaos", "harmony", "creation", "life",
-            "jewel of guardian", "joia do guardiao", "jóia do guardião", "đá hộ mệnh",
-            "ticket", "vé", "mirror", "gương",
-            "box", "rương", "wing", "cánh", "feather", "lông", "cloak",
-            "seed", "fruit", "rune", "gem", "stone", "scroll", "horn",
-            "pentagram", "errtel", "muun", "dark horse", "dark raven", "fenrir"
+            "bloodangel", "darkangel", "holyangel", "awakening", "blue eye", "silver heart",
+            "manticore", "brilliant", "apocalypse", "ruud"
         ];
-        for (var k = 0; k < keywords.length; k++) {
-            if (name.indexOf(keywords[k]) !== -1) {
+        for (var k = 0; k < equipKeywords.length; k++) {
+            if (name.indexOf(equipKeywords[k]) !== -1) {
                 return true;
+            }
+        }
+        // Riêng set Ruud Lightning (quần áo sec 7..11 hoặc type cao), KHÔNG chặn nhầm Lightning Sword/Axe thường (sec 0..5, type < 30)
+        if (name.indexOf("lightning") !== -1 && (sec >= 7 || type >= 30 || itemIndex <= 0)) {
+            return true;
+        }
+
+        // 2b. LƯỚI AN TOÀN cho vật phẩm ngoài nhóm trang bị thường (sec >= 12 hoặc khi Index đọc lỗi == 0):
+        // Bảo vệ tuyệt đối ngọc, vé sự kiện, rương, cánh, pet... dù đọc Index thất bại!
+        if (sec >= 12 || itemIndex <= 0) {
+            var safetyKeywords = [
+                "jewel", "jóia", "joia", "pedra", "gema", "ngọc",
+                "bless", "soul", "chaos", "harmony", "creation", "life",
+                "jewel of guardian", "joia do guardiao", "jóia do guardião", "đá hộ mệnh",
+                "ticket", "vé", "mirror", "gương",
+                "box", "rương", "wing", "cánh", "feather", "lông", "cloak",
+                "seed", "fruit", "rune", "gem", "stone", "scroll", "horn",
+                "pentagram", "errtel", "muun", "dark horse", "dark raven", "fenrir"
+            ];
+            for (var sk = 0; sk < safetyKeywords.length; sk++) {
+                if (name.indexOf(safetyKeywords[sk]) !== -1) {
+                    return true;
+                }
             }
         }
     }
@@ -3370,8 +3406,9 @@ function performMossRollNow(cat) {
         var mossWin = mossOff.isNull() ? gui.add(ptr('0x1D0')).readPointer() : gui.add(mossOff).readPointer();
         if (mossWin.isNull()) return false;
 
-        // Chỉ gửi lệnh quay khi Server đã mở bảng Moss thật (MWindow open + catList.count > 0)
-        if (!isMossWindowServerReady(mossWin)) {
+        // Chỉ gửi lệnh quay khi cửa sổ Moss đang thực sự mở (MWindow +0x48 == 1)
+        var rWin = mossWin.add(0x20).readPointer();
+        if (rWin.isNull() || rWin.add(0x48).readU8() !== 1) {
             return false;
         }
 
@@ -10095,7 +10132,7 @@ rpc.exports = {
             var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 6;
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
             var cleanExt = (includeExtended === 1 || includeExtended === true || includeExtended === "true" || includeExtended === undefined);
-            var batch = (maxBatch !== undefined && maxBatch !== null && parseInt(maxBatch) > 0) ? parseInt(maxBatch) : 40;
+            var batch = (maxBatch !== undefined && maxBatch !== null && parseInt(maxBatch) > 0) ? parseInt(maxBatch) : 80;
             var ctx = readDisposalContext();
             var empty = {
                 cleaned: 0, dropped: 0, sold: 0, total: 0, failed: 0, remaining: 0,
@@ -10253,7 +10290,7 @@ rpc.exports = {
             if (itemP.isNull()) return JSON.stringify({ queued: false, done: true, result: { ok: false, err: "empty_slot", slot: s } });
             var itemIdx = readItemIndex(itemP);
             var pInfo = readItemProps(itemP);
-            if (isItemProtected(itemP, itemIdx, pInfo.itemLevel, pInfo.excOpt, pInfo.ancOpt, pInfo.sockOpt, pInfo.harmonyOpt, pInfo.luck, -1)) {
+            if (isItemProtected(itemP, itemIdx, pInfo.itemLevel, pInfo.excOpt, pInfo.ancOpt, pInfo.sockOpt, pInfo.harmonyOpt, pInfo.luck, -1, 6)) {
                 return JSON.stringify({ queued: false, done: true, result: { ok: false, err: "protected_item", slot: s } });
             }
             _junkJobSeq += 1;
@@ -10295,7 +10332,7 @@ rpc.exports = {
             var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 6;
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
             var cleanExt = (includeExtended === 1 || includeExtended === true || includeExtended === "true" || includeExtended === undefined);
-            var batch = (maxBatch !== undefined && maxBatch !== null && parseInt(maxBatch) > 0) ? parseInt(maxBatch) : 40;
+            var batch = (maxBatch !== undefined && maxBatch !== null && parseInt(maxBatch) > 0) ? parseInt(maxBatch) : 80;
             var ctx = readDisposalContext();
             var empty = {
                 cleaned: 0, dropped: 0, sold: 0, total: 0, failed: 0, remaining: 0,
@@ -13248,8 +13285,8 @@ class MegDirectEngine:
         protected_slots: Optional[List[int]] = None,
         category: Optional[int] = None,
         include_extended: bool = True,
-        max_junk_level: int = 4,
-        max_batch: int = 40,
+        max_junk_level: int = 6,
+        max_batch: int = 80,
         ignore_type_heuristics: bool = False,
         clean_equipment_trash: bool = False
     ) -> Dict[str, Any]:
@@ -13302,7 +13339,7 @@ class MegDirectEngine:
                     if sdata.get("queued"):
                         job_id = int(sdata.get("jobId", 0) or 0)
                         total_items = int(sdata.get("total", 0) or 0)
-                        deadline = time.time() + max(12.0, total_items * 0.35 + 6.0)
+                        deadline = time.time() + max(15.0, total_items * 0.55 + 8.0)
                         last_status = None
                         while time.time() < deadline:
                             time.sleep(0.08)
@@ -13352,7 +13389,7 @@ class MegDirectEngine:
         category: Optional[int] = None,
         include_extended: bool = True,
         max_junk_level: int = 6,
-        max_batch: int = 40,
+        max_batch: int = 80,
         ignore_type_heuristics: bool = False,
         clean_equipment_trash: bool = False,
     ) -> Dict[str, Any]:
