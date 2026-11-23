@@ -47,7 +47,7 @@
   "user_inv_drop": "0x14581E0",
   "user_inv_drop_recv": "0x1457C40",
   "user_inv_action": "0x14521D0",
-  "user_inv_sell": "0x14521D0",
+  "user_inv_sell": "0x1450640",
   "user_inv_sell_5": "0x14557E0",
   "item_storage_drop": "0x22EEA70",
   "merchant_sell_item": "0x2858700",

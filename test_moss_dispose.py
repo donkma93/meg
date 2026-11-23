@@ -287,6 +287,344 @@ console.log("PROTECTION_MATCH_OK");
         self.assertEqual(proc.returncode, 0, f"Node test failed:\n{proc.stderr}\n{proc.stdout}")
         self.assertIn("PROTECTION_MATCH_OK", proc.stdout)
 
+    def test_sell_plus5_to_7_and_excellent_excluding_dragon_and_true_socket(self):
+        """Kiểm thử bán đồ +5..+7 và đồ Excellent (allowExcellent=true) với bảng ID MEGAMU chuẩn:
+        - Bán được: đồ thường +5..+7, đồ Exce thường (+0..+7), các món từng bị ID sai chặn nhầm (Spiked Shield [6,7], Nikea Axe [1,6], Grand Soul [7,18]).
+        - LUÔN GIỮ: mọi Đồ Rồng (ID chuẩn từ TableItem RAM), Divine/Archangel, Đồ Thần (Ancient), Đồ Socket thật (+0x38), Harmony/380, cấp >= +8, Ngọc/Vé.
+        """
+        with open("meg_direct_engine.py", "r", encoding="utf-8") as f:
+            src = f.read()
+        start = src.find("function isDivineOrDragonItem")
+        end = src.find("var nativeGetGameUI = null;")
+        self.assertGreater(start, 0)
+        self.assertGreater(end, start)
+        block = src[start:end]
+
+        runner = (
+            'function getItemName(p){ return (p && p.name) ? p.name : ""; }\n'
+            + block
+            + r"""
+function makeSocketPtr(slots, name) {
+    const arr = {
+        isNull() { return false; },
+        add(o) {
+            return {
+                readS32() {
+                    if (o === 0x18) return slots.length;
+                    const idx = (o - 0x20) / 4;
+                    return (idx >= 0 && idx < slots.length) ? slots[idx] : 255;
+                }
+            };
+        }
+    };
+    return {
+        name: name || "",
+        isNull() { return false; },
+        add(o) {
+            return {
+                readPointer() { return o === 0x38 ? arr : { isNull() { return true; } }; }
+            };
+        }
+    };
+}
+
+function assertReason(label, got, expected) {
+    if (got !== expected) {
+        console.error("FAIL [" + label + "]: expected=" + expected + " got=" + got);
+        process.exit(1);
+    }
+}
+
+// 1) Đồ Rồng chuẩn TableItem MEGAMU -> LUÔN GIỮ dù allowExcellent=true và ignoreType=true!
+const dragonCases = [
+    ["Dragon Helm (7,1)", 7*512+1, "Dragon Helm"],
+    ["Black Dragon Armor (8,16)", 8*512+16, "Black Dragon Armor"],
+    ["Great Dragon Pants (9,21)", 9*512+21, "Great Dragon Pants"],
+    ["Dragon Knight Gloves (10,29)", 10*512+29, "Dragon Knight Gloves"],
+    ["Dragon Boots ext (11,67)", 11*512+67, "Dragon Boots"],
+    ["Bound Dragon Helm (7,130)", 7*512+130, "[Bound] Dragon Helm"],
+    ["Dragon Slayer Shield (6,5)", 6*512+5, "Dragon Slayer Shield"],
+    ["Dragon Shield (6,13)", 6*512+13, "Dragon Shield"],
+    ["Chaos Dragon Axe (2,6)", 2*512+6, "Chaos Dragon Axe"],
+    ["Dragon Lance (3,2)", 3*512+2, "Dragon Lance"],
+    ["Dragon Spear (3,10)", 3*512+10, "Dragon Spear"],
+    ["Dragon Soul Staff (5,9)", 5*512+9, "Dragon Soul Staff"],
+    ["Dragon by ID only (no name)", 6*512+13, ""],
+    ["Dragon by Name only", 0*512+5, "Super Dragon Blade"],
+];
+for (const [lbl, idx, nm] of dragonCases) {
+    const r = itemProtectionReason({ name: nm }, idx, 6, 1, 0, 0, 0, 1, -1, 7, true, true, true);
+    assertReason(lbl, r, "dragon_item");
+}
+
+// 2) Divine / Archangel -> LUÔN GIỮ kể cả khi allowExcellent=true
+assertReason("Divine Sword (0,19)", itemProtectionReason({ name: "Divine Sword of Archangel" }, 0*512+19, 6, 1, 0, 0, 0, 1, -1, 7, false, true, true), "divine_or_dragon");
+assertReason("Divine Helm (7,50)", itemProtectionReason({ name: "Divine Helm" }, 7*512+50, 5, 1, 0, 0, 0, 0, -1, 7, false, true, true), "divine_or_dragon");
+
+// 3) Đồ +5..+7 thường & Đồ Excellent KHÔNG phải Rồng -> BÁN ĐƯỢC (reason === null) khi allowExcellent=true!
+const sellableCases = [
+    ["Normal Sword +5", 0*512+5, "Blade", 5, 0],
+    ["Normal Bow +7", 4*512+22, "Albatross Bow", 7, 0],
+    ["Exc Sword +0", 0*512+5, "Blade", 0, 1],
+    ["Exc Sword +7", 0*512+10, "Light Saber", 7, 3],
+    ["Spiked Shield (6,7) Exc +6 (was misclassified)", 6*512+7, "Spiked Shield", 6, 1],
+    ["Nikea Axe (1,6) Exc +5 (was misclassified)", 1*512+6, "Nikea Axe", 5, 1],
+    ["Grand Soul Helm (7,18) Exc +7 (was misclassified)", 7*512+18, "Grand Soul Helm", 7, 2],
+    ["Type 35 normal Exc +6", 0*512+35, "Crystal Sword", 6, 1],
+];
+for (const [lbl, idx, nm, lvl, exc] of sellableCases) {
+    const r = itemProtectionReason({ name: nm }, idx, lvl, exc, 0, 0, 0, 1, -1, 7, false, true, true);
+    assertReason(lbl, r, null);
+}
+
+// 4) Các chốt bảo vệ khác vẫn giữ chặt kể cả khi allowExcellent=true:
+assertReason("Exc +8 over max", itemProtectionReason({ name: "Blade" }, 0*512+5, 8, 1, 0, 0, 0, 1, -1, 7, false, true, true), "level_over_max");
+assertReason("Ancient +6", itemProtectionReason({ name: "Hyon Sword" }, 0*512+5, 6, 0, 5, 0, 0, 1, -1, 7, false, true, true), "ancient");
+assertReason("Harmony +6", itemProtectionReason({ name: "Blade" }, 0*512+5, 6, 1, 0, 0, 12, 1, -1, 7, false, true, true), "harmony");
+assertReason("True Socket (+0x38 empty 0xFE)", itemProtectionReason(makeSocketPtr([254, 255, 255, 255, 255], "Brave Helm"), 7*512+45, 5, 0, 0, 0, 0, 0, -1, 7, false, true, true), "socket");
+assertReason("Non-Socket (+0x38 all 0xFF) Exc +5 sellable", itemProtectionReason(makeSocketPtr([255, 255, 255, 255, 255], "Blade"), 0*512+5, 5, 1, 0, 0, 0, 0, -1, 7, false, true, true), null);
+assertReason("Jewel of Bless", itemProtectionReason({ name: "Jewel of Bless" }, 14*512+13, 0, 0, 0, 0, 0, 0, -1, 7, false, true, true), "jewel_section");
+
+console.log("EXCE_DRAGON_SOCKET_OK");
+"""
+        )
+        proc = subprocess.run(["node", "-e", runner], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+        self.assertEqual(proc.returncode, 0, f"Node test failed:\n{proc.stderr}\n{proc.stdout}")
+        self.assertIn("EXCE_DRAGON_SOCKET_OK", proc.stdout)
+
+    def test_sell_protocol_c3_33_and_selling_slot_and_rhea_npc(self):
+        """Kiểm chứng 4 sửa lỗi cốt lõi:
+        1. config/megamu_offsets.json trỏ user_inv_sell -> 0x1450640 (AFCIKPDMOCC = C3:33 SELL, KHÔNG phải 0x14521D0 BUY).
+        2. sendSellPacket gửi đúng C3:33 (0x33 ^ 0xCB = 0xF8) và gán ItemStorage.SellingSlot (+0x20) bằng layout Dictionary Entry (+0x08 key, +0x10 value) trên cả MainStorage (+0x58), Ext1 (+0x60), Ext2 (+0x68).
+        3. findMerchantNpc nhận diện NPC Rhea (class=416, pos=29,236) ngay ELB1 (30,235), loại tuyệt đối Priest James (class=725, pos=32,239) và Moss (22,225), đồng thời vẫn chọn Silvia (44,229) khi đứng gần Silvia.
+        4. Không còn ép mwObj+0x48 = 1 trong dismissExpensiveSellWindow().
+        """
+        import json
+        with open("config/megamu_offsets.json", "r", encoding="utf-8") as f:
+            offs = json.load(f)
+        self.assertEqual(offs.get("user_inv_sell"), "0x1450640")
+
+        with open("meg_direct_engine.py", "r", encoding="utf-8") as f:
+            src = f.read()
+
+        # Verify sendSellPacket + findInventorySlotObj + setItemStorageSellingSlot via Node
+        s1 = src.find("function findInventorySlotObj(slot)")
+        e1 = src.find("// MOSS JUNK DISPOSAL ENGINE (v2)")
+        self.assertGreater(s1, 0)
+        self.assertGreater(e1, s1)
+        sell_block = src[s1:e1]
+
+        s2 = src.find("function findMerchantNpc()")
+        e2 = src.find("try {\n    var guiUpdateOff")
+        if e2 == -1:
+            e2 = src.find("try {\r\n    var guiUpdateOff")
+        self.assertGreater(s2, 0)
+        self.assertGreater(e2, s2)
+        npc_block = src[s2:e2]
+
+        # Ensure dismissExpensiveSellWindow no longer writes mwObj.add(0x48).writeU8(1)
+        s3 = src.find("function dismissExpensiveSellWindow()")
+        e3 = src.find("function dispatchSellSlotOnMainThread", s3)
+        self.assertGreater(s3, 0)
+        self.assertGreater(e3, s3)
+        self.assertNotIn("writeU8(1)", src[s3:e3])
+
+        runner = (
+            r"""
+function ptr(v) {
+    if (v && typeof v === "object" && v.__ptr) return v;
+    const n = (typeof v === "string") ? parseInt(v, 16) : (v || 0);
+    return {
+        __ptr: true, addr: n, _mem: {},
+        isNull() { return this.addr === 0; },
+        equals(o) { return o && o.addr === this.addr; },
+        add(off) {
+            const d = (typeof off === "object" && off.__ptr) ? off.addr : (typeof off === "string" ? parseInt(off, 16) : off);
+            return makePtr(this.addr + d, this._store);
+        }
+    };
+}
+const STORE = new Map();
+function makePtr(addr, store) {
+    const s = store || STORE;
+    return {
+        __ptr: true, addr, _store: s,
+        isNull() { return addr === 0; },
+        equals(o) { return o && o.addr === addr; },
+        add(off) {
+            const d = (typeof off === "object" && off.__ptr) ? off.addr : (typeof off === "string" ? parseInt(off, 16) : off);
+            return makePtr(addr + d, s);
+        },
+        readPointer() { return s.get(addr) || makePtr(0, s); },
+        writePointer(p) { s.set(addr, p); },
+        readS32() { const v = s.get(addr); return typeof v === "number" ? v : 0; },
+        readU8() { const v = s.get(addr); return typeof v === "number" ? v : 0; },
+        readUtf16String(len) { return s.get(addr) || ""; },
+    };
+}
+function alloc(base) { return makePtr(base, STORE); }
+function off(name) {
+    const map = {
+        __UI_INVENTORY_WINDOW__: 0x190,
+        __ITEM_STORAGE_TYPE_INFO__: 0x5574B18,
+        __GAME_TYPE_INFO__: 0x55A4D00,
+        __VIEWPORT__: 0x110,
+        __PLAYER_COORD__: 0x68,
+        __PLAYER_CLASS__: 0x34,
+        __PLAYER_NAME__: 0x28,
+    };
+    return makePtr(map[name] || 0, STORE);
+}
+const baseAddr = makePtr(0x10000000, STORE);
+let SENT_PKTS = [];
+var nativeUserInvSell = null;
+function ensureThreadAttached() {}
+function _getLiveItemsArraySafe() { return makePtr(0, STORE); }
+function sendGSPacket(bytes, xored) { SENT_PKTS.push({ bytes, xored }); return true; }
+
+// Build fake GameUI -> MInventoryWindow -> MainStorage (+0x58: slot 15), Ext1 (+0x60: slot 80), Ext2 (+0x68: slot 112)
+const GUI = alloc(0x200000);
+const INV_WIN = alloc(0x210000);
+GUI.add(0x190).writePointer(INV_WIN);
+function nativeGetGameUI() { return GUI; }
+
+const IS_TI = alloc(0x220000);
+const IS_STATIC = alloc(0x221000);
+baseAddr.add(0x5574B18).writePointer(IS_TI);
+IS_TI.add(0xB8).writePointer(IS_STATIC);
+
+function buildStorage(stAddr, dictAddr, entAddr, slotList) {
+    const st = alloc(stAddr);
+    const dict = alloc(dictAddr);
+    const ent = alloc(entAddr);
+    st.add(0x38).writePointer(dict);
+    dict.add(0x18).writePointer(ent);
+    STORE.set(dictAddr + 0x20, slotList.length);
+    slotList.forEach((sl, idx) => {
+        const slotObj = alloc(stAddr + 0x5000 + idx * 0x100);
+        STORE.set(slotObj.addr + 0x20, sl); // SlotNumber
+        const e = ent.add(0x20 + idx * 24);
+        STORE.set(e.addr + 0x00, sl);       // hashCode >= 0
+        STORE.set(e.addr + 0x04, -1);       // next
+        STORE.set(e.addr + 0x08, sl);       // int key (verified +0x08!)
+        e.add(0x10).writePointer(slotObj);  // ItemSlot* value (verified +0x10!)
+    });
+    return st;
+}
+INV_WIN.add(0x58).writePointer(buildStorage(0x300000, 0x301000, 0x302000, [12, 15, 20]));
+INV_WIN.add(0x60).writePointer(buildStorage(0x310000, 0x311000, 0x312000, [76, 80]));
+INV_WIN.add(0x68).writePointer(buildStorage(0x320000, 0x321000, 0x322000, [108, 112]));
+"""
+            + sell_block
+            + r"""
+// Check 1: Main slot 15, Ext1 slot 80, Ext2 slot 112 all set SellingSlot & send C3:33 (0xF8)
+for (const sl of [15, 80, 112]) {
+    SENT_PKTS = [];
+    IS_STATIC.add(0x20).writePointer(makePtr(0, STORE));
+    const ok = sendSellPacket(sl);
+    const ss = IS_STATIC.add(0x20).readPointer();
+    if (!ok || ss.isNull() || ss.add(0x20).readS32() !== sl) {
+        console.error("SellingSlot FAILED for slot", sl, ok, ss.addr);
+        process.exit(1);
+    }
+    if (SENT_PKTS.length !== 1) { console.error("Expected 1 pkt, got", SENT_PKTS); process.exit(1); }
+    const b = SENT_PKTS[0].bytes;
+    if (!(b[0] === 0xC3 && b[1] === 0x04 && b[2] === (0x33 ^ 0xCB) && b[3] === sl)) {
+        console.error("Wrong C3:33 sell packet:", b);
+        process.exit(1);
+    }
+}
+// Check 2: Equipped slot < 12 blocked
+if (sendSellPacket(5) !== false) { console.error("Equipped slot 5 must be blocked!"); process.exit(1); }
+
+// Check 3: findMerchantNpc with Rhea (29,236, class=416), Priest James (32,239, class=725), Moss (22,225, class=492), Silvia (44,229, class=415)
+const GAME_TI = alloc(0x400000);
+const GAME_SF = alloc(0x401000);
+const GAME_INST = alloc(0x402000);
+const VP = alloc(0x403000);
+const OD = alloc(0x404000);
+const ENT = alloc(0x405000);
+const PLAYER = alloc(0x406000);
+const PCOORD = alloc(0x406100);
+baseAddr.add(0x55A4D00).writePointer(GAME_TI);
+GAME_TI.add(0xB8).writePointer(GAME_SF);
+GAME_SF.add(0x08).writePointer(GAME_INST);
+GAME_INST.add(0x110).writePointer(VP);
+VP.add(0x20).writePointer(OD);
+OD.add(0x18).writePointer(ENT);
+PLAYER.add(0x68).writePointer(PCOORD);
+function getPlayerPtr() { return PLAYER; }
+
+const CLASS_NAMES = new Map();
+function getIl2CppClassNameSafe(p) { return CLASS_NAMES.get(p.addr) || ""; }
+
+const npcs = [
+    { key: 4334, cls: 492, name: "Moss", x: 22, y: 225 },
+    { key: 4345, cls: 725, name: "Priest James", x: 32, y: 239 },
+    { key: 4335, cls: 416, name: "Rhea", x: 29, y: 236 },
+    { key: 4350, cls: 415, name: "Silvia", x: 44, y: 229 },
+];
+STORE.set(OD.addr + 0x20, npcs.length);
+npcs.forEach((n, i) => {
+    const vpBody = alloc(0x500000 + i * 0x1000);
+    const body = alloc(0x500200 + i * 0x1000);
+    const coord = alloc(0x500400 + i * 0x1000);
+    const nstr = alloc(0x500600 + i * 0x1000);
+    CLASS_NAMES.set(vpBody.addr, "ViewportBody");
+    CLASS_NAMES.set(body.addr, "MonsterBody");
+    vpBody.add(0x18).writePointer(body);
+    STORE.set(body.addr + 0x20, n.key);
+    STORE.set(body.addr + 0x34, n.cls);
+    STORE.set(body.addr + 0xC0, 0);
+    body.add(0x28).writePointer(nstr);
+    STORE.set(nstr.addr + 0x10, n.name.length);
+    STORE.set(nstr.addr + 0x14, n.name);
+    body.add(0x68).writePointer(coord);
+    STORE.set(coord.addr + 0x10, n.x);
+    STORE.set(coord.addr + 0x14, n.y);
+    const e = ENT.add(0x20 + i * 24);
+    STORE.set(e.addr + 0x00, i + 1);
+    e.add(16).writePointer(vpBody);
+});
+"""
+            + npc_block
+            + r"""
+// Standing at ELB1 (30, 235) -> must pick Rhea (29, 236), NEVER Priest James!
+STORE.set(PCOORD.addr + 0x10, 30); STORE.set(PCOORD.addr + 0x14, 235);
+let found = findMerchantNpc();
+if (!found || found.name !== "Rhea" || found.x !== 29 || found.y !== 236) {
+    console.error("Expected Rhea at (30,235), got:", found);
+    process.exit(1);
+}
+// Standing at Moss (22, 225) -> must pick Rhea (29, 236)
+STORE.set(PCOORD.addr + 0x10, 22); STORE.set(PCOORD.addr + 0x14, 225);
+found = findMerchantNpc();
+if (!found || found.name !== "Rhea") {
+    console.error("Expected Rhea from Moss (22,225), got:", found);
+    process.exit(1);
+}
+// Standing right next to Priest James (32, 239) -> still picks Rhea, NEVER Priest James!
+STORE.set(PCOORD.addr + 0x10, 32); STORE.set(PCOORD.addr + 0x14, 239);
+found = findMerchantNpc();
+if (!found || found.name === "Priest James" || found.classId === 725) {
+    console.error("Must NEVER pick Priest James:", found);
+    process.exit(1);
+}
+// Standing at Silvia (44, 229) -> picks Silvia
+STORE.set(PCOORD.addr + 0x10, 44); STORE.set(PCOORD.addr + 0x14, 229);
+found = findMerchantNpc();
+if (!found || found.name !== "Silvia") {
+    console.error("Expected Silvia at (44,229), got:", found);
+    process.exit(1);
+}
+console.log("SELL_C3_33_AND_RHEA_OK");
+"""
+        )
+        proc = subprocess.run(["node", "-e", runner], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+        self.assertEqual(proc.returncode, 0, f"Node test failed:\n{proc.stderr}\n{proc.stdout}")
+        self.assertIn("SELL_C3_33_AND_RHEA_OK", proc.stdout)
 
 
 if __name__ == "__main__":

@@ -161,7 +161,7 @@ class MossTabQt(QWidget):
 
         bl.addWidget(_mb("🔍 Phân Tích Hòm", self.on_analyze_moss, "primary"))
         bl.addWidget(_mb("🧹 Dọn Hòm Đồ", self.on_open_junk_dialog, "neutral"))
-        bl.addWidget(_mb("💰 Bán Silvia", self.on_sell_moss, "neutral"))
+        bl.addWidget(_mb("💰 Bán Shop (Rhea)", self.on_sell_moss, "neutral"))
         bl.addWidget(_mb("🗑️ Ném Rác", self.on_clean_moss, "neutral"))
         bl.addStretch(1)
 
@@ -184,11 +184,16 @@ class MossTabQt(QWidget):
         self.cb_move = QCheckBox("Tới NPC Moss")
         self.cb_auto_clean = QCheckBox("Tự dọn hòm")
         self.cb_clean_equip = QCheckBox("Ném đồ rác")
+        self.cb_sell_exc = QCheckBox("Bán Exce (trừ Rồng)")
+        self.cb_sell_exc.setToolTip(
+            "Bán Shop (Rhea 30,235): bán đồ rác +0..+7 (gồm +5..+7) và đồ Hoàn Hảo (Exce). "
+            "LUÔN bảo vệ: Đồ Rồng (Dragon), Divine/Archangel, Đồ Thần (Ancient), Đồ Socket, Harmony/380, đồ >= +8 và Ngọc/Vé."
+        )
         for cb in (self.cb_auto, self.cb_move):
             cb.setChecked(True)
             cb.stateChanged.connect(self._emit_schedule)
             rl.addWidget(cb)
-        for cb in (self.cb_auto_clean, self.cb_clean_equip):
+        for cb in (self.cb_auto_clean, self.cb_clean_equip, self.cb_sell_exc):
             cb.setChecked(True)
             cb.stateChanged.connect(self._emit_flags)
             rl.addWidget(cb)
@@ -416,6 +421,7 @@ class MossTabQt(QWidget):
             c0 = self.controllers[0]
             self.cb_auto_clean.setChecked(bool(getattr(c0, "moss_auto_clean", True)))
             self.cb_clean_equip.setChecked(bool(getattr(c0, "moss_clean_equipment_trash", True)))
+            self.cb_sell_exc.setChecked(bool(getattr(c0, "moss_sell_excellent", True)))
             self.combo_batch_cat.setCurrentText(moss_cat_name(int(getattr(c0, "moss_category", 0) or 0)))
             self.spin_batch_delay.setValue(int(getattr(c0, "moss_delay_ms", 1000) or 1000))
         finally:
@@ -500,7 +506,7 @@ class MossTabQt(QWidget):
             ("🚪 Mở bảng Moss NPC", "open_npc"),
             ("🚪 Đóng bảng Moss NPC", "close_npc"),
             (None, None),
-            ("💰 Đi bán đồ rác tại NPC Silvia", "sell"),
+            ("💰 Đi bán đồ rác tại NPC Rhea (30, 235)", "sell"),
             ("🗑️ Ném đồ rác tại chỗ ngay", "clean"),
             (None, None),
             ("🚶 Chạy về NPC Moss (Elbeland 22, 225)", "move"),
@@ -551,6 +557,7 @@ class MossTabQt(QWidget):
                 "delay_ms": delay,
                 "auto_clean": self.cb_auto_clean.isChecked(),
                 "clean_equipment_trash": self.cb_clean_equip.isChecked(),
+                "sell_excellent": self.cb_sell_exc.isChecked(),
                 "flags_only": False,
             })
 
@@ -590,5 +597,6 @@ class MossTabQt(QWidget):
         self.on_apply_moss_batch({
             "auto_clean": self.cb_auto_clean.isChecked(),
             "clean_equipment_trash": self.cb_clean_equip.isChecked(),
+            "sell_excellent": self.cb_sell_exc.isChecked(),
             "flags_only": True,
         })

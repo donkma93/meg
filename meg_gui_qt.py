@@ -278,6 +278,7 @@ class DashboardAppQt(QMainWindow):
             ctrl.moss_max_rolls = int(c_data.get("max_rolls", 0))
             ctrl.moss_auto_clean = bool(c_data.get("auto_clean", True))
             ctrl.moss_clean_equipment_trash = bool(c_data.get("clean_equipment_trash", True))
+            ctrl.moss_sell_excellent = bool(c_data.get("sell_excellent", True))
             ctrl.mirror_enabled = (i in mirror_sel) if (mirror_sel is not None) else True
             ctrl.moss_enabled = (i in moss_sel) if (moss_sel is not None) else True
             self.controllers.append(ctrl)
@@ -300,17 +301,24 @@ class DashboardAppQt(QMainWindow):
         self.cb_moss_auto_schedule = _BoolCheckboxProxy(bool(moss_sched_cfg.get("auto_schedule", True)))
         self.cb_moss_auto_move_before = _BoolCheckboxProxy(bool(moss_sched_cfg.get("auto_move_before", True)))
         self.cb_clean_equipment_trash = _BoolCheckboxProxy(True)
+        self.cb_sell_excellent = _BoolCheckboxProxy(True)
         self.batch_moss_clean_cb = _BoolCheckboxProxy(True)
 
         raw_delay_val = mirror_sched_cfg.get("interval_ms", mirror_sched_cfg.get("snipe_interval_ms", 10))
         self.mirror_snipe_delay_ms = int(raw_delay_val) if raw_delay_val is not None else 10
         self.mirror_snipe_dur_s = float(mirror_sched_cfg.get("max_duration_s", 15.0) or 15.0)
-        self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 5.0) if mirror_sched_cfg.get("prefire_sec") is not None else 5.0)
+        self.mirror_prefire_sec = float(mirror_sched_cfg.get("prefire_sec", 2.0) if mirror_sched_cfg.get("prefire_sec") is not None else 2.0)
         self.mirror_zero_confirm = bool(mirror_sched_cfg.get("zero_confirm", True))
-        self.mirror_stagger_ms = int(mirror_sched_cfg.get("stagger_ms", 0) or 0)
+        raw_stag_val = mirror_sched_cfg.get("stagger_ms", -1)
+        self.mirror_stagger_ms = int(raw_stag_val) if raw_stag_val is not None else -1
         self._mirror_last_rtt_ms = -1.0
         self._mirror_clock_offset_ms = float(mirror_sched_cfg.get("clock_offset_ms", 0.0) or 0.0)
+        self._mirror_clock_calibrated = abs(self._mirror_clock_offset_ms) > 0.5
         self._last_scheduled_gate_open_epoch_ms = 0.0
+        self._last_scheduled_offset_base_ms = self._mirror_clock_offset_ms
+        self._last_scheduled_event_key = None
+        self._last_learned_event_key = None
+        self._last_mirror_ntpsync_key = None
         self._last_mirror_prestage_key = None
         self._last_mirror_arm_key = None
         self._last_moss_trigger_key = None
@@ -1340,6 +1348,8 @@ class DashboardAppQt(QMainWindow):
             self.cb_moss_auto_move_before.set(self.moss_view.cb_move.isChecked())
             self.batch_moss_clean_cb.set(self.moss_view.cb_auto_clean.isChecked())
             self.cb_clean_equipment_trash.set(self.moss_view.cb_clean_equip.isChecked())
+            if hasattr(self.moss_view, "cb_sell_exc"):
+                self.cb_sell_excellent.set(self.moss_view.cb_sell_exc.isChecked())
 
     def get_mirror_snipe_delay(self) -> int:
         return self.mirror_view.get_snipe_delay() if self.mirror_view else int(self.mirror_snipe_delay_ms)
@@ -1354,10 +1364,15 @@ class DashboardAppQt(QMainWindow):
         return self.mirror_view.get_prefire_sec() if self.mirror_view else float(self.mirror_prefire_sec)
 
     def get_mirror_stagger_ms(self) -> int:
+        if self.mirror_view and hasattr(self.mirror_view, "get_stagger_ms"):
+            return self.mirror_view.get_stagger_ms()
         try:
-            return max(0, min(100, int(self.mirror_stagger_ms_entry.get().strip())))
+            raw = str(self.mirror_stagger_ms_entry.get()).strip().lower()
+            if raw in ("auto", "-1"):
+                return -1
+            return max(-1, min(100, int(raw)))
         except Exception:
-            return 0
+            return -1
 
     def _ensure_mirror_auto_schedule_enabled_from_manual(self):
         """Khi bấm cướp cổng bằng tay, tự động bật lịch hẹn cướp cổng và khóa lượt cướp duy nhất của đợt hiện tại."""
@@ -1557,6 +1572,7 @@ class DashboardAppQt(QMainWindow):
         flags_only = bool(opts.get("flags_only", False))
         auto_clean = bool(opts.get("auto_clean", True))
         clean_equip = bool(opts.get("clean_equipment_trash", True))
+        sell_exc = bool(opts.get("sell_excellent", True))
         cat = int(opts.get("category", 0) or 0)
         delay = int(opts.get("delay_ms", 1000) or 1000)
         cnt = 0
@@ -1565,25 +1581,30 @@ class DashboardAppQt(QMainWindow):
                 continue
             c.moss_auto_clean = auto_clean
             c.moss_clean_equipment_trash = clean_equip
+            c.moss_sell_excellent = sell_exc
             if not flags_only:
                 c.moss_category = cat
                 c.moss_delay_ms = delay
             try:
                 ConfigPersistenceManager.save_moss_config(
                     c.slot_idx, int(c.moss_category), int(c.moss_delay_ms),
-                    int(getattr(c, "moss_max_rolls", 0) or 0), auto_clean, clean_equip
+                    int(getattr(c, "moss_max_rolls", 0) or 0), auto_clean, clean_equip, sell_exc
                 )
             except Exception:
                 pass
             cnt += 1
-        self.append_moss_log(f"⚡ Đã cập nhật cấu hình Moss cho {cnt} slot đã chọn.")
+        exc_lbl = " · Bán Exce (trừ Rồng): BẬT" if sell_exc else " · Bán Exce: TẮT"
+        self.append_moss_log(f"⚡ Đã cập nhật cấu hình Moss cho {cnt} slot đã chọn{exc_lbl}.")
 
     def on_moss_slot_category_changed(self, slot_idx: int, cat_name: str):
         if 1 <= slot_idx <= len(self.controllers):
             c = self.controllers[slot_idx - 1]
             c.moss_category = moss_cat_id(cat_name)
             try:
-                ConfigPersistenceManager.save_moss_config(c.slot_idx, c.moss_category, c.moss_delay_ms, c.moss_max_rolls, c.moss_auto_clean, c.moss_clean_equipment_trash)
+                ConfigPersistenceManager.save_moss_config(
+                    c.slot_idx, c.moss_category, c.moss_delay_ms, c.moss_max_rolls,
+                    c.moss_auto_clean, c.moss_clean_equipment_trash, getattr(c, "moss_sell_excellent", True)
+                )
             except Exception:
                 pass
 
@@ -1592,7 +1613,10 @@ class DashboardAppQt(QMainWindow):
             c = self.controllers[slot_idx - 1]
             c.moss_delay_ms = max(100, int(delay_ms))
             try:
-                ConfigPersistenceManager.save_moss_config(c.slot_idx, c.moss_category, c.moss_delay_ms, c.moss_max_rolls, c.moss_auto_clean, c.moss_clean_equipment_trash)
+                ConfigPersistenceManager.save_moss_config(
+                    c.slot_idx, c.moss_category, c.moss_delay_ms, c.moss_max_rolls,
+                    c.moss_auto_clean, c.moss_clean_equipment_trash, getattr(c, "moss_sell_excellent", True)
+                )
             except Exception:
                 pass
 
@@ -1613,7 +1637,7 @@ class DashboardAppQt(QMainWindow):
             "roll_once": (getattr(c, "roll_moss_once", None), "🎲 Quay thử 1 lần"),
             "open_npc": (getattr(c, "open_moss_npc", None), "🚪 Mở bảng Moss NPC"),
             "close_npc": (getattr(c, "close_moss_dialog", None), "🚪 Đóng bảng Moss NPC"),
-            "sell": (getattr(c, "sell_moss_inventory", None), "💰 Bán Silvia"),
+            "sell": (getattr(c, "sell_moss_inventory", None), "💰 Bán Shop (Rhea)"),
             "clean": (lambda: c.clean_moss_inventory(run_in_thread=False), "🗑️ Ném rác tại chỗ"),
             "move": (getattr(c, "move_to_moss_elbeland", None), "🚶 Về NPC Moss"),
             "unlock": (getattr(c, "unlock_and_close_inventory", None), "🔓 Mở khóa thùng đồ"),
@@ -1670,7 +1694,7 @@ class DashboardAppQt(QMainWindow):
                 except Exception as e:
                     self.append_moss_log(f"[Slot {c.slot_idx:02d}] ❌ Lỗi bán đồ: {e}")
                 time.sleep(0.4)
-            self.append_moss_log(f"💰 Đã kích hoạt bán đồ tại Silvia cho {cnt} tài khoản." if cnt else "⚠️ Không có tài khoản Moss kết nối.")
+            self.append_moss_log(f"💰 Đã kích hoạt bán đồ tại NPC Rhea (30, 235) cho {cnt} tài khoản." if cnt else "⚠️ Không có tài khoản Moss kết nối.")
         threading.Thread(target=_w, daemon=True).start()
 
     def analyze_all_moss_inventories(self):
@@ -1703,10 +1727,11 @@ class DashboardAppQt(QMainWindow):
                     if eng:
                         res = eng.analyze_junk_inventory(
                             category=-1,
-                            max_junk_level=int(getattr(c, "moss_max_junk_level", 6) or 6),
+                            max_junk_level=7 if bool(getattr(c, "moss_sell_excellent", True)) else int(getattr(c, "moss_max_junk_level", 6) or 6),
                             protected_slots=[],
                             ignore_type_heuristics=bool(getattr(c, "moss_ignore_junk_type", False)),
                             clean_equipment_trash=bool(getattr(c, "moss_clean_equipment_trash", True)),
+                            allow_excellent=bool(getattr(c, "moss_sell_excellent", True)),
                         )
                         reports.append((c, res))
                 except Exception as e:
@@ -1723,11 +1748,13 @@ class DashboardAppQt(QMainWindow):
                     if eng and not eng.is_ready:
                         eng.attach()
                     if eng:
+                        sell_exc = bool(getattr(c, "moss_sell_excellent", True))
                         out = eng.dispose_junk_items(
                             mode=mode, protected_slots=[], category=-1, include_extended=True,
-                            max_junk_level=int(getattr(c, "moss_max_junk_level", 6) or 6),
+                            max_junk_level=7 if (mode == "sell" or sell_exc) else int(getattr(c, "moss_max_junk_level", 6) or 6),
                             ignore_type_heuristics=bool(getattr(c, "moss_ignore_junk_type", False)),
                             clean_equipment_trash=bool(getattr(c, "moss_clean_equipment_trash", True)),
+                            allow_excellent=sell_exc if mode in ("sell", "auto") else False,
                         )
                         n = int((out or {}).get("cleaned", 0) or 0)
                         total += n
@@ -1781,6 +1808,13 @@ class DashboardAppQt(QMainWindow):
                 self.mirror_snipe_dur_s = float(opts.get("max_duration_s", 15.0))
                 self.mirror_prefire_sec = float(opts.get("prefire_sec", 2.0))
                 self.mirror_zero_confirm = bool(opts.get("zero_confirm", True))
+                if "stagger_ms" in opts and opts["stagger_ms"] is not None:
+                    self.mirror_stagger_ms = int(opts["stagger_ms"])
+                    self.mirror_stagger_ms_entry = _FakeEntry(self.mirror_stagger_ms)
+                if "clock_offset_ms" in opts and opts["clock_offset_ms"] is not None:
+                    self._mirror_clock_offset_ms = max(-8000.0, min(8000.0, float(opts["clock_offset_ms"])))
+                    if abs(self._mirror_clock_offset_ms) > 0.5:
+                        self._mirror_clock_calibrated = True
 
                 # Đồng bộ tức thì cờ Zero-Confirm xuống các Direct Engine đang attach (tránh chặn popup khi đã tắt)
                 zc_val = self.mirror_zero_confirm
@@ -1803,13 +1837,20 @@ class DashboardAppQt(QMainWindow):
                     interval_ms=self.mirror_snipe_delay_ms,
                     max_duration_s=self.mirror_snipe_dur_s,
                     zero_confirm=self.mirror_zero_confirm,
-                    stagger_ms=int(getattr(self, "mirror_stagger_ms", 0) or 0),
+                    stagger_ms=int(getattr(self, "mirror_stagger_ms", -1)),
                     clock_offset_ms=float(getattr(self, "_mirror_clock_offset_ms", 0.0) or 0.0),
                     selected_slots=[c.slot_idx for c in self.controllers if getattr(c, "mirror_enabled", True)],
                 )
+                if self.mirror_view and hasattr(self.mirror_view, "update_net_telemetry"):
+                    self.mirror_view.update_net_telemetry(
+                        float(getattr(self, "_mirror_last_rtt_ms", -1.0) or -1.0),
+                        float(getattr(self, "_mirror_clock_offset_ms", 0.0) or 0.0),
+                    )
                 zc_lbl = "BẬT" if self.mirror_zero_confirm else "TẮT"
+                st_val = int(getattr(self, "mirror_stagger_ms", -1))
+                st_lbl = "Auto" if st_val < 0 else f"{st_val}ms"
                 self.append_mirror_log(
-                    f"Đã lưu cấu hình Mirror (Bắn trước: {self.mirror_prefire_sec:.1f}s, Chu kỳ: {self.mirror_snipe_delay_ms}ms, Zero-Confirm: {zc_lbl})."
+                    f"Đã lưu cấu hình Mirror (Bắn trước: {self.mirror_prefire_sec:.1f}s, Chu kỳ: {self.mirror_snipe_delay_ms}ms, Rải pha: {st_lbl}, Offset: {self._mirror_clock_offset_ms:+.0f}ms, Zero-Confirm: {zc_lbl})."
                 )
             elif event_type == "moss":
                 self._sync_event_checkbox_proxies_from_view()

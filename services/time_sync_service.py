@@ -16,8 +16,9 @@ from typing import Optional, Tuple, Dict, Any, List, Callable
 
 
 NTP_SERVERS = [
-    ("time.google.com", 123),
     ("time.cloudflare.com", 123),
+    ("pool.ntp.org", 123),
+    ("time.google.com", 123),
     ("time.windows.com", 123),
 ]
 
@@ -39,8 +40,8 @@ class GameTimeSyncService:
         self._ntp_offset_sec: float = 0.0          # Delta t = T_real - T_pc (dương nếu PC chậm, âm nếu PC nhanh)
         self._ntp_rtt_ms: float = 0.0              # Ping tới máy chủ NTP
         self._last_ntp_sync_ts: float = 0.0        # Thời điểm sync NTP lần cuối (time.time())
-        self._game_rtt_ms: float = 280.0           # Ping tới GameServer MEGAMU (mặc định 280ms từ VN sang Brazil)
-        self._game_rtt_samples: List[float] = []   # Lịch sử mẫu RTT game gần nhất
+        self._game_rtt_ms: float = 280.0           # Ping tới GameServer MEGAMU (mặc định 280ms)
+        self._game_rtt_samples: List[Tuple[float, float]] = []  # (timestamp, rtt_ms) mẫu RTT game gần nhất
         self._sync_status_str: str = "Chưa đồng bộ"
         self._is_syncing: bool = False
         self._listeners: List[Callable[[Dict[str, Any]], None]] = []
@@ -51,10 +52,36 @@ class GameTimeSyncService:
         threading.Thread(target=self.sync_ntp, daemon=True, name="InitialNtpSync").start()
 
     # --------------------------------------------------------------------------
-    # 1. ĐO ĐỘ LỆCH NGUYÊN TỬ (NTP CRISTIAN'S ALGORITHM)
+    # 1. ĐO ĐỘ LỆCH NGUYÊN TỬ (NTP CRISTIAN'S ALGORITHM - MULTI-SAMPLE MIN-RTT)
     # --------------------------------------------------------------------------
-    def sync_ntp(self, timeout_sec: float = 2.0, force: bool = False) -> bool:
-        """Đo độ lệch đồng hồ máy tính so với Atomic Clock qua NTP UDP Port 123."""
+    def _query_ntp_once(self, host: str, port: int, timeout_sec: float) -> Optional[Tuple[float, float]]:
+        client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        client.settimeout(timeout_sec)
+        try:
+            msg = b'\x1b' + 47 * b'\0'
+            t0 = time.time()
+            client.sendto(msg, (host, port))
+            data, _ = client.recvfrom(1024)
+            t3 = time.time()
+            if len(data) >= 48:
+                r_sec, r_frac = struct.unpack('!II', data[32:40])
+                t_sec, t_frac = struct.unpack('!II', data[40:48])
+                t1 = (r_sec - 2208988800) + (r_frac / 4294967296.0)
+                t2 = (t_sec - 2208988800) + (t_frac / 4294967296.0)
+                offset = ((t1 - t0) + (t2 - t3)) / 2.0
+                rtt_ms = max(0.0, ((t3 - t0) - (t2 - t1)) * 1000.0)
+                return (offset, rtt_ms)
+        except Exception:
+            return None
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        return None
+
+    def sync_ntp(self, timeout_sec: float = 1.5, force: bool = False, samples_per_server: int = 3) -> bool:
+        """Đo độ lệch đồng hồ máy tính so với Atomic Clock qua NTP UDP Port 123 (chọn mẫu min-RTT)."""
         with self._lock:
             if self._is_syncing:
                 return False
@@ -63,49 +90,42 @@ class GameTimeSyncService:
         best_offset = None
         best_rtt = 9999.0
         used_server = ""
+        server_results: List[Tuple[float, float, str]] = []  # (rtt_ms, offset_sec, host)
+        n_samples = max(1, min(5, int(samples_per_server or 1)))
 
         try:
             for host, port in NTP_SERVERS:
-                client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                client.settimeout(timeout_sec)
-                try:
-                    # NTP packet v3/v4: 48 bytes, byte đầu = 0x1b (client mode)
-                    msg = b'\x1b' + 47 * b'\0'
-                    t0 = time.time()
-                    client.sendto(msg, (host, port))
-                    data, _ = client.recvfrom(1024)
-                    t3 = time.time()
-
-                    if len(data) >= 48:
-                        # Unpack Transmit Timestamp (offset 40) và Receive Timestamp (offset 32)
-                        r_sec, r_frac = struct.unpack('!II', data[32:40])
-                        t_sec, t_frac = struct.unpack('!II', data[40:48])
-
-                        # Chuyển đổi NTP epoch (1900-01-01) sang Unix epoch (1970-01-01) = 2208988800s
-                        t1 = (r_sec - 2208988800) + (r_frac / 4294967296.0)
-                        t2 = (t_sec - 2208988800) + (t_frac / 4294967296.0)
-
-                        # Cristian's Algorithm:
-                        # Offset = ((t1 - t0) + (t2 - t3)) / 2
-                        # Round Trip Time (RTT) = (t3 - t0) - (t2 - t1)
-                        offset = ((t1 - t0) + (t2 - t3)) / 2.0
-                        rtt_ms = max(0.0, ((t3 - t0) - (t2 - t1)) * 1000.0)
-
-                        # Chọn server có RTT thấp nhất để giảm thiểu jitter
-                        if rtt_ms < best_rtt:
-                            best_rtt = rtt_ms
-                            best_offset = offset
-                            used_server = host
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        client.close()
-                    except Exception:
-                        pass
+                srv_best_rtt = 9999.0
+                srv_best_off = None
+                for _ in range(n_samples):
+                    res = self._query_ntp_once(host, port, timeout_sec)
+                    if res is None:
+                        break
+                    off_s, rtt_ms = res
+                    if rtt_ms < srv_best_rtt:
+                        srv_best_rtt = rtt_ms
+                        srv_best_off = off_s
+                if srv_best_off is not None:
+                    server_results.append((srv_best_rtt, srv_best_off, host))
+                    if srv_best_rtt < best_rtt:
+                        best_rtt = srv_best_rtt
+                        best_offset = srv_best_off
+                        used_server = host
         finally:
             with self._lock:
                 self._is_syncing = False
+
+        if server_results:
+            # Nếu có >= 2 server có RTT tốt gần nhau (trong +30ms của best_rtt), lấy median để chống 1 server lệch bất thường
+            server_results.sort(key=lambda x: x[0])
+            close_servers = [r for r in server_results if r[0] <= server_results[0][0] + 30.0]
+            if len(close_servers) >= 3:
+                offs_sorted = sorted(r[1] for r in close_servers)
+                best_offset = offs_sorted[len(offs_sorted) // 2]
+                best_rtt = close_servers[0][0]
+                used_server = close_servers[0][2]
+            else:
+                best_rtt, best_offset, used_server = server_results[0]
 
         if best_offset is not None:
             self._ntp_offset_sec = best_offset
@@ -121,19 +141,40 @@ class GameTimeSyncService:
             return False
 
     # --------------------------------------------------------------------------
-    # 2. CẬP NHẬT RTT GAME TỪ PACKET PROBE / RECV
+    # 2. CẬP NHẬT RTT GAME TỪ PACKET PROBE / RECV (MIN-BIASED + EXPIRY)
     # --------------------------------------------------------------------------
+    def reset_game_rtt_samples(self):
+        """Xóa các mẫu RTT cũ trước phiên Pre-Stage T-15s để tránh mẫu từ 2 tiếng trước làm loãng one-way RTT."""
+        with self._lock:
+            self._game_rtt_samples.clear()
+
     def record_game_rtt(self, rtt_ms: float):
         """Nhận chỉ số RTT đo được thực tế từ GameAssembly qua hàm probe hoặc hook."""
         if rtt_ms <= 5 or rtt_ms > 3000:
             return
-        self._game_rtt_samples.append(rtt_ms)
-        if len(self._game_rtt_samples) > 10:
-            self._game_rtt_samples.pop(0)
+        now = time.time()
+        with self._lock:
+            # Tự loại bỏ các mẫu cũ quá 120 giây để luôn phản ánh chất lượng đường truyền hiện tại
+            self._game_rtt_samples = [
+                (ts, val) for (ts, val) in self._game_rtt_samples if (now - ts) <= 120.0
+            ]
+            self._game_rtt_samples.append((now, float(rtt_ms)))
+            if len(self._game_rtt_samples) > 12:
+                self._game_rtt_samples = self._game_rtt_samples[-12:]
 
-        # Tính trung bình trượt có trọng số (EWMA)
-        avg_rtt = sum(self._game_rtt_samples) / len(self._game_rtt_samples)
-        self._game_rtt_ms = round(avg_rtt, 1)
+            # Lấy trung bình nửa thấp nhất (min-biased / lower half) vì RTT nhỏ nhất sát độ trễ truyền dẫn thực tế nhất
+            vals = sorted(val for (_, val) in self._game_rtt_samples)
+            k = max(1, (len(vals) + 1) // 2)
+            est_rtt = sum(vals[:k]) / k
+            self._game_rtt_ms = round(est_rtt, 1)
+
+    def get_game_rtt_jitter_ms(self) -> float:
+        """Ước lượng độ rung ping (jitter = max - min) của các mẫu RTT gần đây (ms)."""
+        with self._lock:
+            if len(self._game_rtt_samples) < 2:
+                return 0.0
+            vals = [val for (_, val) in self._game_rtt_samples]
+            return round(max(vals) - min(vals), 1)
 
     # --------------------------------------------------------------------------
     # 3. TRUY VẤN THỜI GIAN ĐỒNG BỘ CHUẨN XÁC

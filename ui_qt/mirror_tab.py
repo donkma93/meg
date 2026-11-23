@@ -101,6 +101,11 @@ class MirrorTabQt(QWidget):
 
         sl.addStretch(1)
 
+        self.lbl_net_calib = QLabel("📡 RTT: --ms | Offset: +0ms")
+        self.lbl_net_calib.setStyleSheet("color: #a78bfa; font-weight: 700; font-size: 11px;")
+        self.lbl_net_calib.setToolTip("Ping thực tế tới GameServer và độ lệch giờ tự học (Offset) so với NTP")
+        sl.addWidget(self.lbl_net_calib)
+
         self.lbl_sync = QLabel("⏱️ Đang đồng bộ...")
         self.lbl_sync.setStyleSheet("color: #38bdf8; font-size: 11px;")
         sl.addWidget(self.lbl_sync)
@@ -175,27 +180,42 @@ class MirrorTabQt(QWidget):
         lbl_pf = QLabel("⚡ Bắn trước:")
         lbl_pf.setStyleSheet("color: #c084fc; font-weight: 700; font-size: 11px;")
         rl.addWidget(lbl_pf)
-        self.ed_prefire = QLineEdit("5")
-        self.ed_prefire.setFixedSize(44, 24)
+        self.ed_prefire = QLineEdit("2")
+        self.ed_prefire.setFixedSize(40, 24)
         self.ed_prefire.setAlignment(Qt.AlignCenter)
         rl.addWidget(self.ed_prefire)
         rl.addWidget(QLabel("s"))
 
         rl.addWidget(QLabel("Chu kỳ:"))
         self.ed_delay = QLineEdit("10")
-        self.ed_delay.setFixedSize(42, 24)
+        self.ed_delay.setFixedSize(38, 24)
         self.ed_delay.setAlignment(Qt.AlignCenter)
         rl.addWidget(self.ed_delay)
         rl.addWidget(QLabel("ms"))
 
+        rl.addWidget(QLabel("Rải pha:"))
+        self.ed_stagger = QLineEdit("Auto")
+        self.ed_stagger.setFixedSize(44, 24)
+        self.ed_stagger.setAlignment(Qt.AlignCenter)
+        self.ed_stagger.setToolTip("Auto (-1): tự trải đều pha giữa các acc phủ kín chu kỳ | 0: bắn cùng lúc | 1..100: lệch tay (ms)")
+        rl.addWidget(self.ed_stagger)
+
+        rl.addWidget(QLabel("Offset:"))
+        self.ed_offset = QLineEdit("0")
+        self.ed_offset.setFixedSize(50, 24)
+        self.ed_offset.setAlignment(Qt.AlignCenter)
+        self.ed_offset.setToolTip("Độ lệch đồng hồ GameServer so với NTP (ms, tự học sau mỗi lượt hoặc chỉnh tay)")
+        rl.addWidget(self.ed_offset)
+        rl.addWidget(QLabel("ms"))
+
         rl.addWidget(QLabel("Tối đa:"))
         self.ed_dur = QLineEdit("15")
-        self.ed_dur.setFixedSize(42, 24)
+        self.ed_dur.setFixedSize(38, 24)
         self.ed_dur.setAlignment(Qt.AlignCenter)
         rl.addWidget(self.ed_dur)
         rl.addWidget(QLabel("s"))
 
-        for ed in (self.ed_prefire, self.ed_delay, self.ed_dur):
+        for ed in (self.ed_prefire, self.ed_delay, self.ed_stagger, self.ed_offset, self.ed_dur):
             ed.editingFinished.connect(self._emit_schedule)
 
         btn_bot = QPushButton("⚙️ Bot")
@@ -350,12 +370,18 @@ class MirrorTabQt(QWidget):
             self.cb_lifecycle.setChecked(bool(sched.get("auto_lifecycle", True)))
             self.cb_gremory.setChecked(bool(sched.get("auto_gremory", True)))
             self.cb_prep.setChecked(bool(sched.get("auto_prep_before", True)))
-            pf = float(sched.get("prefire_sec", 5.0) if sched.get("prefire_sec") is not None else 5.0)
+            pf = float(sched.get("prefire_sec", 2.0) if sched.get("prefire_sec") is not None else 2.0)
             self.ed_prefire.setText(f"{pf:.1f}".rstrip("0").rstrip(".") if pf != int(pf) else str(int(pf)))
             dl_raw = sched.get("interval_ms", sched.get("snipe_interval_ms", 10))
             self.ed_delay.setText(str(int(dl_raw) if dl_raw is not None else 10))
+            st_raw = sched.get("stagger_ms", -1)
+            st_val = int(st_raw) if st_raw is not None else -1
+            self.ed_stagger.setText("Auto" if st_val < 0 else str(st_val))
+            off_raw = float(sched.get("clock_offset_ms", 0.0) or 0.0)
+            self.ed_offset.setText(f"{off_raw:.0f}" if abs(off_raw - round(off_raw)) < 0.05 else f"{off_raw:.1f}")
             dr = float(sched.get("max_duration_s", 15.0) or 15.0)
             self.ed_dur.setText(f"{dr:.0f}")
+            self.update_net_telemetry(-1.0, off_raw)
         finally:
             self._applying_cfg = False
 
@@ -364,6 +390,39 @@ class MirrorTabQt(QWidget):
             return max(0, min(1000, int(self.ed_delay.text().strip() or "10")))
         except Exception:
             return 10
+
+    def get_stagger_ms(self) -> int:
+        try:
+            raw = self.ed_stagger.text().strip().lower()
+            if raw in ("", "auto", "-1"):
+                return -1
+            return max(-1, min(100, int(raw)))
+        except Exception:
+            return -1
+
+    def get_clock_offset_ms(self) -> float:
+        try:
+            raw = self.ed_offset.text().strip()
+            if not raw:
+                return 0.0
+            return max(-8000.0, min(8000.0, float(raw)))
+        except Exception:
+            return 0.0
+
+    def update_net_telemetry(self, rtt_ms: float = -1.0, offset_ms: float = 0.0):
+        try:
+            rtt_txt = f"{rtt_ms:.0f}ms" if (rtt_ms is not None and float(rtt_ms) > 0) else "--ms"
+            off_val = float(offset_ms or 0.0)
+            self.lbl_net_calib.setText(f"📡 RTT: {rtt_txt} | Offset: {off_val:+.0f}ms")
+            if not self.ed_offset.hasFocus():
+                prev_apply = self._applying_cfg
+                self._applying_cfg = True
+                try:
+                    self.ed_offset.setText(f"{off_val:.0f}" if abs(off_val - round(off_val)) < 0.05 else f"{off_val:.1f}")
+                finally:
+                    self._applying_cfg = prev_apply
+        except Exception:
+            pass
 
     def get_zero_confirm(self) -> bool:
         return bool(self.cb_zero_confirm.isChecked())
@@ -552,5 +611,7 @@ class MirrorTabQt(QWidget):
             "auto_prep_before": self.cb_prep.isChecked(),
             "prefire_sec": self.get_prefire_sec(),
             "interval_ms": self.get_snipe_delay(),
+            "stagger_ms": self.get_stagger_ms(),
+            "clock_offset_ms": self.get_clock_offset_ms(),
             "max_duration_s": self.get_snipe_dur(),
         })

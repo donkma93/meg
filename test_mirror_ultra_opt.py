@@ -493,6 +493,61 @@ gameUpdHook.onEnter([]);
 assert(sentNativeGSFrames.length >= 1, "Must fall back to pinned nativeGSSend if Socket.Connected != 1");
 rpcObj.exports.stopNativeMirrorTurbo();
 
+// 7) Verify R=6 -> R=2 transition learns serverOpenEpochMs with 1-way RTT subtracted + adaptive targetFps + uncalibrated wider critical lead
+sockPtr.add(0x52).writeU8(1);
+emittedMessages.length = 0;
+sentDirectSockFrames.length = 0;
+const gateOpenUncalib = mockNowMs + 2000;
+const armUncalib = JSON.parse(rpcObj.exports.armNativeMirrorTurbo(24, 8, 15000, mockNowMs, JSON.stringify({
+    preStaged: true,
+    directSocket: true,
+    ackPaced: true,
+    targetOpenEpochMs: gateOpenUncalib,
+    oneWayLatencyMs: 140,
+    clockCalibrated: false,
+    targetFps: 90
+})));
+assert.strictEqual(armUncalib.success, true);
+// Jump to gateOpenUncalib - 140 - 900 (inside widened 1200ms uncalibrated critical window, outside old 450ms window)
+mockNowMs = gateOpenUncalib - 1040;
+gameUpdHook.onEnter([]);
+assert.strictEqual(mockTargetFps, 90, "Adaptive targetFps=90 must be applied for multi-acc");
+const cntBefore8 = sentDirectSockFrames.length;
+mockNowMs += 8;
+gameUpdHook.onEnter([]);
+assert.strictEqual(sentDirectSockFrames.length, cntBefore8 + 1, "Uncalibrated mode must already be in critical 8ms cadence at -900ms");
+
+// Simulate R=6 followed by R=2 (lost race, gate just opened) -> must emit serverOpenEpochMs = recvAtMs - 140
+const r6b = allocMem(0x40); r6b.add(0x18).writeS32(5); r6b.add(0x24).writeU8(6);
+dgerHook.onEnter([r6b]);
+mockNowMs += 20;
+const r2RecvAt = mockNowMs;
+const r2b = allocMem(0x40); r2b.add(0x18).writeS32(5); r2b.add(0x24).writeU8(2);
+dgerHook.onEnter([r2b]);
+const r2LearnedMsg = emittedMessages.find(m => m && m.type === "mirror_enter_recv" && m.rCode === 2 && m.transition === "R6->R2");
+assert(r2LearnedMsg, "R6->R2 transition must emit calibration telemetry");
+assert.strictEqual(r2LearnedMsg.serverOpenEpochMs, r2RecvAt - 140, "serverOpenEpochMs must subtract 1-way latency");
+rpcObj.exports.stopNativeMirrorTurbo();
+gameUpdHook.onEnter([]);
+
+// 8) Verify multi-probe burst in preStageMirrorTurbo (probeCount = 3)
+sentDirectSockFrames.length = 0;
+const mpRes = JSON.parse(rpcObj.exports.preStageMirrorTurbo(24, 3));
+assert.strictEqual(mpRes.success, true);
+assert.strictEqual(mpRes.probeCount, 3);
+gameUpdHook.onEnter([]);
+assert.strictEqual(sentDirectSockFrames.length, 1, "Multi-probe fires probe 1 immediately");
+mockNowMs += 20;
+dgerHook.onEnter([r6b]); // reply 1 -> schedules next probe after 45ms cooldown
+mockNowMs += 50;
+gameUpdHook.onEnter([]);
+assert.strictEqual(sentDirectSockFrames.length, 2, "Multi-probe fires probe 2 after reply+cooldown");
+mockNowMs += 16;
+dgerHook.onEnter([r6b]); // reply 2
+mockNowMs += 50;
+gameUpdHook.onEnter([]);
+assert.strictEqual(sentDirectSockFrames.length, 3, "Multi-probe fires probe 3");
+
 console.log(JSON.stringify({
     ok: true,
     rttMs: tStats.rttMs,
@@ -826,6 +881,103 @@ class TestMirrorUltraOptimization(unittest.TestCase):
         self.assertEqual(json.loads(res)["via"], "snake_case")
         self.assertEqual(invoked[0][0], "start_native_mirror_turbo")
         self.assertEqual(len(invoked), 1, "Should succeed on snake_case first without throwing on camelCase")
+
+    def test_clock_offset_cumulative_no_oscillation_r2_learn_and_auto_stagger(self):
+        # 1) Cumulative clock offset learning: Round 1 (base=0 -> -200ms) -> Round 2 (exact hit, residual=0 -> MUST STAY -200ms, NOT reset to 0!)
+        app = meg_gui.DashboardApp.__new__(meg_gui.DashboardApp)
+        app._mirror_last_rtt_ms = -1.0
+        app._mirror_clock_offset_ms = 0.0
+        app._mirror_clock_calibrated = False
+        app._last_scheduled_offset_base_ms = 0.0
+        app._last_scheduled_event_key = "20261123_2210_event"
+        app._last_learned_event_key = None
+        app._last_scheduled_gate_open_epoch_ms = 1700000000000.0
+        app.lbl_mirror_net_calib = MagicMock()
+        app.mirror_view = MagicMock()
+
+        # Round 1: R6->R2 lost race still calibrates clock! Server opened 200ms late
+        app.record_mirror_net_telemetry(
+            r_code=2,
+            rtt_ms=280.0,
+            server_open_epoch_ms=1700000000200.0,
+            transition="R6->R2",
+        )
+        self.assertAlmostEqual(app._mirror_clock_offset_ms, -200.0, places=1)
+        self.assertTrue(app._mirror_clock_calibrated)
+        # Verify auto-persisted to config JSON
+        loaded_after_r1 = meg_gui.ConfigPersistenceManager.load_mirror_schedule_config()
+        self.assertAlmostEqual(loaded_after_r1["clock_offset_ms"], -200.0, places=1)
+
+        # Second slot in SAME event must NOT overwrite learned offset
+        app.record_mirror_net_telemetry(
+            r_code=0,
+            rtt_ms=290.0,
+            server_open_epoch_ms=1700000000900.0,
+            transition="R6->R0",
+        )
+        self.assertAlmostEqual(app._mirror_clock_offset_ms, -200.0, places=1)
+
+        # Round 2 (next event): scheduled with learned base=-200 -> last_sched = base + 200; server opens exactly on schedule (residual=0)
+        app._last_scheduled_event_key = "20261124_0010_event"
+        app._last_learned_event_key = None
+        app._last_scheduled_offset_base_ms = app._mirror_clock_offset_ms
+        app._last_scheduled_gate_open_epoch_ms = 1700007200200.0
+        app.record_mirror_net_telemetry(
+            r_code=0,
+            rtt_ms=285.0,
+            server_open_epoch_ms=1700007200200.0,
+            transition="R6->R0",
+        )
+        self.assertAlmostEqual(app._mirror_clock_offset_ms, -200.0, places=1, msg="Offset must NOT oscillate back to 0!")
+
+        # 2) Fresh min-biased RTT estimator & reset in GameTimeSyncService
+        from services.time_sync_service import GameTimeSyncService
+        ts = GameTimeSyncService.__new__(GameTimeSyncService)
+        ts._lock = threading.Lock()
+        ts._game_rtt_ms = 280.0
+        ts._game_rtt_samples = []
+        ts.record_game_rtt(290.0)
+        ts.record_game_rtt(360.0)  # jitter spike
+        ts.record_game_rtt(284.0)
+        ts.record_game_rtt(288.0)
+        # Lower half of [284, 288, 290, 360] = avg(284, 288) = 286.0 (immune to 360ms spike!)
+        self.assertAlmostEqual(ts.get_game_rtt_ms(), 286.0, places=1)
+        self.assertAlmostEqual(ts.get_game_rtt_jitter_ms(), 76.0, places=1)
+        ts.reset_game_rtt_samples()
+        ts.record_game_rtt(120.0)
+        self.assertAlmostEqual(ts.get_game_rtt_ms(), 120.0, places=1)
+
+        # 3) Auto Phase-Stagger (-1) + Adaptive FPS (6 accounts -> FPS<=90, staggered evenly across 10ms)
+        ctrls = []
+        stagger_res = []
+        fps_res = []
+        all_done = threading.Event()
+        for idx in range(1, 7):
+            c = MagicMock(slot_idx=idx, mirror_enabled=True, assigned_pid=os.getpid())
+            def _mk_fn(i):
+                def _fn(**kw):
+                    stagger_res.append((i, kw["stagger_ms"]))
+                    fps_res.append(kw.get("target_fps"))
+                    if len(stagger_res) >= 6:
+                        all_done.set()
+                    return True
+                return _fn
+            c.start_mirror_turbo_sniping.side_effect = _mk_fn(idx)
+            ctrls.append(c)
+
+        app.controllers = ctrls
+        app.mirror_snipe_delay_entry = MagicMock(get=lambda: "10")
+        app.mirror_snipe_dur_entry = MagicMock(get=lambda: "15.0")
+        app.mirror_stagger_ms_entry = MagicMock(get=lambda: "Auto")
+        app.after = MagicMock()
+        app.append_mirror_log = MagicMock()
+        self.assertEqual(app.get_mirror_stagger_ms(), -1)
+        t_ms = int(time.time() * 1000) + 4000
+        app.start_all_mirror_turbo_sniping(from_scheduler=True, target_open_epoch_ms=t_ms, clock_calibrated=False)
+        self.assertTrue(all_done.wait(timeout=2.5))
+        stagger_res.sort(key=lambda x: x[0])
+        self.assertEqual([x[1] for x in stagger_res], [0, 2, 3, 5, 7, 8])
+        self.assertTrue(all(f == 90 for f in fps_res), f"6 accounts must use adaptive targetFps=90, got {fps_res}")
 
 
 

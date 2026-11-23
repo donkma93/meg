@@ -1980,7 +1980,8 @@ class ConfigPersistenceManager:
                                 "delay_ms": int(conf.get("delay_ms", 1000)),
                                 "max_rolls": int(conf.get("max_rolls", 0)),
                                 "auto_clean": bool(conf.get("auto_clean", True)),
-                                "clean_equipment_trash": bool(conf.get("clean_equipment_trash", True))
+                                "clean_equipment_trash": bool(conf.get("clean_equipment_trash", True)),
+                                "sell_excellent": bool(conf.get("sell_excellent", True)),
                             }
                         except Exception:
                             pass
@@ -1989,16 +1990,18 @@ class ConfigPersistenceManager:
             return res
 
     @classmethod
-    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0, auto_clean: bool = True, clean_equipment_trash: bool = True):
+    def save_moss_config(cls, slot_idx: int, cat: int, delay_ms: int = 1000, max_rolls: int = 0, auto_clean: bool = True, clean_equipment_trash: bool = True, sell_excellent: Optional[bool] = None):
         """Lưu cấu hình Auto Moss của riêng Slot slot_idx."""
         with cls._lock:
             cur = cls.load_moss_configs()
+            prev_sell_exc = bool(cur.get(slot_idx, {}).get("sell_excellent", True))
             cur[slot_idx] = {
                 "category": int(cat),
                 "delay_ms": int(delay_ms),
                 "max_rolls": int(max_rolls),
                 "auto_clean": bool(auto_clean),
-                "clean_equipment_trash": bool(clean_equipment_trash)
+                "clean_equipment_trash": bool(clean_equipment_trash),
+                "sell_excellent": prev_sell_exc if sell_excellent is None else bool(sell_excellent),
             }
             try:
                 store = {}
@@ -2181,6 +2184,28 @@ class ConfigPersistenceManager:
                 }
                 if selected_slots is not None:
                     store["selected_slots"] = [int(s) for s in selected_slots]
+                tmp = MIRROR_CONFIG_FILE.with_suffix(".tmp")
+                tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(MIRROR_CONFIG_FILE)
+            except Exception:
+                pass
+
+    @classmethod
+    def update_mirror_clock_offset(cls, clock_offset_ms: float):
+        """Lưu riêng clock_offset_ms đã học vào file mirror_schedule_config.json mà không ghi đè các mục khác."""
+        with cls._lock:
+            try:
+                store = {}
+                if MIRROR_CONFIG_FILE.exists():
+                    try:
+                        store = json.loads(MIRROR_CONFIG_FILE.read_text(encoding="utf-8"))
+                    except Exception:
+                        store = {}
+                sched = store.get("schedule")
+                if not isinstance(sched, dict):
+                    sched = {}
+                    store["schedule"] = sched
+                sched["clock_offset_ms"] = round(float(clock_offset_ms), 1)
                 tmp = MIRROR_CONFIG_FILE.with_suffix(".tmp")
                 tmp.write_text(json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
                 tmp.replace(MIRROR_CONFIG_FILE)
@@ -2417,6 +2442,8 @@ class SlotController:
         self.moss_ignore_junk_type: bool = False
         self.moss_auto_clean: bool = True
         self.moss_clean_equipment_trash: bool = True
+        self.moss_sell_excellent: bool = True
+        self._moss_last_sell_fallback_ts: float = 0.0
         self.moss_rolls_count: int = 0
         self.moss_running: bool = False
         self.moss_worker_thread: Optional[threading.Thread] = None
@@ -3148,6 +3175,7 @@ class SlotController:
 
         self.moss_running = True
         self._moss_sell_escalated = False
+        self._moss_last_sell_fallback_ts = 0.0
         self.app.update_moss_slot_ui_state(self.slot_idx, is_running=True)
         cat_name = self.app.get_moss_cat_name(self.moss_category)
         self.app.append_moss_log(
@@ -3552,9 +3580,27 @@ class SlotController:
                                     consecutive_fails = 0
                                     continue
                                 reason = str(c_res.get("reason", "") or "")
-                                if reason in ("drop_blocked", "merchant_closed", "server_rejected", "send_failed"):
-                                    self._moss_log_disposal_failure(c_res)
-                                    if self._moss_try_sell_fallback(eng):
+                                if reason in ("drop_blocked", "merchant_closed", "server_rejected", "send_failed", "no_candidates"):
+                                    if reason != "no_candidates":
+                                        self._moss_log_disposal_failure(c_res)
+                                    # Khi không vứt được (safe-zone) HOẶC hòm đầy đồ +7 / Exce (trừ Rồng) cần bán Silvia:
+                                    should_try_sell = (reason != "no_candidates")
+                                    if reason == "no_candidates":
+                                        try:
+                                            sell_exc_chk = bool(getattr(self, "moss_sell_excellent", True))
+                                            eff_cat_chk = -1 if clean_equip else self.moss_category
+                                            inv_chk = eng.get_inventory_summary(
+                                                category=eff_cat_chk,
+                                                max_junk_level=7,
+                                                clean_equipment_trash=clean_equip,
+                                                allow_excellent=sell_exc_chk,
+                                            )
+                                            if inv_chk and not inv_chk.get("error"):
+                                                if int(inv_chk.get("mossPlusCount", 0) or 0) > 0 or int(inv_chk.get("junkCount", 0) or 0) > 0:
+                                                    should_try_sell = True
+                                        except Exception:
+                                            pass
+                                    if should_try_sell and self._moss_try_sell_fallback(eng):
                                         consecutive_fails = 0
                                         continue
                             except Exception:
@@ -3721,17 +3767,20 @@ class SlotController:
         self.app.after(0, lambda m=msg: self.app.append_moss_log(m))
 
     def _moss_try_sell_fallback(self, eng) -> bool:
-        """Khi không thể vứt (safe-zone), chuyển sang bán rác cho Merchant — tối đa 1 lần mỗi phiên quay."""
-        if getattr(self, "_moss_sell_escalated", False):
+        """Khi không thể vứt (safe-zone) hoặc hòm đầy đồ +5..+7 / Exce (trừ Rồng), tự đi bán cho Merchant (cooldown 20s để lặp lại được suốt phiên quay)."""
+        now_ts = time.time()
+        last_ts = float(getattr(self, "_moss_last_sell_fallback_ts", 0.0) or 0.0)
+        if last_ts > 0 and (now_ts - last_ts) < 20.0:
             return False
         if not getattr(self, "moss_auto_clean", True):
             return False
         try:
-            self._moss_sell_escalated = True
+            self._moss_last_sell_fallback_ts = now_ts
             self.app.after(0, lambda: self.app.append_moss_log(
-                f"[Slot {self.slot_idx:02d} - {self.char_name}] 💰 Không thể vứt tại chỗ → chuyển sang bán rác cho Merchant..."
+                f"[Slot {self.slot_idx:02d} - {self.char_name}] 💰 Chuyển sang bán đồ rác (+0..+7 / Exce trừ Rồng) tại NPC Rhea (30, 235)..."
             ))
             ok = bool(self.sell_moss_items_at_merchant(eng))
+            self._moss_last_sell_fallback_ts = time.time()
             self.app.after(0, lambda o=ok: self.app.append_moss_log(
                 f"[Slot {self.slot_idx:02d} - {self.char_name}] "
                 + ("✅ Đã bán rác xong, tiếp tục quay Moss." if o else "❌ Bán rác không thành công, sẽ thử lại sau.")
@@ -4162,6 +4211,7 @@ class SlotController:
             return _runner()
 
     JUNK_REASON_LABELS = {
+        "dragon_item": "Đồ Rồng (Dragon)",
         "divine_or_dragon": "Divine/Rồng",
         "excellent": "Hoàn Hảo (Exc)",
         "ancient": "Thần/Set (Ancient)",
@@ -4235,10 +4285,11 @@ class SlotController:
 
     def sell_moss_items_at_merchant(self, eng=None) -> bool:
         """
-        Tự động di chuyển ra NPC Silvia (44, 229 Elbeland) bán đồ Moss khi thùng đồ bị đầy,
+        Tự động di chuyển ra NPC Rhea (30, 235 Elbeland — đứng tại 29, 236 ngay gần Moss;
+        tự động dự phòng sang Silvia 44, 229 nếu không thấy Rhea) bán đồ Moss khi thùng đồ bị đầy,
         sau đó quay lại bệ NPC Moss (22, 225) và mở lại bảng tiếp tục quay.
-        CHỈ BÁN: Đồ rác do Moss vừa quay ra (thuộc moss_rolled_slots và không nằm trong moss_initial_slots).
-        BẢO VỆ TUYỆT ĐỐI: Đồ ban đầu trong rương, Đồ Divine, Đồ Rồng, Hoàn Hảo, Socket, Set Thần, Ngọc/Vé/Cánh/Sách, Đồ >= +8.
+        CHỈ BÁN: Đồ rác (+0..+7, và đồ Exce trừ Rồng nếu bật).
+        BẢO VỆ TUYỆT ĐỐI: Đồ ban đầu trong rương (khi auto), Đồ Divine/Archangel, Đồ Rồng (Dragon), Socket, Set Thần, Harmony/380, Ngọc/Vé/Cánh/Sách, Đồ >= +8.
         """
         if not eng:
             if not self.assigned_pid or not psutil.pid_exists(self.assigned_pid):
@@ -4256,61 +4307,85 @@ class SlotController:
                 eng.close_moss()
                 time.sleep(0.2)
 
-            # Điểm đích trước mặt thương nhân Silvia: ô (44, 229) Elbeland
-            target_silvia_x, target_silvia_y = 44, 229
+            # Điểm đích mặc định trước mặt NPC Rhea: ô (30, 235) Elbeland (Rhea đứng tại 29, 236, chỉ cách Moss 22,225 ~11 ô)
+            # Lưu ý: KHÔNG đụng Priest James (32, 239 - class 725 Ruud Store). Dự phòng Silvia (44, 229) nếu không tìm thấy Rhea.
+            target_merch_x, target_merch_y = 30, 235
+            target_label = "Rhea"
 
-            self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC Silvia ({target_silvia_x}, {target_silvia_y}) để dọn bán đồ rác Moss..."
-            ))
+            # Nếu nhân vật đang đứng sẵn ngay cạnh Silvia (44, 229) thì bán tại Silvia luôn không cần đi ngược về
+            p_cur = eng.get_player_info()
+            if p_cur:
+                cpx = p_cur.get("x", 0) or p_cur.get("tileX", 0)
+                cpy = p_cur.get("y", 0) or p_cur.get("tileY", 0)
+                if cpx > 0 and cpy > 0 and max(abs(cpx - 44), abs(cpy - 229)) <= 4:
+                    target_merch_x, target_merch_y = 44, 229
+                    target_label = "Silvia"
 
-            # BƯỚC 1: Di chuyển tới Silvia (hỗ trợ thử lại nếu bị kẹt hoặc chưa tới)
-            reached_silvia = False
-            for attempt in range(2):
-                eng.start_auto_move(target_silvia_x, target_silvia_y, helper=False)
-                start_t = time.time()
-                while time.time() - start_t < 12.0:
-                    time.sleep(0.4)
-                    if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
-                        eng.stop_auto_move()
-                        return False
+            def _walk_to_merchant(tx, ty, label):
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, lb=label, x=tx, y=ty: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🚶 Bắt đầu di chuyển ra NPC {lb} ({x}, {y}) để dọn bán đồ rác Moss..."
+                ))
+                reached = False
+                for attempt in range(2):
+                    eng.start_auto_move(tx, ty, helper=False)
+                    start_t = time.time()
+                    while time.time() - start_t < 10.0:
+                        time.sleep(0.35)
+                        if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
+                            eng.stop_auto_move()
+                            return None
+                        pi = eng.get_player_info()
+                        if pi:
+                            px_i = pi.get("x", 0) or pi.get("tileX", 0)
+                            py_i = pi.get("y", 0) or pi.get("tileY", 0)
+                            if px_i > 0 and py_i > 0:
+                                # Đứng sát NPC trong bán kính <= 2 ô để đảm bảo phạm vi mở Shop
+                                if max(abs(px_i - tx), abs(py_i - ty)) <= 2:
+                                    reached = True
+                                    break
+                    if reached:
+                        break
+                    else:
+                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, lb=label, a=attempt+1: self.app.append_moss_log(
+                            f"[Slot {s:02d} - {c}] ⏳ Chưa tới được {lb} (lần {a}/2), đang tiếp tục bước tới..."
+                        ))
+                eng.stop_auto_move()
+                time.sleep(0.4)
+                return reached
 
-                    p_info = eng.get_player_info()
-                    if p_info:
-                        px = p_info.get("x", 0) or p_info.get("tileX", 0)
-                        py = p_info.get("y", 0) or p_info.get("tileY", 0)
-                        if px > 0 and py > 0:
-                            # Đứng trong bán kính <= 3 ô tính từ Silvia (44, 229)
-                            dist = max(abs(px - target_silvia_x), abs(py - target_silvia_y))
-                            if dist <= 3:
-                                reached_silvia = True
-                                break
-
-                if reached_silvia:
-                    break
-                else:
-                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, a=attempt+1: self.app.append_moss_log(
-                        f"[Slot {s:02d} - {c}] ⏳ Chưa tới được Silvia (lần {a}/2), đang tiếp tục bước tới..."
-                    ))
-
-            # Dừng bước di chuyển và đứng yên hoàn toàn trước khi nói chuyện với NPC
-            eng.stop_auto_move()
-            time.sleep(0.5)
+            # BƯỚC 1: Di chuyển tới NPC Rhea (30, 235) — hoặc Silvia nếu đang đứng ngay cạnh Silvia
+            walk_res = _walk_to_merchant(target_merch_x, target_merch_y, target_label)
+            if walk_res is None:
+                return False
 
             p_info = eng.get_player_info()
             px = p_info.get("x", 0) if p_info else 0
             py = p_info.get("y", 0) if p_info else 0
 
-            # BƯỚC 2: Tìm và tương tác với NPC Silvia
+            # BƯỚC 2: Tìm và tương tác với NPC thương nhân (Rhea tại 29,236; dự phòng Silvia tại 44,229 nếu không thấy)
             npc_found = eng.find_merchant_npc()
-            npc_name = "Merchant Silvia"
+            if (not npc_found or not npc_found.get("found")) and target_label == "Rhea":
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] ⚠️ Không thấy NPC Rhea quanh (30, 235), chuyển dự phòng sang Silvia (44, 229)..."
+                ))
+                walk_fb = _walk_to_merchant(44, 229, "Silvia")
+                if walk_fb is None:
+                    return False
+                npc_found = eng.find_merchant_npc()
+                target_label = "Silvia"
+                p_info = eng.get_player_info()
+                px = p_info.get("x", 0) if p_info else 0
+                py = p_info.get("y", 0) if p_info else 0
+
+            npc_name = f"Merchant {target_label}"
             if npc_found and npc_found.get("found"):
-                npc_name = npc_found.get("name", "Merchant Silvia")
+                npc_name = npc_found.get("name", npc_name)
                 self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=npc_name, nx=npc_found.get('x'), ny=npc_found.get('y'): self.app.append_moss_log(
                     f"[Slot {s:02d} - {c}] 🎯 Đã tiếp cận NPC {n} tại ({nx}, {ny}). Đang mở giao dịch bán đồ..."
                 ))
             else:
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 🤝 Đang mở đối thoại với NPC Silvia tại ({px}, {py})..."
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, lb=target_label: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 🤝 Đang mở đối thoại với NPC {lb} tại ({px}, {py})..."
                 ))
 
             # Gọi tương tác NPC và poll kiểm tra is_merchant_open()
@@ -4339,33 +4414,43 @@ class SlotController:
             # Đợi 0.4s để GameServer và Client đồng bộ hoàn toàn trạng thái phiên giao dịch Shop
             time.sleep(0.4)
 
-            # BƯỚC 3: Lọc danh sách ô được phép bán (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)
+            # BƯỚC 3: Lọc danh sách ô được phép bán (+0..+7, gồm +5..+7, và đồ Exce nếu bật — LUÔN bảo vệ Đồ Rồng, Divine/Archangel, Ancient, Socket, Harmony/380, Ngọc/+8+)
             clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
+            sell_exc = bool(getattr(self, "moss_sell_excellent", True))
             effective_cat = -1 if clean_equip else self.moss_category
             is_manual = getattr(self, "_manual_selling", False)
 
             # Nếu là bán thủ công (bấm nút Toolbar / chuột phải) HOẶC chưa có moss_rolled_slots:
             allowed_slots = [] if is_manual else list(self.moss_rolled_slots - self.moss_initial_slots)
             if not allowed_slots:
-                # Quét trực tiếp danh sách junkSlots thực tế trong hòm đồ
+                # Quét trực tiếp danh sách junkSlots & mossPlusSlots thực tế trong hòm đồ
                 try:
-                    inv_sum = eng.get_inventory_summary(category=effective_cat, max_junk_level=7, clean_equipment_trash=clean_equip)
+                    inv_sum = eng.get_inventory_summary(
+                        category=effective_cat,
+                        max_junk_level=7,
+                        clean_equipment_trash=clean_equip,
+                        allow_excellent=sell_exc,
+                    )
                     if inv_sum and not inv_sum.get("error"):
                         cand_items = inv_sum.get("junkSlots", []) + inv_sum.get("mossPlusSlots", [])
-                        allowed_slots = [
-                            it.get("slot") for it in cand_items
-                            if it.get("slot") is not None and (is_manual or it.get("slot") not in self.moss_initial_slots)
-                        ]
+                        seen_s = set()
+                        allowed_slots = []
+                        for it in cand_items:
+                            sl = it.get("slot")
+                            if sl is not None and sl not in seen_s and (is_manual or sl not in self.moss_initial_slots):
+                                seen_s.add(sl)
+                                allowed_slots.append(sl)
                 except Exception:
                     allowed_slots = []
 
-            # Gửi lệnh bán các món đồ rác Moss (+0..+7, bảo vệ +8+, Divine, Rồng, Exc, Anc, Sock, Ngọc)
+            # Gửi lệnh bán các món đồ rác Moss (+0..+7 và Exce trừ Rồng nếu bật; bảo vệ +8+, Đồ Rồng, Divine/Archangel, Anc, Sock, Harmony/380, Ngọc)
             s_res = eng.sell_moss_plus_items(
                 max_junk_level=7,
                 ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
                 allowed_slots=allowed_slots,
                 category=effective_cat,
-                clean_equipment_trash=clean_equip
+                clean_equipment_trash=clean_equip,
+                sell_excellent=sell_exc,
             )
             sold_count = s_res.get("sold", 0) if isinstance(s_res, dict) else 0
             sold_items = s_res.get("items", []) if isinstance(s_res, dict) else []
@@ -4377,7 +4462,10 @@ class SlotController:
                     if s_sold in self.moss_rolled_slots:
                         self.moss_rolled_slots.discard(s_sold)
 
-                summary_names = [f"{it.get('name', 'Item')}+{it.get('level', 0)}" for it in sold_items[:6]]
+                summary_names = [
+                    f"{'[Exc] ' if it.get('exc', 0) > 0 else ''}{it.get('name', 'Item')}+{it.get('level', 0)}"
+                    for it in sold_items[:6]
+                ]
                 sum_text = ", ".join(summary_names)
                 if len(sold_items) > 6:
                     sum_text += f" ... (+{len(sold_items)-6} món khác)"
@@ -5685,6 +5773,8 @@ class SlotController:
         zero_confirm: bool = True,
         target_open_epoch_ms: int = 0,
         one_way_latency_ms: float = 0.0,
+        target_fps: Optional[int] = None,
+        clock_calibrated: Optional[bool] = None,
     ) -> bool:
         """Kích hoạt chế độ Turbo Sniping (Bắn liên tiếp Direct Socket + Zero-Confirm bỏ qua toàn bộ popup) để cướp cổng Double Goer."""
         if license_client and not license_client.has_license_module("mirror"):
@@ -5779,6 +5869,10 @@ class SlotController:
             turbo_opts["targetOpenEpochMs"] = int(target_open_epoch_ms)
         if one_way_latency_ms and float(one_way_latency_ms) > 0:
             turbo_opts["oneWayLatencyMs"] = round(float(one_way_latency_ms), 1)
+        if target_fps is not None:
+            turbo_opts["targetFps"] = int(target_fps)
+        if clock_calibrated is not None:
+            turbo_opts["clockCalibrated"] = bool(clock_calibrated)
         now_ms_py = int(time.time() * 1000)
         use_arm = bool(start_at_epoch_ms and int(start_at_epoch_ms) > (now_ms_py + 10) and hasattr(eng, "arm_native_mirror_turbo"))
 
@@ -5801,12 +5895,14 @@ class SlotController:
                     r_code = int(payload.get("rCode", -1))
                     rtt_ms = float(payload.get("rttMs", -1) or -1)
                     srv_open = payload.get("serverOpenEpochMs", None)
+                    trans_tag = str(payload.get("transition", "") or "")
                     if hasattr(self.app, "record_mirror_net_telemetry"):
                         try:
                             self.app.record_mirror_net_telemetry(
                                 r_code=r_code,
                                 rtt_ms=rtt_ms if rtt_ms > 0 else 0.0,
-                                server_open_epoch_ms=srv_open if (r_code == 0 and srv_open) else None,
+                                server_open_epoch_ms=srv_open if (r_code in (0, 2) and srv_open) else None,
+                                transition=trans_tag,
                             )
                         except Exception:
                             pass
@@ -5816,8 +5912,12 @@ class SlotController:
                             self._mirror_last_r6_log_ts = now_r
                         r_lbl = _RCODE_LABELS.get(r_code, f"R={r_code}")
                         rtt_txt = f" | RTT={rtt_ms:.0f}ms" if rtt_ms > 0 else ""
-                        self.app.after(0, lambda lbl=r_lbl, rt=rtt_txt: self.app.append_mirror_log(
-                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 📡 Server phản hồi: {lbl}{rt}"
+                        off_txt = ""
+                        if r_code in (0, 2) and srv_open and trans_tag:
+                            cur_off = float(getattr(self.app, "_mirror_clock_offset_ms", 0.0) or 0.0)
+                            off_txt = f" | Calib[{trans_tag}] Offset={cur_off:+.0f}ms"
+                        self.app.after(0, lambda lbl=r_lbl, rt=rtt_txt, ot=off_txt: self.app.append_mirror_log(
+                            f"[Slot {self.slot_idx:02d} - {self.char_name}] 📡 Server phản hồi: {lbl}{rt}{ot}"
                         ))
                 elif p_type == "mirror_turbo_entered":
                     pkts = payload.get("packets", 0)
@@ -6082,6 +6182,7 @@ class DashboardApp(ctk.CTk):
             ctrl.moss_max_rolls = int(c_data.get("max_rolls", 0))
             ctrl.moss_auto_clean = bool(c_data.get("auto_clean", True))
             ctrl.moss_clean_equipment_trash = bool(c_data.get("clean_equipment_trash", True))
+            ctrl.moss_sell_excellent = bool(c_data.get("sell_excellent", True))
             ctrl.mirror_enabled = (i in mirror_sel) if (mirror_sel is not None) else True
             ctrl.moss_enabled = (i in moss_sel) if (moss_sel is not None) else True
             self.controllers.append(ctrl)
@@ -8962,7 +9063,7 @@ class DashboardApp(ctk.CTk):
 
         btn_sell_silvia_quick = ctk.CTkButton(
             tb_row2_r,
-            text="💰 Bán Silvia ngay",
+            text="💰 Bán Shop (Rhea)",
             height=28,
             corner_radius=0,
             fg_color="#1e293b",
@@ -8974,7 +9075,7 @@ class DashboardApp(ctk.CTk):
             command=self.sell_all_moss_inventories
         )
         btn_sell_silvia_quick.pack(side="right")
-        add_tooltip(btn_sell_silvia_quick, "💰 Chạy tới NPC Silvia bán đồ rác lấy Zen trên các tài khoản đã chọn")
+        add_tooltip(btn_sell_silvia_quick, "💰 Chạy tới NPC Rhea (ELB1 30, 235) bán đồ rác lấy Zen trên các tài khoản đã chọn")
 
         # 3. BẢNG CÁC TÀI KHOẢN (MOSS SLOT TABLE)
         table_container = ctk.CTkFrame(self.panel_moss, fg_color="#141722", corner_radius=0, border_width=1, border_color="#202430")
@@ -9221,7 +9322,7 @@ class DashboardApp(ctk.CTk):
                 ("🚪 Mở bảng Moss NPC", lambda: ctrl_item.open_moss_npc(), "#38bdf8"),
                 ("🚪 Đóng bảng Moss NPC", lambda: ctrl_item.close_moss_dialog(), "#94a3b8"),
                 ("---", None, ""),
-                ("💰 Đi bán đồ rác tại NPC Silvia", lambda: ctrl_item.sell_moss_inventory(), "#34d399"),
+                ("💰 Đi bán đồ rác tại NPC Rhea (30, 235)", lambda: ctrl_item.sell_moss_inventory(), "#34d399"),
                 ("🗑️ Ném đồ rác tại chỗ ngay", lambda: ctrl_item.clean_moss_inventory(run_in_thread=True), "#f87171"),
                 ("---", None, ""),
                 ("🚶 Chạy về NPC Moss (Elbeland 22, 225)", lambda: ctrl_item.move_to_moss_elbeland(), "#38bdf8"),
@@ -9243,7 +9344,7 @@ class DashboardApp(ctk.CTk):
             ign_cur = getattr(self, "_moss_ignore_junk_type_val", False)
             ign_lbl = "✅ Bỏ qua lọc tên/loại rác (Đang BẬT)" if ign_cur else "⬜ Bỏ qua lọc tên/loại rác (Đang TẮT)"
             items = [
-                ("💰 Bán đồ rác tại NPC Silvia ngay (Tất cả)", self.sell_all_moss_inventories, "#34d399"),
+                ("💰 Bán đồ rác tại NPC Rhea (30, 235) ngay (Tất cả)", self.sell_all_moss_inventories, "#34d399"),
                 ("🗑️ Ném đồ rác tại chỗ ngay (Tất cả)", self.clean_all_moss_inventories, "#f87171"),
                 ("🔍 Phân tích rác hòm đồ các tài khoản", self.analyze_all_moss_inventories, "#38bdf8"),
                 ("🧹 Hộp thoại dọn rác nâng cao...", self.open_junk_disposal_dialog, "#cbd5e1"),
@@ -9683,7 +9784,7 @@ class DashboardApp(ctk.CTk):
                     time.sleep(0.5)
             if count_acc > 0:
                 self.after(0, lambda c=count_acc: self.append_moss_log(
-                    f"💰 Đã kích hoạt tiến trình bán đồ tại Silvia cho {c} tài khoản đã chọn!"
+                    f"💰 Đã kích hoạt tiến trình bán đồ tại NPC Rhea (30, 235) cho {c} tài khoản đã chọn!"
                 ))
             else:
                 self.after(0, lambda: self.append_moss_log("⚠️ Không có tài khoản đã chọn nào đang kết nối!"))
@@ -10524,13 +10625,22 @@ class DashboardApp(ctk.CTk):
     def get_mirror_stagger_ms(self) -> int:
         try:
             if hasattr(self, "mirror_stagger_ms_entry") and self.mirror_stagger_ms_entry:
-                return max(0, min(100, int(self.mirror_stagger_ms_entry.get().strip())))
+                raw = str(self.mirror_stagger_ms_entry.get()).strip().lower()
+                if raw in ("auto", "-1"):
+                    return -1
+                return max(-1, min(100, int(raw)))
         except Exception:
             pass
         return 0
 
-    def record_mirror_net_telemetry(self, r_code: int, rtt_ms: float = 0.0, server_open_epoch_ms: Optional[float] = None):
-        """Cập nhật thống kê telemetry mạng RTT và học delta clock offset với server."""
+    def record_mirror_net_telemetry(
+        self,
+        r_code: int,
+        rtt_ms: float = 0.0,
+        server_open_epoch_ms: Optional[float] = None,
+        transition: str = "",
+    ):
+        """Cập nhật thống kê telemetry mạng RTT và học cộng dồn delta clock offset với server (không dao động, tự lưu JSON)."""
         try:
             rtt_val = float(rtt_ms or 0.0)
             if not hasattr(self, "_mirror_last_rtt_ms") or self._mirror_last_rtt_ms < 0:
@@ -10538,19 +10648,58 @@ class DashboardApp(ctk.CTk):
             elif rtt_val > 0:
                 self._mirror_last_rtt_ms = self._mirror_last_rtt_ms * 0.6 + rtt_val * 0.4
 
-            if server_open_epoch_ms is not None:
+            if server_open_epoch_ms is not None and int(r_code) in (0, 2):
                 srv_ms = float(server_open_epoch_ms)
-                last_sched = float(getattr(self, "_last_scheduled_gate_open_epoch_ms", 0.0) or 0.0)
-                if last_sched > 0:
-                    delta = last_sched - srv_ms
-                    # Lọc ngoại lai: chỉ học khi lệch trong khoảng [-8000ms, +8000ms]
-                    if abs(delta) <= 8000.0:
-                        self._mirror_clock_offset_ms = delta
+                d = self.__dict__
+                last_sched = float(d.get("_last_scheduled_gate_open_epoch_ms", 0.0) or 0.0)
+                sched_ev_key = d.get("_last_scheduled_event_key", None)
+                learned_ev_key = d.get("_last_learned_event_key", None)
+                already_learned_this_event = bool(sched_ev_key and learned_ev_key == sched_ev_key)
+                if last_sched > 0 and not already_learned_this_event:
+                    residual = last_sched - srv_ms
+                    # Lọc ngoại lai: chỉ học khi sai số dư trong khoảng [-8000ms, +8000ms]
+                    if abs(residual) <= 8000.0:
+                        base_off = float(
+                            d.get(
+                                "_last_scheduled_offset_base_ms",
+                                d.get("_mirror_clock_offset_ms", 0.0),
+                            )
+                            or 0.0
+                        )
+                        if abs(base_off) < 1e-6:
+                            # Lần hiệu chuẩn đầu tiên: lấy trực tiếp sai số đo được
+                            new_off = residual
+                        else:
+                            # Các đợt sau: cộng dồn EWMA (60% sai số dư) để hội tụ mượt và KHÔNG dao động về 0!
+                            new_off = base_off + residual * 0.6
+                        new_off = max(-8000.0, min(8000.0, round(new_off, 1)))
+                        self._mirror_clock_offset_ms = new_off
+                        self._mirror_clock_calibrated = True
+                        if sched_ev_key:
+                            self._last_learned_event_key = sched_ev_key
+                        # Tự lưu xuống config/mirror_schedule_config.json để giữ qua các lần mở lại app
+                        try:
+                            ConfigPersistenceManager.update_mirror_clock_offset(new_off)
+                        except Exception:
+                            pass
 
-            if hasattr(self, "lbl_mirror_net_calib") and self.lbl_mirror_net_calib:
-                txt = f"RTT: {self._mirror_last_rtt_ms:.1f}ms | Offset: {getattr(self, '_mirror_clock_offset_ms', 0.0):.1f}ms"
+            d_ui = self.__dict__
+            cur_rtt = float(d_ui.get("_mirror_last_rtt_ms", -1.0) or -1.0)
+            cur_off = float(d_ui.get("_mirror_clock_offset_ms", 0.0) or 0.0)
+            lbl_calib = d_ui.get("lbl_mirror_net_calib", None)
+            if lbl_calib:
+                txt = f"RTT: {cur_rtt:.1f}ms | Offset: {cur_off:+.1f}ms"
                 try:
-                    self.lbl_mirror_net_calib.configure(text=txt)
+                    lbl_calib.configure(text=txt)
+                except Exception:
+                    pass
+            mv = d_ui.get("mirror_view", None)
+            if mv and hasattr(mv, "update_net_telemetry"):
+                try:
+                    if hasattr(self, "after"):
+                        self.after(0, lambda r=cur_rtt, o=cur_off: mv.update_net_telemetry(r, o))
+                    else:
+                        mv.update_net_telemetry(cur_rtt, cur_off)
                 except Exception:
                     pass
         except Exception:
@@ -11001,6 +11150,7 @@ class DashboardApp(ctk.CTk):
         target_open_epoch_ms: int = 0,
         gate_open_epoch_ms: int = 0,
         one_way_latency_ms: float = 0.0,
+        clock_calibrated: Optional[bool] = None,
     ):
         """Kích hoạt Turbo Sniping đồng loạt (bắn liên tiếp + DirectSocket TCP_NODELAY + Zero-Confirm) cho các tài khoản ĐÃ TÍCH CHỌN tham gia Mirror."""
         if not from_scheduler:
@@ -11065,17 +11215,38 @@ class DashboardApp(ctk.CTk):
             threads = []
             results = []
             res_lock = threading.Lock()
-            barrier = threading.Barrier(len(unentered_ctrls)) if len(unentered_ctrls) > 1 else None
+            n_acc = len(unentered_ctrls)
+            barrier = threading.Barrier(n_acc) if n_acc > 1 else None
             stagger_step = self.get_mirror_stagger_ms() if hasattr(self, "get_mirror_stagger_ms") else 0
 
+            # Mức trần FPS thích ứng theo số lượng cửa sổ game đang chạy để tránh nghẽn GPU/CPU gây khựng Game.Update
+            if n_acc <= 2:
+                adaptive_fps = 240
+            elif n_acc <= 5:
+                adaptive_fps = 120
+            elif n_acc <= 10:
+                adaptive_fps = 90
+            else:
+                adaptive_fps = 60
+
             def _start_ctrl(c, idx_order):
-                stagger_offset = idx_order * stagger_step
+                if stagger_step < 0 and n_acc >= 2:
+                    # Auto Phase-Stagger: trải đều các tài khoản phủ kín 1 chu kỳ interval_ms (ví dụ 6 acc @ 10ms -> 0,2,3,5,7,8ms)
+                    stagger_offset = int(round(idx_order * max(delay_ms, 2) / float(n_acc)))
+                elif stagger_step > 0:
+                    stagger_offset = idx_order * stagger_step
+                else:
+                    stagger_offset = 0
                 slot_target_ms = (int(target_open_epoch_ms) + stagger_offset) if target_open_epoch_ms else 0
-                extra_kw = {}
+                extra_kw = {
+                    "target_fps": adaptive_fps,
+                }
                 if gate_open_epoch_ms and int(gate_open_epoch_ms) > 0:
                     extra_kw["target_open_epoch_ms"] = int(gate_open_epoch_ms) + stagger_offset
                 if one_way_latency_ms and float(one_way_latency_ms) > 0:
                     extra_kw["one_way_latency_ms"] = float(one_way_latency_ms)
+                if clock_calibrated is not None:
+                    extra_kw["clock_calibrated"] = bool(clock_calibrated)
                 ok = c.start_mirror_turbo_sniping(
                     interval_ms=delay_ms,
                     max_duration_s=dur_s,
@@ -11100,8 +11271,9 @@ class DashboardApp(ctk.CTk):
             started = len(results)
             if started > 0:
                 zc_lbl = "Zero-Confirm BẬT" if zero_confirm else "Zero-Confirm TẮT"
+                stag_lbl = "Rải pha Auto" if (stagger_step < 0 and n_acc >= 2) else (f"Rải pha {stagger_step}ms" if stagger_step > 0 else "Rải pha 0ms")
                 self.after(0, lambda: self.append_mirror_log(
-                    f"⚡ ĐÃ KÍCH HOẠT TURBO LIÊN TIẾP CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms · {zc_lbl} · Tối đa {dur_s:.0f}s)!"
+                    f"⚡ ĐÃ KÍCH HOẠT TURBO LIÊN TIẾP CHO {started} TÀI KHOẢN (Chu kỳ {delay_ms}ms · {stag_lbl} · FPS≤{adaptive_fps} · {zc_lbl} · Tối đa {dur_s:.0f}s)!"
                 ))
             else:
                 self.after(0, lambda: self.append_mirror_log("⚠️ Không kích hoạt được tài khoản nào (thiếu vé hoặc lỗi kết nối)!"))
@@ -11826,14 +11998,38 @@ class DashboardApp(ctk.CTk):
                             if getattr(ctrl, "cached_mirror_ticket_slot", -1) < 0:
                                 threading.Thread(target=ctrl.check_mirror_ticket, daemon=True).start()
 
-            # 3.6. PRE-STAGE & ĐO RTT THỰC TỪ GAMESERVER (T-15s):
-            # Ghim buffer byte[5], bật TCP_NODELAY, làm nóng Lugard talk và gửi 1 gói thăm dò đo Ping thật!
+            # 3.55. ÉP ĐỒNG BỘ LẠI NTP NGUYÊN TỬ (T-60s) ĐỂ KHỬ TRÔI ĐỒNG HỒ WINDOWS TRƯỚC GIỜ G
+            ntp_pre_key = next_gate_open.strftime("%Y%m%d_%H10_ntpsync")
+            if is_auto and not is_in_gate_open_window and 45.0 < diff_to_open_float <= 65.0:
+                if getattr(self, "_last_mirror_ntpsync_key", None) != ntp_pre_key:
+                    self._last_mirror_ntpsync_key = ntp_pre_key
+
+                    def _do_fresh_ntp():
+                        try:
+                            ok_ntp = time_sync.sync_ntp(force=True, samples_per_server=3)
+                            if ok_ntp:
+                                st_msg = time_sync.get_sync_status_text()
+                                self.after(0, lambda m=st_msg: self.append_mirror_log(
+                                    f"🕒 [NTP T-60s] Đã đồng bộ lại đồng hồ nguyên tử trước giờ G: {m}"
+                                ))
+                        except Exception:
+                            pass
+
+                    threading.Thread(target=_do_fresh_ntp, daemon=True, name="MirrorPreNtpSync").start()
+
+            # 3.6. PRE-STAGE & ĐO MULTI-PROBE RTT THỰC TỪ GAMESERVER (T-15s):
+            # Xóa mẫu RTT cũ 2 tiếng trước, ghim buffer byte[5], bật TCP_NODELAY, làm nóng Lugard và bắn 4 gói thăm dò lấy minRTT!
             prestage_key = next_gate_open.strftime("%Y%m%d_%H10_prestage")
             if is_auto and not is_in_gate_open_window and max(prefire_sec + 3.5, 5.0) < diff_to_open_float <= 16.0:
                 if getattr(self, "_last_mirror_prestage_key", None) != prestage_key:
                     self._last_mirror_prestage_key = prestage_key
 
                     def _do_prestage():
+                        try:
+                            if hasattr(time_sync, "reset_game_rtt_samples"):
+                                time_sync.reset_game_rtt_samples()
+                        except Exception:
+                            pass
                         detected_ps = getattr(self, "detected_games", {})
                         staged = 0
                         probed = False
@@ -11852,7 +12048,7 @@ class DashboardApp(ctk.CTk):
                                 if hasattr(eng, "pre_stage_mirror_turbo"):
                                     res_ps = eng.pre_stage_mirror_turbo(
                                         slot=slot_id if slot_id >= 0 else None,
-                                        measure_probe=(not probed),
+                                        measure_probe=(4 if not probed else False),
                                     )
                                     if res_ps.get("success"):
                                         staged += 1
@@ -11864,13 +12060,13 @@ class DashboardApp(ctk.CTk):
                                 pass
                         if staged > 0:
                             self.after(0, lambda n=staged: self.append_mirror_log(
-                                f"🔧 [PRE-STAGE T-15s] Đã ghim buffer, bật TCP_NODELAY & thăm dò RTT thật cho {n} tài khoản!"
+                                f"🔧 [PRE-STAGE T-15s] Đã ghim buffer, bật TCP_NODELAY & bắn 4 mẫu probe đo minRTT mới cho {n} tài khoản!"
                             ))
 
                     threading.Thread(target=_do_prestage, daemon=True, name="MirrorPreStage").start()
 
             # 4. PRECISION IN-PROCESS EPOCH ARMING + ONE-SHOT PRE-FIRE TURBO SNIPING:
-            # Chỉ kích hoạt ĐÚNG 1 LẦN DUY NHẤT cho mỗi đợt sự kiện tại mốc cài đặt trước giờ mở cổng (mặc định 5s).
+            # Chỉ kích hoạt ĐÚNG 1 LẦN DUY NHẤT cho mỗi đợt sự kiện tại mốc cài đặt trước giờ mở cổng.
             # Sau khi chạy xong hoặc người dùng bấm Dừng, tuyệt đối KHÔNG chạy lại cho tới đợt sự kiện tiếp theo!
             prefire_key = next_gate_open.strftime("%Y%m%d_%H10_prefire")
             event_key = next_gate_open.strftime("%Y%m%d_%H10_event")
@@ -11885,33 +12081,40 @@ class DashboardApp(ctk.CTk):
                     self._last_mirror_event_snipe_key = event_key
                     ntp_off_sec = float(sched.get("ntp_offset_sec", 0.0) or 0.0)
                     learned_off_ms = float(getattr(self, "_mirror_clock_offset_ms", 0.0) or 0.0)
+                    is_clock_calib = bool(getattr(self, "_mirror_clock_calibrated", False) or abs(learned_off_ms) > 0.5)
                     one_way_ms = float(sched.get("one_way_latency_sec", 0.14) or 0.14) * 1000.0
                     # Quy đổi mốc mở cổng giờ Server sang Local PC epoch ms (khớp Date.now() trong Frida JS)
                     gate_open_local_ms = int((next_gate_open.timestamp() - ntp_off_sec) * 1000.0 - learned_off_ms)
                     arm_start_ms = int(gate_open_local_ms - one_way_ms - prefire_sec * 1000.0)
                     self._last_scheduled_gate_open_epoch_ms = float(gate_open_local_ms)
+                    self._last_scheduled_offset_base_ms = learned_off_ms
+                    self._last_scheduled_event_key = event_key
+                    self._last_learned_event_key = None
                     now_local_ms = int(time.time() * 1000)
 
                     if arm_start_ms > now_local_ms + 50:
                         wait_s = (arm_start_ms - now_local_ms) / 1000.0
+                        calib_tag = "Calib OK" if is_clock_calib else "Chưa calib (nới critical 1.2s)"
                         self.append_mirror_log(
-                            f"🎯 [ARM CƯỚP CỔNG] Đã nạp mốc bắn In-Process (còn {diff_to_open_float:.2f}s tới {next_gate_open.strftime('%H:%M')} · khai hỏa sau {wait_s:.2f}s · 1-way RTT={one_way_ms:.0f}ms · Offset={learned_off_ms:+.0f}ms)!"
+                            f"🎯 [ARM CƯỚP CỔNG] Đã nạp mốc bắn In-Process (còn {diff_to_open_float:.2f}s tới {next_gate_open.strftime('%H:%M')} · khai hỏa sau {wait_s:.2f}s · 1-way RTT={one_way_ms:.0f}ms · Offset={learned_off_ms:+.0f}ms · {calib_tag})!"
                         )
                         self.start_all_mirror_turbo_sniping(
                             from_scheduler=True,
                             target_open_epoch_ms=arm_start_ms,
                             gate_open_epoch_ms=gate_open_local_ms,
                             one_way_latency_ms=one_way_ms,
+                            clock_calibrated=is_clock_calib,
                         )
                     else:
                         self.append_mirror_log(
-                            f"⚡ [TỰ ĐỘNG CƯỚP CỔNG] Còn {diff_to_open_float:.2f}s tới giờ mở cổng ({next_gate_open.strftime('%H:%M')})! Kích hoạt đón đầu đồng loạt (bắn trước {prefire_sec:.1f}s · 1-way RTT={one_way_ms:.0f}ms)!"
+                            f"⚡ [TỰ ĐỘNG CƯỚP CỔNG] Còn {diff_to_open_float:.2f}s tới giờ mở cổng ({next_gate_open.strftime('%H:%M')})! Kích hoạt đón đầu đồng loạt (bắn trước {prefire_sec:.1f}s · 1-way RTT={one_way_ms:.0f}ms · Offset={learned_off_ms:+.0f}ms)!"
                         )
                         self.start_all_mirror_turbo_sniping(
                             from_scheduler=True,
                             target_open_epoch_ms=0,
                             gate_open_epoch_ms=gate_open_local_ms,
                             one_way_latency_ms=one_way_ms,
+                            clock_calibrated=is_clock_calib,
                         )
 
             # TRƯỜNG HỢP 1: CỔNG ĐANG MỞ (:10:00 đến :14:59 của giờ chẵn)

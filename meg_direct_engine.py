@@ -892,15 +892,19 @@ try {
 var nativeUserInvSell = null;
 try {
     var uisOff = off('__USER_INV_SELL__');
-    if (!uisOff.isNull()) {
-        nativeUserInvSell = new NativeFunction(baseAddr.add(uisOff), 'void', ['int', 'pointer']);
+    var uiaOff = off('__USER_INV_ACTION__');
+    // GUARD: 0x14521D0 (KKIEDJMGCHO) và 0x14557E0 (IEEDCOGFPGG) là lệnh MUA (C3:32 BUY), TUYỆT ĐỐI KHÔNG dùng để bán!
+    // Hàm BÁN thật là Mega.UserInventory.AFCIKPDMOCC(int slot, MOFAGGHDOFI item) @ 0x1450640 (gửi C3:33 SELL).
+    if (!uisOff.isNull() && !uisOff.equals(ptr('0x14521D0')) && !uisOff.equals(ptr('0x14557E0')) &&
+        (uiaOff.isNull() || !uisOff.equals(uiaOff))) {
+        nativeUserInvSell = new NativeFunction(baseAddr.add(uisOff), 'void', ['int', 'pointer', 'pointer']);
     }
 } catch (eUIS) {}
 
 var nativeUserInvSell5 = null;
 try {
     var uis5Off = off('__USER_INV_SELL_5__');
-    if (!uis5Off.isNull()) {
+    if (!uis5Off.isNull() && !uis5Off.equals(ptr('0x14557E0')) && !uis5Off.equals(ptr('0x14521D0'))) {
         nativeUserInvSell5 = new NativeFunction(baseAddr.add(uis5Off), 'void', ['int', 'int', 'pointer']);
     }
 } catch (eUIS5) {}
@@ -1717,6 +1721,87 @@ function sendDropPacket(slot, targetX, targetY) {
     }
 }
 
+function findInventorySlotObj(slot) {
+    // Tìm ItemSlot* tương ứng trong MainStorage (+0x58: 12..75), ExtInventoryStorage1 (+0x60: 76..107), ExtInventoryStorage2 (+0x68: 108..139).
+    // Layout Dictionary<int, ItemSlot>.Entry (24 bytes): +0x00 hashCode (>=0), +0x04 next, +0x08 int key (slot), +0x10 ItemSlot* value.
+    try {
+        var s = parseInt(slot);
+        if (s < 12 || nativeGetGameUI === null) return ptr(0);
+        var gui = nativeGetGameUI();
+        if (!gui || gui.isNull()) return ptr(0);
+        var invWinOff = off('__UI_INVENTORY_WINDOW__');
+        var invWin = invWinOff.isNull() ? gui.add(ptr('0x190')).readPointer() : gui.add(invWinOff).readPointer();
+        if (!invWin || invWin.isNull()) return ptr(0);
+        var storageOffsets = (s < 76) ? [0x58, 0x60, 0x68] : [0x60, 0x68, 0x58];
+        for (var si = 0; si < storageOffsets.length; si++) {
+            try {
+                var st = invWin.add(storageOffsets[si]).readPointer();
+                if (!st || st.isNull()) continue;
+                var cellsDict = st.add(0x38).readPointer();
+                if (!cellsDict || cellsDict.isNull()) continue;
+                var entriesPtr = cellsDict.add(0x18).readPointer();
+                var cCount = cellsDict.add(0x20).readS32();
+                if (!entriesPtr || entriesPtr.isNull() || cCount <= 0 || cCount > 256) continue;
+                for (var ci = 0; ci < cCount; ci++) {
+                    var cEntry = entriesPtr.add(0x20 + ci * 24);
+                    if (cEntry.readS32() < 0) continue; // hashCode < 0 -> free entry
+                    var cKey = cEntry.add(0x08).readS32();
+                    if (cKey === s) {
+                        var cand = cEntry.add(0x10).readPointer();
+                        if (cand && !cand.isNull()) {
+                            try {
+                                if (cand.add(0x20).readS32() === s) return cand;
+                            } catch (eChkSlot) {
+                                return cand;
+                            }
+                        }
+                    }
+                }
+            } catch (eSt) {}
+        }
+    } catch (eFindSlot) {}
+    return ptr(0);
+}
+
+function getItemStorageStaticFields() {
+    try {
+        var isTypeInfoOff = off('__ITEM_STORAGE_TYPE_INFO__');
+        if (!isTypeInfoOff.isNull()) {
+            var isTypeInfo = baseAddr.add(isTypeInfoOff).readPointer();
+            if (!isTypeInfo.isNull()) {
+                return isTypeInfo.add(0xB8).readPointer();
+            }
+        }
+    } catch (eISSF) {}
+    return ptr(0);
+}
+
+function setItemStorageSellingSlot(slot) {
+    // BẮT BUỘC: Khi Server trả gói C3:33 (UserInventory.ALLEPIKEBML -> ItemStorage.LDEPOIPHNOO),
+    // Client đọc static ItemStorage.SellingSlot (+0x20) để biết slot nào cần xóa khỏi UserInventory._Items!
+    try {
+        var isStatic = getItemStorageStaticFields();
+        if (isStatic.isNull()) return ptr(0);
+        var slotObj = findInventorySlotObj(slot);
+        if (!slotObj.isNull()) {
+            isStatic.add(0x20).writePointer(slotObj);
+            return slotObj;
+        }
+    } catch (eSetSS) {}
+    return ptr(0);
+}
+
+function clearItemStorageSellingSlot() {
+    try {
+        var isStatic = getItemStorageStaticFields();
+        if (!isStatic.isNull()) {
+            isStatic.add(0x20).writePointer(ptr(0));
+        }
+    } catch (eClrSS) {}
+}
+
+var pendingSellSlot = null;
+
 function sendSellPacket(slot) {
     try {
         var s = parseInt(slot) & 0xFF;
@@ -1725,25 +1810,30 @@ function sendSellPacket(slot) {
 
         ensureThreadAttached();
 
+        // 1. Gán ItemStorage.SellingSlot TRƯỚC KHI gửi gói C3:33 để Client xử lý xóa item ngay khi nhận phản hồi C3:33
+        setItemStorageSellingSlot(s);
+
+        // 2. Lấy itemPtr hiện tại (nếu có) để truyền cho AFCIKPDMOCC(int slot, MOFAGGHDOFI item)
+        var itemPtr = ptr(0);
+        try {
+            var itemsArr = _getLiveItemsArraySafe();
+            if (itemsArr && !itemsArr.isNull()) {
+                itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+            }
+        } catch (eIP) {}
+
+        // 3. Ưu tiên gọi đúng hàm bán chính thức của client: Mega.UserInventory.AFCIKPDMOCC(slot, item) @ 0x1450640 -> C3:33
         if (nativeUserInvSell !== null) {
-            try { nativeUserInvSell(s, ptr(0)); return true; } catch (eUISell) {}
+            try {
+                nativeUserInvSell(s, itemPtr, ptr(0));
+                return true;
+            } catch (eUISell) {}
         }
 
-        if (nativeUserInvSell5 !== null) {
-            try { nativeUserInvSell5(1, s, ptr(0)); return true; } catch (eUIS5) {}
-        }
-
-        // 3. Chuẩn protocol bán đồ NPC MEGAMU: Headcode được XOR 0xCB (RVA 0x120ED40)
-        // 0x32 ^ 0xCB = 0xF9
-        var encSell = 0x32 ^ 0xCB; // 0xF9
-
-        // Gói tin 5-byte chuẩn MEGAMU 5thEra: [0xC1, 0x05, 0xF9, slot, 0x01] (0x01: Main Inventory)
-        var sent5 = sendGSPacket([0xC3, 0x05, encSell, s, 0x01], true);
-
-        // Gói tin 4-byte tương thích: [0xC1, 0x04, 0xF9, slot]
-        var sent4 = sendGSPacket([0xC3, 0x04, encSell, s], true);
-
-        return sent5 || sent4;
+        // 4. Chuẩn protocol bán đồ NPC MEGAMU (verified từ AFCIKPDMOCC @ 0x1450640 + NCIAEIPCNGI @ 0x1271110):
+        // Opcode 0x33 = CGItemSellRecv (KHÔNG phải 0x32 BUY!), XOR 0xCB -> 0xF8, 4 byte: [0xC3, 0x04, 0xF8, slot]
+        var encSell = 0x33 ^ 0xCB; // 0xF8
+        return sendGSPacket([0xC3, 0x04, encSell, s], true);
     } catch (eSellPkt) {
         return false;
     }
@@ -1880,7 +1970,8 @@ function runDropPass(slots, itemsArr, ctx, offsetX, offsetY, useNativeRandom) {
     return out;
 }
 
-// Bán từng slot cho Merchant đang mở (packet C1 04 32) + xác minh bằng RAM.
+// Bán từng slot cho Merchant đang mở (packet C3:33 + ItemStorage.SellingSlot) + xác minh từng ô bằng RAM.
+// LƯU Ý QUAN TRỌNG: ItemStorage.SellingSlot là biến static đơn nên BẮT BUỘC chờ từng món hoàn tất rồi mới gửi món tiếp theo.
 function runSellPass(slots, itemsArr) {
     var out = { sold: [], stayed: [], sendFailed: 0, attempted: 0 };
     for (var i = 0; i < slots.length; i++) {
@@ -1892,16 +1983,23 @@ function runSellPass(slots, itemsArr) {
         try { sent = sendSellPacket(s); } catch (eSS) { sent = false; }
         if (!sent) {
             out.sendFailed++;
+            out.stayed.push(s);
             continue;
         }
-        try { Thread.sleep(0.08); } catch (eSl3) {}
-    }
-    try { Thread.sleep(0.35); } catch (eSl4) {}
-    for (var j = 0; j < slots.length; j++) {
-        var s2 = slots[j];
-        var after = itemsArr.add(0x20 + s2 * 8).readPointer();
-        if (after.isNull()) out.sold.push(s2);
-        else out.stayed.push(s2);
+        var gone = false;
+        for (var wi = 0; wi < 20; wi++) {
+            try { Thread.sleep(0.05); } catch (eSl3) {}
+            var cur = itemsArr.add(0x20 + s * 8).readPointer();
+            if (cur.isNull() || !cur.equals(before)) {
+                gone = true;
+                break;
+            }
+        }
+        if (gone) out.sold.push(s);
+        else {
+            clearItemStorageSellingSlot();
+            out.stayed.push(s);
+        }
     }
     return out;
 }
@@ -2199,6 +2297,22 @@ function tickJunkDisposalMainThread() {
         }
 
         if (job.phase === "sell_pass") {
+            // Chờ ô đang bán (SellingSlot là biến static đơn — không được gửi chồng ô tiếp theo trước khi Server xác nhận!)
+            if (job.currentSellSlot !== undefined && job.currentSellSlot !== null) {
+                var curS = job.currentSellSlot;
+                var curPtr = itemsArr.add(0x20 + curS * 8).readPointer();
+                if (curPtr.isNull()) {
+                    if (job.sold.indexOf(curS) === -1) job.sold.push(curS);
+                    job.currentSellSlot = null;
+                    job.nextActionAtMs = now + 40;
+                } else if (now < job.sellWaitUntilMs) {
+                    return;
+                } else {
+                    clearItemStorageSellingSlot();
+                    job.currentSellSlot = null;
+                    job.nextActionAtMs = now + 40;
+                }
+            }
             if (now < job.nextActionAtMs) return;
             while (job.idx < job.queue.length) {
                 var ss = job.queue[job.idx];
@@ -2208,12 +2322,17 @@ function tickJunkDisposalMainThread() {
                 job.triedSlots.push(ss);
                 var sOk = false;
                 try { sOk = sendSellPacket(ss); } catch (eS) { sOk = false; }
-                if (!sOk) job.sendFailed++;
-                job.nextActionAtMs = now + 100;
+                if (!sOk) {
+                    job.sendFailed++;
+                    job.nextActionAtMs = now + 60;
+                    return;
+                }
+                job.currentSellSlot = ss;
+                job.sellWaitUntilMs = now + 1000;
                 return;
             }
             job.phase = "sell_wait";
-            job.verifyDeadlineMs = now + 550;
+            job.verifyDeadlineMs = now + 250;
             return;
         }
 
@@ -2265,12 +2384,20 @@ function sendLugardTalkPacket() {
     try {
         var lugard = findLugardNpc();
         if (lugard && !lugard.isNull()) {
+            // Ưu tiên gọi đúng hàm gốc Mega.NpcManager$$PCKGCMNFJND (0x10E9C10) của GameAssembly.dll
+            if (nativeNpcSendTalk !== null) {
+                try {
+                    nativeNpcSendTalk(lugard, ptr(0));
+                    return true;
+                } catch (eNST) {}
+            }
+            // Fallback chuẩn protocol C3:30 Big-Endian (đã xác minh từ 0x1271110 + 0x123DF00)
             var npcKey = -1;
             try { npcKey = lugard.add(0x20).readS32(); } catch (eK) {}
             if (npcKey > 0) {
-                var kLow = npcKey & 0xFF;
                 var kHigh = (npcKey >> 8) & 0xFF;
-                sendGSPacket([0xC1, 0x05, 0x30, kLow, kHigh]);
+                var kLow = npcKey & 0xFF;
+                sendGSPacket([0xC3, 0x05, 0x30, kHigh, kLow]);
                 return true;
             }
         }
@@ -2517,7 +2644,8 @@ function readItemProps(itemPtr) {
         excOpt: 0,
         ancOpt: 0,
         sockOpt: 0,
-        harmonyOpt: 0
+        harmonyOpt: 0,
+        opt380: 0
     };
     if (!itemPtr || itemPtr.isNull()) return p;
     try {
@@ -2525,10 +2653,14 @@ function readItemProps(itemPtr) {
         p.itemLevel = itemPtr.add(0x10).readS32();
         p.skill = itemPtr.add(0x14).readS32();
         p.luck = itemPtr.add(0x18).readS32();
+        p.option = itemPtr.add(0x1C).readS32();
         p.excOpt = itemPtr.add(0x20).readS32();
         p.ancOpt = itemPtr.add(0x24).readS32();
-        p.sockOpt = itemPtr.add(0x28).readS32();
-        p.harmonyOpt = itemPtr.add(0x2C).readS32();
+        // Xác minh từ GameAssembly.dll (MOFAGGHDOFI$$LBBGNJFOOAK @ 0x11B99D0):
+        // +0x28 = HarmonyOpt (byte[10]), +0x2C = Option380 ((byte[9]&8)<<4), +0x38 = int[5] Socket slots (< 0xFF là có socket)
+        p.harmonyOpt = itemPtr.add(0x28).readS32();
+        p.opt380 = itemPtr.add(0x2C).readS32();
+        p.sockOpt = hasItemSocketSlots(itemPtr) ? 1 : 0;
     } catch (eAll) {}
     return p;
 }
@@ -2564,53 +2696,91 @@ function checkMirrorItem(itemPtr, idx) {
 }
 
 function isDivineOrDragonItem(itemPtr, itemIndex) {
+    if (isDragonItem(itemPtr, itemIndex)) return true;
+    if (isDivineOrArchangelItem(itemPtr, itemIndex)) return true;
+
     var sec = Math.floor(itemIndex / 512);
     var type = itemIndex % 512;
 
-    // 1. Phân loại theo Item ID cố định trong database MU Online (Bảo vệ cứng 100%):
-    // Toàn bộ các item Master / Ruud / Archangel / Season cao cấp (type >= 30 trong sec 0..11):
+    // 1. Bảo vệ bổ sung cho chế độ mặc định (không bật bán Exce):
+    // Các item Season cao cấp (type >= 30 trong sec 0..11) và các set cao cấp kinh điển
     if (type >= 30 && sec <= 11) return true;
-
-    // Set Rồng Đỏ (Dragon Set): Sec 7..11, Type 1
-    // Set Rồng Đen (Black Dragon): Sec 7..11, Type 16
-    // Set Dark Phoenix: Sec 7..11, Type 17
-    // Set Great Dragon: Sec 7..11, Type 21
-    // Set Nữ Thần (Divine Set - Elf): Sec 7..11, Type 18
-    // Set Dragon Knight (Hiệp sĩ rồng): Sec 7..11, Type 29
-    // Set Dark Devil / Dragon Soul / các set rồng mở rộng: Sec 7..11 (Type 30, 31)
-    if ((type === 1 || type === 16 || type === 17 || type === 18 || type === 21 || type === 29 || type === 30 || type === 31) && (sec >= 7 && sec <= 11)) {
+    if ((type === 3 || type === 15 || type === 17 || type === 18 || type === 19 || type === 20 || type === 22 || type === 23 || type === 24 || type === 25) && (sec >= 7 && sec <= 11)) {
         return true;
     }
-    // Các set cao cấp khác: Grand Soul (3), Dark Soul (15), Hurricane (20), Red Spirit (19), Dark Master (22), Storm Crow (23), Valiant (24), Glorious (25)
-    if ((type === 3 || type === 15 || type === 19 || type === 20 || type === 22 || type === 23 || type === 24 || type === 25) && (sec >= 7 && sec <= 11)) {
+    if (sec === 6 && type >= 17) return true;
+
+    // 2. Lưới an toàn theo tên cho vật phẩm ngoài nhóm trang bị thường (sec >= 12 hoặc Index lỗi <= 0)
+    if (isSafetyProtectedByName(itemPtr, itemIndex)) return true;
+    return false;
+}
+
+function hasItemSocketSlots(itemPtr) {
+    if (!itemPtr || (typeof itemPtr.isNull === "function" && itemPtr.isNull())) return false;
+    try {
+        if (typeof itemPtr.add !== "function") return false;
+        var sockArr = itemPtr.add(0x38).readPointer();
+        if (!sockArr || (typeof sockArr.isNull === "function" && sockArr.isNull())) return false;
+        var len = sockArr.add(0x18).readS32();
+        if (len <= 0 || len > 5) return false;
+        for (var i = 0; i < len; i++) {
+            var sv = sockArr.add(0x20 + i * 4).readS32();
+            // 0xFF (255) = không có lỗ socket; 0xFE (254) = lỗ socket trống; < 254 = đã khảm seed
+            if (sv >= 0 && sv < 255) return true;
+        }
+    } catch (eSockArr) {}
+    return false;
+}
+
+function isDragonItem(itemPtr, itemIndex) {
+    var sec = Math.floor(itemIndex / 512);
+    var type = itemIndex % 512;
+
+    // 1. ID Đồ Rồng xác minh 100% từ TableItem trong RAM MEGAMU:
+    // - Set Rồng (sec 7..11): Dragon (1), Black Dragon (16), Great Dragon (21), Dragon Knight (29), Dragon mở rộng (67), [Bound] Dragon (130)
+    if (sec >= 7 && sec <= 11 && (type === 1 || type === 16 || type === 21 || type === 29 || type === 67 || type === 130)) {
         return true;
     }
-    // Khiên Rồng & Khiên cao cấp (Sec 6): Type 7 (Dragon Shield), >= 17 (Dragon Slayer, Crimson Glory, Salamander, Frost Barrier, Guardian, Cross...)
-    if (sec === 6 && (type === 7 || type >= 17)) return true;
-    // Vũ khí Rồng: Chaos Dragon Axe (Sec 1, Type 6), Dragon Spear (Sec 3, Type 10)
-    if (sec === 1 && type === 6) return true;
-    if (sec === 3 && type === 10) return true;
-    // Vũ khí Divine Archangel (Tuyệt Tác Thần / Thiên Sứ) & vũ khí cao cấp:
-    if (sec === 0 && (type === 19 || type === 31 || type === 32)) return true; // DAA Sword, Blessed DAA Sword, DAA Claw
-    if (sec === 1 && (type === 18 || type === 19)) return true; // DAA Axe
-    if (sec === 2 && (type === 13 || type === 21)) return true; // DAA Scepter, Blessed DAA Scepter
-    if (sec === 4 && (type === 18 || type === 26)) return true; // DAA Bow, Blessed DAA Bow
-    if (sec === 5 && (type === 10 || type === 34)) return true; // DAA Staff, Blessed DAA Staff
+    // - Khiên Rồng (sec 6): Dragon Slayer Shield (5), Dragon Shield (13)
+    if (sec === 6 && (type === 5 || type === 13)) return true;
+    // - Vũ khí Rồng: Chaos Dragon Axe (sec 2, type 6), Dragon Lance (sec 3, type 2), Dragon Spear (sec 3, type 10), Dragon Soul Staff (sec 5, type 9)
+    if (sec === 2 && type === 6) return true;
+    if (sec === 3 && (type === 2 || type === 10)) return true;
+    if (sec === 5 && type === 9) return true;
 
-    // 2. Phân loại theo tên native của vật phẩm trong Game Memory (Hỗ trợ đa ngôn ngữ EN, PT, ES, VN):
+    // 2. Fallback theo tên vật phẩm (hỗ trợ EN/PT/ES/VN)
     var name = getItemName(itemPtr).toLowerCase();
     if (name.length > 0) {
-        // 2a. Từ khóa trang bị/vũ khí cao cấp (áp dụng cho cả trang bị sec 0..11)
-        // LƯU Ý: KHÔNG đưa các từ "wing", "chaos", "soul", "life", "horn", "stone", "gem", "box", "feather" vào đây
-        // vì sẽ chặn nhầm đồ rác thường như "Bluewing Crossbow" ("wing"), "Chaos Nature Bow" ("chaos"), v.v.!
-        var equipKeywords = [
+        if (name.indexOf("dragon") !== -1 || name.indexOf("dragao") !== -1 || name.indexOf("dragão") !== -1 || name.indexOf("rồng") !== -1) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function isDivineOrArchangelItem(itemPtr, itemIndex) {
+    var sec = Math.floor(itemIndex / 512);
+    var type = itemIndex % 512;
+
+    // 1. ID Divine / Archangel xác minh 100% từ TableItem trong RAM MEGAMU:
+    if (sec === 0 && (type === 19 || type === 31 || type === 32 || type === 51 || type === 60 || type === 76)) return true;
+    if (sec === 1 && (type === 18 || type === 19)) return true;
+    if (sec === 2 && (type === 13 || type === 21 || type === 25 || type === 34 || type === 35)) return true;
+    if (sec === 3 && type === 27) return true;
+    if (sec === 4 && (type === 18 || type === 26 || type === 30 || type === 46 || type === 47)) return true;
+    if (sec === 5 && (type === 10 || type === 34 || type === 36 || type === 49 || type === 50)) return true;
+    if (sec >= 7 && sec <= 11 && (type === 50 || type === 120)) return true; // Divine & Rune Divine Set
+
+    // 2. Từ khóa Divine / Archangel / Ruud Master Tier theo tên
+    var name = getItemName(itemPtr).toLowerCase();
+    if (name.length > 0) {
+        var highKeywords = [
             "divine", "divino", "divina", "archangel", "arcanjo", "thiên sứ", "nữ thần",
-            "dragon", "dragao", "dragão", "rồng",
             "bloodangel", "darkangel", "holyangel", "awakening", "blue eye", "silver heart",
             "manticore", "brilliant", "apocalypse", "ruud"
         ];
-        for (var k = 0; k < equipKeywords.length; k++) {
-            if (name.indexOf(equipKeywords[k]) !== -1) {
+        for (var k = 0; k < highKeywords.length; k++) {
+            if (name.indexOf(highKeywords[k]) !== -1) {
                 return true;
             }
         }
@@ -2618,106 +2788,67 @@ function isDivineOrDragonItem(itemPtr, itemIndex) {
         if (name.indexOf("lightning") !== -1 && (sec >= 7 || type >= 30 || itemIndex <= 0)) {
             return true;
         }
+    }
+    return false;
+}
 
-        // 2b. LƯỚI AN TOÀN cho vật phẩm ngoài nhóm trang bị thường (sec >= 12 hoặc khi Index đọc lỗi == 0):
-        // Bảo vệ tuyệt đối ngọc, vé sự kiện, rương, cánh, pet... dù đọc Index thất bại!
-        if (sec >= 12 || itemIndex <= 0) {
-            var safetyKeywords = [
-                "jewel", "jóia", "joia", "pedra", "gema", "ngọc",
-                "bless", "soul", "chaos", "harmony", "creation", "life",
-                "jewel of guardian", "joia do guardiao", "jóia do guardião", "đá hộ mệnh",
-                "ticket", "vé", "mirror", "gương",
-                "box", "rương", "wing", "cánh", "feather", "lông", "cloak",
-                "seed", "fruit", "rune", "gem", "stone", "scroll", "horn",
-                "pentagram", "errtel", "muun", "dark horse", "dark raven", "fenrir"
-            ];
-            for (var sk = 0; sk < safetyKeywords.length; sk++) {
-                if (name.indexOf(safetyKeywords[sk]) !== -1) {
-                    return true;
-                }
-            }
+function isSafetyProtectedByName(itemPtr, itemIndex) {
+    var sec = Math.floor(itemIndex / 512);
+    if (sec < 12 && itemIndex > 0) return false;
+    var name = getItemName(itemPtr).toLowerCase();
+    if (name.length === 0) return false;
+    var safetyKeywords = [
+        "jewel", "jóia", "joia", "pedra", "gema", "ngọc",
+        "bless", "soul", "chaos", "harmony", "creation", "life",
+        "jewel of guardian", "joia do guardiao", "jóia do guardião", "đá hộ mệnh",
+        "ticket", "vé", "mirror", "gương",
+        "box", "rương", "wing", "cánh", "feather", "lông", "cloak",
+        "seed", "fruit", "rune", "gem", "stone", "scroll", "horn",
+        "pentagram", "errtel", "muun", "dark horse", "dark raven", "fenrir"
+    ];
+    for (var sk = 0; sk < safetyKeywords.length; sk++) {
+        if (name.indexOf(safetyKeywords[sk]) !== -1) {
+            return true;
         }
     }
     return false;
 }
 
-function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics, cleanEquipmentTrash) {
-    if (itemIndex < 0) return true; // Không rõ item -> bảo vệ an toàn
-
-    // 1. Đồ Divine, Đồ Rồng, Master/Ruud/High-tier
-    if (!ignoreTypeHeuristics && isDivineOrDragonItem(itemPtr, itemIndex)) return true;
-
-    // 2. Đồ Hoàn Hảo (Excellent)
-    if (excOpt > 0) return true;
-
-    // 3. Đồ Thần (Ancient / Set Item)
-    if (ancOpt > 0) return true;
-
-    // 4. Đồ Socket / 380
-    if (sockOpt > 0) return true;
-
-    // 5. Đồ Gia Cường Đá Tạo Hóa (Harmony)
-    if (harmonyOpt > 0) return true;
-
-    // 6. Đồ cấp cao: Giữ lại toàn bộ đồ vượt ngưỡng maxJunkLvl
-    // Cho phép vứt: Đồ thường không Exc/Ancient/Socket/Harmony (kể cả có Luck/Skill từ Moss)
-    var effectiveMax = 4;
-    if (maxJunkLvl !== undefined && maxJunkLvl !== null && maxJunkLvl >= 0) {
-        effectiveMax = parseInt(maxJunkLvl);
-    } else if (mossCat !== null && mossCat !== undefined && mossCat >= 0) {
-        effectiveMax = 6;
-    }
-    if (effectiveMax <= 4) {
-        if (itemLevel >= 5) return true;
-    } else {
-        if (itemLevel > effectiveMax) return true;
-    }
-
-    // 7. Toàn bộ ngọc, vé sự kiện, cánh, thú cưỡi, sách phép, cuộn kỹ năng (sec 12..15)
-    // Ngoại lệ duy nhất: Khi đang quay Moss Category 5 (Trang Sức: Nhẫn/Dây chuyền),
-    // cho phép dọn Nhẫn/Dây chuyền cơ bản thuộc sec 13 (không Exc/Ancient/Socket/Harmony).
-    var sec = Math.floor(itemIndex / 512);
-    var typeInSec = itemIndex % 512;
-    var isBasicMossJewelry = (mossCat === 5 && sec === 13 && (
-        typeInSec === 8 || typeInSec === 9 || typeInSec === 12 || typeInSec === 13 ||
-        (typeInSec >= 21 && typeInSec <= 28)
-    ));
-    if (!isBasicMossJewelry && sec >= 12 && sec <= 15) return true;
-
-    // 8. Giới hạn phạm vi theo danh mục Moss đang quay:
-    // Nếu đang quay Moss danh mục X thì CHỈ các món đồ rác thường thuộc danh mục X mới được phép dọn!
-    // Ngoại lệ: Khi cleanEquipmentTrash == true, cho phép vứt cả đồ rác của quần áo (sec 7..11) và vũ khí (sec 0..6).
-    if (mossCat !== null && mossCat !== undefined && mossCat >= 0) {
-        var isEquipTrash = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true") && (sec >= 0 && sec <= 11);
-        if (!isEquipTrash) {
-            var matchCat = false;
-            // Khớp chuẩn 100% với danh mục Moss trong Game MEGAMU (MOSS_CAT_OPTIONS):
-            if (mossCat === 0 && (sec === 0 || sec === 1 || sec === 3)) matchCat = true;       // 0: Kiếm, Rìu, Thương (Sword, Axe, Spear)
-            else if (mossCat === 1 && sec === 2) matchCat = true;                              // 1: Chùy & Trượng (Mace, Scepter)
-            else if (mossCat === 2 && sec === 4) matchCat = true;                              // 2: Cung & Nỏ (Bow, Crossbow)
-            else if (mossCat === 3 && sec === 5) matchCat = true;                              // 3: Gậy Phép & Sách (Staff, Book)
-            else if (mossCat === 4 && sec === 6) matchCat = true;                              // 4: Khiên (Shield)
-            else if (mossCat === 5 && isBasicMossJewelry) matchCat = true;                     // 5: Trang Sức (Pendant, Ring)
-            else if (mossCat >= 6 && sec <= 11) matchCat = true;                               // 6..11: Nhóm ngọc (Soul/Bless/Chaos quay ra mọi loại đồ)
-            
-            // Không thuộc loại đồ đang quay của Moss -> BẢO VỆ TUYỆT ĐỐI
-            if (!matchCat) return true;
-        }
-    }
-
-    return false; // Chỉ những món đồ rác thường không Exc/Ancient/Socket/Harmony/Divine mới bị dọn
+function isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics, cleanEquipmentTrash, allowExcellent) {
+    return itemProtectionReason(
+        itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck,
+        mossCat, maxJunkLvl, ignoreTypeHeuristics, cleanEquipmentTrash, allowExcellent
+    ) !== null;
 }
 
-// Trả về MÃ LÝ DO vì sao một món bị GIỮ LẠI (null = được phép dọn).
-// Phản chiếu đúng logic của isItemProtected() nhưng trả về lý do để hiển thị cho người dùng.
-function itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics, cleanEquipmentTrash) {
+// Trả về MÃ LÝ DO vì sao một món bị GIỮ LẠI (null = được phép dọn/bán).
+// allowExcellent = true: cho phép bán đồ Hoàn Hảo (Exce) và đồ +5..+7 thường, nhưng VẪN BẢO VỆ TUYỆT ĐỐI
+// Đồ Rồng (Dragon), Divine/Archangel/Ruud, Đồ Thần (Ancient), Đồ Socket, Harmony/380, cấp > maxJunkLvl, Ngọc/Vé/Cánh.
+function itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, ignoreTypeHeuristics, cleanEquipmentTrash, allowExcellent) {
     if (itemIndex < 0) return "unknown_item";
-    if (!ignoreTypeHeuristics && isDivineOrDragonItem(itemPtr, itemIndex)) return "divine_or_dragon";
-    if (excOpt > 0) return "excellent";
+    var allowExc = (allowExcellent === 1 || allowExcellent === true || allowExcellent === "true");
+
+    // 1. Bảo vệ Đồ Rồng / Divine / Archangel / Ruud:
+    // - Khi bật bán Exce (allowExc = true): LUÔN bảo vệ Đồ Rồng & Divine/Archangel/Ruud (kể cả khi ignoreType=true),
+    //   nhưng KHÔNG chặn nhầm các set thường (Grand Soul, Dark Soul, Dark Phoenix, Spiked Shield, Nikea Axe, type>=30 thường).
+    // - Khi tắt bán Exce (allowExc = false): giữ nguyên bộ lọc isDivineOrDragonItem (tương thích 100%).
+    if (allowExc) {
+        if (isDragonItem(itemPtr, itemIndex)) return "dragon_item";
+        if (isDivineOrArchangelItem(itemPtr, itemIndex)) return "divine_or_dragon";
+        if (isSafetyProtectedByName(itemPtr, itemIndex)) return "jewel_section";
+    } else {
+        if (!ignoreTypeHeuristics && isDivineOrDragonItem(itemPtr, itemIndex)) return "divine_or_dragon";
+    }
+
+    // 2. Đồ Hoàn Hảo (Excellent) -> chỉ bảo vệ khi KHÔNG bật allowExcellent
+    if (!allowExc && excOpt > 0) return "excellent";
+
+    // 3. Đồ Thần (Ancient), Đồ Socket (mảng +0x38 hoặc sockOpt > 0), Harmony / 380 -> LUÔN bảo vệ
     if (ancOpt > 0) return "ancient";
-    if (sockOpt > 0) return "socket";
+    if (sockOpt > 0 || hasItemSocketSlots(itemPtr)) return "socket";
     if (harmonyOpt > 0) return "harmony";
 
+    // 4. Đồ cấp cao vượt ngưỡng maxJunkLvl (mặc định bán Silvia max=7 -> giữ đồ >= +8)
     var effectiveMax = 4;
     if (maxJunkLvl !== undefined && maxJunkLvl !== null && maxJunkLvl >= 0) {
         effectiveMax = parseInt(maxJunkLvl);
@@ -2730,6 +2861,7 @@ function itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, soc
         return "level_over_max";
     }
 
+    // 5. Toàn bộ ngọc, vé sự kiện, cánh, thú cưỡi, sách phép, cuộn kỹ năng (sec 12..15)
     var sec = Math.floor(itemIndex / 512);
     var typeInSec = itemIndex % 512;
     var isBasicMossJewelry = (mossCat === 5 && sec === 13 && (
@@ -2738,6 +2870,7 @@ function itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, soc
     ));
     if (!isBasicMossJewelry && sec >= 12 && sec <= 15) return "jewel_section";
 
+    // 6. Giới hạn phạm vi theo danh mục Moss đang quay (trừ khi cleanEquipmentTrash bật hoặc mossCat < 0)
     if (mossCat !== null && mossCat !== undefined && mossCat >= 0) {
         var isEquipTrash = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true") && (sec >= 0 && sec <= 11);
         if (!isEquipTrash) {
@@ -3602,8 +3735,9 @@ function findMossNpc() {
 
             // Loại trừ rõ ràng các NPC khác ở Elbeland
             if (lowName.indexOf('james') !== -1 || lowName.indexOf('silvia') !== -1 ||
-                lowName.indexOf('leah') !== -1 || lowName.indexOf('lugard') !== -1 ||
-                lowName.indexOf('sartigan') !== -1 || lowName.indexOf('guard') !== -1) {
+                lowName.indexOf('rhea') !== -1 || lowName.indexOf('leah') !== -1 ||
+                lowName.indexOf('lugard') !== -1 || lowName.indexOf('sartigan') !== -1 ||
+                lowName.indexOf('guard') !== -1) {
                 continue;
             }
 
@@ -4052,6 +4186,9 @@ function findMerchantNpc() {
             var bIdx = body.add(0x20).readS32();
             if (bIdx < 0) continue;
 
+            var bClass = -1;
+            try { bClass = body.add(off('__PLAYER_CLASS__')).readS32(); } catch (eCls) {}
+
             var name = "";
             try {
                 var namePtr = body.add(off('__PLAYER_NAME__')).readPointer();
@@ -4075,39 +4212,51 @@ function findMerchantNpc() {
             // Tuyệt đối loại bỏ mọi NPC / vật thể quanh bệ Moss (20..26, 222..228)
             if (tx >= 20 && tx <= 26 && ty >= 222 && ty <= 228) continue;
             var lowerName = (name || "").toLowerCase();
-            if (lowerName.indexOf('moss') !== -1) continue;
+            if (lowerName.indexOf('moss') !== -1 || bClass === 492) continue;
 
-            // Tuyệt đối loại bỏ Priest James / Ruud Store / NPC quanh bệ James (27..33, 234..241) để không mở nhầm Ruud Store
-            if (lowerName.indexOf('james') !== -1 || lowerName.indexOf('ruud') !== -1 || lowerName.indexOf('store') !== -1) continue;
-            if (tx >= 27 && tx <= 33 && ty >= 234 && ty <= 241) continue;
+            // Tuyệt đối loại bỏ Priest James (class 725, pos 32,239 - Ruud Store) — KHÔNG loại bỏ Rhea (class 416, pos 29,236)!
+            if (bClass === 725 || lowerName.indexOf('james') !== -1 || lowerName.indexOf('ruud') !== -1 || lowerName.indexOf('store') !== -1) continue;
+            if (tx >= 31 && tx <= 34 && ty >= 238 && ty <= 241) continue;
 
             var isMerchant = false;
-            // 1. Nhận diện theo tên NPC thương nhân (Silvia, Leah, Merchant, Potion...)
-            if (lowerName.indexOf('silvia') !== -1 || lowerName.indexOf('leah') !== -1 || lowerName.indexOf('lia') !== -1 ||
+            var isRhea = (bClass === 416 || lowerName.indexOf('rhea') !== -1 ||
+                          (tx >= 28 && tx <= 30 && ty >= 235 && ty <= 237));
+            // 1. Nhận diện NPC Rhea (ELB1 29,236 - class 416, ngay cạnh Moss & tọa độ 30,235)
+            if (isRhea) {
+                isMerchant = true;
+            }
+            // 2. Nhận diện theo tên NPC thương nhân khác (Silvia, Leah, Merchant, Potion...)
+            else if (lowerName.indexOf('silvia') !== -1 || lowerName.indexOf('leah') !== -1 || lowerName.indexOf('lia') !== -1 ||
                 lowerName.indexOf('merchant') !== -1 || lowerName.indexOf('potion') !== -1 ||
                 lowerName.indexOf('tạp hóa') !== -1 || lowerName.indexOf('thuốc') !== -1 ||
                 lowerName.indexOf('thương nhân') !== -1 || lowerName.indexOf('poção') !== -1 || lowerName.indexOf('pocion') !== -1) {
                 isMerchant = true;
             }
-            // 2. Nhận diện theo tọa độ thương nhân Silvia (42..47, 227..232) hoặc Leah (35..40, 234..239)
+            // 3. Nhận diện theo tọa độ thương nhân Silvia (42..47, 227..232) hoặc Leah (35..40, 234..239)
             else if ((tx >= 42 && tx <= 47 && ty >= 227 && ty <= 232) ||
                      (tx >= 35 && tx <= 40 && ty >= 234 && ty <= 239)) {
                 isMerchant = true;
             }
-            // 3. Nếu nhân vật đã đứng gần khu vực chợ (px >= 35 && px <= 48 && py >= 225 && py <= 242) và đứng cạnh NPC (<= 3 ô)
-            else if (px >= 35 && px <= 48 && py >= 225 && py <= 242 && Math.abs(tx - px) <= 3 && Math.abs(ty - py) <= 3) {
+            // 4. Nếu nhân vật đã đứng gần khu vực chợ (px >= 27 && px <= 48 && py >= 225 && py <= 242) và đứng cạnh NPC (<= 3 ô)
+            else if (px >= 27 && px <= 48 && py >= 225 && py <= 242 && Math.abs(tx - px) <= 3 && Math.abs(ty - py) <= 3) {
                 isMerchant = true;
             }
 
             if (isMerchant) {
-                // Ưu tiên NPC gần tọa độ Silvia (44, 229) nhất
-                var dist = Math.abs(tx - 44) + Math.abs(ty - 229);
+                // Ưu tiên NPC thương nhân gần vị trí nhân vật hiện tại nhất (hoặc Rhea 29,236 nếu chưa đọc được tọa độ)
+                var refX = (px > 0 && py > 0) ? px : 30;
+                var refY = (px > 0 && py > 0) ? py : 235;
+                var dist = Math.abs(tx - refX) + Math.abs(ty - refY);
+                if (isRhea && dist <= 12) {
+                    dist -= 2; // Ưu tiên nhẹ Rhea ngay ELB1 (29, 236) khi đang đứng gần
+                }
                 if (dist < bestDist) {
                     bestDist = dist;
                     bestNpc = {
                         ptr: body,
                         index: bIdx,
-                        name: name || "Merchant Silvia",
+                        classId: bClass,
+                        name: name || (isRhea ? "Rhea" : "Merchant Silvia"),
                         x: tx,
                         y: ty
                     };
@@ -4150,6 +4299,15 @@ try {
                                 pendingMerchantInteractPtr = null;
                                 invokeNpcTalk(mPtr);
                             } catch (eNTM) {}
+                        }
+
+                        if (pendingSellSlot !== null) {
+                            try {
+                                var pSell = pendingSellSlot;
+                                pendingSellSlot = null;
+                                pSell.ok = sendSellPacket(pSell.slot);
+                                pSell.done = true;
+                            } catch (eSellMT) {}
                         }
 
                         if (pendingQuestNpcTalkPtr !== null) {
@@ -4513,11 +4671,13 @@ try {
                 if (shuttingDown) return;
 
                 try { tickNativeMirrorTurboMainThread(); } catch (eMTT) {}
-                try { tickJunkDisposalMainThread(); } catch (eJDT) {}
+                if (!isMirrorCriticalActive()) {
+                    try { tickJunkDisposalMainThread(); } catch (eJDT) {}
 
-                partyConfirmScanCounter++;
-                if (partyConfirmScanCounter % 30 === 0) {
-                    try { checkAndAutoConfirmPartyDialogs(); } catch (eAPCD) {}
+                    partyConfirmScanCounter++;
+                    if (partyConfirmScanCounter % 30 === 0) {
+                        try { checkAndAutoConfirmPartyDialogs(); } catch (eAPCD) {}
+                    }
                 }
 
                 // 1. Luôn ưu tiên xử lý lệnh Helper Toggle & Chat trên vòng lặp Game.Update chính
@@ -4617,6 +4777,15 @@ try {
                         pendingMerchantInteractPtr = null;
                         invokeNpcTalk(merchNpcGU);
                     } catch (eMerchNTGU) {}
+                }
+
+                if (pendingSellSlot !== null) {
+                    try {
+                        var pSellGU = pendingSellSlot;
+                        pendingSellSlot = null;
+                        pSellGU.ok = sendSellPacket(pSellGU.slot);
+                        pSellGU.done = true;
+                    } catch (eSellGU) {}
                 }
 
                 if (pendingMossOpenCategory !== null) {
@@ -5319,6 +5488,7 @@ var fastTelemetrySeq = 0;
 function fastTelemetryTick() {
     if (shuttingDown) return;
     try {
+        if (typeof isMirrorCriticalActive === "function" && isMirrorCriticalActive()) return;
         ensureThreadAttached();
         var nowMs = Date.now();
         var readName = (!lastFastCharName || (nowMs - lastFastNameReadAt) >= 2000);
@@ -5378,6 +5548,8 @@ var _nativeMirrorTurboStats = {
     suppressedDialogs: 0,
     suppressedConfirms: 0,
     ackInFlight: false,
+    recvSeq: 0,
+    lastRecvSeqAtSend: 0,
     lastSendMs: 0,
     firstSendMs: 0,
     firstAckRecorded: false,
@@ -5387,16 +5559,34 @@ var _nativeMirrorTurboStats = {
     rCodeCounts: {},
     probePendingSendMs: 0,
     probeMode: false,
+    probeRemaining: 0,
+    probeNextAtMs: 0,
+    probeIntervalMs: 320,
+    probeRelSlot: -1,
     rttMs: -1,
     minRttMs: -1,
     serverOpenEpochMs: 0,
     targetOpenEpochMs: 0,
     oneWayLatencyMs: 0,
+    clockCalibrated: true,
+    critLeadMs: 450,
+    critTailMs: 1500,
+    targetFps: 240,
     activePhase: "idle",
     tcpNoDelayEnabled: false,
     preStagedAtMs: 0,
     fpsBoosted: false
 };
+
+function isMirrorCriticalActive() {
+    var st = _nativeMirrorTurboStats;
+    if (st.running && !st.spamPaused) return true;
+    if (st.armed && st.armStartEpochMs > 0) {
+        var remain = st.armStartEpochMs - Date.now();
+        if (remain <= 1500) return true;
+    }
+    return false;
+}
 
 function isMirrorZeroConfirmSuppressing() {
     if (!_mirrorZeroConfirmMode) return false;
@@ -5498,6 +5688,15 @@ function findMirrorTicketSlotSmart() {
 function boostMirrorTurboFpsMainThread() {
     _pendingMirrorFpsBoost = false;
     try {
+        var desiredFps = (_nativeMirrorTurboStats.targetFps !== undefined && _nativeMirrorTurboStats.targetFps !== null)
+            ? parseInt(_nativeMirrorTurboStats.targetFps)
+            : 240;
+        if (isNaN(desiredFps)) desiredFps = 240;
+        if (desiredFps <= 0) {
+            _nativeMirrorTurboStats.fpsBoosted = false;
+            return;
+        }
+        desiredFps = Math.max(60, Math.min(240, desiredFps));
         if (_savedTurboTargetFps === null && nativeGetTargetFps !== null) {
             try { _savedTurboTargetFps = nativeGetTargetFps(); } catch (eGF) {}
         }
@@ -5508,7 +5707,7 @@ function boostMirrorTurboFpsMainThread() {
             try { nativeSetVSyncCount(0); } catch (eSV) {}
         }
         if (nativeSetTargetFps !== null) {
-            try { nativeSetTargetFps(240); } catch (eSF) {}
+            try { nativeSetTargetFps(desiredFps); } catch (eSF) {}
         }
         _nativeMirrorTurboStats.fpsBoosted = true;
     } catch (eBoost) {}
@@ -5668,19 +5867,26 @@ function handleMirrorEnterRecv(rCode, recvAtMs) {
     st.prevRecvCode = st.lastRecvCode;
     st.lastRecvCode = rCode;
     st.lastRecvMs = recvAtMs;
+    st.recvSeq = (st.recvSeq || 0) + 1;
     var kCode = String(rCode);
     st.rCodeCounts[kCode] = (st.rCodeCounts[kCode] || 0) + 1;
 
+    var latestRttSample = -1;
     if (st.probePendingSendMs > 0) {
         var rttSample = recvAtMs - st.probePendingSendMs;
         if (rttSample >= 1 && rttSample <= 2000) {
+            latestRttSample = rttSample;
             st.rttMs = (st.rttMs < 0) ? rttSample : Math.round(st.rttMs * 0.6 + rttSample * 0.4);
             st.minRttMs = (st.minRttMs < 0) ? rttSample : Math.min(st.minRttMs, rttSample);
         }
         st.probePendingSendMs = 0;
+        if (st.probeRemaining > 0) {
+            st.probeNextAtMs = recvAtMs + 45;
+        }
     } else if (st.firstSendMs > 0 && !st.firstAckRecorded && st.packetsSent <= 2) {
         var firstRtt = recvAtMs - st.firstSendMs;
         if (firstRtt >= 1 && firstRtt <= 2000) {
+            latestRttSample = firstRtt;
             st.rttMs = (st.rttMs < 0) ? firstRtt : Math.round(st.rttMs * 0.6 + firstRtt * 0.4);
             st.minRttMs = (st.minRttMs < 0) ? firstRtt : Math.min(st.minRttMs, firstRtt);
         }
@@ -5689,20 +5895,29 @@ function handleMirrorEnterRecv(rCode, recvAtMs) {
 
     st.ackInFlight = false;
 
+    // Ước lượng độ trễ 1 chiều để trừ ngược về mốc mở cổng thực trên GameServer
+    var estOneWay = (st.oneWayLatencyMs > 0)
+        ? st.oneWayLatencyMs
+        : ((st.minRttMs > 0) ? (st.minRttMs * 0.5) : ((st.rttMs > 0) ? (st.rttMs * 0.5) : 0));
+
     if (rCode === 0) {
         if (!st.serverAccepted) {
             st.serverAccepted = true;
             st.spamPaused = true;
+            var transR0 = (st.prevRecvCode === 6) ? "R6->R0" : "direct_R0";
             if (st.prevRecvCode === 6 || st.serverOpenEpochMs === 0) {
-                st.serverOpenEpochMs = recvAtMs;
+                st.serverOpenEpochMs = Math.round(recvAtMs - estOneWay);
             }
             try {
                 send({
                     type: "mirror_enter_recv",
                     rCode: 0,
                     serverOpenEpochMs: st.serverOpenEpochMs,
+                    rawRecvAtMs: recvAtMs,
+                    oneWaySubtractedMs: Math.round(estOneWay),
+                    transition: transR0,
                     recvAtMs: recvAtMs,
-                    rttMs: st.rttMs,
+                    rttMs: (latestRttSample > 0) ? latestRttSample : st.rttMs,
                     minRttMs: st.minRttMs,
                     packets: st.packetsSent,
                     elapsed: st.startTime > 0 ? (recvAtMs - st.startTime) : 0,
@@ -5714,23 +5929,37 @@ function handleMirrorEnterRecv(rCode, recvAtMs) {
         return;
     }
 
+    // Học mốc mở cổng thật ngay cả khi bị trượt (R=6 chưa mở -> R=2 vừa mở nhưng phòng đầy)
+    var learnedOnR2 = false;
+    if (rCode === 2 && st.prevRecvCode === 6 && st.serverOpenEpochMs === 0 && st.running) {
+        st.serverOpenEpochMs = Math.round(recvAtMs - estOneWay);
+        learnedOnR2 = true;
+    }
+
     if (rCode === 1 && st.running) {
         _pendingMirrorRescanTicket = true;
     }
 
-    if (st.probeMode || rCode !== st.prevRecvCode) {
+    if (st.probeMode || learnedOnR2 || rCode !== st.prevRecvCode) {
         try {
-            send({
+            var evMsg = {
                 type: "mirror_enter_recv",
                 rCode: rCode,
                 recvAtMs: recvAtMs,
-                rttMs: st.rttMs,
+                rttMs: (latestRttSample > 0) ? latestRttSample : st.rttMs,
                 minRttMs: st.minRttMs,
                 packets: st.packetsSent,
                 probe: st.probeMode
-            });
+            };
+            if (learnedOnR2) {
+                evMsg.serverOpenEpochMs = st.serverOpenEpochMs;
+                evMsg.rawRecvAtMs = recvAtMs;
+                evMsg.oneWaySubtractedMs = Math.round(estOneWay);
+                evMsg.transition = "R6->R2";
+            }
+            send(evMsg);
         } catch (eRN) {}
-        if (st.probeMode) st.probeMode = false;
+        if (st.probeMode && st.probeRemaining <= 0) st.probeMode = false;
     }
 }
 
@@ -5745,6 +5974,8 @@ function tickNativeMirrorTurboMainThread() {
         boostMirrorTurboFpsMainThread();
     }
 
+    var st = _nativeMirrorTurboStats;
+
     if (_pendingMirrorPreStage !== null) {
         var ps = _pendingMirrorPreStage;
         _pendingMirrorPreStage = null;
@@ -5755,28 +5986,42 @@ function tickNativeMirrorTurboMainThread() {
                 try { nativeCloseTalk(); } catch (eCT1) {}
             }
             sendLugardTalkPacket();
-            _nativeMirrorTurboStats.preStagedAtMs = nowMs;
-            if (ps.measureProbe && ps.relSlot >= 0) {
-                _nativeMirrorTurboStats.probeMode = true;
-                _nativeMirrorTurboStats.probePendingSendMs = Date.now();
+            st.preStagedAtMs = nowMs;
+            var pCnt = ps.probeCount ? parseInt(ps.probeCount) : (ps.measureProbe ? 1 : 0);
+            if (pCnt > 0 && ps.relSlot >= 0) {
+                st.probeMode = true;
+                st.probeRelSlot = ps.relSlot;
+                st.probeRemaining = Math.max(0, pCnt - 1);
+                st.probePendingSendMs = Date.now();
+                st.probeNextAtMs = nowMs + st.probeIntervalMs;
                 dispatchMirrorEnterPacketFast(ps.relSlot);
             }
         } catch (ePS) {}
-    }
-
-    if (_pendingMirrorRescanTicket && _nativeMirrorTurboStats.running) {
-        _pendingMirrorRescanTicket = false;
-        var nextSlot = findMirrorTicketSlotSmart();
-        if (nextSlot >= 12) {
-            _nativeMirrorTurboStats.activeSlot = nextSlot;
-            _nativeMirrorTurboStats.relSlot = nextSlot - 12;
+    } else if (st.probeRemaining > 0 && !st.running && st.probeRelSlot >= 0) {
+        // Bắn tiếp các gói thăm dò RTT còn lại (multi-probe burst ở T-15s) để lấy minRTT sạch jitter
+        var readyForNextProbe = (st.probePendingSendMs === 0 && nowMs >= st.probeNextAtMs)
+            || (st.probePendingSendMs > 0 && (nowMs - st.probePendingSendMs) >= 1200);
+        if (readyForNextProbe) {
+            st.probeRemaining -= 1;
+            st.probeMode = true;
+            st.probePendingSendMs = nowMs;
+            st.probeNextAtMs = nowMs + st.probeIntervalMs;
+            dispatchMirrorEnterPacketFast(st.probeRelSlot);
         }
     }
 
-    var st = _nativeMirrorTurboStats;
+    if (_pendingMirrorRescanTicket && st.running) {
+        _pendingMirrorRescanTicket = false;
+        var nextSlot = findMirrorTicketSlotSmart();
+        if (nextSlot >= 12) {
+            st.activeSlot = nextSlot;
+            st.relSlot = nextSlot - 12;
+        }
+    }
+
     if (!st.running && !st.armed) return;
 
-    // Kiểm tra đã thực sự vào map Double Goer (65..68)
+    // Kiểm tra đã thực sự vào map Double Goer (WorldIndex 82..90)
     if (isCurrentMapDoubleGoer()) {
         finishMirrorTurbo("mirror_turbo_entered", true);
         return;
@@ -5825,16 +6070,17 @@ function tickNativeMirrorTurboMainThread() {
         st.preStagedAtMs = nowMs;
     }
 
-    // Adaptive 3-Phase Pacing khi biet chinh xac moc mo cong (targetOpenEpochMs > 0):
-    // - Phase 1 (Early Approach, > 450ms truoc thoi diem goi den cong): nhip sach >= 50ms tranh nghen hang cho TCP / anti-flood
-    // - Phase 2 (Critical Gate Window, [-450ms .. +1500ms] quanh moc mo cong bu 1-way RTT): Full-Speed intervalMs + ACK-driven refire
-    // - Phase 3 (Post-Open Tail, > +1500ms): nhip >= 25ms on dinh bat slot tre
+    // Adaptive 3-Phase Pacing khi biết mốc mở cổng (targetOpenEpochMs > 0):
+    // - Khi chưa hiệu chuẩn offset đồng hồ server (clockCalibrated === false), nới rộng vùng critical sớm 1200ms để không bị ghìm 50ms nếu GameServer chạy sớm hơn NTP!
+    // - Khi đã hiệu chuẩn (clockCalibrated === true), giữ vùng critical gọn [-450ms .. +1500ms] tránh xả gói rác sớm.
     var effInterval = st.intervalMs;
     var allowAckRefire = st.ackPaced;
     if (st.targetOpenEpochMs > 0) {
-        var oneWay = (st.oneWayLatencyMs > 0) ? st.oneWayLatencyMs : ((st.rttMs > 0) ? (st.rttMs * 0.5) : 0);
-        var critStart = st.targetOpenEpochMs - oneWay - 450;
-        var critEnd = st.targetOpenEpochMs + 1500;
+        var oneWay = (st.oneWayLatencyMs > 0) ? st.oneWayLatencyMs : ((st.minRttMs > 0) ? (st.minRttMs * 0.5) : ((st.rttMs > 0) ? (st.rttMs * 0.5) : 0));
+        var leadMs = (st.critLeadMs > 0) ? st.critLeadMs : (st.clockCalibrated ? 450 : 1200);
+        var tailMs = (st.critTailMs > 0) ? st.critTailMs : (st.clockCalibrated ? 1500 : 2000);
+        var critStart = st.targetOpenEpochMs - oneWay - leadMs;
+        var critEnd = st.targetOpenEpochMs + tailMs;
         if (nowMs < critStart) {
             st.activePhase = "approach";
             effInterval = Math.max(st.intervalMs, 50);
@@ -5852,14 +6098,16 @@ function tickNativeMirrorTurboMainThread() {
         st.activePhase = "burst";
     }
 
-    // Pacing: effInterval = 0 -> bắn mỗi frame; effInterval >= 1 -> bắn khi đủ effInterval (hoặc server vừa ACK R=6/2)
+    // Pacing: effInterval = 0 -> bắn mỗi frame; effInterval >= 1 -> bắn khi đủ effInterval hoặc có ACK mới thật sự về sau gói trước
     var dueByTime = (st.lastSendMs === 0) || ((nowMs - st.lastSendMs) >= effInterval);
-    var dueByAck = allowAckRefire && !st.ackInFlight && (st.lastRecvMs > st.lastSendMs) && ((nowMs - st.lastSendMs) >= Math.min(effInterval, 2));
+    var ackMinGap = Math.max(2, Math.floor(effInterval / 2));
+    var dueByAck = allowAckRefire && !st.ackInFlight && (st.recvSeq > st.lastRecvSeqAtSend) && ((nowMs - st.lastSendMs) >= ackMinGap);
     if (!dueByTime && !dueByAck) {
         return;
     }
 
     st.lastSendMs = nowMs;
+    st.lastRecvSeqAtSend = st.recvSeq;
     st.ackInFlight = true;
     dispatchMirrorEnterPacketFast(st.relSlot);
     st.packetsSent += 1;
@@ -5973,6 +6221,8 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     _nativeMirrorTurboStats.suppressedDialogs = 0;
     _nativeMirrorTurboStats.suppressedConfirms = 0;
     _nativeMirrorTurboStats.ackInFlight = false;
+    _nativeMirrorTurboStats.recvSeq = 0;
+    _nativeMirrorTurboStats.lastRecvSeqAtSend = 0;
     _nativeMirrorTurboStats.lastSendMs = 0;
     _nativeMirrorTurboStats.firstSendMs = isArmedFuture ? 0 : nowMs;
     _nativeMirrorTurboStats.firstAckRecorded = false;
@@ -5981,9 +6231,15 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     _nativeMirrorTurboStats.rCodeCounts = {};
     _nativeMirrorTurboStats.probePendingSendMs = 0;
     _nativeMirrorTurboStats.probeMode = false;
+    _nativeMirrorTurboStats.probeRemaining = 0;
+    _nativeMirrorTurboStats.probeNextAtMs = 0;
     _nativeMirrorTurboStats.serverOpenEpochMs = 0;
     _nativeMirrorTurboStats.targetOpenEpochMs = opts.targetOpenEpochMs ? Number(opts.targetOpenEpochMs) : 0;
     _nativeMirrorTurboStats.oneWayLatencyMs = opts.oneWayLatencyMs ? Number(opts.oneWayLatencyMs) : 0;
+    _nativeMirrorTurboStats.clockCalibrated = (opts.clockCalibrated !== false);
+    _nativeMirrorTurboStats.critLeadMs = (opts.critLeadMs !== undefined && opts.critLeadMs !== null && Number(opts.critLeadMs) > 0) ? Number(opts.critLeadMs) : 0;
+    _nativeMirrorTurboStats.critTailMs = (opts.critTailMs !== undefined && opts.critTailMs !== null && Number(opts.critTailMs) > 0) ? Number(opts.critTailMs) : 0;
+    _nativeMirrorTurboStats.targetFps = (opts.targetFps !== undefined && opts.targetFps !== null) ? Number(opts.targetFps) : 240;
     _nativeMirrorTurboStats.activePhase = isArmedFuture ? "armed" : "burst";
 
     if (!isArmedFuture || (targetEpoch - nowMs) <= 2500) {
@@ -5991,7 +6247,7 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
     }
 
     // Watchdog an toàn (hỗ trợ cả cửa sổ game thu nhỏ/chạy nền nếu Unity Update bị giảm tốc)
-    var watchInterval = Math.max(10, Math.min(50, intMs > 0 ? intMs : 15));
+    var watchInterval = Math.max(8, Math.min(40, intMs > 0 ? intMs : 12));
     _nativeMirrorTurboTimer = setInterval(function() {
         try {
             ensureThreadAttached();
@@ -6006,7 +6262,7 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
                 return;
             }
             if (st.armed && !st.running) {
-                if (tNow >= st.armStartEpochMs && (_mirrorLastMainTickMs === 0 || (tNow - _mirrorLastMainTickMs) > 120)) {
+                if (tNow >= st.armStartEpochMs && (_mirrorLastMainTickMs === 0 || (tNow - _mirrorLastMainTickMs) > 45)) {
                     st.armed = false;
                     st.running = true;
                     st.startTime = tNow;
@@ -6019,8 +6275,8 @@ function startOrArmMirrorTurboInternal(slot, intervalMs, maxDurationMs, startAtE
                 finishMirrorTurbo("mirror_turbo_timeout", false);
                 return;
             }
-            // Chỉ bắn từ watchdog nếu Unity MainThread Update chưa tick trong >120ms (tránh race SendSerial!)
-            if (st.running && !st.spamPaused && (tNow - _mirrorLastMainTickMs) > 120 && (tNow - st.lastSendMs) >= Math.max(5, st.intervalMs)) {
+            // Chỉ bắn từ watchdog nếu Unity MainThread Update chưa tick trong >45ms (cửa sổ thu nhỏ/FPS tụt)
+            if (st.running && !st.spamPaused && (tNow - _mirrorLastMainTickMs) > 45 && (tNow - st.lastSendMs) >= Math.max(5, st.intervalMs)) {
                 st.lastSendMs = tNow;
                 if (nativeMirrorEnterAlt !== null) {
                     try { nativeMirrorEnterAlt(st.relSlot); } catch (eWN) {}
@@ -7808,7 +8064,7 @@ rpc.exports = {
         }
     },
 
-    sellMossPlusItems: function(maxJunkLevel, ignoreTypeHeuristics, allowedSlots, mossCategory, cleanEquipmentTrash) {
+    sellMossPlusItems: function(maxJunkLevel, ignoreTypeHeuristics, allowedSlots, mossCategory, cleanEquipmentTrash, sellExcellent) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
@@ -7827,7 +8083,7 @@ rpc.exports = {
             var itemsArr = inv.add(itemsOff).readPointer();
             if (itemsArr.isNull()) return JSON.stringify({ sold: 0, error: "no_items_arr" });
 
-            if (nativeInvSellItem === null && nativeGetGS === null && nativeSlotQuickAction === null && nativeUserInvSell === null) {
+            if (nativeGetGS === null && nativeUserInvSell === null) {
                 return JSON.stringify({ sold: 0, error: "no_native_sell_fn" });
             }
 
@@ -7835,6 +8091,7 @@ rpc.exports = {
             var ignoreType = Boolean(ignoreTypeHeuristics);
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
             var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
+            var allowExc = (sellExcellent === 1 || sellExcellent === true || sellExcellent === "true");
 
             var allowedSet = null;
             if (allowedSlots) {
@@ -7859,49 +8116,41 @@ rpc.exports = {
             var soldItems = [];
             var candidatesCount = 0;
 
-            // 1. Quản lý static fields của ItemStorage (SellingSlot tại 0x20)
-            var itemStorageStatic = ptr(0);
-            try {
-                var isTypeInfoOff = off('__ITEM_STORAGE_TYPE_INFO__');
-                if (!isTypeInfoOff.isNull()) {
-                    var isTypeInfo = baseAddr.add(isTypeInfoOff).readPointer();
-                    if (!isTypeInfo.isNull()) {
-                        itemStorageStatic = isTypeInfo.add(0xB8).readPointer();
-                    }
-                }
-            } catch (eIST) {}
-
-            // 2. Tìm MainStorage trong InventoryWindow và MerchantWindow
-            var mainStorage = ptr(0);
+            // Tìm MerchantWindow để tự ẩn popup ExpensiveSellWindow (KHÔNG ghi đè mwObj+0x48 = 1!)
             var mWinPtr = ptr(0);
             try {
                 if (nativeGetGameUI !== null) {
                     var gui = nativeGetGameUI();
                     if (!gui.isNull()) {
-                        var invWin = gui.add(ptr('0x190')).readPointer();
-                        if (!invWin.isNull()) {
-                            mainStorage = invWin.add(ptr('0x58')).readPointer();
-                        }
                         var merchOff = off('__UI_MERCHANT_WINDOW__');
                         mWinPtr = merchOff.isNull() ? gui.add(ptr('0x1A0')).readPointer() : gui.add(merchOff).readPointer();
                     }
                 }
             } catch (eUI) {}
 
-            // 3. Đảm bảo cửa sổ MerchantWindow luôn active và không bị chặn bởi popup ExpensiveSellWindow
             function dismissExpensiveSellWindow() {
                 try {
                     if (!mWinPtr.isNull()) {
-                        var mwObj = mWinPtr.add(0x20).readPointer();
-                        if (!mwObj.isNull()) {
-                            mwObj.add(0x48).writeU8(1); // Đảm bảo trạng thái Open
-                        }
                         var expWin = mWinPtr.add(0x68).readPointer();
                         if (!expWin.isNull()) {
-                            expWin.add(0x48).writeU8(0); // Tắt popup cảnh báo đắt tiền
+                            expWin.add(0x48).writeU8(0); // Chỉ tắt popup cảnh báo đắt tiền
                         }
                     }
                 } catch (eExp) {}
+            }
+
+            function dispatchSellSlotOnMainThread(slotNum) {
+                var req = { slot: slotNum, done: false, ok: false };
+                pendingSellSlot = req;
+                for (var mw = 0; mw < 8; mw++) {
+                    if (req.done) break;
+                    try { Thread.sleep(0.02); } catch (eMS) {}
+                }
+                if (!req.done) {
+                    pendingSellSlot = null;
+                    req.ok = sendSellPacket(slotNum);
+                }
+                return req.ok;
             }
 
             for (var s = 12; s < maxSlot; s++) {
@@ -7920,78 +8169,33 @@ rpc.exports = {
                 var luck = itemPtr.add(0x18).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
-                var sockOpt = itemPtr.add(0x28).readS32();
-                var harmonyOpt = itemPtr.add(0x2C).readS32();
+                var harmRaw = itemPtr.add(0x28).readS32();
+                var opt380Raw = itemPtr.add(0x2C).readS32();
+                var sockOpt = hasItemSocketSlots(itemPtr) ? 1 : 0;
+                var harmonyOpt = (harmRaw > 0 || opt380Raw > 0) ? (harmRaw || opt380Raw) : 0;
 
                 // BẢO VỆ TUYỆT ĐỐI (Không bao giờ bán):
-                // 1. Đồ Divine, Đồ Rồng, Master/Ruud/High-tier (isDivineOrDragonItem) trừ khi ignoreType
-                // 2. Đồ Hoàn Hảo (excOpt > 0)
-                // 3. Đồ Thần (ancOpt > 0)
-                // 4. Đồ Socket / 380 (sockOpt > 0)
-                // 5. Đồ Harmony (harmonyOpt > 0)
-                // 6. Cấp độ > maxLvl (mặc định maxLvl = 7 -> giữ lại đồ >= +8)
-                // 7. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
-                // 8. Đồ không thuộc mossCat đang quay (nếu mossCat >= 0)
-                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxLvl, ignoreType, cleanEquip)) {
+                // 1. Đồ Rồng (Dragon) & Divine/Archangel/Ruud (LUÔN bảo vệ, kể cả khi bật allowExc)
+                // 2. Đồ Hoàn Hảo (excOpt > 0) CHỈ bán khi bật allowExc (và KHÔNG phải đồ Rồng / Divine / Archangel)
+                // 3. Đồ Thần (ancOpt > 0), Đồ Socket (mảng +0x38), Harmony/380 (+0x28/+0x2C)
+                // 4. Cấp độ > maxLvl (mặc định maxLvl = 7 -> giữ lại đồ >= +8)
+                // 5. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
+                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxLvl, ignoreType, cleanEquip, allowExc)) {
                     continue;
                 }
 
                 candidatesCount++;
                 var itName = getItemName(itemPtr);
-
-                // 1. Tìm slotObj tương ứng trong MainStorage
-                var slotObj = ptr(0);
-                if (!mainStorage.isNull()) {
-                    try {
-                        var cellsDict = mainStorage.add(ptr('0x38')).readPointer();
-                        if (!cellsDict.isNull()) {
-                            var entriesPtr = cellsDict.add(ptr('0x18')).readPointer();
-                            var cCount = cellsDict.add(ptr('0x20')).readS32();
-                            for (var ci = 0; ci < cCount; ci++) {
-                                var cEntry = entriesPtr.add(0x20 + ci * 24);
-                                var cKey = cEntry.add(0x10).readS32();
-                                if (cKey === s) {
-                                    slotObj = cEntry.add(0x18).readPointer();
-                                    break;
-                                }
-                            }
-                        }
-                    } catch (eSlotFind) {}
-                }
-
-                // 2. Gán SellingSlot trước khi gửi lệnh bán để Client xử lý mượt mà khi Server phản hồi
-                if (!itemStorageStatic.isNull() && !slotObj.isNull()) {
-                    try {
-                        itemStorageStatic.add(0x20).writePointer(slotObj);
-                    } catch (eSetSelling) {}
-                }
-
                 dismissExpensiveSellWindow();
 
                 var soldSuccess = false;
                 try {
-                    // PHƯƠNG ÁN 1: Native UserInventory.KKIEDJMGCHO(s) (RVA 0x14521D0 - C3:32)
-                    if (nativeUserInvSell !== null) {
-                        try {
-                            nativeUserInvSell(s, ptr(0));
-                        } catch (eUIS1) {}
-                    } else if (nativeUserInvSell5 !== null) {
-                        // PHƯƠNG ÁN 2: Native UserInventory 5thEra IEEDCOGFPGG(1, s) (RVA 0x14557E0)
-                        try {
-                            nativeUserInvSell5(1, s, ptr(0));
-                        } catch (eUIS5) {}
-                    } else if (!slotObj.isNull() && nativeItemStorageSell !== null) {
-                        // PHƯƠNG ÁN 3: Native ItemStorage.OHIDPFMJIJB(slotObj)
-                        try {
-                            nativeItemStorageSell(slotObj);
-                        } catch (eISS1) {}
-                    } else {
-                        // PHƯƠNG ÁN 4: Wire packet C3:32 chuẩn MEGAMU
-                        sendSellPacket(s);
-                    }
+                    // Gửi lệnh bán C3:33 (0x33 ^ 0xCB = 0xF8) + gán ItemStorage.SellingSlot trên Unity MainThread
+                    dispatchSellSlotOnMainThread(s);
 
-                    // Polling verify: Chờ server phản hồi gói tin C3:33 và xóa item khỏi RAM (tối đa 500ms)
-                    for (var vi = 0; vi < 10; vi++) {
+                    // Polling verify: Chờ server phản hồi C3:33 (ALLEPIKEBML -> ItemStorage.LDEPOIPHNOO xóa item khỏi RAM)
+                    // RTT MEGAMU ~290ms -> chờ tối đa 1200ms (24 x 50ms), chỉ retry 1 lần sau 600ms (vi === 12)
+                    for (var vi = 0; vi < 24; vi++) {
                         try { Thread.sleep(0.05); } catch (eSleepPkt) {}
                         dismissExpensiveSellWindow();
                         var verifyPkt = itemsArr.add(0x20 + s * 8).readPointer();
@@ -7999,15 +8203,18 @@ rpc.exports = {
                             soldSuccess = true;
                             break;
                         }
-                        if (vi === 3) {
-                            sendSellPacket(s);
+                        if (vi === 11) {
+                            dispatchSellSlotOnMainThread(s);
                         }
+                    }
+                    if (!soldSuccess) {
+                        clearItemStorageSellingSlot();
                     }
                 } catch (eSell) {}
 
                 if (soldSuccess) {
                     sold++;
-                    soldItems.push({ slot: s, name: itName || ("Item " + itemIndex), level: itemLevel });
+                    soldItems.push({ slot: s, name: itName || ("Item " + itemIndex), level: itemLevel, exc: excOpt });
                 }
             }
 
@@ -8032,18 +8239,26 @@ rpc.exports = {
                 return JSON.stringify({ success: false, error: "no_ticket" });
             }
             var relSlot = (itemSlot >= 12) ? (itemSlot - 12) : itemSlot;
+            var probeCount = 0;
+            if (typeof measureProbe === "number") {
+                probeCount = Math.max(0, Math.min(6, parseInt(measureProbe)));
+            } else if (measureProbe === true) {
+                probeCount = 1;
+            }
             _nativeMirrorTurboStats.activeSlot = itemSlot;
             _nativeMirrorTurboStats.relSlot = relSlot;
             _pendingMirrorPreStage = {
                 slot: itemSlot,
                 relSlot: relSlot,
-                measureProbe: (measureProbe === true)
+                measureProbe: (probeCount > 0),
+                probeCount: probeCount
             };
             return JSON.stringify({
                 success: true,
                 queued: true,
                 slot: itemSlot,
                 relSlot: relSlot,
+                probeCount: probeCount,
                 isExtended: (itemSlot >= 76)
             });
         } catch (ePS) {
@@ -9817,7 +10032,7 @@ rpc.exports = {
         return false;
     },
 
-    getInventorySummary: function(mossCategory, maxJunkLevel, cleanEquipmentTrash) {
+    getInventorySummary: function(mossCategory, maxJunkLevel, cleanEquipmentTrash, allowExcellent) {
         try {
             ensureThreadAttached();
             var p = getPlayerPtr();
@@ -9844,6 +10059,7 @@ rpc.exports = {
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
             var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 4;
             var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
+            var allowExc = (allowExcellent === 1 || allowExcellent === true || allowExcellent === "true");
 
             for (var s = 12; s < maxSlot; s++) {
                 var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
@@ -9857,14 +10073,16 @@ rpc.exports = {
                 var luck = itemPtr.add(0x18).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
-                var sockOpt = itemPtr.add(0x28).readS32();
-                var harmonyOpt = itemPtr.add(0x2C).readS32();
+                var harmRaw = itemPtr.add(0x28).readS32();
+                var opt380Raw = itemPtr.add(0x2C).readS32();
+                var sockOpt = hasItemSocketSlots(itemPtr) ? 1 : 0;
+                var harmonyOpt = (harmRaw > 0 || opt380Raw > 0) ? (harmRaw || opt380Raw) : 0;
 
-                var isSpecial = isDivineOrDragonItem(itemPtr, itemIndex);
-                var isKept = isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquip);
+                var isSpecial = isDragonItem(itemPtr, itemIndex) || isDivineOrArchangelItem(itemPtr, itemIndex);
+                var isKept = isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquip, allowExc);
                 var isSellableMossPlus = (
-                    itemLevel >= 5 && itemLevel <= 7 &&
-                    !isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, 7, false, cleanEquip)
+                    ((itemLevel >= 5 && itemLevel <= 7) || (allowExc && excOpt > 0 && itemLevel <= 7)) &&
+                    !isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, 7, false, cleanEquip, allowExc)
                 );
                 var isExt = (s >= 76);
                 var itName = getItemName(itemPtr);
@@ -10123,12 +10341,13 @@ rpc.exports = {
     // startJunkDisposal() chỉ quét RAM read-only (<1ms) rồi đẩy job vào Game.Update,
     // Python poll getJunkDisposalStatus() -> KHÔNG BAO GIỜ Thread.sleep() hay giữ Frida lock!
     // ------------------------------------------------------------------------
-    startJunkDisposal: function(mode, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel, maxBatch, ignoreTypeHeuristics, cleanEquipmentTrash) {
+    startJunkDisposal: function(mode, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel, maxBatch, ignoreTypeHeuristics, cleanEquipmentTrash, allowExcellent) {
         var startedAt = Date.now();
         try {
             var modeVal = String(mode || "auto").toLowerCase();
             var ignType = (ignoreTypeHeuristics === 1 || ignoreTypeHeuristics === true || ignoreTypeHeuristics === "true");
             var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
+            var allowExc = (allowExcellent === 1 || allowExcellent === true || allowExcellent === "true");
             var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 6;
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
             var cleanExt = (includeExtended === 1 || includeExtended === true || includeExtended === "true" || includeExtended === undefined);
@@ -10175,11 +10394,13 @@ rpc.exports = {
                 var luck = itemPtr.add(0x18).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
-                var sockOpt = itemPtr.add(0x28).readS32();
-                var harmonyOpt = itemPtr.add(0x2C).readS32();
+                var harmRaw = itemPtr.add(0x28).readS32();
+                var opt380Raw = itemPtr.add(0x2C).readS32();
+                var sockOpt = hasItemSocketSlots(itemPtr) ? 1 : 0;
+                var harmonyOpt = (harmRaw > 0 || opt380Raw > 0) ? (harmRaw || opt380Raw) : 0;
                 if (ignType) {
-                    if (itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, true, cleanEquip)) continue;
-                } else if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquip)) {
+                    if (itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, true, cleanEquip, allowExc)) continue;
+                } else if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquip, allowExc)) {
                     continue;
                 }
                 candidates.push(s);
@@ -10322,13 +10543,14 @@ rpc.exports = {
 
     // ------------------------------------------------------------------------
     // DỌN RÁC v2 (legacy sync fallback)
-    disposeJunkItems: function(mode, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel, maxBatch, ignoreTypeHeuristics, cleanEquipmentTrash) {
+    disposeJunkItems: function(mode, protectedSlotsJson, mossCategory, includeExtended, maxJunkLevel, maxBatch, ignoreTypeHeuristics, cleanEquipmentTrash, allowExcellent) {
         var startedAt = Date.now();
         try {
             ensureThreadAttached();
             var modeVal = String(mode || "auto").toLowerCase();
             var ignType = (ignoreTypeHeuristics === 1 || ignoreTypeHeuristics === true || ignoreTypeHeuristics === "true");
             var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
+            var allowExc = (allowExcellent === 1 || allowExcellent === true || allowExcellent === "true");
             var maxJunkLvl = (maxJunkLevel !== undefined && maxJunkLevel !== null && maxJunkLevel >= 0) ? parseInt(maxJunkLevel) : 6;
             var mossCat = (mossCategory !== undefined && mossCategory !== null) ? parseInt(mossCategory) : -1;
             var cleanExt = (includeExtended === 1 || includeExtended === true || includeExtended === "true" || includeExtended === undefined);
@@ -10377,14 +10599,16 @@ rpc.exports = {
                 var luck = itemPtr.add(0x18).readS32();
                 var excOpt = itemPtr.add(0x20).readS32();
                 var ancOpt = itemPtr.add(0x24).readS32();
-                var sockOpt = itemPtr.add(0x28).readS32();
-                var harmonyOpt = itemPtr.add(0x2C).readS32();
+                var harmRaw = itemPtr.add(0x28).readS32();
+                var opt380Raw = itemPtr.add(0x2C).readS32();
+                var sockOpt = (typeof hasItemSocketSlots === "function" && hasItemSocketSlots(itemPtr)) ? 1 : 0;
+                var harmonyOpt = (harmRaw > 0 || opt380Raw > 0) ? (harmRaw || opt380Raw) : 0;
                 // GUARD 3: bảo vệ đồ quý. Nếu người dùng bật "bỏ qua lọc tên/loại"
                 // thì chỉ áp bộ lọc thuộc tính (Exc/Set/Socket/Harmony/cấp), bỏ qua
                 // isDivineOrDragonItem (vốn chặn nhầm rất nhiều đồ Moss thường).
                 if (ignType) {
-                    if (itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, true, cleanEquip)) continue;
-                } else if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquip)) {
+                    if (itemProtectionReason(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, true, cleanEquip, allowExc)) continue;
+                } else if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxJunkLvl, false, cleanEquip, allowExc)) {
                     continue;
                 }
                 candidates.push(s);
@@ -10499,11 +10723,12 @@ rpc.exports = {
     // PHÂN TÍCH HÒM ĐỒ: vì sao món nào bị giữ lại, món nào đủ điều kiện dọn.
     // Dùng để trả lời câu hỏi "tại sao bấm Ném mà không mất món nào".
     // ------------------------------------------------------------------------
-    analyzeJunkInventory: function(protectedSlotsJson, mossCategory, maxJunkLevel, includeExtended, ignoreTypeHeuristics, cleanEquipmentTrash) {
+    analyzeJunkInventory: function(protectedSlotsJson, mossCategory, maxJunkLevel, includeExtended, ignoreTypeHeuristics, cleanEquipmentTrash, allowExcellent) {
         try {
             ensureThreadAttached();
             var ignType = (ignoreTypeHeuristics === 1 || ignoreTypeHeuristics === true || ignoreTypeHeuristics === "true");
             var cleanEquip = (cleanEquipmentTrash === 1 || cleanEquipmentTrash === true || cleanEquipmentTrash === "true");
+            var allowExc = (allowExcellent === 1 || allowExcellent === true || allowExcellent === "true");
             var out = {
                 ok: false, total: 0, occupied: 0, junk: 0, protected: 0,
                 byReason: {}, slots: [], mossOpen: false, merchantOpen: false,
@@ -10553,20 +10778,22 @@ rpc.exports = {
                 var lck = itPtr.add(0x18).readS32();
                 var exc = itPtr.add(0x20).readS32();
                 var anc = itPtr.add(0x24).readS32();
-                var sock = itPtr.add(0x28).readS32();
-                var harm = itPtr.add(0x2C).readS32();
+                var harmRaw = itPtr.add(0x28).readS32();
+                var opt380Raw = itPtr.add(0x2C).readS32();
+                var sock = hasItemSocketSlots(itPtr) ? 1 : 0;
+                var harm = (harmRaw > 0 || opt380Raw > 0) ? (harmRaw || opt380Raw) : 0;
                 // Đọc tên khá chậm (native call) nên chỉ đọc khi thật sự cần:
                 //  - khi KHÔNG bỏ lọc tên/loại (isDivineOrDragonItem cần tên để phân loại)
                 //  - hoặc để hiển thị, tối đa 40 món đầu
                 var nm = "";
                 var why = null;
                 if (!ignType) {
-                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, false, cleanEquip);
+                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, false, cleanEquip, allowExc);
                     if (!why && out.junk < 40) {
                         try { nm = getItemName(itPtr) || ""; } catch (eNm1) {}
                     }
                 } else {
-                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, true, cleanEquip);
+                    why = itemProtectionReason(itPtr, idx, lvl, exc, anc, sock, harm, lck, mossCat, maxJunkLvl, true, cleanEquip, allowExc);
                     if (!why && out.junk < 40) {
                         try { nm = getItemName(itPtr) || ""; } catch (eNm2) {}
                     }
@@ -12450,7 +12677,7 @@ class MegDirectEngine:
                     info_name = read_str(read_ptr(m_info + 0x18)) if m_info else ""
                     final_name = b_name or info_name or ""
                     low_name = final_name.lower()
-                    if any(k in low_name for k in ("james", "silvia", "leah", "lugard", "sartigan", "guard")):
+                    if any(k in low_name for k in ("james", "silvia", "rhea", "leah", "lugard", "sartigan", "guard")):
                         continue
 
                     c_ptr = read_ptr(body + 0x68)
@@ -12567,9 +12794,10 @@ class MegDirectEngine:
         ignore_type_heuristics: bool = False,
         allowed_slots: Optional[List[int]] = None,
         category: Optional[int] = None,
-        clean_equipment_trash: bool = True
+        clean_equipment_trash: bool = True,
+        sell_excellent: bool = False,
     ) -> Dict[str, Any]:
-        """Tự động bán các món đồ rác Moss cấp độ +0..+7 cho NPC thương nhân (bảo vệ tuyệt đối Divine/Rồng/Exc/Socket/Set/Ngọc/+8+)."""
+        """Tự động bán đồ rác Moss +0..+7 (và tùy chọn đồ Excellent không phải Đồ Rồng/Divine/Archangel) cho NPC thương nhân."""
         if self.is_ready:
             try:
                 lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 7
@@ -12577,7 +12805,8 @@ class MegDirectEngine:
                 slots_val = json.dumps([int(x) for x in allowed_slots]) if (allowed_slots is not None and len(allowed_slots) > 0) else None
                 cat_val = int(category) if category is not None and category >= 0 else -1
                 clean_eq_val = 1 if clean_equipment_trash else 0
-                res_str = self._call("sellMossPlusItems", lvl_val, ign_val, slots_val, cat_val, clean_eq_val)
+                sell_exc_val = 1 if sell_excellent else 0
+                res_str = self._call("sellMossPlusItems", lvl_val, ign_val, slots_val, cat_val, clean_eq_val, sell_exc_val)
                 if res_str:
                     return json.loads(res_str) if isinstance(res_str, str) else res_str
             except Exception as e:
@@ -12607,10 +12836,16 @@ class MegDirectEngine:
             return {"success": False, "error": str(e)}
         return dict(default) if default is not None else {"success": False, "error": "unknown"}
 
-    def pre_stage_mirror_turbo(self, slot: Optional[int] = None, measure_probe: bool = False) -> Dict[str, Any]:
-        """Pre-stage (T-15s): Ghim buffer byte[5], làm nóng Lugard talk trên MainThread và tùy chọn đo RTT."""
+    def pre_stage_mirror_turbo(self, slot: Optional[int] = None, measure_probe: Any = False) -> Dict[str, Any]:
+        """Pre-stage (T-15s): Ghim buffer byte[5], làm nóng Lugard talk trên MainThread và tùy chọn đo 1..6 mẫu RTT."""
         arg_slot = int(slot) if (slot is not None and int(slot) >= 0) else None
-        return self._call_json("preStageMirrorTurbo", arg_slot, bool(measure_probe))
+        if isinstance(measure_probe, bool):
+            probe_arg: Any = measure_probe
+        elif isinstance(measure_probe, int):
+            probe_arg = max(0, min(6, measure_probe))
+        else:
+            probe_arg = bool(measure_probe)
+        return self._call_json("preStageMirrorTurbo", arg_slot, probe_arg)
 
     def probe_mirror_gate(self, slot: Optional[int] = None) -> Dict[str, Any]:
         """Gửi 1 gói thăm dò EnterMirror trên MainThread để đo RTT thực và phản hồi R code."""
@@ -13266,13 +13501,25 @@ class MegDirectEngine:
 
     get_latest_telemetry = get_player_info
 
-    def get_inventory_summary(self, category: Optional[int] = None, max_junk_level: int = 4, clean_equipment_trash: bool = False) -> Dict[str, Any]:
-        """Lấy thông tin tổng quan hòm đồ chính (số ô trống, số đồ rác, đồ giữ lại). Hỗ trợ lọc theo danh mục Moss category, max_junk_level và clean_equipment_trash."""
+    def get_inventory_summary(
+        self,
+        category: Optional[int] = None,
+        max_junk_level: int = 4,
+        clean_equipment_trash: bool = False,
+        allow_excellent: bool = False,
+    ) -> Dict[str, Any]:
+        """Lấy thông tin tổng quan hòm đồ chính (số ô trống, số đồ rác, đồ giữ lại). Hỗ trợ lọc theo danh mục Moss category, max_junk_level, clean_equipment_trash và allow_excellent."""
         if self.is_ready:
             try:
                 cat_val = int(category) if category is not None and category >= 0 else -1
                 lvl_val = int(max_junk_level) if max_junk_level is not None and max_junk_level >= 0 else 4
-                res_str = self._call("getInventorySummary", cat_val, lvl_val, 1 if clean_equipment_trash else 0)
+                res_str = self._call(
+                    "getInventorySummary",
+                    cat_val,
+                    lvl_val,
+                    1 if clean_equipment_trash else 0,
+                    1 if allow_excellent else 0,
+                )
                 if res_str:
                     return json.loads(res_str)
             except Exception as e:
@@ -13288,7 +13535,8 @@ class MegDirectEngine:
         max_junk_level: int = 6,
         max_batch: int = 80,
         ignore_type_heuristics: bool = False,
-        clean_equipment_trash: bool = False
+        clean_equipment_trash: bool = False,
+        allow_excellent: bool = False,
     ) -> Dict[str, Any]:
         """Dọn rác trong Main Inventory & Ba lô mở rộng, có xác minh từng ô.
 
@@ -13326,7 +13574,7 @@ class MegDirectEngine:
         try:
             start_str = self._call(
                 "startJunkDisposal", mode, prot_json, cat_val, ext_val, lvl_val, int(max_batch),
-                1 if ignore_type_heuristics else 0, clean_equip_val
+                1 if ignore_type_heuristics else 0, clean_equip_val, 1 if allow_excellent else 0
             )
             if start_str:
                 sdata = json.loads(start_str)
@@ -13392,6 +13640,7 @@ class MegDirectEngine:
         max_batch: int = 80,
         ignore_type_heuristics: bool = False,
         clean_equipment_trash: bool = False,
+        allow_excellent: bool = False,
     ) -> Dict[str, Any]:
         """API trực tiếp cho pipeline dọn rác v2 (vứt -> bán -> xác minh)."""
         return self.clean_inventory_junk(
@@ -13403,6 +13652,7 @@ class MegDirectEngine:
             max_batch=max_batch,
             ignore_type_heuristics=ignore_type_heuristics,
             clean_equipment_trash=clean_equipment_trash,
+            allow_excellent=allow_excellent,
         )
 
     def analyze_junk_inventory(
@@ -13413,12 +13663,13 @@ class MegDirectEngine:
         include_extended: bool = True,
         ignore_type_heuristics: bool = False,
         clean_equipment_trash: bool = False,
+        allow_excellent: bool = False,
     ) -> Dict[str, Any]:
         """Liệt kê từng món trong hòm đồ + lý do bị giữ lại (nếu có).
 
         Trả về: {ok, occupied, junk, protected, byReason, slots: [...], mossOpen, merchantOpen, coord}
         Mỗi slot: {slot, index, name, level, exc, anc, sock, harm, status, reason}
-        reason ∈ divine_or_dragon | excellent | ancient | socket | harmony |
+        reason ∈ dragon_item | divine_or_dragon | excellent | ancient | socket | harmony |
                  level_over_max | jewel_section | wrong_moss_category | preexisting_snapshot
         """
         if not self.is_ready:
@@ -13430,7 +13681,8 @@ class MegDirectEngine:
             ext_val = 1 if include_extended else 0
             ign_val = 1 if ignore_type_heuristics else 0
             clean_equip_val = 1 if clean_equipment_trash else 0
-            res_str = self._call("analyzeJunkInventory", prot_json, cat_val, lvl_val, ext_val, ign_val, clean_equip_val)
+            allow_exc_val = 1 if allow_excellent else 0
+            res_str = self._call("analyzeJunkInventory", prot_json, cat_val, lvl_val, ext_val, ign_val, clean_equip_val, allow_exc_val)
             if res_str:
                 return json.loads(res_str)
         except Exception as e:
