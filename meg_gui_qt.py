@@ -1458,8 +1458,9 @@ class DashboardAppQt(QMainWindow):
 
     def claim_all_gremory_case_items(self):
         def _w():
-            self.append_mirror_log("🎁 [Gremory Case] Bắt đầu lôi quà phím 'K' cho các tài khoản đã chọn...")
+            self.append_mirror_log("🎁 [Gremory Case] Bắt đầu lôi đồ từ Thùng K cho các tài khoản đã chọn...")
             total = 0
+            total_rem = 0
             checked = 0
             for c in self.controllers:
                 if getattr(c, "mirror_enabled", True) and c.assigned_pid and psutil.pid_exists(c.assigned_pid):
@@ -1469,26 +1470,40 @@ class DashboardAppQt(QMainWindow):
                         if eng:
                             res = eng.claim_gremory_case_items() or {}
                             cnt = int(res.get("claimed", 0) or 0)
+                            rem = int(res.get("remaining", 0) or 0)
+                            items_list = res.get("items", []) or []
                             total += cnt
+                            total_rem += rem
                             if cnt > 0:
+                                names = [
+                                    f"{it.get('name', 'Item')}+{it.get('level', 0)}" if it.get('level', 0) > 0 else f"{it.get('name', 'Item')}"
+                                    for it in items_list[:5]
+                                ]
+                                desc = ", ".join(names) + (f" ... (+{len(items_list) - 5} món)" if len(items_list) > 5 else "")
+                                rem_tag = f" (còn {rem} món - hòm đầy)" if rem > 0 else ""
                                 self.append_mirror_log(
-                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] 🏆 ĐÃ LÔI THÀNH CÔNG {cnt} MÓN QUÀ TỪ PHÍM 'K' VÀO HÒM ĐỒ!"
+                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] 🏆 Đã lôi {cnt} món từ Thùng K ({desc}){rem_tag}!"
+                                )
+                            elif rem > 0:
+                                self.append_mirror_log(
+                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Thùng K còn {rem} món nhưng không lôi được (hòm đồ chính đầy)."
                                 )
                             elif res.get("ok"):
                                 self.append_mirror_log(
-                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] ℹ️ Hộp Quà Phím 'K' sạch quà (không có quà tồn)."
+                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] ℹ️ Thùng K sạch đồ (không có quà/đồ tồn)."
                                 )
                             else:
                                 err_r = res.get("error") or res.get("reason") or "không rõ"
                                 self.append_mirror_log(
-                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Không lôi được quà phím 'K': {err_r}"
+                                    f"[Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Không lôi được đồ Thùng K: {err_r}"
                                 )
                     except Exception as e:
-                        self.append_mirror_log(f"[Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Lỗi lôi quà phím 'K': {e}")
+                        self.append_mirror_log(f"[Slot {c.slot_idx:02d} - {c.char_name}] ⚠️ Lỗi lôi đồ Thùng K: {e}")
             if checked == 0:
                 self.append_mirror_log("⚠️ [Gremory Case] Không có tài khoản nào được tích 'Đi' và đang kết nối Game.")
             else:
-                self.append_mirror_log(f"🏁 [Gremory Case] Hoàn tất lôi quà phím 'K' cho {checked} slot: tổng {total} món.")
+                rem_msg = f" | Còn tồn {total_rem} món (hòm đầy)." if total_rem > 0 else "."
+                self.append_mirror_log(f"🏁 [Gremory Case] Hoàn tất lôi đồ Thùng K cho {checked} slot: tổng {total} món{rem_msg}")
         threading.Thread(target=_w, daemon=True).start()
 
     def move_all_to_event_map(self):

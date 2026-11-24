@@ -4,7 +4,7 @@
     "auto_prep_before": true,
     "auto_lifecycle": true,
     "auto_gremory": true,
-    "zero_confirm": false,
+    "zero_confirm": true,
     "prefire_sec": 5.0,
     "interval_ms": 10,
     "snipe_interval_ms": 10,
@@ -29,12 +29,7 @@
     ]
   },
   "selected_slots": [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6
+    1
   ],
   "combat_spots": {
     "GunApao": [
@@ -46,8 +41,8 @@
       66
     ],
     "laclac24": [
-      188,
-      70
+      68,
+      180
     ],
     "Goobin": [
       68,
@@ -58,8 +53,8 @@
       187
     ],
     "Evilzzz": [
-      185,
-      187
+      68,
+      180
     ],
     "HiRW": [
       188,
@@ -346,6 +341,6 @@
     "enabled": true,
     "notify_enter": true,
     "notify_exit": true,
-    "updated_at": "2026-11-24 09:13:43"
+    "updated_at": "2026-11-24 15:11:43"
   }
 }

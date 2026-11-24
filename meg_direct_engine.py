@@ -923,6 +923,154 @@ try {
     }
 } catch (eMSI) {}
 
+var nativeGremoryClaim = null;
+try {
+    var gcClaimOff = off('__GREMORY_CLAIM_ITEM__');
+    if (!gcClaimOff.isNull()) {
+        nativeGremoryClaim = new NativeFunction(baseAddr.add(gcClaimOff), 'void', ['pointer', 'pointer']);
+    }
+} catch (eGremClaim) {}
+var pendingGremoryClaim = null;
+
+function readGremoryCaseSnapshot(storageFilter) {
+    var result = { ok: false, items: [], byStorage: {}, reason: "" };
+    try {
+        var mod = Process.findModuleByName('GameAssembly.dll');
+        if (!mod || !mod.base) {
+            result.reason = "module_not_found";
+            return result;
+        }
+        var base = mod.base;
+        var gTypeOff = off('__GREMORY_TYPE_INFO__');
+        if (gTypeOff.isNull()) {
+            result.reason = "gremory_type_info_missing";
+            return result;
+        }
+        var typeInfo = base.add(gTypeOff).readPointer();
+        if (typeInfo.isNull()) { result.reason = "typeInfo_null"; return result; }
+        var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+        if (staticFields.isNull()) { result.reason = "staticFields_null"; return result; }
+        var gameInst = staticFields.add(ptr('0x08')).readPointer();
+        if (gameInst.isNull()) { result.reason = "gameInst_null"; return result; }
+        var gremoryCase = gameInst.add(ptr('0x138')).readPointer();
+        if (gremoryCase.isNull()) { result.reason = "gremoryCase_null"; return result; }
+        var dictPtr = gremoryCase.add(ptr('0x20')).readPointer();
+        if (dictPtr.isNull()) { result.reason = "dictPtr_null"; return result; }
+
+        var outerEntries = dictPtr.add(ptr('0x18')).readPointer();
+        var outerCount = 0;
+        try { outerCount = dictPtr.add(ptr('0x20')).readS32(); } catch (eOC) { outerCount = 0; }
+        if (outerEntries.isNull() || outerCount <= 0) {
+            result.ok = true;
+            return result;
+        }
+        var outerArrLen = 0;
+        try { outerArrLen = outerEntries.add(ptr('0x18')).readS32(); } catch (eOAL) { outerArrLen = outerCount; }
+        var outerLimit = Math.min(outerCount, outerArrLen, 16);
+        var filterVal = (storageFilter !== undefined && storageFilter !== null && parseInt(storageFilter, 10) >= 0)
+            ? parseInt(storageFilter, 10)
+            : -1;
+
+        for (var t = 0; t < outerLimit; t++) {
+            var oEntry = outerEntries.add(0x20 + t * 24);
+            if (oEntry.readS32() < 0) continue;
+            var outerStorageKey = 0;
+            try { outerStorageKey = oEntry.add(8).readS32(); } catch (eOSK) { outerStorageKey = t; }
+            var subDict = oEntry.add(16).readPointer();
+            if (subDict.isNull()) continue;
+
+            var subEntries = subDict.add(ptr('0x18')).readPointer();
+            var subCount = 0;
+            try { subCount = subDict.add(ptr('0x20')).readS32(); } catch (eSC) { subCount = 0; }
+            if (subEntries.isNull() || subCount <= 0) continue;
+            var arrLen = 0;
+            try { arrLen = subEntries.add(ptr('0x18')).readS32(); } catch (eAL) { arrLen = subCount; }
+            var subLimit = Math.min(subCount, arrLen, 100);
+
+            for (var i = 0; i < subLimit; i++) {
+                var sEntry = subEntries.add(0x20 + i * 24);
+                if (sEntry.readS32() < 0) continue;
+                var itemInfo = sEntry.add(16).readPointer();
+                if (itemInfo.isNull()) continue;
+
+                var storageType = outerStorageKey;
+                var authCode = 0;
+                var guid = 0;
+                var expireTime = 0;
+                try { storageType = itemInfo.add(ptr('0x10')).readS32(); } catch (eST) {}
+                try { authCode = itemInfo.add(ptr('0x14')).readU32(); } catch (eAC) {}
+                try { guid = itemInfo.add(ptr('0x18')).readU32(); } catch (eGD) {}
+                try { expireTime = itemInfo.add(ptr('0x28')).readS32(); } catch (eET) {}
+
+                var sk = String(storageType);
+                result.byStorage[sk] = (result.byStorage[sk] || 0) + 1;
+                if (filterVal >= 0 && storageType !== filterVal) continue;
+
+                var itemObj = null;
+                try { itemObj = itemInfo.add(ptr('0x20')).readPointer(); } catch (eIO) { itemObj = null; }
+                if (!itemObj || itemObj.isNull()) continue;
+
+                var itemCode = readItemIndex(itemObj);
+                if (itemCode < 0) {
+                    try { itemCode = itemObj.add(ptr('0x60')).readU16(); } catch (eCode) { itemCode = 0; }
+                }
+                var itemLevel = 0;
+                try {
+                    var lv = itemObj.add(ptr('0x10')).readS32();
+                    if (lv >= 0 && lv <= 15) itemLevel = lv;
+                } catch (eLv) {}
+                var itemName = "";
+                try { itemName = getItemName(itemObj) || ""; } catch (eNm) {}
+                if (!itemName) itemName = "Item#" + itemCode;
+
+                result.items.push({
+                    ptr: itemInfo,
+                    storageType: storageType,
+                    authCode: authCode,
+                    guid: guid,
+                    expireTime: expireTime,
+                    code: itemCode,
+                    level: itemLevel,
+                    name: itemName
+                });
+            }
+        }
+        result.ok = true;
+        return result;
+    } catch (eSnap) {
+        result.reason = String(eSnap);
+        return result;
+    }
+}
+
+function dispatchGremoryClaim(itemInfoPtr) {
+    if (!itemInfoPtr || itemInfoPtr.isNull()) return false;
+    if (nativeGremoryClaim === null) {
+        try {
+            var gcOff = off('__GREMORY_CLAIM_ITEM__');
+            if (!gcOff.isNull()) {
+                nativeGremoryClaim = new NativeFunction(baseAddr.add(gcOff), 'void', ['pointer', 'pointer']);
+            }
+        } catch (eInitGC) {}
+    }
+    if (nativeGremoryClaim === null) return false;
+
+    var req = { itemInfo: itemInfoPtr, ok: false, done: false };
+    pendingGremoryClaim = req;
+    for (var w = 0; w < 10; w++) {
+        Thread.sleep(0.02);
+        if (req.done) return !!req.ok;
+    }
+    // Fallback an toàn nếu Update hook chưa tick trong 200ms
+    if (pendingGremoryClaim === req) pendingGremoryClaim = null;
+    try {
+        nativeGremoryClaim(itemInfoPtr, ptr(0));
+        return true;
+    } catch (eDirectGC) {
+        return false;
+    }
+}
+
 var nativeSlotQuickAction = null;
 try {
     var sqaOff = off('__SLOT_QUICK_ACTION__');
@@ -4310,6 +4458,20 @@ try {
                             } catch (eSellMT) {}
                         }
 
+                        if (pendingGremoryClaim !== null) {
+                            try {
+                                var pGC = pendingGremoryClaim;
+                                pendingGremoryClaim = null;
+                                if (nativeGremoryClaim !== null && pGC.itemInfo && !pGC.itemInfo.isNull()) {
+                                    nativeGremoryClaim(pGC.itemInfo, ptr(0));
+                                    pGC.ok = true;
+                                }
+                                pGC.done = true;
+                            } catch (eGCMT) {
+                                if (pGC) { pGC.ok = false; pGC.done = true; }
+                            }
+                        }
+
                         if (pendingQuestNpcTalkPtr !== null) {
                             try {
                                 var qnPtr = pendingQuestNpcTalkPtr;
@@ -4786,6 +4948,20 @@ try {
                         pSellGU.ok = sendSellPacket(pSellGU.slot);
                         pSellGU.done = true;
                     } catch (eSellGU) {}
+                }
+
+                if (pendingGremoryClaim !== null) {
+                    try {
+                        var pGCGU = pendingGremoryClaim;
+                        pendingGremoryClaim = null;
+                        if (nativeGremoryClaim !== null && pGCGU.itemInfo && !pGCGU.itemInfo.isNull()) {
+                            nativeGremoryClaim(pGCGU.itemInfo, ptr(0));
+                            pGCGU.ok = true;
+                        }
+                        pGCGU.done = true;
+                    } catch (eGCGU) {
+                        if (pGCGU) { pGCGU.ok = false; pGCGU.done = true; }
+                    }
                 }
 
                 if (pendingMossOpenCategory !== null) {
@@ -9589,73 +9765,123 @@ rpc.exports = {
         }
     },
 
-    claimGremoryCaseItems: function() {
+    getGremoryCaseItems: function(storageFilter) {
         try {
             ensureThreadAttached();
-            var base = Process.findModuleByName('GameAssembly.dll').base;
-            var gTypeOff = off('__GREMORY_TYPE_INFO__');
-            var gClaimOff = off('__GREMORY_CLAIM_ITEM__');
-            if (gTypeOff.isNull() || gClaimOff.isNull()) {
-                return JSON.stringify({ ok: false, claimed: 0, reason: "gremory_offsets_missing" });
+            var snap = readGremoryCaseSnapshot(storageFilter);
+            if (!snap.ok) {
+                return JSON.stringify({ ok: false, count: 0, items: [], byStorage: {}, reason: snap.reason });
             }
-            var typeInfo = base.add(gTypeOff).readPointer();
-            if (typeInfo.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "typeInfo_null" });
-            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
-            if (staticFields.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "staticFields_null" });
-            var gameInst = staticFields.add(ptr('0x08')).readPointer();
-            if (gameInst.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "gameInst_null" });
-            var gremoryCase = gameInst.add(ptr('0x138')).readPointer();
-            if (gremoryCase.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "gremoryCase_null" });
-            var dictPtr = gremoryCase.add(ptr('0x20')).readPointer();
-            if (dictPtr.isNull()) return JSON.stringify({ ok: false, claimed: 0, reason: "dictPtr_null" });
-
-            var outerEntries = dictPtr.add(ptr('0x18')).readPointer();
-            var outerCount = dictPtr.add(ptr('0x20')).readS32();
-            if (outerEntries.isNull() || outerCount <= 0) {
-                return JSON.stringify({ ok: true, success: true, claimed: 0, items: [], empty: true });
+            var publicItems = [];
+            for (var i = 0; i < snap.items.length; i++) {
+                var it = snap.items[i];
+                publicItems.push({
+                    storageType: it.storageType,
+                    authCode: it.authCode,
+                    guid: it.guid,
+                    expireTime: it.expireTime,
+                    code: it.code,
+                    level: it.level,
+                    name: it.name
+                });
             }
-            var outerArrLen = 0;
-            try { outerArrLen = outerEntries.add(ptr('0x18')).readS32(); } catch (eOAL) { outerArrLen = outerCount; }
-            var outerLimit = Math.min(outerCount, outerArrLen, 16);
+            return JSON.stringify({
+                ok: true,
+                count: publicItems.length,
+                items: publicItems,
+                byStorage: snap.byStorage
+            });
+        } catch (e) {
+            return JSON.stringify({ ok: false, count: 0, items: [], error: String(e) });
+        }
+    },
 
-            var claimFunc = new NativeFunction(base.add(gClaimOff), 'void', ['pointer', 'pointer']);
+    claimGremoryCaseItems: function(storageFilter) {
+        try {
+            ensureThreadAttached();
+            if (nativeGremoryClaim === null) {
+                var gClaimOff = off('__GREMORY_CLAIM_ITEM__');
+                if (gClaimOff.isNull()) {
+                    return JSON.stringify({ ok: false, success: false, claimed: 0, remaining: 0, reason: "gremory_offsets_missing" });
+                }
+                nativeGremoryClaim = new NativeFunction(baseAddr.add(gClaimOff), 'void', ['pointer', 'pointer']);
+            }
+
+            var initialSnap = readGremoryCaseSnapshot(storageFilter);
+            if (!initialSnap.ok) {
+                return JSON.stringify({ ok: false, success: false, claimed: 0, remaining: 0, reason: initialSnap.reason });
+            }
+            if (initialSnap.items.length === 0) {
+                return JSON.stringify({ ok: true, success: true, claimed: 0, attempted: 0, remaining: 0, items: [], empty: true });
+            }
+
             var claimedCount = 0;
+            var attemptedCount = 0;
+            var consecutiveFail = 0;
             var claimedItems = [];
 
-            for (var t = 0; t < outerLimit; t++) {
-                var oEntry = outerEntries.add(0x20 + t * 24);
-                if (oEntry.readS32() < 0) continue;
-                var subDict = oEntry.add(16).readPointer();
-                if (subDict.isNull()) continue;
+            for (var idx = 0; idx < initialSnap.items.length; idx++) {
+                var target = initialSnap.items[idx];
+                attemptedCount++;
+                dispatchGremoryClaim(target.ptr);
 
-                var subEntries = subDict.add(ptr('0x18')).readPointer();
-                var subCount = 0;
-                try { subCount = subDict.add(ptr('0x20')).readS32(); } catch (eSC) { subCount = 0; }
-                if (subEntries.isNull() || subCount <= 0) continue;
-                var arrLen = 0;
-                try { arrLen = subEntries.add(ptr('0x18')).readS32(); } catch (eAL) { arrLen = 0; }
-                var subLimit = Math.min(subCount, arrLen, 100);
+                var removed = false;
+                for (var wi = 0; wi < 18; wi++) {
+                    Thread.sleep(0.05);
+                    var curSnap = readGremoryCaseSnapshot(storageFilter);
+                    if (curSnap.ok) {
+                        var stillThere = false;
+                        for (var j = 0; j < curSnap.items.length; j++) {
+                            var ci = curSnap.items[j];
+                            if (ci.storageType === target.storageType && ci.authCode === target.authCode && ci.guid === target.guid) {
+                                stillThere = true;
+                                break;
+                            }
+                        }
+                        if (!stillThere) {
+                            removed = true;
+                            break;
+                        }
+                    }
+                    if (wi === 8) {
+                        dispatchGremoryClaim(target.ptr);
+                    }
+                }
 
-                for (var i = 0; i < subLimit; i++) {
-                    var sEntry = subEntries.add(0x20 + i * 24);
-                    if (sEntry.readS32() < 0) continue;
-                    var itemInfo = sEntry.add(16).readPointer();
-                    if (itemInfo.isNull()) continue;
-
-                    var itemObj = itemInfo.add(ptr('0x20')).readPointer();
-                    if (itemObj.isNull()) continue;
-                    var itemCode = 0;
-                    try { itemCode = itemObj.add(ptr('0x60')).readU16(); } catch (eCode) {}
-
-                    claimFunc(itemInfo, ptr(0));
+                if (removed) {
                     claimedCount++;
-                    claimedItems.push({ code: itemCode });
+                    consecutiveFail = 0;
+                    claimedItems.push({
+                        storageType: target.storageType,
+                        authCode: target.authCode,
+                        guid: target.guid,
+                        code: target.code,
+                        level: target.level,
+                        name: target.name
+                    });
                     Thread.sleep(0.08);
+                } else {
+                    consecutiveFail++;
+                    if (consecutiveFail >= 2) {
+                        break;
+                    }
                 }
             }
-            return JSON.stringify({ ok: true, success: true, claimed: claimedCount, items: claimedItems, empty: (claimedCount === 0) });
+
+            var finalSnap = readGremoryCaseSnapshot(storageFilter);
+            var remaining = finalSnap.ok ? finalSnap.items.length : Math.max(0, initialSnap.items.length - claimedCount);
+            return JSON.stringify({
+                ok: true,
+                success: (claimedCount > 0 || remaining === 0),
+                claimed: claimedCount,
+                attempted: attemptedCount,
+                remaining: remaining,
+                items: claimedItems,
+                empty: false,
+                reason: (consecutiveFail >= 2 && remaining > 0) ? "inventory_full_or_rejected" : ""
+            });
         } catch (e) {
-            return JSON.stringify({ ok: false, success: false, claimed: 0, error: String(e) });
+            return JSON.stringify({ ok: false, success: false, claimed: 0, remaining: 0, error: String(e) });
         }
     },
 
@@ -13050,8 +13276,28 @@ class MegDirectEngine:
                 _safe_log(f"[MegDirectEngine] Lỗi open_and_loot_mirror: {e}")
         return {"ok": False, "openedChest": False, "pickedCount": 0}
 
-    def claim_gremory_case_items(self) -> Dict[str, Any]:
-        """Tự động nhận toàn bộ vật phẩm / quà tặng đang lưu trong Hộp Quà Gremory Case (phím K) về hòm đồ chính (100% Frida Native, Zero-Mouse, không click bừa ra map)."""
+    def get_gremory_case_items(self, storage_filter: int = -1) -> Dict[str, Any]:
+        """Đọc danh sách vật phẩm hiện có trong Thùng đồ K (Gremory Case) trực tiếp từ RAM."""
+        if not self.is_ready:
+            try:
+                self.attach()
+                time.sleep(0.2)
+            except Exception:
+                pass
+        if not self.is_ready:
+            return {"ok": False, "count": 0, "items": [], "error": "not_ready"}
+        try:
+            res_str = self._call("getGremoryCaseItems", int(storage_filter))
+            if res_str:
+                res = json.loads(res_str) if isinstance(res_str, str) else res_str
+                if isinstance(res, dict):
+                    return res
+        except Exception as e:
+            _safe_log(f"[MegDirectEngine] Lỗi get_gremory_case_items: {e}")
+        return {"ok": False, "count": 0, "items": []}
+
+    def claim_gremory_case_items(self, storage_filter: int = -1) -> Dict[str, Any]:
+        """Tự động lôi vật phẩm / quà tặng từ Thùng đồ K (Gremory Case - C1:4F:02 trên Unity MainThread) về hòm đồ chính kèm xác minh RAM từng món."""
         if not self.is_ready:
             try:
                 self.attach()
@@ -13059,17 +13305,17 @@ class MegDirectEngine:
             except Exception:
                 pass
         if not self.is_ready:
-            return {"ok": False, "success": False, "claimed": 0, "error": "not_ready"}
+            return {"ok": False, "success": False, "claimed": 0, "remaining": 0, "error": "not_ready"}
 
-        # 1. Đọc trực tiếp RAM qua Frida Native Hook nếu danh sách quà đã đồng bộ sẵn
-        last_res: Dict[str, Any] = {"ok": False, "success": False, "claimed": 0}
+        # 1. Đọc & lôi trực tiếp qua Frida Native Hook (Unity MainThread - C1:4F:02) nếu danh sách đã đồng bộ sẵn trong RAM
+        last_res: Dict[str, Any] = {"ok": False, "success": False, "claimed": 0, "remaining": 0}
         try:
-            res_str = self._call("claimGremoryCaseItems")
+            res_str = self._call("claimGremoryCaseItems", int(storage_filter))
             if res_str:
                 res = json.loads(res_str) if isinstance(res_str, str) else res_str
                 if isinstance(res, dict):
                     last_res = res
-                    if res.get("claimed", 0) > 0:
+                    if res.get("claimed", 0) > 0 or res.get("remaining", 0) > 0:
                         res["method"] = "frida_native"
                         return res
         except Exception as e:
@@ -13087,16 +13333,16 @@ class MegDirectEngine:
             except Exception:
                 pass
 
-        # 3. Đọc lại RAM thật sau khi đồng bộ (tuyệt đối KHÔNG fallback sang click chuột mù gây đi lung tung & báo ảo 5 món!)
+        # 3. Đọc lại RAM thật sau khi đồng bộ và lôi về hòm đồ chính
         try:
             for attempt in range(2):
                 try:
-                    res_str = self._call("claimGremoryCaseItems")
+                    res_str = self._call("claimGremoryCaseItems", int(storage_filter))
                     if res_str:
                         res = json.loads(res_str) if isinstance(res_str, str) else res_str
                         if isinstance(res, dict):
                             last_res = res
-                            if res.get("claimed", 0) > 0:
+                            if res.get("claimed", 0) > 0 or res.get("remaining", 0) > 0:
                                 res["method"] = "frida_native"
                                 return res
                 except Exception as e:

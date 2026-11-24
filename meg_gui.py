@@ -9433,6 +9433,7 @@ class DashboardApp(ctk.CTk):
                 ("---", None, ""),
                 ("💰 Đi bán đồ rác tại NPC Rhea (30, 235)", lambda: ctrl_item.sell_moss_inventory(), "#34d399"),
                 ("🗑️ Ném đồ rác tại chỗ ngay", lambda: ctrl_item.clean_moss_inventory(run_in_thread=True), "#f87171"),
+                ("🎁 Lôi đồ từ Thùng K (Gremory Case)", lambda: self.claim_gremory_case_for_slot(s_idx, log_to="moss"), "#fbbf24"),
                 ("---", None, ""),
                 ("🚶 Chạy về NPC Moss (Elbeland 22, 225)", lambda: ctrl_item.move_to_moss_elbeland(), "#38bdf8"),
                 ("🔓 Mở khóa kẹt thùng đồ & Moss", lambda: ctrl_item.unlock_and_close_inventory(), "#fbbf24"),
@@ -9455,6 +9456,7 @@ class DashboardApp(ctk.CTk):
             items = [
                 ("💰 Bán đồ rác tại NPC Rhea (30, 235) ngay (Tất cả)", self.sell_all_moss_inventories, "#34d399"),
                 ("🗑️ Ném đồ rác tại chỗ ngay (Tất cả)", self.clean_all_moss_inventories, "#f87171"),
+                ("🎁 Lôi đồ từ Thùng K (Tất cả tài khoản chọn)", lambda: self.claim_all_gremory_case_items(source="moss"), "#fbbf24"),
                 ("🔍 Phân tích rác hòm đồ các tài khoản", self.analyze_all_moss_inventories, "#38bdf8"),
                 ("🧹 Hộp thoại dọn rác nâng cao...", self.open_junk_disposal_dialog, "#cbd5e1"),
                 ("---", None, ""),
@@ -11388,28 +11390,84 @@ class DashboardApp(ctk.CTk):
                 self.after(0, lambda: self.append_mirror_log("⚠️ Không kích hoạt được tài khoản nào (thiếu vé hoặc lỗi kết nối)!"))
         threading.Thread(target=_runner, daemon=True).start()
 
-    def claim_all_gremory_case_items(self):
-        """Tự động lôi quà phím 'K' (Gremory Case) cho các tài khoản ĐÃ TÍCH CHỌN."""
+    def claim_gremory_case_for_slot(self, slot_idx: int, log_to: str = "mirror"):
+        """Tự động lôi toàn bộ đồ từ Thùng đồ K (Gremory Case) cho 1 tài khoản cụ thể."""
+        _log = self.append_moss_log if log_to == "moss" else self.append_mirror_log
         def _worker():
-            self.append_mirror_log("🎁 [Gremory Case] Bắt đầu tự động lôi quà phím 'K' cho các tài khoản đã chọn...")
+            try:
+                c = self.controllers[slot_idx - 1]
+            except Exception:
+                return
+            if not c.assigned_pid or not psutil.pid_exists(c.assigned_pid):
+                self.after(0, lambda: _log(f"[Slot {slot_idx:02d}] ⚠️ Chưa kết nối Game để lôi đồ Thùng K!"))
+                return
+            try:
+                eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
+                if not eng:
+                    self.after(0, lambda: _log(f"[Slot {slot_idx:02d}] ❌ Không tìm thấy Direct Engine!"))
+                    return
+                self.after(0, lambda: _log(f"[Slot {slot_idx:02d} - {c.char_name}] 🎁 Đang kiểm tra & lôi đồ từ Thùng K (Gremory Case)..."))
+                res = eng.claim_gremory_case_items()
+                cnt = int(res.get("claimed", 0) or 0)
+                rem = int(res.get("remaining", 0) or 0)
+                items_list = res.get("items", []) or []
+                if cnt > 0:
+                    names = [f"{it.get('name', 'Item')}+{it.get('level', 0)}" if it.get('level', 0) > 0 else f"{it.get('name', 'Item')}" for it in items_list[:5]]
+                    desc = ", ".join(names) + (f" ... (+{len(items_list)-5} món)" if len(items_list) > 5 else "")
+                    rem_tag = f" (còn lại {rem} món do hòm đầy)" if rem > 0 else ""
+                    self.after(0, lambda d=desc, rt=rem_tag: _log(f"[Slot {slot_idx:02d} - {c.char_name}] 🏆 Đã lôi thành công {cnt} món từ Thùng K ({d}){rt}!"))
+                elif rem > 0:
+                    self.after(0, lambda: _log(f"[Slot {slot_idx:02d} - {c.char_name}] ⚠️ Thùng K còn {rem} món nhưng không lôi được (hòm đồ chính đầy hoặc server từ chối)."))
+                else:
+                    self.after(0, lambda: _log(f"[Slot {slot_idx:02d} - {c.char_name}] ℹ️ Thùng K sạch đồ (không có vật phẩm nào)."))
+            except Exception as e:
+                self.after(0, lambda err=e: _log(f"[Slot {slot_idx:02d} - {c.char_name}] ⚠️ Lỗi lôi đồ Thùng K: {err}"))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def claim_all_gremory_case_items(self, source: str = "mirror"):
+        """Tự động lôi đồ từ Thùng đồ K (Gremory Case) cho các tài khoản ĐÃ TÍCH CHỌN."""
+        _log = self.append_moss_log if source == "moss" else self.append_mirror_log
+        enabled_attr = "moss_enabled" if source == "moss" else "mirror_enabled"
+        def _worker():
+            self.after(0, lambda: _log("🎁 [Thùng đồ K] Bắt đầu tự động lôi vật phẩm từ Gremory Case cho các tài khoản đã chọn..."))
             total_claimed = 0
+            total_remaining = 0
             for s_i, c in enumerate(self.controllers, 1):
-                if not getattr(c, "mirror_enabled", True):
+                if not getattr(c, enabled_attr, True):
                     continue
                 if c.assigned_pid and psutil.pid_exists(c.assigned_pid):
                     try:
                         eng = c.engine or (MegDirectEngine.get_engine(c.assigned_pid) if MegDirectEngine else None)
                         if eng:
                             res = eng.claim_gremory_case_items()
-                            cnt = res.get("claimed", 0)
+                            cnt = int(res.get("claimed", 0) or 0)
+                            rem = int(res.get("remaining", 0) or 0)
+                            items_list = res.get("items", []) or []
                             total_claimed += cnt
+                            total_remaining += rem
                             if cnt > 0:
-                                self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] 🏆 ĐÃ LÔI THÀNH CÔNG {cnt} MÓN QUÀ TỪ PHÍM 'K' VÀO HÒM ĐỒ!")
+                                names = [f"{it.get('name', 'Item')}+{it.get('level', 0)}" if it.get('level', 0) > 0 else f"{it.get('name', 'Item')}" for it in items_list[:5]]
+                                desc = ", ".join(names) + (f" ... (+{len(items_list)-5} món)" if len(items_list) > 5 else "")
+                                rem_tag = f" (còn {rem} món - hòm đầy)" if rem > 0 else ""
+                                self.after(0, lambda si=s_i, cn=c.char_name, k=cnt, d=desc, rt=rem_tag: _log(
+                                    f"[Slot {si:02d} - {cn}] 🏆 Đã lôi {k} món từ Thùng K ({d}){rt}!"
+                                ))
+                            elif rem > 0:
+                                self.after(0, lambda si=s_i, cn=c.char_name, r=rem: _log(
+                                    f"[Slot {si:02d} - {cn}] ⚠️ Thùng K còn {r} món nhưng không lôi được (hòm đồ chính đầy)."
+                                ))
                             else:
-                                self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ℹ️ Hộp Quà Phím 'K' sạch quà (không có quà tồn).")
+                                self.after(0, lambda si=s_i, cn=c.char_name: _log(
+                                    f"[Slot {si:02d} - {cn}] ℹ️ Thùng K sạch đồ (không có quà/đồ tồn)."
+                                ))
                     except Exception as e:
-                        self.append_mirror_log(f"[Slot {s_i:02d} - {c.char_name}] ⚠️ Lỗi lôi quà phím 'K': {e}")
-            self.append_mirror_log(f"🏁 [Gremory Case] Hoàn tất quá trình lôi quà! Tổng cộng đã nhận: {total_claimed} món quà.")
+                        self.after(0, lambda si=s_i, cn=c.char_name, err=e: _log(
+                            f"[Slot {si:02d} - {cn}] ⚠️ Lỗi lôi đồ Thùng K: {err}"
+                        ))
+            rem_summary = f" | Còn tồn {total_remaining} món (hòm đầy)." if total_remaining > 0 else "."
+            self.after(0, lambda tc=total_claimed, rs=rem_summary: _log(
+                f"🏁 [Thùng đồ K] Hoàn tất! Tổng đã lôi thành công: {tc} món{rs}"
+            ))
         threading.Thread(target=_worker, daemon=True).start()
 
     def trigger_all_mirror_lifecycle(self):
