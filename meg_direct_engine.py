@@ -477,7 +477,7 @@ var nativeHelperUIShowDialog = null;
 try {
     var offHSD = off('__HELPER_UI_SHOW_DIALOG__');
     if (!offHSD.isNull()) {
-        nativeHelperUIShowDialog = new NativeFunction(baseAddr.add(offHSD), 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
+        nativeHelperUIShowDialog = new NativeFunction(baseAddr.add(offHSD), 'pointer', ['pointer', 'pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
     }
 } catch (eHSD) {}
 
@@ -564,7 +564,7 @@ function showModalBox(title, message, btnText) {
 
         if (helperUI && !helperUI.isNull() && nativeHelperUIShowDialog !== null) {
             try {
-                var dlg = nativeHelperUIShowDialog(helperUI, tStr, mStr, 1, ptr(0), ptr(0), ptr(0));
+                var dlg = nativeHelperUIShowDialog(helperUI, ptr(0), tStr, mStr, 1, ptr(0), 0.0, ptr(0));
                 if (dlg && !dlg.isNull()) {
                     return true;
                 }
@@ -2141,10 +2141,13 @@ function runSellPass(slots, itemsArr) {
                 break;
             }
         }
-        if (gone) out.sold.push(s);
-        else {
+        if (gone) {
+            out.sold.push(s);
+            try { Thread.sleep(0.18); } catch (eSl4) {}
+        } else {
             clearItemStorageSellingSlot();
             out.stayed.push(s);
+            try { Thread.sleep(0.22); } catch (eSl5) {}
         }
     }
     return out;
@@ -2450,13 +2453,13 @@ function tickJunkDisposalMainThread() {
                 if (curPtr.isNull()) {
                     if (job.sold.indexOf(curS) === -1) job.sold.push(curS);
                     job.currentSellSlot = null;
-                    job.nextActionAtMs = now + 40;
+                    job.nextActionAtMs = now + 180;
                 } else if (now < job.sellWaitUntilMs) {
                     return;
                 } else {
                     clearItemStorageSellingSlot();
                     job.currentSellSlot = null;
-                    job.nextActionAtMs = now + 40;
+                    job.nextActionAtMs = now + 220;
                 }
             }
             if (now < job.nextActionAtMs) return;
@@ -4476,7 +4479,7 @@ try {
                             try {
                                 var qnPtr = pendingQuestNpcTalkPtr;
                                 pendingQuestNpcTalkPtr = null;
-                                invokeNpcTalk(qnPtr);
+                                invokeNpcTalk(qnPtr, true);
                             } catch (eQNT) {}
                         }
 
@@ -4896,7 +4899,7 @@ try {
                     try {
                         var qnPtrGU = pendingQuestNpcTalkPtr;
                         pendingQuestNpcTalkPtr = null;
-                        invokeNpcTalk(qnPtrGU);
+                        invokeNpcTalk(qnPtrGU, true);
                     } catch (eQNTGU) {}
                 }
 
@@ -6565,10 +6568,48 @@ try {
 } catch (eHookEntryLevel) {}
 
 // =========================================================================
-// REA HOOK: HelperUI.LPFAFDNGGLF (ShowDialog - RVA 0x1BFEA00)
+// REA HOOK: MHelperUI.OLPFNDAEMDG (ShowDialog central funnel Slot 17)
 // Chặn triệt để popup báo lỗi Devil Square & toàn bộ thông báo/dialog Mirror
 // khi đang chạy Mirror Turbo Zero-Confirm (0 UI overhead trên MainThread)
 // =========================================================================
+function _isMirrorDialogText(idStr, titleStr, msgStr) {
+    var combined = (String(idStr || "") + " " + String(titleStr || "") + " " + String(msgStr || "")).toLowerCase();
+    return (
+        combined.indexOf("mirror") !== -1 ||
+        combined.indexOf("double") !== -1 ||
+        combined.indexOf("doppel") !== -1 ||
+        combined.indexOf("lugard") !== -1 ||
+        combined.indexOf("espelho") !== -1 ||
+        combined.indexOf("dimensions") !== -1 ||
+        combined.indexOf("dimens") !== -1 ||
+        combined.indexOf("duplo") !== -1 ||
+        combined.indexOf("gương") !== -1 ||
+        combined.indexOf("mê cung") !== -1
+    );
+}
+
+function _invokeUnityBoolActionTrue(actionPtr) {
+    if (!actionPtr || actionPtr.isNull()) return false;
+    try {
+        // System.Delegate layout (IL2CPP x64): +0x10 method_ptr, +0x18 invoke_impl, +0x20 m_target, +0x28 method (MethodInfo*)
+        var mPtr = actionPtr.add(0x10).readPointer();
+        var target = actionPtr.add(0x20).readPointer();
+        var mInfo = actionPtr.add(0x28).readPointer();
+        if (!mPtr || mPtr.isNull()) return false;
+        if (target && !target.isNull()) {
+            var actInst = new NativeFunction(mPtr, 'void', ['pointer', 'bool', 'pointer']);
+            actInst(target, 1, mInfo);
+            return true;
+        } else {
+            var actStatic = new NativeFunction(mPtr, 'void', ['bool', 'pointer']);
+            actStatic(1, mInfo);
+            return true;
+        }
+    } catch (eInvAct) {
+        return false;
+    }
+}
+
 var helperUIShowDialogHook = null;
 var helperUIShowDialogAddr = null;
 var _helperUIShowDialogCb = null;
@@ -6578,33 +6619,34 @@ try {
     if (!offHSDHook.isNull()) {
         var hsdTarget = baseAddr.add(offHSDHook);
         if (typeof Interceptor.replaceFast === "function" && typeof NativeCallback === "function") {
-            _helperUIShowDialogCb = new NativeCallback(function(a0, a1, a2, a3, a4, a5, a6) {
+            // Slot 17: Dialog OLPFNDAEMDG(this, id, title, message, overlay, action, timeout, methodInfo)
+            _helperUIShowDialogCb = new NativeCallback(function(a0, a1, a2, a3, a4, a5, a6, a7) {
                 if (!shuttingDown) {
                     if (isMirrorZeroConfirmSuppressing()) {
                         _nativeMirrorTurboStats.suppressedDialogs += 1;
                         return ptr(0);
                     }
                     try {
-                        var msg = "";
-                        if (a2 && !a2.isNull()) {
-                            var len = a2.add(0x10).readS32();
-                            if (len > 0 && len < 256) {
-                                msg = a2.add(0x14).readUtf16String(len);
-                            }
+                        var idS = readIl2CppStrSafe(a1);
+                        var titleS = readIl2CppStrSafe(a2);
+                        var msgS = readIl2CppStrSafe(a3);
+                        var lowMsg = (titleS + " " + msgS).toLowerCase();
+                        if (_mirrorZeroConfirmMode && _isMirrorDialogText(idS, titleS, msgS)) {
+                            _nativeMirrorTurboStats.suppressedDialogs += 1;
+                            return ptr(0);
                         }
-                        var lowMsg = msg.toLowerCase();
                         if (lowMsg.indexOf("ticket for your level") !== -1 || lowMsg.indexOf("don't have a ticket") !== -1) {
                             return ptr(0);
                         }
                     } catch (eMsgR) {}
                 }
                 if (_origHelperUIShowDialog !== null) {
-                    return _origHelperUIShowDialog(a0, a1, a2, a3, a4, a5, a6);
+                    return _origHelperUIShowDialog(a0, a1, a2, a3, a4, a5, a6, a7);
                 }
                 return ptr(0);
-            }, 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
+            }, 'pointer', ['pointer', 'pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
             var origHsdPtr = Interceptor.replaceFast(hsdTarget, _helperUIShowDialogCb);
-            _origHelperUIShowDialog = new NativeFunction(origHsdPtr, 'pointer', ['pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
+            _origHelperUIShowDialog = new NativeFunction(origHsdPtr, 'pointer', ['pointer', 'pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer']);
             helperUIShowDialogAddr = hsdTarget;
         } else {
             helperUIShowDialogHook = Interceptor.attach(hsdTarget, {
@@ -6617,14 +6659,15 @@ try {
                         return;
                     }
                     try {
-                        var msg = "";
-                        if (args[2] && !args[2].isNull()) {
-                            var len = args[2].add(0x10).readS32();
-                            if (len > 0 && len < 256) {
-                                msg = args[2].add(0x14).readUtf16String(len);
-                            }
+                        var idS = readIl2CppStrSafe(args[1]);
+                        var titleS = readIl2CppStrSafe(args[2]);
+                        var msgS = readIl2CppStrSafe(args[3]);
+                        var lowMsg = (titleS + " " + msgS).toLowerCase();
+                        if (_mirrorZeroConfirmMode && _isMirrorDialogText(idS, titleS, msgS)) {
+                            _nativeMirrorTurboStats.suppressedDialogs += 1;
+                            this.suppress = true;
+                            return;
                         }
-                        var lowMsg = msg.toLowerCase();
                         if (lowMsg.indexOf("ticket for your level") !== -1 || lowMsg.indexOf("don't have a ticket") !== -1) {
                             this.suppress = true;
                         }
@@ -6641,7 +6684,7 @@ try {
 } catch (eHSDHook) {}
 
 // =========================================================================
-// REA HOOK: UIModalBox.Show (RVA 0x16B7920)
+// REA HOOK: UIModalBox.Show
 // Chặn hiển thị Modal Box thông báo/xác nhận trong chế độ Mirror Zero-Confirm
 // để luồng Unity MainThread không bị khựng khi bắn gói Turbo liên tiếp
 // =========================================================================
@@ -6668,66 +6711,49 @@ try {
 } catch (eMBSHook) {}
 
 // =========================================================================
-// REA HOOK: HelperUI.HMIFHHIEDNL (ShowConfirm - RVA 0x1BFFFB0)
-// Tự động xác nhận vào Devil Square & Mirror (100% Zero-Confirm, không cần click)
+// REA HOOK: MHelperUI.ABCMKJLIBMI (ShowConfirm central funnel Slot 10)
+// Tự động xác nhận vào Devil Square, Mirror & Party (100% Zero-Confirm:
+// gọi thẳng callback YES với m_target tại +0x20 và KHÔNG hiển thị popup!)
 // =========================================================================
 var helperUIShowConfirmHook = null;
+var helperUIShowConfirmAddr = null;
+var _helperUIShowConfirmCb = null;
+var _origHelperUIShowConfirm = null;
 try {
     var offShowConfirm = off('__HELPER_UI_SHOW_CONFIRM__');
     if (!offShowConfirm.isNull()) {
-        helperUIShowConfirmHook = Interceptor.attach(baseAddr.add(offShowConfirm), {
-            onEnter: function(args) {
-                this.autoConfirm = false;
-                if (shuttingDown) return;
-                try {
-                    var title = "";
-                    if (args[2] && !args[2].isNull()) {
-                        var tLen = args[2].add(0x10).readS32();
-                        if (tLen > 0 && tLen < 128) title = args[2].add(0x14).readUtf16String(tLen);
-                    }
-                    var msg = "";
-                    if (args[3] && !args[3].isNull()) {
-                        var mLen = args[3].add(0x10).readS32();
-                        if (mLen > 0 && mLen < 256) msg = args[3].add(0x14).readUtf16String(mLen);
-                    }
-                    var lowT = title.toLowerCase();
-                    var lowM = msg.toLowerCase();
-                    var isDevilConfirm = (lowT.indexOf("devil") !== -1 || lowM.indexOf("devil") !== -1);
-                    var isMirrorConfirm = _mirrorZeroConfirmMode && (
-                        isMirrorZeroConfirmSuppressing() ||
-                        lowT.indexOf("mirror") !== -1 || lowM.indexOf("mirror") !== -1 ||
-                        lowT.indexOf("double") !== -1 || lowM.indexOf("double") !== -1 ||
-                        lowT.indexOf("doppel") !== -1 || lowM.indexOf("doppel") !== -1 ||
-                        lowT.indexOf("lugard") !== -1 || lowM.indexOf("lugard") !== -1 ||
-                        lowT.indexOf("espelho") !== -1 || lowM.indexOf("espelho") !== -1
-                    );
-                    var isPartyConfirm = autoConfirmPartyEnabled && (
-                        lowT.indexOf("party") !== -1 || lowM.indexOf("party") !== -1 ||
-                        lowT.indexOf("tổ đội") !== -1 || lowM.indexOf("tổ đội") !== -1 ||
-                        lowT.indexOf("to doi") !== -1 || lowM.indexOf("to doi") !== -1 ||
-                        lowT.indexOf("nhóm") !== -1 || lowM.indexOf("nhóm") !== -1 ||
-                        lowT.indexOf("pt") !== -1
-                    );
+        var hscTarget = baseAddr.add(offShowConfirm);
+        if (typeof Interceptor.replaceFast === "function" && typeof NativeCallback === "function") {
+            // Slot 10: Dialog ABCMKJLIBMI(this, id, title, message, overlay, action, timeout, isRemCb, onRemCb, methodInfo)
+            _helperUIShowConfirmCb = new NativeCallback(function(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9) {
+                if (!shuttingDown) {
+                    try {
+                        var idStr = readIl2CppStrSafe(a1);
+                        var title = readIl2CppStrSafe(a2);
+                        var msg = readIl2CppStrSafe(a3);
+                        var lowT = title.toLowerCase();
+                        var lowM = msg.toLowerCase();
+                        var isDevilConfirm = (lowT.indexOf("devil") !== -1 || lowM.indexOf("devil") !== -1);
+                        var isMirrorConfirm = _mirrorZeroConfirmMode && (
+                            isMirrorZeroConfirmSuppressing() ||
+                            _isMirrorDialogText(idStr, title, msg)
+                        );
+                        var isPartyConfirm = autoConfirmPartyEnabled && (
+                            lowT.indexOf("party") !== -1 || lowM.indexOf("party") !== -1 ||
+                            lowT.indexOf("tổ đội") !== -1 || lowM.indexOf("tổ đội") !== -1 ||
+                            lowT.indexOf("to doi") !== -1 || lowM.indexOf("to doi") !== -1 ||
+                            lowT.indexOf("nhóm") !== -1 || lowM.indexOf("nhóm") !== -1 ||
+                            lowT.indexOf("pt") !== -1
+                        );
 
-                    if (isDevilConfirm || isMirrorConfirm || isPartyConfirm) {
-                        var actionPtr = null;
-                        try {
-                            actionPtr = this.context.rsp.add(0x30).readPointer();
-                        } catch (eStk) {}
-                        if (!actionPtr || actionPtr.isNull()) {
-                            try { actionPtr = args[5]; } catch (eA5) {}
-                        }
-                        if (actionPtr && !actionPtr.isNull()) {
-                            var mPtr = actionPtr.add(0x10).readPointer();
-                            var target = actionPtr.add(0x18).readPointer();
-                            if (!mPtr.isNull()) {
-                                var actFn = new NativeFunction(mPtr, 'void', ['pointer', 'bool', 'pointer']);
-                                actFn(target, 1, ptr(0));
-                                this.autoConfirm = true;
-                                if (isMirrorConfirm) {
-                                    _nativeMirrorTurboStats.suppressedConfirms += 1;
-                                    _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 600);
-                                }
+                        if (isDevilConfirm || isMirrorConfirm || isPartyConfirm) {
+                            var invoked = _invokeUnityBoolActionTrue(a5);
+                            if (isMirrorConfirm) {
+                                _nativeMirrorTurboStats.suppressedConfirms += 1;
+                                _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 800);
+                                return ptr(0);
+                            }
+                            if (invoked) {
                                 if (isPartyConfirm) {
                                     send({
                                         type: "auto_party_confirmed",
@@ -6736,21 +6762,75 @@ try {
                                         message: msg
                                     });
                                 }
+                                return ptr(0);
                             }
-                        } else if (isMirrorConfirm) {
-                            _nativeMirrorTurboStats.suppressedConfirms += 1;
-                            _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 600);
-                            this.autoConfirm = true;
                         }
-                    }
-                } catch (eConfirm) {}
-            },
-            onLeave: function(retval) {
-                if (this.autoConfirm) {
-                    retval.replace(ptr(0));
+                    } catch (eConfirmR) {}
                 }
-            }
-        });
+                if (_origHelperUIShowConfirm !== null) {
+                    return _origHelperUIShowConfirm(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9);
+                }
+                return ptr(0);
+            }, 'pointer', ['pointer', 'pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer', 'pointer', 'pointer']);
+            var origHscPtr = Interceptor.replaceFast(hscTarget, _helperUIShowConfirmCb);
+            _origHelperUIShowConfirm = new NativeFunction(origHscPtr, 'pointer', ['pointer', 'pointer', 'pointer', 'pointer', 'bool', 'pointer', 'float', 'pointer', 'pointer', 'pointer']);
+            helperUIShowConfirmAddr = hscTarget;
+        } else {
+            helperUIShowConfirmHook = Interceptor.attach(hscTarget, {
+                onEnter: function(args) {
+                    this.autoConfirm = false;
+                    if (shuttingDown) return;
+                    try {
+                        var idStr = readIl2CppStrSafe(args[1]);
+                        var title = readIl2CppStrSafe(args[2]);
+                        var msg = readIl2CppStrSafe(args[3]);
+                        var lowT = title.toLowerCase();
+                        var lowM = msg.toLowerCase();
+                        var isDevilConfirm = (lowT.indexOf("devil") !== -1 || lowM.indexOf("devil") !== -1);
+                        var isMirrorConfirm = _mirrorZeroConfirmMode && (
+                            isMirrorZeroConfirmSuppressing() ||
+                            _isMirrorDialogText(idStr, title, msg)
+                        );
+                        var isPartyConfirm = autoConfirmPartyEnabled && (
+                            lowT.indexOf("party") !== -1 || lowM.indexOf("party") !== -1 ||
+                            lowT.indexOf("tổ đội") !== -1 || lowM.indexOf("tổ đội") !== -1 ||
+                            lowT.indexOf("to doi") !== -1 || lowM.indexOf("to doi") !== -1 ||
+                            lowT.indexOf("nhóm") !== -1 || lowM.indexOf("nhóm") !== -1 ||
+                            lowT.indexOf("pt") !== -1
+                        );
+
+                        if (isDevilConfirm || isMirrorConfirm || isPartyConfirm) {
+                            var actionPtr = null;
+                            try { actionPtr = this.context.rsp.add(0x30).readPointer(); } catch (eStk) {}
+                            if (!actionPtr || actionPtr.isNull()) {
+                                try { actionPtr = args[5]; } catch (eA5) {}
+                            }
+                            var invoked = _invokeUnityBoolActionTrue(actionPtr);
+                            if (invoked || isMirrorConfirm) {
+                                this.autoConfirm = true;
+                                if (isMirrorConfirm) {
+                                    _nativeMirrorTurboStats.suppressedConfirms += 1;
+                                    _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 800);
+                                }
+                                if (invoked && isPartyConfirm) {
+                                    send({
+                                        type: "auto_party_confirmed",
+                                        source: "show_confirm_hook",
+                                        title: title,
+                                        message: msg
+                                    });
+                                }
+                            }
+                        }
+                    } catch (eConfirm) {}
+                },
+                onLeave: function(retval) {
+                    if (this.autoConfirm) {
+                        retval.replace(ptr(0));
+                    }
+                }
+            });
+        }
     }
 } catch (eHSCFH) {}
 
@@ -6854,11 +6934,7 @@ try {
                             try { actionPtr = args[5]; } catch (eA5) {}
                         }
                         if (actionPtr && !actionPtr.isNull()) {
-                            var mPtr = actionPtr.add(0x10).readPointer();
-                            var target = actionPtr.add(0x18).readPointer();
-                            if (!mPtr.isNull()) {
-                                var actFn = new NativeFunction(mPtr, 'void', ['pointer', 'bool', 'pointer']);
-                                actFn(target, 1, ptr(0));
+                            if (_invokeUnityBoolActionTrue(actionPtr)) {
                                 this.actionInvoked = true;
                                 send({
                                     type: "auto_party_confirmed",
@@ -8329,76 +8405,143 @@ rpc.exports = {
                 return req.ok;
             }
 
-            for (var s = 12; s < maxSlot; s++) {
-                // HARD SAFETY GUARD: Tuyệt đối không bao giờ bán trang bị trên người (0..11)
-                if (s < 12) continue;
+            function collectSellableMossSlots() {
+                var list = [];
+                for (var s = 12; s < maxSlot; s++) {
+                    // HARD SAFETY GUARD: Tuyệt đối không bao giờ bán trang bị trên người (0..11)
+                    if (s < 12) continue;
+                    // Nếu có danh sách allowedSet (các slot đồ rác Moss cho phép), chỉ bán các slot trong danh sách này
+                    if (allowedSet !== null && !allowedSet[s]) continue;
 
-                // Nếu có danh sách allowedSet (các slot đồ vừa quay từ Moss), CHỈ bán các slot trong danh sách này!
-                if (allowedSet !== null && !allowedSet[s]) continue;
+                    var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                    if (itemPtr.isNull()) continue;
 
-                var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
-                if (itemPtr.isNull()) continue;
+                    var itemIndex = readItemIndex(itemPtr);
+                    var itemLevel = itemPtr.add(0x10).readS32();
+                    var skill = itemPtr.add(0x14).readS32();
+                    var luck = itemPtr.add(0x18).readS32();
+                    var excOpt = itemPtr.add(0x20).readS32();
+                    var ancOpt = itemPtr.add(0x24).readS32();
+                    var harmRaw = itemPtr.add(0x28).readS32();
+                    var opt380Raw = itemPtr.add(0x2C).readS32();
+                    var sockOpt = hasItemSocketSlots(itemPtr) ? 1 : 0;
+                    var harmonyOpt = (harmRaw > 0 || opt380Raw > 0) ? (harmRaw || opt380Raw) : 0;
 
-                var itemIndex = readItemIndex(itemPtr);
-                var itemLevel = itemPtr.add(0x10).readS32();
-                var skill = itemPtr.add(0x14).readS32();
-                var luck = itemPtr.add(0x18).readS32();
-                var excOpt = itemPtr.add(0x20).readS32();
-                var ancOpt = itemPtr.add(0x24).readS32();
-                var harmRaw = itemPtr.add(0x28).readS32();
-                var opt380Raw = itemPtr.add(0x2C).readS32();
-                var sockOpt = hasItemSocketSlots(itemPtr) ? 1 : 0;
-                var harmonyOpt = (harmRaw > 0 || opt380Raw > 0) ? (harmRaw || opt380Raw) : 0;
+                    // BẢO VỆ TUYỆT ĐỐI (Không bao giờ bán):
+                    // 1. Đồ Rồng (Dragon) & Divine/Archangel/Ruud (LUÔN bảo vệ, kể cả khi bật allowExc)
+                    // 2. Đồ Hoàn Hảo (excOpt > 0) CHỈ bán khi bật allowExc (và KHÔNG phải đồ Rồng / Divine / Archangel)
+                    // 3. Đồ Thần (ancOpt > 0), Đồ Socket (mảng +0x38), Harmony/380 (+0x28/+0x2C)
+                    // 4. Cấp độ > maxLvl (mặc định maxLvl = 7 -> giữ lại đồ >= +8)
+                    // 5. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
+                    if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxLvl, ignoreType, cleanEquip, allowExc)) {
+                        continue;
+                    }
+                    list.push({
+                        slot: s,
+                        ptr: itemPtr,
+                        index: itemIndex,
+                        level: itemLevel,
+                        exc: excOpt,
+                        name: getItemName(itemPtr) || ("Item " + itemIndex)
+                    });
+                }
+                return list;
+            }
 
-                // BẢO VỆ TUYỆT ĐỐI (Không bao giờ bán):
-                // 1. Đồ Rồng (Dragon) & Divine/Archangel/Ruud (LUÔN bảo vệ, kể cả khi bật allowExc)
-                // 2. Đồ Hoàn Hảo (excOpt > 0) CHỈ bán khi bật allowExc (và KHÔNG phải đồ Rồng / Divine / Archangel)
-                // 3. Đồ Thần (ancOpt > 0), Đồ Socket (mảng +0x38), Harmony/380 (+0x28/+0x2C)
-                // 4. Cấp độ > maxLvl (mặc định maxLvl = 7 -> giữ lại đồ >= +8)
-                // 5. Toàn bộ ngọc, vé sự kiện, cánh, sách phép (sec >= 12 && sec <= 15)
-                if (isItemProtected(itemPtr, itemIndex, itemLevel, excOpt, ancOpt, sockOpt, harmonyOpt, luck, mossCat, maxLvl, ignoreType, cleanEquip, allowExc)) {
-                    continue;
+            var initialTargets = collectSellableMossSlots();
+            candidatesCount = initialTargets.length;
+            var shopClosedMidway = false;
+            var passesDone = 0;
+            var curTargets = initialTargets;
+
+            // Bán lần lượt tối đa 3 vòng ngay trong cùng phiên mở Shop cho tới khi sạch đồ rác Moss
+            for (var passNum = 1; passNum <= 3 && curTargets.length > 0; passNum++) {
+                passesDone = passNum;
+                var passSold = 0;
+
+                for (var ti = 0; ti < curTargets.length; ti++) {
+                    if (!isMerchantWindowOpen()) {
+                        shopClosedMidway = true;
+                        break;
+                    }
+                    var tInfo = curTargets[ti];
+                    var s = tInfo.slot;
+                    var itemPtr = itemsArr.add(0x20 + s * 8).readPointer();
+                    if (itemPtr.isNull()) continue;
+
+                    dismissExpensiveSellWindow();
+
+                    var soldSuccess = false;
+                    try {
+                        // Gửi lệnh bán C3:33 + gán ItemStorage.SellingSlot trên Unity MainThread
+                        dispatchSellSlotOnMainThread(s);
+
+                        // Polling verify: Chờ server phản hồi C3:33 xóa item khỏi RAM (tối đa 1400ms, retry 1 lần ở 700ms)
+                        for (var vi = 0; vi < 28; vi++) {
+                            try { Thread.sleep(0.05); } catch (eSleepPkt) {}
+                            dismissExpensiveSellWindow();
+                            var verifyPkt = itemsArr.add(0x20 + s * 8).readPointer();
+                            if (verifyPkt.isNull() || !verifyPkt.equals(itemPtr)) {
+                                soldSuccess = true;
+                                break;
+                            }
+                            if (vi === 13) {
+                                if (!isMerchantWindowOpen()) {
+                                    shopClosedMidway = true;
+                                    break;
+                                }
+                                dispatchSellSlotOnMainThread(s);
+                            }
+                        }
+                        if (!soldSuccess) {
+                            clearItemStorageSellingSlot();
+                        }
+                    } catch (eSell) {}
+
+                    if (shopClosedMidway) break;
+
+                    if (soldSuccess) {
+                        sold++;
+                        passSold++;
+                        soldItems.push({ slot: s, name: tInfo.name, level: tInfo.level, exc: tInfo.exc });
+                        // Giãn nhịp 180ms giữa mỗi món để GameServer xử lý trọn vẹn không bị drop gói C3:33
+                        try { Thread.sleep(0.18); } catch (ePaceOk) {}
+                    } else {
+                        // Nghỉ 250ms sau khi giải phóng SellingSlot trước khi sang món kế tiếp
+                        try { Thread.sleep(0.25); } catch (ePaceFail) {}
+                    }
                 }
 
-                candidatesCount++;
-                var itName = getItemName(itemPtr);
-                dismissExpensiveSellWindow();
+                if (shopClosedMidway) break;
 
-                var soldSuccess = false;
-                try {
-                    // Gửi lệnh bán C3:33 (0x33 ^ 0xCB = 0xF8) + gán ItemStorage.SellingSlot trên Unity MainThread
-                    dispatchSellSlotOnMainThread(s);
+                // Chờ 220ms rồi quét lại RAM xác nhận xem còn món rác Moss nào sót lại chưa bán không
+                try { Thread.sleep(0.22); } catch (ePassSync) {}
+                curTargets = collectSellableMossSlots();
+                if (curTargets.length === 0) break;
+                if (passNum >= 2 && passSold === 0) break;
+                try { Thread.sleep(0.35); } catch (eNextPass) {}
+            }
 
-                    // Polling verify: Chờ server phản hồi C3:33 (ALLEPIKEBML -> ItemStorage.LDEPOIPHNOO xóa item khỏi RAM)
-                    // RTT MEGAMU ~290ms -> chờ tối đa 1200ms (24 x 50ms), chỉ retry 1 lần sau 600ms (vi === 12)
-                    for (var vi = 0; vi < 24; vi++) {
-                        try { Thread.sleep(0.05); } catch (eSleepPkt) {}
-                        dismissExpensiveSellWindow();
-                        var verifyPkt = itemsArr.add(0x20 + s * 8).readPointer();
-                        if (verifyPkt.isNull() || !verifyPkt.equals(itemPtr)) {
-                            soldSuccess = true;
-                            break;
-                        }
-                        if (vi === 11) {
-                            dispatchSellSlotOnMainThread(s);
-                        }
-                    }
-                    if (!soldSuccess) {
-                        clearItemStorageSellingSlot();
-                    }
-                } catch (eSell) {}
-
-                if (soldSuccess) {
-                    sold++;
-                    soldItems.push({ slot: s, name: itName || ("Item " + itemIndex), level: itemLevel, exc: excOpt });
-                }
+            var finalRem = collectSellableMossSlots();
+            var remSlots = [];
+            for (var ri = 0; ri < finalRem.length; ri++) {
+                remSlots.push(finalRem[ri].slot);
+            }
+            var errOut = null;
+            if (shopClosedMidway) {
+                errOut = "merchant_closed_midway";
+            } else if (sold === 0 && candidatesCount > 0) {
+                errOut = "server_not_confirm";
             }
 
             return JSON.stringify({
                 sold: sold,
                 items: soldItems,
                 candidates: candidatesCount,
-                error: (sold === 0 && candidatesCount > 0) ? "server_not_confirm" : null
+                remaining: remSlots.length,
+                remainingSlots: remSlots,
+                passes: passesDone,
+                error: errOut
             });
         } catch (e) {
             return JSON.stringify({ sold: 0, error: e.toString() });
@@ -11379,6 +11522,10 @@ rpc.exports = {
             }
         } catch (eMBS) {}
         try {
+            if (helperUIShowConfirmAddr !== null && typeof Interceptor.revert === "function") {
+                Interceptor.revert(helperUIShowConfirmAddr);
+                helperUIShowConfirmAddr = null;
+            }
             if (helperUIShowConfirmHook !== null) {
                 helperUIShowConfirmHook.detach();
                 helperUIShowConfirmHook = null;

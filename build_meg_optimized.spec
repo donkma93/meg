@@ -48,6 +48,7 @@ hiddenimports = [
     'telegram_notifier',
     'meg_crash_tracer',
     'meg_rea_hunter',
+    'meg_quest_automation',
     'PySide6',
     'PySide6.QtCore',
     'PySide6.QtGui',

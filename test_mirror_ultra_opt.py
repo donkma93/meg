@@ -594,7 +594,8 @@ class TestMirrorUltraOptimization(unittest.TestCase):
             "socket_send_err": "0x42392F0",
             "tcp_set_nodelay": "0x4245170",
             "unity_get_time": "0x45896F0",
-            "helper_ui_show_dialog": "0x1C37CC0",
+            "helper_ui_show_dialog": "0x1C32030",
+            "helper_ui_show_confirm": "0x1C32710",
         }
         with open("megamu_offsets.json", "r", encoding="utf-8") as f:
             root_off = json.load(f)

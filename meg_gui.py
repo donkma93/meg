@@ -4500,16 +4500,24 @@ class SlotController:
             # Đợi 0.4s để GameServer và Client đồng bộ hoàn toàn trạng thái phiên giao dịch Shop
             time.sleep(0.4)
 
-            # BƯỚC 3: Lọc danh sách ô được phép bán (+0..+7, gồm +5..+7, và đồ Exce nếu bật — LUÔN bảo vệ Đồ Rồng, Divine/Archangel, Ancient, Socket, Harmony/380, Ngọc/+8+)
+            # BƯỚC 3: Lọc & bán ĐẾN KHI SẠCH đồ rác Moss tại chỗ trước khi đóng Shop quay lại NPC Moss
+            # (+0..+7, gồm +5..+7, và đồ Exce nếu bật — LUÔN bảo vệ Đồ Rồng, Divine/Archangel, Ancient, Socket, Harmony/380, Ngọc/+8+)
             clean_equip = bool(getattr(self, "moss_clean_equipment_trash", True))
             sell_exc = bool(getattr(self, "moss_sell_excellent", True))
             effective_cat = -1 if clean_equip else self.moss_category
             is_manual = getattr(self, "_manual_selling", False)
+            ignore_type = bool(getattr(self, "moss_ignore_junk_type", False))
 
-            # Nếu là bán thủ công (bấm nút Toolbar / chuột phải) HOẶC chưa có moss_rolled_slots:
-            allowed_slots = [] if is_manual else list(self.moss_rolled_slots - self.moss_initial_slots)
-            if not allowed_slots:
-                # Quét trực tiếp danh sách junkSlots & mossPlusSlots thực tế trong hòm đồ
+            def _scan_moss_sell_slots():
+                seen_s = set()
+                out_slots = []
+                # 1. Luôn gom các ô vừa quay Moss (trừ các ô ban đầu trước phiên)
+                if not is_manual:
+                    for sl_r in sorted(self.moss_rolled_slots - self.moss_initial_slots):
+                        if sl_r not in seen_s:
+                            seen_s.add(sl_r)
+                            out_slots.append(int(sl_r))
+                # 2. Quét bổ sung toàn bộ junkSlots & mossPlusSlots thực tế trong hòm (không bỏ sót đồ rác Moss đã có sẵn)
                 try:
                     inv_sum = eng.get_inventory_summary(
                         category=effective_cat,
@@ -4518,62 +4526,132 @@ class SlotController:
                         allow_excellent=sell_exc,
                     )
                     if inv_sum and not inv_sum.get("error"):
-                        cand_items = inv_sum.get("junkSlots", []) + inv_sum.get("mossPlusSlots", [])
-                        seen_s = set()
-                        allowed_slots = []
+                        cand_items = (inv_sum.get("junkSlots", []) or []) + (inv_sum.get("mossPlusSlots", []) or [])
                         for it in cand_items:
                             sl = it.get("slot")
-                            if sl is not None and sl not in seen_s and (is_manual or sl not in self.moss_initial_slots):
-                                seen_s.add(sl)
-                                allowed_slots.append(sl)
+                            if sl is not None:
+                                sl_i = int(sl)
+                                if sl_i not in seen_s and (is_manual or sl_i not in self.moss_initial_slots):
+                                    seen_s.add(sl_i)
+                                    out_slots.append(sl_i)
                 except Exception:
-                    allowed_slots = []
+                    pass
+                return out_slots
 
-            # Gửi lệnh bán các món đồ rác Moss (+0..+7 và Exce trừ Rồng nếu bật; bảo vệ +8+, Đồ Rồng, Divine/Archangel, Anc, Sock, Harmony/380, Ngọc)
-            s_res = eng.sell_moss_plus_items(
-                max_junk_level=7,
-                ignore_type_heuristics=bool(getattr(self, "moss_ignore_junk_type", False)),
-                allowed_slots=allowed_slots,
-                category=effective_cat,
-                clean_equipment_trash=clean_equip,
-                sell_excellent=sell_exc,
-            )
-            sold_count = s_res.get("sold", 0) if isinstance(s_res, dict) else 0
-            sold_items = s_res.get("items", []) if isinstance(s_res, dict) else []
+            def _reopen_merchant_in_place() -> bool:
+                for _ro in range(3):
+                    if eng.is_merchant_open():
+                        return True
+                    eng.interact_merchant_npc()
+                    t_ro = time.time()
+                    while time.time() - t_ro < 2.5:
+                        if eng.is_merchant_open():
+                            time.sleep(0.35)
+                            return True
+                        time.sleep(0.15)
+                    time.sleep(0.3)
+                return eng.is_merchant_open()
 
-            if sold_count > 0:
-                # Loại bỏ các slot đã bán khỏi moss_rolled_slots
-                for it in sold_items:
-                    s_sold = it.get("slot")
-                    if s_sold in self.moss_rolled_slots:
-                        self.moss_rolled_slots.discard(s_sold)
+            total_sold = 0
+            all_sold_items = []
+            last_err = None
+            last_cand = 0
+            last_remaining = 0
+            zero_progress_rounds = 0
 
+            # Bán tối đa 4 lượt ngay tại NPC Shop cho tới khi remaining == 0 (sạch đồ rác Moss mới quay về Moss!)
+            for sell_round in range(1, 5):
+                if not getattr(self, "moss_running", True) and not is_manual:
+                    break
+
+                allowed_slots = _scan_moss_sell_slots()
+                if not allowed_slots:
+                    last_remaining = 0
+                    break
+
+                if not eng.is_merchant_open():
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, n=npc_name, r=sell_round: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] 🔄 Cửa sổ {n} vừa đóng giữa chừng -> mở lại ngay tại chỗ để bán nốt (lượt {r}/4)..."
+                    ))
+                    if not _reopen_merchant_in_place():
+                        last_err = "merchant_not_open"
+                        last_remaining = len(allowed_slots)
+                        break
+
+                s_res = eng.sell_moss_plus_items(
+                    max_junk_level=7,
+                    ignore_type_heuristics=ignore_type,
+                    allowed_slots=allowed_slots,
+                    category=effective_cat,
+                    clean_equipment_trash=clean_equip,
+                    sell_excellent=sell_exc,
+                )
+                r_sold = int(s_res.get("sold", 0) or 0) if isinstance(s_res, dict) else 0
+                r_items = (s_res.get("items", []) or []) if isinstance(s_res, dict) else []
+                r_rem = int(s_res.get("remaining", 0) or 0) if isinstance(s_res, dict) else 0
+                last_cand = max(last_cand, int(s_res.get("candidates", 0) or 0) if isinstance(s_res, dict) else 0)
+                last_err = s_res.get("error") if isinstance(s_res, dict) else None
+
+                if r_sold > 0:
+                    total_sold += r_sold
+                    all_sold_items.extend(r_items)
+                    zero_progress_rounds = 0
+                    for it in r_items:
+                        s_sold = it.get("slot")
+                        if s_sold in self.moss_rolled_slots:
+                            self.moss_rolled_slots.discard(s_sold)
+                else:
+                    zero_progress_rounds += 1
+
+                # Chờ 0.35s để RAM đồng bộ hoàn toàn rồi kiểm tra lại còn đồ rác Moss nào chưa bán không
+                time.sleep(0.35)
+                still_left = _scan_moss_sell_slots()
+                last_remaining = max(r_rem, len(still_left)) if last_err in ("merchant_not_open", "merchant_closed_midway") else len(still_left)
+
+                if last_remaining <= 0:
+                    break
+
+                if last_err in ("merchant_not_open", "merchant_closed_midway"):
+                    # Thử mở lại shop ngay tại chỗ ở vòng tiếp theo
+                    zero_progress_rounds = 0
+                    time.sleep(0.4)
+                    continue
+
+                if zero_progress_rounds >= 2:
+                    # 2 lượt liên tiếp không bán thêm được món nào (đồ khóa shop/không bán được) -> tránh lặp vô hạn
+                    break
+
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, rem=last_remaining, r=sell_round: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] ⏳ Còn {rem} món đồ rác Moss chưa bán hết -> tiếp tục bán tại {npc_name} (lượt {r+1}/4)..."
+                ))
+                time.sleep(0.55)
+
+            if total_sold > 0:
                 summary_names = [
                     f"{'[Exc] ' if it.get('exc', 0) > 0 else ''}{it.get('name', 'Item')}+{it.get('level', 0)}"
-                    for it in sold_items[:6]
+                    for it in all_sold_items[:6]
                 ]
                 sum_text = ", ".join(summary_names)
-                if len(sold_items) > 6:
-                    sum_text += f" ... (+{len(sold_items)-6} món khác)"
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cnt=sold_count, st=sum_text: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ rác Moss ({st})!"
+                if len(all_sold_items) > 6:
+                    sum_text += f" ... (+{len(all_sold_items)-6} món khác)"
+                rem_note = f" (còn {last_remaining} món không bán được shop)" if last_remaining > 0 else " — đã dọn sạch đồ rác Moss!"
+                self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cnt=total_sold, st=sum_text, rn=rem_note: self.app.append_moss_log(
+                    f"[Slot {s:02d} - {c}] 💰 Đã bán thành công {cnt} món đồ rác Moss ({st}){rn}"
                 ))
             else:
-                err_code = s_res.get("error") if isinstance(s_res, dict) else None
-                cand_cnt = s_res.get("candidates", 0) if isinstance(s_res, dict) else 0
-                if err_code == "merchant_not_open":
+                if last_err == "merchant_not_open":
                     self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                         f"[Slot {s:02d} - {c}] ⚠️ Shop thương nhân chưa mở sẵn sàng. Sẽ thử lại ở lượt sau."
                     ))
-                elif err_code == "server_not_confirm":
-                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cc=cand_cnt: self.app.append_moss_log(
+                elif last_err == "server_not_confirm":
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, cc=last_cand: self.app.append_moss_log(
                         f"[Slot {s:02d} - {c}] ⚠️ Phát hiện {cc} món đồ rác nhưng Server chưa phản hồi giao dịch bán đồ. Sẽ thử lại ở lượt sau."
                     ))
                 else:
                     self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                         f"[Slot {s:02d} - {c}] ℹ️ Không phát hiện món đồ rác Moss nào cần bán (hoặc đã dọn sạch)."
                     ))
-            time.sleep(0.4)
+            time.sleep(0.45)
 
             # Đóng phiên giao dịch Shop tại Silvia (gửi C1:31 và dọn WindowHandler)
             eng.close_merchant_npc()

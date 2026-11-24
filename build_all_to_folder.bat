@@ -85,7 +85,7 @@ if "!HAS_GXX!"=="1" (
         exit /b 1
     )
 
-    g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lcrypt32 -ladvapi32 -s -static-libgcc -static-libstdc++
+    g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lbcrypt -lcrypt32 -ladvapi32 -s -static-libgcc -static-libstdc++
     if %ERRORLEVEL% NEQ 0 (
         color 0c
         echo [LOI] Bien dich meg_license_bridge.dll that bai!
