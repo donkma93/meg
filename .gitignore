@@ -24,8 +24,26 @@ Thumbs.db
 Desktop.ini
 *_backup.py
 debug_gui.txt
+
+# App runtime & user-editable configs (chỉnh sửa trong app, không đẩy lên git)
+config/autotrain_megamu_config.json
+config/autotrain_profiles.json
+config/class_stat_profiles.json
+config/devil_schedule_config.json
+config/event_slots_config.json
 config/license.json
+config/license_settings.json
+config/megamu_accounts.json
+config/mirror_schedule_config.json
+config/moss_slots_config.json
+config/party_config.json
+config/pk_report_config.json
+config/quest_config.json
+config/slot_assignments.json
 config/telegram_config.json
+config/ui_settings.json
+config/world_gates_cache.json
+
 Release_MEGAMU/
 Release_MEGAMU_Secure/
 native_bin/
