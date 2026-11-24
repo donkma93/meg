@@ -67,6 +67,7 @@ class TrainTabQt(QWidget):
         on_remove_slot: Optional[Callable[[], None]] = None,
         on_telegram_config: Optional[Callable[[], None]] = None,
         on_party_config: Optional[Callable[[], None]] = None,
+        on_pk_report_config: Optional[Callable[[], None]] = None,
         on_slot_delay_changed: Optional[Callable[[int, float], None]] = None,
         parent=None,
     ):
@@ -91,6 +92,7 @@ class TrainTabQt(QWidget):
         self.on_remove_slot = on_remove_slot
         self.on_telegram_config = on_telegram_config
         self.on_party_config = on_party_config
+        self.on_pk_report_config = on_pk_report_config
         self.on_slot_delay_changed = on_slot_delay_changed
 
         self.process_options: List[str] = ["--"]
@@ -186,6 +188,7 @@ class TrainTabQt(QWidget):
             ("🔥 Devil Square", self.on_devil_config, "Cài đặt & đi sự kiện Devil Square"),
             ("⭐ Cộng Point", self.on_point_config, "Cấu hình tự động cộng điểm tiềm năng"),
             ("🤝 Auto PT", self.on_party_config, "Tự động ghép nhiều nhóm Party theo mật khẩu"),
+            ("🚨 Auto Report", self.on_pk_report_config, "Tự động về Noria / Lorencia / Devias tìm Lính Canh Report khi bị PK"),
             ("📱 Telegram Bot", self.on_telegram_config, "Cấu hình thông báo Telegram"),
         ):
             if cb:

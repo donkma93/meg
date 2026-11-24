@@ -49,6 +49,7 @@ hiddenimports = [
     'meg_crash_tracer',
     'meg_rea_hunter',
     'meg_quest_automation',
+    'meg_pk_reporter',
     'PySide6',
     'PySide6.QtCore',
     'PySide6.QtGui',

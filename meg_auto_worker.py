@@ -364,6 +364,12 @@ class AutoTrainWorker:
         self.evade_killer_name = ""
         self.last_evade_map_retry = 0.0
 
+        # Tự động về thành (Noria / Lorencia / Devias) tìm Lính Canh Report khi bị PK
+        self.pending_pk_report = False
+        self.pending_pk_report_killer = ""
+        self._pk_report_cfg_cache: Optional[Dict[str, Any]] = None
+        self._pk_report_cfg_mtime: float = -1.0
+
         # Quản lý Đổi Map & Cổng GATE REA (Alkmar, Ubaid, Debenter, Uruk, Nars, Nixies...)
         self.expected_map_id: Optional[int] = None
         self.route_map_name = ""
@@ -403,6 +409,22 @@ class AutoTrainWorker:
         self.stop_event.clear()
         self.thread = threading.Thread(target=self._run, daemon=True, name=f"AutoTrainWorker-{self.pid}")
         self.thread.start()
+
+    def _load_pk_report_config(self) -> Dict[str, Any]:
+        """Đọc cấu hình Auto Report PK (có cache theo mtime để không tốn I/O mỗi tick)."""
+        try:
+            from pathlib import Path
+            from meg_pk_reporter import PkReportConfigManager, DEFAULT_PK_REPORT_CONFIG
+
+            base_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+            cfg_path = base_dir / "config" / "pk_report_config.json"
+            mtime = cfg_path.stat().st_mtime if cfg_path.exists() else 0.0
+            if self._pk_report_cfg_cache is None or mtime != self._pk_report_cfg_mtime:
+                self._pk_report_cfg_cache = PkReportConfigManager(base_dir).load()
+                self._pk_report_cfg_mtime = mtime
+            return self._pk_report_cfg_cache or dict(DEFAULT_PK_REPORT_CONFIG)
+        except Exception:
+            return {"enabled": False}
 
     def stop(self, reason: str = "Dừng Auto"):
         self.running = False
@@ -1205,13 +1227,29 @@ class AutoTrainWorker:
                     continue
 
                 # 1.2. Kiểm tra trạng thái tử vong / Bị quái đánh chết hoặc bị người chơi PK
-                if self.evade_on_kill:
+                pk_rep_cfg = self._load_pk_report_config()
+                pk_rep_enabled = bool(pk_rep_cfg.get("enabled", False))
+                if self.evade_on_kill or pk_rep_enabled:
                     try:
                         from meg_navigator import ProcessMemoryReader
                         death_st = ProcessMemoryReader.read_combat_death_status(self.pid)
                         cur_death_count = death_st.get("death_count", 0)
-                        cur_killer = death_st.get("killer_name")
-                        is_dead = death_st.get("is_dead", False)
+                        cur_killer = str(death_st.get("killer_name") or "").strip()
+                        is_dead = bool(death_st.get("is_dead", False))
+
+                        # Fallback qua Frida RPC nếu RPM chưa đọc kịp KillerName hoặc isDead
+                        if self.core and getattr(self.core, "is_ready", False) and hasattr(self.core, "get_pk_report_status"):
+                            if (not cur_killer) or (cur_death_count == 0 and not is_dead):
+                                pk_rpc = self.core.get_pk_report_status() or {}
+                                if pk_rpc.get("ok"):
+                                    rpc_dc = int(pk_rpc.get("deathCount", 0) or 0)
+                                    if rpc_dc > cur_death_count:
+                                        cur_death_count = rpc_dc
+                                    if pk_rpc.get("isDead"):
+                                        is_dead = True
+                                    rpc_k = str(pk_rpc.get("killerName") or "").strip()
+                                    if rpc_k and not cur_killer:
+                                        cur_killer = rpc_k
 
                         # Khởi tạo mốc death count ban đầu khi worker vừa bật
                         if self.last_death_count is None:
@@ -1222,55 +1260,90 @@ class AutoTrainWorker:
 
                         if death_event_detected and not self.is_evading_pk and (now >= self.evade_until):
                             self.last_death_count = cur_death_count
-                            self.is_evading_pk = True
-                            self.evade_killer_name = cur_killer or ("Người chơi PK" if cur_killer else "Quái vật / Tử vong")
-
-                            # Tắt MuHelper & ngừng di chuyển ngay lập tức
-                            if self.core:
-                                try:
-                                    self.core.stop_helper()
-                                    self.core.cancel_move()
-                                    if hasattr(self.core, "stop_auto_move"):
-                                        self.core.stop_auto_move()
-                                except Exception:
-                                    pass
-
-                            # Thời gian chờ ra bãi setup RIÊNG cho từng nhân vật / profile:
-                            cd_sec = max(3.0, float(self.respawn_delay))
-                            self.evade_until = now + cd_sec
-                            self.respawn_until = now + cd_sec
-                            self.last_evade_map_retry = now
-
-                            char_n = getattr(self, "char_name", "") or self.config.get("char_name") or f"Slot {self.slot_idx}"
-                            cd_sec_int = int(cd_sec)
-                            cd_str = f"{cd_sec_int}s" if cd_sec_int < 60 else f"{cd_sec_int // 60}p{cd_sec_int % 60}s"
-                            resume_time_str = time.strftime('%H:%M:%S', time.localtime(self.evade_until))
-
-                            self._log(
-                                f"🚨 [TỬ VONG / PK] Nhân vật '{char_n}' tử vong ({self.evade_killer_name})! (Tổng số lần chết: {cur_death_count})",
-                                "ERROR"
+                            should_report_pk = pk_rep_enabled and (
+                                bool(cur_killer) or not bool(pk_rep_cfg.get("only_when_killer_known", True))
                             )
-                            self._log(
-                                f"🛡️ [TỰ ĐỘNG VỀ LORENCIA] Rút lui về {self.evade_safe_map} an toàn và chờ hết thời gian setup {cd_str} (đến {resume_time_str}) trước khi tự động ra bãi...",
-                                "WARNING"
-                            )
+                            if self.evade_on_kill or should_report_pk:
+                                self.is_evading_pk = True
+                                self.evade_killer_name = cur_killer or "Quái vật / Tử vong"
+                                self.pending_pk_report = should_report_pk
+                                self.pending_pk_report_killer = cur_killer
 
-                            # Chờ 0.35s cho game hoàn tất animation tử vong rồi gửi lệnh rút về Lorencia
-                            time.sleep(0.35)
-                            if self.core:
-                                self.core.send_chat(f"/m {self.evade_safe_map}")
-                            self.arrived_at_spot = False
-                            self.current_stage_key = None
-                            self.map_move_sent = False
-                            self.map_wait_active = False
+                                # Tắt MuHelper & ngừng di chuyển ngay lập tức
+                                if self.core:
+                                    try:
+                                        self.core.stop_helper()
+                                        self.core.cancel_move()
+                                        if hasattr(self.core, "stop_auto_move"):
+                                            self.core.stop_auto_move()
+                                    except Exception:
+                                        pass
+
+                                # Thời gian chờ ra bãi setup RIÊNG cho từng nhân vật / profile:
+                                cd_sec = max(3.0, float(self.respawn_delay)) if self.evade_on_kill else 0.0
+                                self.evade_until = now + cd_sec
+                                self.respawn_until = now + cd_sec
+                                self.last_evade_map_retry = now
+
+                                char_n = getattr(self, "char_name", "") or self.config.get("char_name") or f"Slot {self.slot_idx}"
+                                cd_sec_int = int(cd_sec)
+                                cd_str = f"{cd_sec_int}s" if cd_sec_int < 60 else f"{cd_sec_int // 60}p{cd_sec_int % 60}s"
+                                resume_time_str = time.strftime('%H:%M:%S', time.localtime(self.evade_until))
+
+                                self._log(
+                                    f"🚨 [TỬ VONG / PK] Nhân vật '{char_n}' tử vong ({self.evade_killer_name})! (Tổng số lần chết: {cur_death_count})",
+                                    "ERROR"
+                                )
+                                if should_report_pk:
+                                    self._log(
+                                        f"🛡️ [AUTO REPORT PK] Kích hoạt về thành tìm Lính Canh Report"
+                                        + (f" kẻ PK '{cur_killer}'" if cur_killer else "")
+                                        + (f", sau đó chờ hết {cd_str} rồi tự ra bãi..." if cd_sec > 0 else "..."),
+                                        "WARNING"
+                                    )
+                                elif self.evade_on_kill:
+                                    self._log(
+                                        f"🛡️ [TỰ ĐỘNG VỀ LORENCIA] Rút lui về {self.evade_safe_map} an toàn và chờ hết thời gian setup {cd_str} (đến {resume_time_str}) trước khi tự động ra bãi...",
+                                        "WARNING"
+                                    )
+                                    # Chờ 0.35s cho game hoàn tất animation tử vong rồi gửi lệnh rút về thành an toàn
+                                    time.sleep(0.35)
+                                    if self.core:
+                                        self.core.send_chat(f"/m {self.evade_safe_map}")
+                                self.arrived_at_spot = False
+                                self.current_stage_key = None
+                                self.map_move_sent = False
+                                self.map_wait_active = False
 
                         elif cur_death_count > self.last_death_count:
                             self.last_death_count = cur_death_count
                     except Exception as e_pk:
                         pass
 
-                # 1.3. Quản lý trạng thái đang Chờ Hết Thời Gian Setup tại Lorencia
+                # 1.3. Quản lý trạng thái Auto Report PK & Chờ Hết Thời Gian Setup tại thành an toàn
                 if self.is_evading_pk:
+                    if self.pending_pk_report and self.core and getattr(self.core, "is_ready", False):
+                        killer_to_report = self.pending_pk_report_killer
+                        self.pending_pk_report = False
+                        self.pending_pk_report_killer = ""
+                        try:
+                            from meg_pk_reporter import execute_pk_report
+                            execute_pk_report(
+                                self.core,
+                                cfg=pk_rep_cfg,
+                                killer_name=killer_to_report,
+                                force=False,
+                                stop_event=self.stop_event,
+                                log_cb=self._log,
+                                status_cb=self._set_state,
+                            )
+                        except Exception as e_rep:
+                            self._log(f"⚠️ [AUTO REPORT PK] Lỗi thực thi: {e_rep}", "WARN")
+                        now = time.time()
+                        self.last_evade_map_retry = now
+                        if self.stop_event.is_set() or not self.running:
+                            break
+
                     if now < self.evade_until:
                         rem_sec = int(max(0.0, self.evade_until - now))
                         rem_m = rem_sec // 60
@@ -1285,9 +1358,10 @@ class AutoTrainWorker:
                             except Exception:
                                 pass
 
-                        # Nếu nhân vật chưa ở safe map (Lorencia, mapId 0), gửi lại lệnh chuyển map định kỳ mỗi 10s
+                        # Nếu nhân vật chưa ở thành an toàn (Lorencia=0 / Devias=2 / Noria=3), gửi lại lệnh về thành mỗi 10s
                         safe_map_id = self.map_resolver.expected_map_id(self.evade_safe_map)
-                        if safe_map_id is not None and current_map_id != safe_map_id:
+                        in_safe_town = (current_map_id in (0, 2, 3)) or (safe_map_id is not None and current_map_id == safe_map_id)
+                        if not in_safe_town:
                             if now - self.last_evade_map_retry >= 10.0:
                                 self.last_evade_map_retry = now
                                 self._log(f"Đang ở map {current_map_id}, tiếp tục gửi /m {self.evade_safe_map}...", "INFO")

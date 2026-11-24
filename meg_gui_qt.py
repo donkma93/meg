@@ -56,12 +56,14 @@ from ui_qt.moss_tab import MossTabQt, moss_cat_id, moss_cat_name, MOSS_CAT_OPTIO
 from ui_qt.quest_tab import QuestTabQt
 from ui_qt.logs_tab import LogsTabQt
 from meg_quest_automation import QuestConfigManager, QuestSlotRunner, summarize_quest_snapshot
+from meg_pk_reporter import PkReportConfigManager, execute_pk_report
 from ui_qt.dialogs import (
     JunkDisposalDialogQt,
     LicenseDialogQt,
     DevilConfigDialogQt,
     PointConfigDialogQt,
     PartyConfigDialogQt,
+    PkReportConfigDialogQt,
     TelegramConfigDialogQt,
     UpdateDialogQt,
 )
@@ -343,6 +345,10 @@ class DashboardAppQt(QMainWindow):
         self.quest_config: Dict[str, Any] = self.quest_config_mgr.load()
         self.quest_runners: Dict[int, QuestSlotRunner] = {}
 
+        # Auto Report PK (Về Noria / Lorencia / Devias tìm Lính Canh)
+        self.pk_report_config_mgr = PkReportConfigManager(BASE_DIR)
+        self.pk_report_config: Dict[str, Any] = self.pk_report_config_mgr.load()
+
         # Build Qt6 Shell
         self._build_shell()
 
@@ -568,6 +574,7 @@ class DashboardAppQt(QMainWindow):
             on_remove_slot=self.remove_last_slot,
             on_telegram_config=self.open_telegram_settings_dialog,
             on_party_config=self.open_party_config_dialog,
+            on_pk_report_config=self.open_pk_report_config_dialog,
             on_slot_delay_changed=self.on_slot_delay_changed,
         )
         self.stack.addWidget(self.train_view)
@@ -1323,6 +1330,49 @@ class DashboardAppQt(QMainWindow):
             parent=self,
         )
         dlg.exec()
+
+    def open_pk_report_config_dialog(self):
+        self.pk_report_config = self.pk_report_config_mgr.load()
+
+        def _on_save(new_cfg: Dict[str, Any]):
+            self.pk_report_config = dict(new_cfg)
+            self.pk_report_config_mgr.save(self.pk_report_config)
+            st_lbl = "BẬT" if self.pk_report_config.get("enabled") else "TẮT"
+            town_lbl = str(self.pk_report_config.get("town", "auto")).upper()
+            self.log_message(f"🚨 Đã lưu cấu hình Auto Report PK: {st_lbl} · Thành: {town_lbl}.", "SUCCESS")
+
+        def _on_test_now(run_cfg: Dict[str, Any]):
+            self.run_manual_pk_report_all(run_cfg)
+
+        dlg = PkReportConfigDialogQt(
+            self.pk_report_config,
+            on_save=_on_save,
+            on_test_now=_on_test_now,
+            parent=self,
+        )
+        dlg.exec()
+
+    def run_manual_pk_report_all(self, cfg: Optional[Dict[str, Any]] = None):
+        """Chạy thử quy trình về thành tìm Lính Canh Report cho các slot đang kết nối."""
+        use_cfg = dict(cfg or self.pk_report_config_mgr.load())
+        targets = [c for c in self.controllers if getattr(c, "engine", None) and getattr(c.engine, "is_ready", False)]
+        if not targets:
+            self.log_message("⚠️ Chưa có Slot nào đang kết nối Direct Engine để chạy Report.", "WARN")
+            return
+        self.log_message(f"🚨 Khởi chạy tìm Lính Canh Report thủ công cho {len(targets)} slot đang kết nối...", "INFO")
+
+        def _run_slot(ctrl):
+            slot_tag = f"[Slot {ctrl.slot_idx}]"
+            execute_pk_report(
+                ctrl.engine,
+                cfg=use_cfg,
+                killer_name="",
+                force=True,
+                log_cb=lambda m, lv="INFO": self.log_message(f"{slot_tag} {m}", lv),
+            )
+
+        for ctrl in targets:
+            threading.Thread(target=_run_slot, args=(ctrl,), name=f"PkReportSlot-{ctrl.slot_idx}", daemon=True).start()
 
     def open_telegram_settings_dialog(self):
         dlg = TelegramConfigDialogQt(self.telegram_config, send_raw_fn=send_telegram_raw, parent=self)

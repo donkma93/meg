@@ -180,6 +180,7 @@ def run_nuitka_build() -> bool:
         "--include-module=meg_crash_tracer",
         "--include-module=meg_rea_hunter",
         "--include-module=meg_quest_automation",
+        "--include-module=meg_pk_reporter",
         "--include-module=test_entity_radar",
         "--include-module=telegram_notifier",
         "--include-raw-dir=native_bin=native_bin",

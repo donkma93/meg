@@ -16,9 +16,9 @@
     {
       "min_level": 1,
       "max_level": 1110,
-      "map_name": "Ubaid",
-      "x": 237,
-      "y": 172
+      "map_name": "Noria",
+      "x": 133,
+      "y": 137
     }
   ],
   "evade_on_kill": true,

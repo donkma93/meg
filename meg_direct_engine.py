@@ -1740,6 +1740,25 @@ function flushGateActionsOnMainThread() {
     }
 }
 var pendingQuestWindowClose = false;
+var pendingPkWindowClose = false;
+var _autoReportConfirmUntilMs = 0;
+var _autoReportKillerName = "";
+var _autoReportConfirmCount = 0;
+
+function _isPkReportDialogText(idStr, title, msg) {
+    var comb = (String(idStr || "") + " " + String(title || "") + " " + String(msg || "")).toLowerCase();
+    if (_autoReportKillerName && _autoReportKillerName.length > 0 && comb.indexOf(_autoReportKillerName.toLowerCase()) !== -1) {
+        return true;
+    }
+    var kws = [
+        "report", "denunc", "denúncia", "denuncia", "killer", "murder",
+        "guard", "bounty", "pk", "tố cáo", "to cao", "cảnh vệ", "lính canh"
+    ];
+    for (var i = 0; i < kws.length; i++) {
+        if (comb.indexOf(kws[i]) !== -1) return true;
+    }
+    return false;
+}
 var pendingQuestNextAction = null;
 var pendingQuestPickups = [];
 var lastQuestPickupDone = 0;
@@ -4539,6 +4558,21 @@ try {
                             } catch (eQWC) {}
                         }
 
+                        if (pendingPkWindowClose) {
+                            try {
+                                pendingPkWindowClose = false;
+                                if (gui && !gui.isNull()) {
+                                    var pkWin = gui.add(0x2A8).readPointer();
+                                    if (pkWin && !pkWin.isNull() && nativeWindowHide !== null) {
+                                        try { nativeWindowHide(pkWin, ptr(0)); } catch (ePKWH) {}
+                                    }
+                                }
+                                if (nativeCloseTalk !== null) {
+                                    try { nativeCloseTalk(); } catch (ePKCT) {}
+                                }
+                            } catch (ePKWC) {}
+                        }
+
                         if (pendingMossOpenCategory !== null) {
                             try {
                                 var cat = pendingMossOpenCategory;
@@ -4901,6 +4935,24 @@ try {
                         pendingQuestNpcTalkPtr = null;
                         invokeNpcTalk(qnPtrGU, true);
                     } catch (eQNTGU) {}
+                }
+
+                if (pendingPkWindowClose) {
+                    try {
+                        pendingPkWindowClose = false;
+                        if (nativeGetGameUI !== null) {
+                            var guiPK = nativeGetGameUI();
+                            if (guiPK && !guiPK.isNull()) {
+                                var pkWinGU = guiPK.add(0x2A8).readPointer();
+                                if (pkWinGU && !pkWinGU.isNull() && nativeWindowHide !== null) {
+                                    try { nativeWindowHide(pkWinGU, ptr(0)); } catch (ePKWH2) {}
+                                }
+                            }
+                        }
+                        if (nativeCloseTalk !== null) {
+                            try { nativeCloseTalk(); } catch (ePKCT2) {}
+                        }
+                    } catch (ePKWC2) {}
                 }
 
                 if (pendingQuestNextAction !== null) {
@@ -6745,8 +6797,9 @@ try {
                             lowT.indexOf("nhóm") !== -1 || lowM.indexOf("nhóm") !== -1 ||
                             lowT.indexOf("pt") !== -1
                         );
+                        var isReportConfirm = (_autoReportConfirmUntilMs > Date.now()) && _isPkReportDialogText(idStr, title, msg);
 
-                        if (isDevilConfirm || isMirrorConfirm || isPartyConfirm) {
+                        if (isDevilConfirm || isMirrorConfirm || isPartyConfirm || isReportConfirm) {
                             var invoked = _invokeUnityBoolActionTrue(a5);
                             if (isMirrorConfirm) {
                                 _nativeMirrorTurboStats.suppressedConfirms += 1;
@@ -6754,7 +6807,15 @@ try {
                                 return ptr(0);
                             }
                             if (invoked) {
-                                if (isPartyConfirm) {
+                                if (isReportConfirm) {
+                                    _autoReportConfirmCount += 1;
+                                    send({
+                                        type: "auto_report_confirmed",
+                                        source: "show_confirm_hook",
+                                        title: title,
+                                        message: msg
+                                    });
+                                } else if (isPartyConfirm) {
                                     send({
                                         type: "auto_party_confirmed",
                                         source: "show_confirm_hook",
@@ -6799,7 +6860,9 @@ try {
                             lowT.indexOf("pt") !== -1
                         );
 
-                        if (isDevilConfirm || isMirrorConfirm || isPartyConfirm) {
+                        var isReportConfirm = (_autoReportConfirmUntilMs > Date.now()) && _isPkReportDialogText(idStr, title, msg);
+
+                        if (isDevilConfirm || isMirrorConfirm || isPartyConfirm || isReportConfirm) {
                             var actionPtr = null;
                             try { actionPtr = this.context.rsp.add(0x30).readPointer(); } catch (eStk) {}
                             if (!actionPtr || actionPtr.isNull()) {
@@ -6812,7 +6875,15 @@ try {
                                     _nativeMirrorTurboStats.suppressedConfirms += 1;
                                     _suppressMirrorUiUntilMs = Math.max(_suppressMirrorUiUntilMs, Date.now() + 800);
                                 }
-                                if (invoked && isPartyConfirm) {
+                                if (invoked && isReportConfirm) {
+                                    _autoReportConfirmCount += 1;
+                                    send({
+                                        type: "auto_report_confirmed",
+                                        source: "show_confirm_hook",
+                                        title: title,
+                                        message: msg
+                                    });
+                                } else if (invoked && isPartyConfirm) {
                                     send({
                                         type: "auto_party_confirmed",
                                         source: "show_confirm_hook",
@@ -8161,6 +8232,197 @@ rpc.exports = {
             pendingQuestWindowClose = true;
             return true;
         } catch (eC) {
+            return false;
+        }
+    },
+
+    findGuardNpc: function() {
+        try {
+            ensureThreadAttached();
+            var localPlayer = getPlayerPtr();
+            var px = -1, py = -1;
+            if (!localPlayer.isNull()) {
+                try {
+                    var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!pCoord.isNull()) {
+                        px = pCoord.add(0x10).readS32();
+                        py = pCoord.add(0x14).readS32();
+                    }
+                } catch (ePC) {}
+            }
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            if (typeInfo.isNull()) return JSON.stringify({ found: false });
+            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+            if (staticFields.isNull()) return JSON.stringify({ found: false });
+            var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+            if (gameInstance.isNull()) return JSON.stringify({ found: false });
+            var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+            if (viewport.isNull()) return JSON.stringify({ found: false });
+            var objDict = viewport.add(ptr('0x20')).readPointer();
+            if (objDict.isNull()) return JSON.stringify({ found: false });
+            var entries = objDict.add(ptr('0x18')).readPointer();
+            var count = objDict.add(ptr('0x20')).readS32();
+            if (entries.isNull() || count <= 0 || count > 600) return JSON.stringify({ found: false });
+
+            var EXCLUDE_GUARD_NAMES = ["imperial", "jerint", "siege", "guardsman", "guardian", "lugard"];
+            var best = null;
+            var bestDist = 999999;
+
+            for (var i = 0; i < count; i++) {
+                var entryAddr = entries.add(0x20 + i * 24);
+                if (entryAddr.readS32() < 0) continue;
+                var val = entryAddr.add(16).readPointer();
+                if (val.isNull()) continue;
+                var body = ptr(0);
+                try {
+                    var vkn = getIl2CppClassNameSafe(val);
+                    if (vkn.indexOf("ViewportBody") === -1) continue;
+                    body = val.add(0x18).readPointer();
+                } catch (eVB) { continue; }
+                if (body.isNull() || (!localPlayer.isNull() && body.equals(localPlayer))) continue;
+
+                // Không bao giờ chọn người chơi khác (PlayerBody / CharacterBody)
+                var bodyCls = "";
+                try { bodyCls = getIl2CppClassNameSafe(body); } catch (eCls) {}
+                if (bodyCls.indexOf("PlayerBody") !== -1 || bodyCls.indexOf("CharacterBody") !== -1) continue;
+
+                var bSkin = -1, bClass = -1, bIdx = -1;
+                try { bIdx = body.add(0x20).readS32(); } catch (e1) {}
+                try { bClass = body.add(0x34).readS32(); } catch (e2) {}
+                try { bSkin = body.add(0x60).readS32(); } catch (e3) {}
+
+                var bName = "";
+                try {
+                    var np = body.add(off('__PLAYER_NAME__')).readPointer();
+                    if (!np.isNull()) {
+                        var nl = np.add(0x10).readS32();
+                        if (nl > 0 && nl < 64) bName = np.add(0x14).readUtf16String(nl);
+                    }
+                } catch (e4) {}
+
+                var lowN = bName.toLowerCase();
+                var isExcluded = false;
+                for (var ex = 0; ex < EXCLUDE_GUARD_NAMES.length; ex++) {
+                    if (lowN.indexOf(EXCLUDE_GUARD_NAMES[ex]) !== -1) {
+                        isExcluded = true;
+                        break;
+                    }
+                }
+                if (isExcluded) continue;
+
+                var isGuardSkin = (bSkin === 247 || bSkin === 249 || bClass === 247 || bClass === 249);
+                var isGuardName = (lowN.indexOf("guard") !== -1 || lowN.indexOf("guarda") !== -1 || lowN.indexOf("lính canh") !== -1);
+                if (!isGuardSkin && !isGuardName) continue;
+
+                var nx = 0, ny = 0;
+                try {
+                    var nc = body.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!nc.isNull()) {
+                        nx = nc.add(0x10).readS32();
+                        ny = nc.add(0x14).readS32();
+                    }
+                } catch (e5) {}
+                var dist = (px >= 0 && py >= 0) ? Math.sqrt((nx - px) * (nx - px) + (ny - py) * (ny - py)) : 0;
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = {
+                        found: true,
+                        ptr: body.toString(),
+                        index: bIdx,
+                        skin: bSkin,
+                        class_id: bClass,
+                        name: bName || (bSkin === 247 ? "Crossbow Guard" : "Berdysh Guard"),
+                        x: nx,
+                        y: ny,
+                        dist: Math.round(dist * 10) / 10
+                    };
+                }
+            }
+            return JSON.stringify(best || { found: false });
+        } catch (eFG) {
+            return JSON.stringify({ found: false, error: eFG.toString() });
+        }
+    },
+
+    getPkReportStatus: function() {
+        try {
+            ensureThreadAttached();
+            var p = getPlayerPtr();
+            if (!p || p.isNull()) {
+                return JSON.stringify({ ok: false, error: "no_player" });
+            }
+            var snap = readPlayerInfoSnapshot(true) || {};
+            var hp = 0;
+            var isDead = false;
+            var deathCount = 0;
+            var killCount = 0;
+            var killerName = "";
+            try { hp = p.add(0x3C).readU32(); } catch (e1) {}
+            try { isDead = (p.add(0x5C).readU8() !== 0); } catch (e2) {}
+            try { deathCount = p.add(0x504).readS32(); } catch (e3) {}
+            try { killCount = p.add(0x520).readS32(); } catch (e4) {}
+            try {
+                var kPtr = p.add(0x528).readPointer();
+                if (kPtr && !kPtr.isNull()) {
+                    killerName = readIl2CppStrSafe(kPtr);
+                }
+            } catch (e5) {}
+
+            var pkWindowOpen = false;
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (gui && !gui.isNull()) {
+                        var pkWin = gui.add(0x2A8).readPointer();
+                        if (pkWin && !pkWin.isNull()) {
+                            var mWin = pkWin.add(0x20).readPointer();
+                            if (mWin && !mWin.isNull()) {
+                                pkWindowOpen = (mWin.add(0x48).readU8() === 1);
+                            }
+                        }
+                    }
+                }
+            } catch (ePW) {}
+
+            return JSON.stringify({
+                ok: true,
+                hp: hp,
+                isDead: isDead,
+                deathCount: deathCount,
+                killCount: killCount,
+                killerName: killerName,
+                mapId: snap.mapId !== undefined ? snap.mapId : -1,
+                x: snap.x || 0,
+                y: snap.y || 0,
+                pkWindowOpen: pkWindowOpen,
+                autoReportConfirmCount: _autoReportConfirmCount
+            });
+        } catch (ePKS) {
+            return JSON.stringify({ ok: false, error: ePKS.toString() });
+        }
+    },
+
+    setAutoConfirmReport: function(enabled, killerName) {
+        try {
+            var en = !!enabled;
+            _autoReportConfirmUntilMs = en ? (Date.now() + 10000) : 0;
+            _autoReportKillerName = en ? String(killerName || "") : "";
+            return JSON.stringify({
+                ok: true,
+                enabled: en,
+                killerName: _autoReportKillerName,
+                confirmCount: _autoReportConfirmCount
+            });
+        } catch (eACR) {
+            return JSON.stringify({ ok: false, error: eACR.toString() });
+        }
+    },
+
+    closePkWindow: function() {
+        try {
+            pendingPkWindowClose = true;
+            return true;
+        } catch (eCPW) {
             return false;
         }
     },
@@ -14253,6 +14515,50 @@ class MegDirectEngine:
         if self.is_ready:
             try:
                 return bool(self._call("closeQuestWindow"))
+            except Exception:
+                pass
+        return False
+
+    # ==========================================================================
+    # AUTO PK REPORT (LÍNH CANH / GUARD NPC) NATIVE RPC WRAPPERS
+    # ==========================================================================
+    def find_guard_npc(self) -> Dict[str, Any]:
+        """Quét Viewport tìm Lính Canh gần nhất (Berdysh Guard 249 / Crossbow Guard 247 / tên Guard), loại trừ người chơi."""
+        return self._call_json("findGuardNpc", default={"found": False})
+
+    def get_pk_report_status(self) -> Dict[str, Any]:
+        """Đọc trạng thái PK trực tiếp từ LocalCharacterBody (+0x528 KillerName, +0x504 DeathCount, +0x5C IsDead) & PKWindow."""
+        return self._call_json(
+            "getPkReportStatus",
+            default={
+                "ok": False,
+                "hp": 0,
+                "isDead": False,
+                "deathCount": 0,
+                "killCount": 0,
+                "killerName": "",
+                "mapId": -1,
+                "x": 0,
+                "y": 0,
+                "pkWindowOpen": False,
+                "autoReportConfirmCount": 0,
+            },
+        )
+
+    def set_auto_confirm_report(self, enabled: bool = True, killer_name: str = "") -> Dict[str, Any]:
+        """Bật/tắt tự động bấm YES cho hộp thoại xác nhận Report khi nói chuyện với Lính Canh."""
+        return self._call_json(
+            "setAutoConfirmReport",
+            bool(enabled),
+            str(killer_name or ""),
+            default={"ok": False, "enabled": False},
+        )
+
+    def close_pk_window(self) -> bool:
+        """Đóng cửa sổ PK / hội thoại Lính Canh (C1:31) trên Unity MainThread."""
+        if self.is_ready:
+            try:
+                return bool(self._call("closePkWindow"))
             except Exception:
                 pass
         return False

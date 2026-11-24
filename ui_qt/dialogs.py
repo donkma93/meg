@@ -894,3 +894,131 @@ class UpdateDialogQt(QDialog):
 
         threading.Thread(target=_worker, name="QtUpdateWorker", daemon=True).start()
 
+
+class PkReportConfigDialogQt(QDialog):
+    """Hộp thoại cấu hình Auto Report PK (về Noria / Lorencia / Devias tìm Lính Canh Report)."""
+
+    TOWN_OPTIONS = [
+        ("auto", "Tự động (Ưu tiên thành hiện tại → Lorencia → Noria → Devias)"),
+        ("lorencia", "Lorencia (Cổng Nam / Bắc / Đông / Tây)"),
+        ("noria", "Noria (Trung tâm / Cổng Đông / Nam)"),
+        ("devias", "Devias (Cổng Nam / Đông / Tây / Bắc)"),
+    ]
+
+    def __init__(
+        self,
+        cfg: Dict[str, Any],
+        on_save: Optional[Callable[[Dict[str, Any]], None]] = None,
+        on_test_now: Optional[Callable[[Dict[str, Any]], None]] = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("🚨 Cấu hình Auto Report PK (Tìm Lính Canh)")
+        self.resize(520, 340)
+        self._cfg = dict(cfg or {})
+        self._on_save = on_save
+        self._on_test_now = on_test_now
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(10)
+
+        hdr = QLabel("🚨 TỰ ĐỘNG VỀ THÀNH TÌM LÍNH CANH REPORT KHI BỊ PK")
+        hdr.setStyleSheet("font-size: 13px; font-weight: 800; color: #f87171;")
+        root.addWidget(hdr)
+
+        desc = QLabel(
+            "Khi nhân vật bị người chơi khác PK trong lúc Auto Train, bot sẽ tự động dừng MuHelper, "
+            "chờ hồi sinh, dịch chuyển về thành (Lorencia / Noria / Devias), tuần tra tìm Lính Canh "
+            "(Guard) gần nhất, nói chuyện Report và tự bấm xác nhận, sau đó quay lại bãi train."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        root.addWidget(desc)
+
+        card = QFrame()
+        card.setProperty("surface", "card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(14, 12, 14, 12)
+        cl.setSpacing(10)
+
+        self.cb_enabled = QCheckBox("Bật Auto Report khi bị người chơi PK")
+        self.cb_enabled.setChecked(bool(self._cfg.get("enabled", True)))
+        self.cb_enabled.setStyleSheet("font-weight: 700; color: #f1f5f9;")
+        cl.addWidget(self.cb_enabled)
+
+        row_town = QHBoxLayout()
+        lbl_t = QLabel("Thành ưu tiên tìm Lính Canh:")
+        lbl_t.setStyleSheet("color: #cbd5e1; font-weight: 600;")
+        self.combo_town = QComboBox()
+        cur_town = str(self._cfg.get("town", "auto")).lower()
+        if cur_town == "davias":
+            cur_town = "devias"
+        sel_idx = 0
+        for idx, (key, label) in enumerate(self.TOWN_OPTIONS):
+            self.combo_town.addItem(label, key)
+            if key == cur_town:
+                sel_idx = idx
+        self.combo_town.setCurrentIndex(sel_idx)
+        row_town.addWidget(lbl_t)
+        row_town.addWidget(self.combo_town, 1)
+        cl.addLayout(row_town)
+
+        self.cb_only_pk = QCheckBox("Chỉ đi Report khi có tên người chơi PK (bỏ qua nếu chết do quái vật)")
+        self.cb_only_pk.setChecked(bool(self._cfg.get("only_when_killer_known", True)))
+        cl.addWidget(self.cb_only_pk)
+
+        self.cb_fallback = QCheckBox("Tự động chuyển sang thành dự phòng (Lorencia / Noria / Devias) nếu không thấy Lính Canh")
+        self.cb_fallback.setChecked(bool(self._cfg.get("fallback_towns", True)))
+        cl.addWidget(self.cb_fallback)
+
+        root.addWidget(card)
+        root.addStretch(1)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        b_test = QPushButton("🚨 Chạy Report Ngay (Slot đang nối)")
+        b_test.setProperty("tone", "warning")
+        b_test.setFixedHeight(32)
+        b_test.clicked.connect(self._handle_test_now)
+
+        b_cancel = QPushButton("Đóng")
+        b_cancel.setFixedHeight(32)
+        b_cancel.clicked.connect(self.reject)
+
+        b_save = QPushButton("💾 Lưu Cài Đặt")
+        b_save.setProperty("tone", "success")
+        b_save.setFixedHeight(32)
+        b_save.clicked.connect(self._handle_save)
+
+        btn_row.addWidget(b_test)
+        btn_row.addStretch(1)
+        btn_row.addWidget(b_cancel)
+        btn_row.addWidget(b_save)
+        root.addLayout(btn_row)
+
+    def collect_config(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.cb_enabled.isChecked(),
+            "town": str(self.combo_town.currentData() or "auto"),
+            "only_when_killer_known": self.cb_only_pk.isChecked(),
+            "fallback_towns": self.cb_fallback.isChecked(),
+            "max_duration_s": float(self._cfg.get("max_duration_s", 55.0) or 55.0),
+        }
+
+    def _handle_save(self):
+        data = self.collect_config()
+        if self._on_save:
+            self._on_save(data)
+        self.accept()
+
+    def _handle_test_now(self):
+        data = self.collect_config()
+        if self._on_save:
+            self._on_save(data)
+        if self._on_test_now:
+            self._on_test_now(data)
+        self.accept()
+
+
