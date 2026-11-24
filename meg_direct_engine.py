@@ -893,10 +893,8 @@ var nativeUserInvSell = null;
 try {
     var uisOff = off('__USER_INV_SELL__');
     var uiaOff = off('__USER_INV_ACTION__');
-    // GUARD: 0x14521D0 (KKIEDJMGCHO) và 0x14557E0 (IEEDCOGFPGG) là lệnh MUA (C3:32 BUY), TUYỆT ĐỐI KHÔNG dùng để bán!
-    // Hàm BÁN thật là Mega.UserInventory.AFCIKPDMOCC(int slot, MOFAGGHDOFI item) @ 0x1450640 (gửi C3:33 SELL).
-    if (!uisOff.isNull() && !uisOff.equals(ptr('0x14521D0')) && !uisOff.equals(ptr('0x14557E0')) &&
-        (uiaOff.isNull() || !uisOff.equals(uiaOff))) {
+    // GUARD: TUYỆT ĐỐI KHÔNG dùng lệnh BUY/ACTION để bán!
+    if (!uisOff.isNull() && (uiaOff.isNull() || !uisOff.equals(uiaOff))) {
         nativeUserInvSell = new NativeFunction(baseAddr.add(uisOff), 'void', ['int', 'pointer', 'pointer']);
     }
 } catch (eUIS) {}
@@ -904,7 +902,7 @@ try {
 var nativeUserInvSell5 = null;
 try {
     var uis5Off = off('__USER_INV_SELL_5__');
-    if (!uis5Off.isNull() && !uis5Off.equals(ptr('0x14557E0')) && !uis5Off.equals(ptr('0x14521D0'))) {
+    if (!uis5Off.isNull() && (uiaOff.isNull() || !uis5Off.equals(uiaOff))) {
         nativeUserInvSell5 = new NativeFunction(baseAddr.add(uis5Off), 'void', ['int', 'int', 'pointer']);
     }
 } catch (eUIS5) {}
@@ -2927,18 +2925,29 @@ function dispatchChatMessage(cmdText) {
         if (str.isNull()) return false;
 
         var isSlashCmd = (cmdText.length > 0 && cmdText.charAt(0) === '/');
+        var isServerCmd = (/^\/(m|warp|move|post|pack|unpack|reset|addstr|addagi|addvit|addene|addcmd)\b/i).test(cmdText);
 
-        // 1. Đối với lệnh hệ thống bắt đầu bằng '/', CommandManager.AHNMGMEOIFC (RVA 0xF79E70)
-        // trả về 0 nếu là lệnh client đã xử lý xong nội bộ (như /fps, /re, /sound).
-        // Nếu trả về 1, đó là lệnh server (như /m, /post...) hoặc lệnh chat, cần gửi qua mạng.
-        if (isSlashCmd && nativeCommandManagerProcess !== null) {
+        // 1. Đối với lệnh hệ thống client thuần túy (không phải lệnh server như /m, /post, /pack, /reset...),
+        // CommandManager.Process trả về 0 nếu đã xử lý xong nội bộ.
+        // Nếu trả về 1 hoặc là lệnh server, cần gửi qua mạng lên GameServer.
+        if (isSlashCmd && !isServerCmd && nativeCommandManagerProcess !== null) {
             try {
                 var handled = nativeCommandManagerProcess(str, ptr(0));
-                if (handled === 0) return true; // Lệnh client đã được xử lý xong
+                if (handled === 0 || handled === false) return true; // Lệnh client đã được xử lý xong
             } catch (eCmd) {}
         }
 
-        // 2. ƯU TIÊN SỐ 1: Gửi lệnh chat ngầm 100% qua Mega.Chat (RVA 0xF78030)
+        // 2. ƯU TIÊN SỐ 1: Gửi qua ChatFrame.Send với cờ force = true (1)
+        // Đây là luồng chat UI chuẩn của game, tự động gọi Mega.Chat.Send và đồng bộ input
+        var cf = getChatFrameInstance();
+        if (!cf.isNull() && sendChatMessageNative !== null) {
+            try {
+                sendChatMessageNative(cf, str, 1, ptr(0));
+                return true;
+            } catch (eCF) {}
+        }
+
+        // 3. Fallback: Gửi lệnh chat ngầm 100% qua Mega.Chat.Send
         // Đây là hàm static gửi packet mạng trực tiếp lên GameServer trên Unity Main Thread,
         // HOÀN TOÀN NGẦM không mở khung chat, không cướp chuột/phím, không click màn hình.
         if (nativeStaticChatSend !== null) {
@@ -2946,15 +2955,6 @@ function dispatchChatMessage(cmdText) {
                 nativeStaticChatSend(str, ptr(0));
                 return true;
             } catch (eStatic) {}
-        }
-
-        // 3. Fallback gửi qua ChatFrame.NIGJMBAHDMF (RVA 0x134B040) với cờ force = true (1)
-        var cf = getChatFrameInstance();
-        if (!cf.isNull() && sendChatMessageNative !== null) {
-            try {
-                sendChatMessageNative(cf, str, 1, ptr(0));
-                return true;
-            } catch (eCF) {}
         }
     } catch (eDispatch) {}
     return false;
@@ -3580,7 +3580,7 @@ function performMossRollNow(cat) {
 
         // 3. GỬI LỆNH QUAY (chạy trực tiếp trên Unity MainThread):
         var sent = false;
-        // Ưu tiên 1: Gửi qua Native Packet RPC thật (MossMerchantWindow.MKAOMFFDDGH - RVA 0x24CE7B0 -> C1:70:10 -> 0x122DCD0)
+        // Ưu tiên 1: Gửi qua Native Packet RPC thật (MossMerchantWindow.SendRoll -> C1:70:10 -> GSConnection.Send)
         if (nativeMossSendRoll !== null) {
             try {
                 nativeMossSendRoll(cat, ptr(0));
@@ -4297,7 +4297,7 @@ try {
                             try {
                                 var mPtr = pendingMerchantInteractPtr;
                                 pendingMerchantInteractPtr = null;
-                                invokeNpcTalk(mPtr);
+                                invokeNpcTalk(mPtr, true);
                             } catch (eNTM) {}
                         }
 
@@ -4775,7 +4775,7 @@ try {
                     try {
                         var merchNpcGU = pendingMerchantInteractPtr;
                         pendingMerchantInteractPtr = null;
-                        invokeNpcTalk(merchNpcGU);
+                        invokeNpcTalk(merchNpcGU, true);
                     } catch (eMerchNTGU) {}
                 }
 

@@ -403,7 +403,12 @@ console.log("EXCE_DRAGON_SOCKET_OK");
         import json
         with open("config/megamu_offsets.json", "r", encoding="utf-8") as f:
             offs = json.load(f)
-        self.assertEqual(offs.get("user_inv_sell"), "0x1450640")
+        self.assertEqual(offs.get("user_inv_sell"), "0x14516C0")
+        self.assertEqual(offs.get("gs_send"), "0x12807C0")
+        self.assertEqual(offs.get("npc_send_talk"), "0x11029D0")
+        self.assertEqual(offs.get("npc_close_talk"), "0x1102E10")
+        self.assertEqual(offs.get("user_inv_drop_recv"), "0x1453E80")
+        self.assertEqual(offs.get("moss_send_roll"), "0x237CEF0")
 
         with open("meg_direct_engine.py", "r", encoding="utf-8") as f:
             src = f.read()

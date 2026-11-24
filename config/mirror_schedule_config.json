@@ -4,7 +4,7 @@
     "auto_prep_before": true,
     "auto_lifecycle": true,
     "auto_gremory": true,
-    "zero_confirm": true,
+    "zero_confirm": false,
     "prefire_sec": 2.0,
     "interval_ms": 10,
     "snipe_interval_ms": 10,
@@ -346,6 +346,6 @@
     "enabled": true,
     "notify_enter": true,
     "notify_exit": true,
-    "updated_at": "2026-11-24 06:28:57"
+    "updated_at": "2026-11-24 08:57:05"
   }
 }

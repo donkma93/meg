@@ -3202,6 +3202,12 @@ class SlotController:
                 if getattr(self, "moss_paused_worker", False):
                     self.moss_paused_worker = False
                     def _resume_train():
+                        if eng and eng.is_ready:
+                            try:
+                                eng.close_moss()
+                                eng.unlock_character_and_inventory()
+                            except Exception:
+                                pass
                         self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔄 Tự động khôi phục Auto Train quay lại bãi train...")
                         self.start_auto()
                     self.app.after(1000, _resume_train)
@@ -3286,8 +3292,8 @@ class SlotController:
                                 f"[Slot {s:02d}] ⚠️ Đã phát hiện NPC Moss nhưng click tương tác chưa thành công ({err}), đang thử lại..."
                             ))
                     else:
-                        # Kiểm tra khoảng cách tới Elbeland (22, 225)
-                        if wait_ticks == 0 and eng:
+                        # Kiểm tra bản đồ & khoảng cách tới Elbeland (22, 225) ở lần đầu và định kỳ mỗi 12 ticks (~6s)
+                        if (wait_ticks == 0 or wait_ticks % 12 == 0) and eng:
                             try:
                                 self._ensure_near_moss_npc(eng, npc_info=None, max_dist=3.0)
                             except Exception:
@@ -3392,6 +3398,39 @@ class SlotController:
                                 if inv and not inv.get("error"):
                                     free_slots = int(inv.get("free", 64))
                                     junk_count = int(inv.get("junkCount", 0))
+
+                            # Nếu vẫn thiếu ô trống nhưng còn đồ +7 / Exce rác (không vứt được tại chỗ) -> tự động chạy ra Rhea bán!
+                            if free_slots < (min_slots_needed + 4) and junk_count == 0:
+                                has_sellable_trash = (moss_plus > 0)
+                                if not has_sellable_trash:
+                                    try:
+                                        sell_exc_chk = bool(getattr(self, "moss_sell_excellent", True))
+                                        eff_cat_chk = -1 if clean_equip else self.moss_category
+                                        inv_sell_chk = eng.get_inventory_summary(
+                                            category=eff_cat_chk,
+                                            max_junk_level=7,
+                                            clean_equipment_trash=clean_equip,
+                                            allow_excellent=sell_exc_chk,
+                                        )
+                                        if inv_sell_chk and not inv_sell_chk.get("error"):
+                                            cands_sell = inv_sell_chk.get("junkSlots", []) + inv_sell_chk.get("mossPlusSlots", [])
+                                            for it_s in cands_sell:
+                                                sl_s = it_s.get("slot")
+                                                if sl_s is not None and int(sl_s) not in self.moss_initial_slots:
+                                                    has_sellable_trash = True
+                                                    break
+                                    except Exception:
+                                        pass
+                                if has_sellable_trash and self._moss_try_sell_fallback(eng):
+                                    time.sleep(0.3)
+                                    inv = eng.get_inventory_summary(
+                                        category=self.moss_category,
+                                        max_junk_level=int(getattr(self, "moss_max_junk_level", 6) or 6),
+                                        clean_equipment_trash=clean_equip,
+                                    )
+                                    if inv and not inv.get("error"):
+                                        free_slots = int(inv.get("free", 64))
+                                        junk_count = int(inv.get("junkCount", 0))
 
                             # Nếu hòm đồ đã đầy các vật phẩm quý giá -> Dừng an toàn
                             if free_slots < min_slots_needed and junk_count == 0:
@@ -3694,14 +3733,7 @@ class SlotController:
                 except Exception:
                     pass
             self.app.after(0, lambda: self.app.update_moss_slot_ui_state(self.slot_idx, is_running=False))
-
-            # Khôi phục Auto Train nếu trước đó bị tạm dừng bởi sự kiện Moss
-            if getattr(self, "moss_paused_worker", False):
-                self.moss_paused_worker = False
-                def _resume_train():
-                    self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🔄 Tự động khôi phục Auto Train quay lại bãi train...")
-                    self.start_auto()
-                self.app.after(1000, _resume_train)
+            # (Việc khôi phục Auto Train kèm đóng bảng Moss an toàn được xử lý thống nhất trong finally của _worker)
 
         self.moss_worker_thread = threading.Thread(target=_worker, daemon=True, name=f"Slot{self.slot_idx:02d}_MossWorker")
         self.moss_worker_thread.start()
@@ -3866,11 +3898,35 @@ class SlotController:
                 pass
 
             if need_warp:
-                self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
-                    f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland..."
-                ))
-                eng.send_chat("/m Elbeland")
-                time.sleep(2.0)
+                # Đóng bảng Moss/Merchant và mở khóa trước khi warp để tránh server từ chối /m Elbeland
+                try:
+                    eng.close_moss()
+                    eng.unlock_character_and_inventory()
+                except Exception:
+                    pass
+                warped_ok = False
+                for warp_try in range(3):
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name, wt=warp_try+1: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] 🚶 Đang chuyển map về Elbeland (lần {wt}/3)..."
+                    ))
+                    eng.send_chat("/m Elbeland")
+                    w_t0 = time.time()
+                    while time.time() - w_t0 < 5.0:
+                        time.sleep(0.3)
+                        if not getattr(self, "moss_running", True) and not getattr(self, "_manual_selling", False):
+                            return False
+                        pi_w = eng.get_player_info()
+                        if pi_w and int(pi_w.get("mapId", -1) if pi_w.get("mapId") is not None else -1) == 51:
+                            warped_ok = True
+                            break
+                    if warped_ok:
+                        time.sleep(0.4)
+                        break
+                if not warped_ok:
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] ⚠️ Chưa chuyển được về Elbeland (map 51) sau 3 lần thử /m Elbeland!"
+                    ))
+                    return False
 
             self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                 f"[Slot {s:02d} - {c}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."
@@ -4307,13 +4363,43 @@ class SlotController:
                 eng.close_moss()
                 time.sleep(0.2)
 
+            # Đảm bảo đang ở đúng Elbeland (map 51) trước khi bước tới Rhea/Silvia
+            p_cur = eng.get_player_info()
+            if p_cur:
+                cur_map_m = int(p_cur.get("mapId", -1) if p_cur.get("mapId") is not None else -1)
+                if cur_map_m >= 0 and cur_map_m != 51:
+                    if eng.is_helper_active(force_refresh=True):
+                        eng.stop_helper()
+                        time.sleep(0.3)
+                    warped_m = False
+                    for wt in range(3):
+                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name, a=wt+1: self.app.append_moss_log(
+                            f"[Slot {s:02d} - {c}] 📍 Nhân vật chưa ở Elbeland -> gửi /m Elbeland để ra Shop Rhea (lần {a}/3)..."
+                        ))
+                        eng.send_chat("/m Elbeland")
+                        t_w = time.time()
+                        while time.time() - t_w < 5.0:
+                            time.sleep(0.3)
+                            pi_m = eng.get_player_info()
+                            if pi_m and int(pi_m.get("mapId", -1) if pi_m.get("mapId") is not None else -1) == 51:
+                                warped_m = True
+                                break
+                        if warped_m:
+                            time.sleep(0.4)
+                            break
+                    if not warped_m:
+                        self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                            f"[Slot {s:02d} - {c}] ⚠️ Không thể chuyển về Elbeland để ra Shop Rhea."
+                        ))
+                        return False
+                    p_cur = eng.get_player_info()
+
             # Điểm đích mặc định trước mặt NPC Rhea: ô (30, 235) Elbeland (Rhea đứng tại 29, 236, chỉ cách Moss 22,225 ~11 ô)
             # Lưu ý: KHÔNG đụng Priest James (32, 239 - class 725 Ruud Store). Dự phòng Silvia (44, 229) nếu không tìm thấy Rhea.
             target_merch_x, target_merch_y = 30, 235
             target_label = "Rhea"
 
             # Nếu nhân vật đang đứng sẵn ngay cạnh Silvia (44, 229) thì bán tại Silvia luôn không cần đi ngược về
-            p_cur = eng.get_player_info()
             if p_cur:
                 cpx = p_cur.get("x", 0) or p_cur.get("tileX", 0)
                 cpy = p_cur.get("y", 0) or p_cur.get("tileY", 0)
@@ -4620,9 +4706,32 @@ class SlotController:
                     need_warp = False
 
             if need_warp:
-                self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland..."))
-                eng.send_chat("/m Elbeland")
-                time.sleep(1.8)
+                try:
+                    eng.close_moss()
+                    eng.unlock_character_and_inventory()
+                except Exception:
+                    pass
+                warped_mv = False
+                for wt in range(3):
+                    self.app.after(0, lambda a=wt+1: self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] 🚶 Đang chuyển map về Elbeland (lần {a}/3)..."
+                    ))
+                    eng.send_chat("/m Elbeland")
+                    t_mv = time.time()
+                    while time.time() - t_mv < 5.0:
+                        time.sleep(0.3)
+                        pi_mv = eng.get_player_info()
+                        if pi_mv and int(pi_mv.get("mapId", -1) if pi_mv.get("mapId") is not None else -1) == 51:
+                            warped_mv = True
+                            break
+                    if warped_mv:
+                        time.sleep(0.4)
+                        break
+                if not warped_mv:
+                    self.app.after(0, lambda: self.app.append_moss_log(
+                        f"[Slot {self.slot_idx:02d} - {self.char_name}] ⚠️ Không thể chuyển về Elbeland sau 3 lần thử!"
+                    ))
+                    return
 
             self.app.after(0, lambda: self.app.append_moss_log(f"[Slot {self.slot_idx:02d} - {self.char_name}] 📍 Đang tự động bước tới tọa độ NPC Moss (22, 225)..."))
             eng.start_auto_move(22, 225, helper=False)
@@ -10131,9 +10240,9 @@ class DashboardApp(ctk.CTk):
                         else:
                             self.lbl_moss_sched_status.configure(text="🟢 Đang chờ", text_color="#94a3b8")
 
-                # Tự động điều hướng nhân vật tới NPC Moss trước 15 giây
+                # Tự động điều hướng nhân vật tới NPC Moss trước 25-30 giây (đủ thời gian dừng train, warp Elbeland & bước tới 22,225)
                 if hasattr(self, "cb_moss_auto_move_before") and self.cb_moss_auto_move_before.get():
-                    if 10 <= diff <= 15:
+                    if 15 <= diff <= 30:
                         move_key = next_start.strftime("%Y-%m-%d %H:%M") + "_move"
                         if getattr(self, "_last_moss_move_key", None) != move_key:
                             self._last_moss_move_key = move_key

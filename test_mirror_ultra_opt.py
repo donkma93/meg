@@ -579,21 +579,21 @@ class TestMirrorUltraOptimization(unittest.TestCase):
 
     def test_offsets_sync_and_placeholders_resolved(self):
         required_offsets = {
-            "mirror_enter": "0x100A910",
-            "mirror_enter_alt": "0x100A910",
-            "mirror_enter_recv": "0x100C180",
-            "mirror_teleport_event": "0x100D800",
-            "doublegoer_type_info": "0x55612C8",
-            "set_target_framerate": "0x45E4B80",
-            "get_target_framerate": "0x45E4B30",
-            "set_vsync_count": "0x45F94B0",
-            "get_vsync_count": "0x45F9460",
-            "pkt_enc_nikini": "0x126BC00",
-            "pkt_enc_ngjg": "0x126B4A0",
-            "socket_send_err": "0x42DF4D0",
-            "tcp_set_nodelay": "0x42EB350",
-            "unity_get_time": "0x462F900",
-            "helper_ui_show_dialog": "0x1CDD220",
+            "mirror_enter": "0x1035A60",
+            "mirror_enter_alt": "0x1035A60",
+            "mirror_enter_recv": "0x102C710",
+            "mirror_teleport_event": "0x10359F0",
+            "doublegoer_type_info": "0x551D980",
+            "set_target_framerate": "0x453E950",
+            "get_target_framerate": "0x453E900",
+            "set_vsync_count": "0x4553280",
+            "get_vsync_count": "0x4553230",
+            "pkt_enc_nikini": "0x1266900",
+            "pkt_enc_ngjg": "0x1265390",
+            "socket_send_err": "0x42392F0",
+            "tcp_set_nodelay": "0x4245170",
+            "unity_get_time": "0x45896F0",
+            "helper_ui_show_dialog": "0x1C37CC0",
         }
         with open("megamu_offsets.json", "r", encoding="utf-8") as f:
             root_off = json.load(f)

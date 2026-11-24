@@ -34,6 +34,7 @@ FIELD_KEYS = {
     "item_mirror_ticket", "item_devil_ticket", "item_devil_ticket_master",
     "ui_location_frame", "location_helper_on", "location_helper_off",
     "runtime_class_init",
+    "quest_instance_offset", "player_change_up", "ui_quest_npc_window",
 }
 
 
