@@ -579,17 +579,18 @@ class TestMirrorUltraOptimization(unittest.TestCase):
 
     def test_offsets_sync_and_placeholders_resolved(self):
         required_offsets = {
-            "mirror_enter": "0x1035A60",
-            "mirror_enter_alt": "0x1035A60",
-            "mirror_enter_recv": "0x102C710",
+            "mirror_enter": "0x10308A0",
+            "mirror_enter_alt": "0x10308A0",
+            "mirror_npc_click": "0x10341D0",
+            "mirror_enter_recv": "0x10328D0",
             "mirror_teleport_event": "0x10359F0",
             "doublegoer_type_info": "0x551D980",
             "set_target_framerate": "0x453E950",
             "get_target_framerate": "0x453E900",
             "set_vsync_count": "0x4553280",
             "get_vsync_count": "0x4553230",
-            "pkt_enc_nikini": "0x1266900",
-            "pkt_enc_ngjg": "0x1265390",
+            "pkt_enc_nikini": "0x1293ED0",
+            "pkt_enc_ngjg": "0x1291900",
             "socket_send_err": "0x42392F0",
             "tcp_set_nodelay": "0x4245170",
             "unity_get_time": "0x45896F0",
