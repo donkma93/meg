@@ -5,7 +5,7 @@ MEGAMU Smart AutoTrain Worker (Zero-Mouse Native Engine)
 ======================================================
 Mô phỏng 100% thuật toán điều hướng và tự động cắm bãi của MEGAMU Auto Train Dashboard:
 - Tuyệt đối KHÔNG đụng chuột, KHÔNG cướp tiêu điểm, KHÔNG click tọa độ màn hình.
-- Sử dụng hàm native MoveTo (GameAssembly.dll + 0xD72750) để game tự A* pathfinding.
+- Sử dụng hàm native MoveTo (GameAssembly.dll, nạp RVA từ License RAM) để game tự A* pathfinding.
 - Chuyển map chuẩn xác qua MapResolver (/move <map>) và xác thực Map ID từ Telemetry.
 - Tự động bật MuHelper khi tới bãi và tự động recheck duy trì trạng thái farm.
 - Tự động nhận diện Reset (Level giảm về 1), chờ hồi sinh và tự động chạy lại từ mốc 1.

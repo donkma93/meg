@@ -1102,14 +1102,14 @@ try {
 } catch (eInvTrash) {}
 
 function invokeNativeTrash(slotNumber, coordPointer) {
-    // Vô hiệu hóa triệt để gọi native C++ function 0x1404AD0 nhằm chống crash SEH 0xC0000005
+    // Vô hiệu hóa triệt để gọi native C++ function <RVA> nhằm chống crash SEH 0xC0000005
     // Thay vào đó việc ném đồ tại chỗ 100% sử dụng GameServer packet 0x23 an toàn tuyệt đối.
     return false;
 }
 
 var nativeInvDropItem = nativeInvTrashItem;
 
-// Hàm drop THẬT của client: UserInventory.NNFBKAIGNEM(int slot, Coord target) @ 0x14581E0
+// Hàm drop THẬT của client: UserInventory.NNFBKAIGNEM(int slot, Coord target) @ <RVA>
 // (đã đối chiếu dump.cs + kiểm chứng disassembly GameAssembly.dll: gửi C3:23 [0x30..0x3E, 0x06, 0x23^0xCB, x, y, slot]).
 var nativeUserInvDrop = null;
 try {
@@ -1119,7 +1119,7 @@ try {
     }
 } catch (eUID) {}
 
-// Hook đọc phản hồi C1:23 từ Server: UserInventory.BGMBJOKLALH(byte[]) @ 0x1457C40
+// Hook đọc phản hồi C1:23 từ Server: UserInventory.BGMBJOKLALH(byte[]) @ <RVA>
 // byte[3] = result (1=OK, 0=Server từ chối / safe-zone / ô chặn), byte[4] = slot
 var userInvDropRecvHook = null;
 var _dropRecvSeq = 0;
@@ -1554,8 +1554,8 @@ var _c1SaltCounter = 0;
 function prepareC1FrameBytes(bytes, alreadyXored) {
     if (!bytes || bytes.length < 3) return bytes;
     var out = bytes.slice ? bytes.slice() : Array.prototype.slice.call(bytes);
-    // OBEABIOOBHH.CDKODGBGAJH (0x1273B60): C1 -> byte[0] trong [0x10..0x1E], byte[2] XOR 0xCB
-    // PacketHeader C3 (0x1271110 - Drop 0x23 / Sell 0x32): C3 -> byte[0] trong [0x30..0x3E], byte[2] XOR 0xCB
+    // OBEABIOOBHH.CDKODGBGAJH (<RVA>): C1 -> byte[0] trong [0x10..0x1E], byte[2] XOR 0xCB
+    // PacketHeader C3 (<RVA> - Drop 0x23 / Sell 0x32): C3 -> byte[0] trong [0x30..0x3E], byte[2] XOR 0xCB
     if (out[0] === 0xC1) {
         _c1SaltCounter = (_c1SaltCounter + 1) % 15;
         out[0] = (0x10 + _c1SaltCounter) & 0xFF;
@@ -1603,7 +1603,7 @@ function sendGSPacket(bytes, alreadyXored) {
     }
 }
 
-// Vứt 1 ô bằng chính hàm drop thật của client: UserInventory.NNFBKAIGNEM(int slot, Coord target) @ 0x14581E0.
+// Vứt 1 ô bằng chính hàm drop thật của client: UserInventory.NNFBKAIGNEM(int slot, Coord target) @ <RVA>.
 // Nếu targetX <= 0 hoặc targetY <= 0 (hoặc không đọc được Coord), truyền target=null để client tự chọn ô ngẫu nhiên quanh người [-2..+2].
 function dropSlotNative(slot, targetX, targetY) {
     var s = parseInt(slot);
@@ -1643,6 +1643,7 @@ var pendingMossClose = false;
 var pendingMossResetCategory = null;
 var pendingMerchantClose = false;
 var pendingMossInteractPtr = null;
+var pendingMossForceReopen = false;
 var pendingMerchantInteractPtr = null;
 var pendingQuestNpcTalkPtr = null;
 var pendingQuestStateAction = null;
@@ -1877,7 +1878,7 @@ function sendDropPacket(slot, targetX, targetY) {
         if (s < 12) return false;
         var tx = Math.max(1, Math.min(254, parseInt(targetX || 0))) & 0xFF;
         var ty = Math.max(1, Math.min(254, parseInt(targetY || 0))) & 0xFF;
-        // Chuẩn MEGAMU UserInventory.NNFBKAIGNEM (RVA 0x14581E0) + Header 0x1271110:
+        // Chuẩn MEGAMU UserInventory.NNFBKAIGNEM (RVA <RVA>) + Header <RVA>:
         // C3 packet (byte[0] = 0x30..0x3E), len = 6, opcode = 0x23 ^ 0xCB = 0xE8, [tx, ty, slot]
         var encDrop = 0x23 ^ 0xCB; // 0xE8
         return sendGSPacket([0xC3, 0x06, encDrop, tx, ty, s], true);
@@ -1987,7 +1988,7 @@ function sendSellPacket(slot) {
             }
         } catch (eIP) {}
 
-        // 3. Ưu tiên gọi đúng hàm bán chính thức của client: Mega.UserInventory.AFCIKPDMOCC(slot, item) @ 0x1450640 -> C3:33
+        // 3. Ưu tiên gọi đúng hàm bán chính thức của client: Mega.UserInventory.AFCIKPDMOCC(slot, item) @ <RVA> -> C3:33
         if (nativeUserInvSell !== null) {
             try {
                 nativeUserInvSell(s, itemPtr, ptr(0));
@@ -1995,7 +1996,7 @@ function sendSellPacket(slot) {
             } catch (eUISell) {}
         }
 
-        // 4. Chuẩn protocol bán đồ NPC MEGAMU (verified từ AFCIKPDMOCC @ 0x1450640 + NCIAEIPCNGI @ 0x1271110):
+        // 4. Chuẩn protocol bán đồ NPC MEGAMU (verified từ AFCIKPDMOCC @ <RVA> + NCIAEIPCNGI @ <RVA>):
         // Opcode 0x33 = CGItemSellRecv (KHÔNG phải 0x32 BUY!), XOR 0xCB -> 0xF8, 4 byte: [0xC3, 0x04, 0xF8, slot]
         var encSell = 0x33 ^ 0xCB; // 0xF8
         return sendGSPacket([0xC3, 0x04, encSell, s], true);
@@ -2089,7 +2090,7 @@ function runDropPass(slots, itemsArr, ctx, offsetX, offsetY, useNativeRandom) {
         var ty = (ctx.y > 0) ? Math.max(1, Math.min(254, ctx.y + offsetY + sp[1])) : 0;
         var sent = false;
         try {
-            // Ưu tiên hàm drop thật của client UserInventory.NNFBKAIGNEM (0x14581E0) gửi C3:23 chuẩn,
+            // Ưu tiên hàm drop thật của client UserInventory.NNFBKAIGNEM (<RVA>) gửi C3:23 chuẩn,
             // fallback về sendDropPacket (C3:23 wire frame giống hệt).
             if (nativeUserInvDrop !== null) {
                 sent = useNativeRandom ? dropSlotNative(s, 0, 0) : dropSlotNative(s, tx, ty);
@@ -2552,14 +2553,14 @@ function sendLugardTalkPacket() {
     try {
         var lugard = findLugardNpc();
         if (lugard && !lugard.isNull()) {
-            // Ưu tiên gọi đúng hàm gốc Mega.NpcManager$$PCKGCMNFJND (0x10E9C10) của GameAssembly.dll
+            // Ưu tiên gọi đúng hàm gốc Mega.NpcManager$$PCKGCMNFJND (<RVA>) của GameAssembly.dll
             if (nativeNpcSendTalk !== null) {
                 try {
                     nativeNpcSendTalk(lugard, ptr(0));
                     return true;
                 } catch (eNST) {}
             }
-            // Fallback chuẩn protocol C3:30 Big-Endian (đã xác minh từ 0x1271110 + 0x123DF00)
+            // Fallback chuẩn protocol C3:30 Big-Endian (đã xác minh từ <RVA> + <RVA>)
             var npcKey = -1;
             try { npcKey = lugard.add(0x20).readS32(); } catch (eK) {}
             if (npcKey > 0) {
@@ -2601,26 +2602,26 @@ function sendDevilEnterPacket(level, slot) {
     try {
         var actualSlot = (slot < 12 && slot >= 0) ? (slot + 12) : slot;
         var relSlot = (actualSlot >= 12) ? (actualSlot - 12) : actualSlot;
-        // Bóc tách REA: Client MEGAMU tại RVA 0xF91678 thực hiện `add dil, 0xc` trước khi ghi vào packet
+        // Bóc tách REA: Client MEGAMU tại RVA <RVA> thực hiện `add dil, 0xc` trước khi ghi vào packet
         // Do đó wireSlot = actualSlot + 12 là byte chuẩn client chính thức gửi lên GameServer
         var wireSlot = (actualSlot + 12) & 0xFF;
         var s1 = actualSlot & 0xFF;
         var s2 = relSlot & 0xFF;
         var lvl = level & 0xFF;
 
-        // 1. Opcode 0x90 (Chuẩn IL2CPP Client chính thống DevilSquare.ECEGJEAOELA.ILEAOLLJKPG - RVA 0xF91530)
-        // Lưu ý REA: Hàm 0x120EE30 mã hóa opcode bằng XOR 0xCB -> 0x90 ^ 0xCB = 0x5B
+        // 1. Opcode 0x90 (Chuẩn IL2CPP Client chính thống DevilSquare.ECEGJEAOELA.ILEAOLLJKPG - RVA <RVA>)
+        // Lưu ý REA: Hàm <RVA> mã hóa opcode bằng XOR 0xCB -> 0x90 ^ 0xCB = 0x5B
         var ok1 = sendGSPacket([0xC1, 0x05, 0x5B, lvl, wireSlot]);
         var ok2 = sendGSPacket([0xC1, 0x05, 0x90, lvl, wireSlot]);
         var ok3 = sendGSPacket([0xC1, 0x05, 0x5B, lvl, s1]);
         var ok4 = sendGSPacket([0xC1, 0x05, 0x90, lvl, s1]);
 
-        // 2. Opcode 0x1E (Phương thức native DevilSquare.OMKNMKGNIPF - RVA 0xF75CF0)
+        // 2. Opcode 0x1E (Phương thức native DevilSquare.OMKNMKGNIPF - RVA <RVA>)
         // 0x1E ^ 0xCB = 0xD5
         var ok5 = sendGSPacket([0xC1, 0x05, 0xD5, lvl, wireSlot]);
         var ok6 = sendGSPacket([0xC1, 0x05, 0x1E, lvl, wireSlot]);
 
-        // 3. Opcode 0xC2 (Phương thức native DevilSquare.HNCDPEIBGPG - RVA 0xF834C0)
+        // 3. Opcode 0xC2 (Phương thức native DevilSquare.HNCDPEIBGPG - RVA <RVA>)
         // 0xC2 ^ 0x9E = 0x5C
         var ok7 = sendGSPacket([0xC1, 0x05, 0x5C, lvl, wireSlot]);
         var ok8 = sendGSPacket([0xC1, 0x05, 0xC2, lvl, wireSlot]);
@@ -2731,7 +2732,7 @@ function ensureDropAllowed(allowUiCalls) {
     return ok;
 }
 
-// 0x123ECB0 là RVA cũ không còn tồn tại trên build hiện tại -> luôn dùng JIAFPMMDOPG (TableItem tại +0x58) an toàn 100%
+// <RVA> là RVA cũ không còn tồn tại trên build hiện tại -> luôn dùng JIAFPMMDOPG (TableItem tại +0x58) an toàn 100%
 var nativeGetItemName = null;
 
 function getItemName(itemPtr) {
@@ -2824,7 +2825,7 @@ function readItemProps(itemPtr) {
         p.option = itemPtr.add(0x1C).readS32();
         p.excOpt = itemPtr.add(0x20).readS32();
         p.ancOpt = itemPtr.add(0x24).readS32();
-        // Xác minh từ GameAssembly.dll (MOFAGGHDOFI$$LBBGNJFOOAK @ 0x11B99D0):
+        // Xác minh từ GameAssembly.dll (MOFAGGHDOFI$$LBBGNJFOOAK @ <RVA>):
         // +0x28 = HarmonyOpt (byte[10]), +0x2C = Option380 ((byte[9]&8)<<4), +0x38 = int[5] Socket slots (< 0xFF là có socket)
         p.harmonyOpt = itemPtr.add(0x28).readS32();
         p.opt380 = itemPtr.add(0x2C).readS32();
@@ -3167,14 +3168,14 @@ function dispatchHelperAction(act) {
                 } catch (eClrAM) {}
             }
             var sent = false;
-            // 1. Gọi UserHelper.Start() (NEIBNPAHOJO - RVA 0x478B40)
+            // 1. Gọi UserHelper.Start() (NEIBNPAHOJO - RVA <RVA>)
             if (!h.isNull() && nativeStartHelper !== null) {
                 try {
                     nativeStartHelper(h, ptr(0));
                     sent = true;
                 } catch (eS1) {}
             }
-            // 2. Gửi packet BF:51, 00 (Start) trực tiếp qua nativeHelperSendBf51 (OFFJIPBMOOE - RVA 0x472030)
+            // 2. Gửi packet BF:51, 00 (Start) trực tiếp qua nativeHelperSendBf51 (OFFJIPBMOOE - RVA <RVA>)
             if (!sent && nativeHelperSendBf51 !== null) {
                 try {
                     nativeHelperSendBf51(0, ptr(0));
@@ -3187,14 +3188,14 @@ function dispatchHelperAction(act) {
                 return true;
             }
             var sentStop = false;
-            // 1. Gọi UserHelper.Stop() (GPPPGBCDGJP - RVA 0x469600)
+            // 1. Gọi UserHelper.Stop() (GPPPGBCDGJP - RVA <RVA>)
             if (!h.isNull() && nativeStopHelper !== null) {
                 try {
                     nativeStopHelper(h, ptr(0));
                     sentStop = true;
                 } catch (eSt1) {}
             }
-            // 2. Gửi packet BF:51, 01 (Stop) trực tiếp qua nativeHelperSendBf51 (OFFJIPBMOOE - RVA 0x472030)
+            // 2. Gửi packet BF:51, 01 (Stop) trực tiếp qua nativeHelperSendBf51 (OFFJIPBMOOE - RVA <RVA>)
             if (!sentStop && nativeHelperSendBf51 !== null) {
                 try {
                     nativeHelperSendBf51(1, ptr(0));
@@ -3252,7 +3253,7 @@ function dispatchMoveTarget(target) {
         }
 
         // Cấp phát đối tượng Coord Managed trên GC heap nếu __AUTO_MOVE_DEST__ chưa khởi tạo
-        // (AFDNIFKGNKN..ctor tại 0xAF51F0 lưu con trỏ Coord vào +0x18 và gọi il2cpp_gc_wbarrier_set_field)
+        // (AFDNIFKGNKN..ctor tại <RVA> lưu con trỏ Coord vào +0x18 và gọi il2cpp_gc_wbarrier_set_field)
         if (destC.isNull() && typeof il2cpp_object_new !== 'undefined' && il2cpp_object_new !== null && !k.isNull()) {
             try {
                 ensureThreadAttached();
@@ -3269,7 +3270,7 @@ function dispatchMoveTarget(target) {
             destC.add(0x14).writeS32(parseInt(target.y));
             pMove.add(off('__AUTO_MOVE_DEST__')).writePointer(destC);
             // Chỉ gán __AUTO_MOVE_TYPE__ = 0 khi thực sự chạy AutoMove đường dài;
-            // Với moveTo bước ngắn (step-out), giữ -1 để UserHelper (0x2779E22) không bị khóa!
+            // Với moveTo bước ngắn (step-out), giữ -1 để UserHelper (<RVA>) không bị khóa!
             pMove.add(off('__AUTO_MOVE_TYPE__')).writeS32(isAutoMove ? 0 : -1);
             pMove.add(off('__AUTO_MOVE_HELPER__')).writeU8(target.helper ? 1 : 0);
             pMove.add(off('__AUTO_MOVE_WORKING__')).writeU8(0);
@@ -3533,15 +3534,35 @@ function clearBlockingWindowsForNpcTalk(gui) {
 
 function performMossInteractOnMainThread(gui, nPtr) {
     try {
+        var forceReopen = pendingMossForceReopen;
+        pendingMossForceReopen = false;
         var mossWin = getMossWindowPtr(gui);
-        // Nếu Server đã mở bảng Moss thật sẵn rồi thì chỉ cần chọn đúng Category, không spam C1:30
-        if (!mossWin.isNull() && isMossWindowServerReady(mossWin)) {
+        // Nếu Server đã mở bảng Moss thật sẵn rồi (và không ép mở lại phiên mới) thì chỉ chọn đúng Category, không spam C1:30
+        if (!forceReopen && !mossWin.isNull() && isMossWindowServerReady(mossWin)) {
             if (pendingMossSelectAfterServerOpen !== null) {
                 selectMossCategoryOnly(mossWin, pendingMossSelectAfterServerOpen.cat);
                 ensureMossRollButtonActive(mossWin, true);
                 pendingMossSelectAfterServerOpen = null;
             }
             return true;
+        }
+        if (forceReopen && !mossWin.isNull()) {
+            try {
+                var rWin = mossWin.add(0x20).readPointer();
+                if (!rWin.isNull() && rWin.add(0x48).readU8() === 1) {
+                    if (nativeWindowHide !== null) {
+                        try { nativeWindowHide(rWin, ptr(0)); } catch (eRWH) {}
+                    } else if (nativeWindowSetState !== null) {
+                        try { nativeWindowSetState(rWin, 0, ptr(0)); } catch (eRWSS) {}
+                    }
+                    rWin.add(0x48).writeU8(0);
+                }
+                ensureMossRollButtonActive(mossWin, true);
+            } catch (eForceM) {}
+            if (nativeCloseTalk !== null) {
+                try { nativeCloseTalk(); } catch (eCTForce) {}
+            }
+            try { sendGSPacket([0xC1, 0x04, 0x31, 0x00]); } catch (eGSForce) {}
         }
         clearBlockingWindowsForNpcTalk(gui);
         return invokeNpcTalk(nPtr, true);
@@ -3634,6 +3655,7 @@ function setupMossWindow(mossWin, cat) {
 function performMossCloseNow() {
     pendingMossOpenCategory = null;
     pendingMossSelectAfterServerOpen = null;
+    pendingMossForceReopen = false;
     pendingMossClose = false;
     try {
         if (nativeGetGameUI !== null) {
@@ -3747,6 +3769,9 @@ function performMossRollNow(cat) {
                 }
             } catch (eCat) {}
         }
+
+        // Đảm bảo RollButton mở khóa & timer quay reset trước khi gửi lệnh quay
+        ensureMossRollButtonActive(mossWin, true);
 
         // 3. GỬI LỆNH QUAY (chạy trực tiếp trên Unity MainThread):
         var sent = false;
@@ -4122,7 +4147,7 @@ function findCharonNpc() {
 
             // Nhận diện NPC Charon:
             // 1. Theo npcType:
-            //    - Client native OnClick (0xF760C0): cmp eax, 0x9d (157) & cmp eax, -0x7e (-126)
+            //    - Client native OnClick (<RVA>): cmp eax, 0x9d (157) & cmp eax, -0x7e (-126)
             //    - Chuẩn MuOnline: 236, 237, 720, 251, -78
             // 2. Theo tên (tiếng Anh, Bồ Đào Nha MEGAMU Caronte, tiếng Việt):
             //    - charon, caron, caronte, devil, diabo, mestre
@@ -4796,7 +4821,7 @@ function checkAndAutoConfirmPartyDialogs() {
 
                 var confirmedOk = false;
 
-                // 1. ƯU TIÊN SỐ 1: Gọi trực tiếp MDialog.FHBFMDLNFOH (RVA 0x1C6C860)
+                // 1. ƯU TIÊN SỐ 1: Gọi trực tiếp MDialog.FHBFMDLNFOH (RVA <RVA>)
                 // Hàm này tự động gọi ConfirmActionCallback(true) và đóng Dialog qua Window.Close()
                 if (nativeMDialogConfirmYes !== null) {
                     try {
@@ -4822,7 +4847,7 @@ function checkAndAutoConfirmPartyDialogs() {
                     } catch (eCb) {}
                 }
 
-                // 3. Fallback: Kích hoạt YesButton qua Button.Press (RVA 0x4705530)
+                // 3. Fallback: Kích hoạt YesButton qua Button.Press (RVA <RVA>)
                 var yesBtn = valPtr.add(ptr('0x48')).readPointer();
                 if (!yesBtn.isNull()) {
                     if (nativeButtonPress !== null) {
@@ -5578,7 +5603,7 @@ function getSceneWorldIndex() {
 }
 
 function isCurrentMapDoubleGoer() {
-    // Khớp 100% logic gốc GameAssembly.dll: Mega.DoubleGoer$$PAGCDNAAHMO (0x100D680)
+    // Khớp 100% logic gốc GameAssembly.dll: Mega.DoubleGoer$$PAGCDNAAHMO (<RVA>)
     // chỉ trả về true khi 82 <= Game._Scene.WorldIndex (+0x40) <= 90 (KHÔNG bao gồm 65..68!)
     var wi = getSceneWorldIndex();
     if (wi >= 0) {
@@ -5990,10 +6015,10 @@ function dispatchMirrorEnterPacketFast(relSlot) {
                             if (encArr && !encArr.isNull()) {
                                 var encLen = encArr.add(0x18).readS32();
                                 if (encLen > 0) {
-                                    // Stream cipher FONJFGEKJHI (0x126B4A0) khop 100% GSConnection.INIIKIPJDIJ
+                                    // Stream cipher FONJFGEKJHI (<RVA>) khop 100% GSConnection.INIIKIPJDIJ
                                     nativePktEncNgjg(encArr, encArr, ptr(0));
                                     _sockErrBuf.writeS32(0);
-                                    // Socket.Send(byte[], 0, encLen, None, out err) @ 0x42DF4D0
+                                    // Socket.Send(byte[], 0, encLen, None, out err) @ <RVA>
                                     var sentBytes = nativeSocketSendErr(sock, encArr, 0, encLen, 0, _sockErrBuf, ptr(0));
                                     var sockErr = _sockErrBuf.readS32();
                                     if (sentBytes > 0 && sockErr === 0) {
@@ -6034,7 +6059,7 @@ function dispatchMirrorEnterPacketFast(relSlot) {
             }
 
             // Method 2 fallback: Zero-alloc pinned nativeGSSend trực tiếp trên Unity MainThread
-            // Luôn ghi lại 5 byte header trước fallback vì DCBFPGDDCMG (0x126BC00) sửa mảng đầu vào tại chỗ!
+            // Luôn ghi lại 5 byte header trước fallback vì DCBFPGDDCMG (<RVA>) sửa mảng đầu vào tại chỗ!
             writePinnedMirrorFrame(pinnedPtr, rSlot);
             if (sendGSPacketDirect(gs, pinnedPtr)) {
                 _nativeMirrorTurboStats.fallbackHits += 1;
@@ -6590,7 +6615,7 @@ function findTargetKeyByName(targetName) {
 }
 
 // =========================================================================
-// REA HOOK: TableEventEntryLevel.EAJKFGNLDBN (RVA 0xCEA9B0)
+// REA HOOK: TableEventEntryLevel.EAJKFGNLDBN (RVA <RVA>)
 // Sửa lỗi client MEGAMU trả về -1 cho nhân vật Master (ChangeUp >= 2, vd: Slayer 175/197rr)
 // Khi hàm trả về -1, client MEGAMU tự động bỏ qua vòng lặp tìm vé Master (6702) và hiển thị
 // popup "You don't have a ticket for your level". Hook này đảm bảo hàm trả về cấp phòng
@@ -6906,7 +6931,7 @@ try {
 } catch (eHSCFH) {}
 
 // =========================================================================
-// REA HOOK: MHelperUI.NIONHKAAMJL (ShowConfirm by ID - RVA 0x1CDC490)
+// REA HOOK: MHelperUI.NIONHKAAMJL (ShowConfirm by ID - RVA <RVA>)
 // Tự động xác nhận Party ngay khi nhận được gói tin mời tổ đội
 // =========================================================================
 // =========================================================================
@@ -7295,7 +7320,7 @@ rpc.exports = {
                 destCoord.add(0x10).writeS32(parseInt(x));
                 destCoord.add(0x14).writeS32(parseInt(y));
 
-                // Cấu hình cờ Auto Move chuẩn Type 0 để vòng lặp Update của game khởi tạo BodyActivity (0xabb8d0)
+                // Cấu hình cờ Auto Move chuẩn Type 0 để vòng lặp Update của game khởi tạo BodyActivity (<RVA>)
                 p.add(off('__AUTO_MOVE_DEST__')).writePointer(destCoord);
                 p.add(off('__AUTO_MOVE_TYPE__')).writeS32(0);
                 p.add(off('__AUTO_MOVE_HELPER__')).writeU8(helper ? 1 : 0);
@@ -7667,6 +7692,7 @@ rpc.exports = {
     interactMossNpc: function(categoryId) {
         try {
             var cat = parseInt(categoryId || 0);
+            var forceReopen = (arguments.length > 1) && (arguments[1] === true || arguments[1] === 1 || arguments[1] === "true");
             var npc = findMossNpc();
             if (!npc) {
                 return { success: false, error: "NPC_NOT_FOUND" };
@@ -7675,6 +7701,7 @@ rpc.exports = {
             // Đẩy tương tác NPC Moss thật sang Unity MainThread (Game.Update / GameUI.Update).
             // TUYỆT ĐỐI KHÔNG đặt pendingMossOpenCategory cưỡng chế mở cửa sổ cục bộ trước khi Server phản hồi C2:30!
             // Thay vào đó đăng ký pendingMossSelectAfterServerOpen để tự động chọn đúng tab ngay khi Server mở bảng thật.
+            pendingMossForceReopen = forceReopen;
             pendingMossOpenCategory = null;
             pendingMossSelectAfterServerOpen = { cat: cat, untilMs: Date.now() + 4500 };
             pendingMossInteractPtr = npc.ptr;
@@ -9108,13 +9135,13 @@ rpc.exports = {
                 // 1. Gửi gói tin C1:30/C1:32 tới GameServer (Server sẽ gửi về thông báo "The entrance is currently closed" nếu cổng đóng)
                 sendLugardTalkPacket();
                 invokeNpcTalk(p);
-                // 2. Gọi client dialog DoubleGoer (0xEFDE60):
+                // 2. Gọi client dialog DoubleGoer (<RVA>):
                 // - Nếu không có vé: hiển thị popup "You don't have a Mirror of Dimensions"
                 // - Nếu có vé: hiển thị confirm modal "You have a Mirror of Dimensions. Do you want to enter?"
                 if (nativeMirrorNpcClick !== null) {
                     try { nativeMirrorNpcClick(p, ptr(0)); } catch (eMN) {}
                 }
-                // 3. Gọi Universal NPC Click của NpcManager (0xF785E0) nếu có
+                // 3. Gọi Universal NPC Click của NpcManager (<RVA>) nếu có
                 if (nativeUniversalNpcClick !== null) {
                     var nm = getNpcManagerPtr();
                     if (!nm.isNull()) {
@@ -9138,7 +9165,7 @@ rpc.exports = {
     getDoubleGoerState: function() {
         try {
             ensureThreadAttached();
-            // Đọc trực tiếp Mega.DoubleGoer_TypeInfo (RVA 0x55612C8) -> staticFields (+0xB8)
+            // Đọc trực tiếp Mega.DoubleGoer_TypeInfo (RVA <RVA>) -> staticFields (+0xB8)
             // +0x00: bool PAFCGHEGBBO (isActive)
             // +0x04: int HLEOADFPCCH (remainingTimeSeconds)
             // +0x08: int ECBFKNFEGDP (passedMonsters)
@@ -9395,7 +9422,7 @@ rpc.exports = {
             var openedChest = false;
             var pickedCount = 0;
 
-            // 1. Tương tác mở Rương Sự Kiện (Gửi trực tiếp NpcManager.GEBGEGOEFAD 0x1023B10 -> C3:30 + C1:30 để KHÔNG gây tự động di chuyển)
+            // 1. Tương tác mở Rương Sự Kiện (Gửi trực tiếp NpcManager.GEBGEGOEFAD <RVA> -> C3:30 + C1:30 để KHÔNG gây tự động di chuyển)
             var targetBody = ptr(0);
             if (chestPtrStr && chestPtrStr !== "0" && chestPtrStr !== "0x0") {
                 try { targetBody = ptr(chestPtrStr); } catch (eTP) {}
@@ -9460,7 +9487,7 @@ rpc.exports = {
                     try { tClsId = targetBody.add(0x34).readS32(); } catch (eTCI) {}
                     if (isDest === 0 && !(tClsId >= 529 && tClsId <= 539) && tClsId !== 540 && tClsId !== 723 && tClsId !== 45) {
                         var bIdx = targetBody.add(0x20).readS32();
-                        // Ưu tiên gọi trực tiếp NpcManager.GEBGEGOEFAD (0x1023B10) gửi C3:30 mà KHÔNG kích hoạt vtable MoveTo của 0x102AA00
+                        // Ưu tiên gọi trực tiếp NpcManager.GEBGEGOEFAD (<RVA>) gửi C3:30 mà KHÔNG kích hoạt vtable MoveTo của <RVA>
                         if (nativeNpcSendTalk !== null) {
                             try {
                                 nativeNpcSendTalk(targetBody, ptr(0));
@@ -9479,8 +9506,8 @@ rpc.exports = {
             }
 
             // 2. Tự động nhặt ViewportItem rơi trên đất trong bán kính radius
-            // LƯU Ý QUAN TRỌNG: Hàm 0x1446400 (nativeUserInvPickItem) và 0xB92800 (nativeLocalPickNearest) sẽ gọi MoveTo (0x1446680)
-            // làm nhân vật tự chạy đi nếu vật phẩm cách > 2 ô! Do đó chỉ gọi 0x1446400 khi dist <= 2.0, còn lại gửi thẳng packet C1:22 tại chỗ!
+            // LƯU Ý QUAN TRỌNG: Hàm <RVA> (nativeUserInvPickItem) và <RVA> (nativeLocalPickNearest) sẽ gọi MoveTo (<RVA>)
+            // làm nhân vật tự chạy đi nếu vật phẩm cách > 2 ô! Do đó chỉ gọi <RVA> khi dist <= 2.0, còn lại gửi thẳng packet C1:22 tại chỗ!
             if (!objDict.isNull()) {
                 try {
                     var entries = objDict.add(ptr('0x18')).readPointer();
@@ -10426,7 +10453,7 @@ rpc.exports = {
             // TỰ ĐỘNG KHỞI TẠO TƯƠNG TÁC NPC CHARON (100% ZERO-MANUAL CLICK):
             // Bóc tách REA: GameServer bắt buộc phải có active session với NPC Charon (TargetNpc == Charon)
             // trước khi xử lý packet vào cổng 0x90.
-            // Client thực hiện điều này qua NpcManager.GEBGEGOEFAD (RVA 0x1023B10), thiết lập
+            // Client thực hiện điều này qua NpcManager.GEBGEGOEFAD (RVA <RVA>), thiết lập
             // LocalPlayer + 0x430 = Charon Body và gửi packet mã hóa C3:30.
             if (charon && !charon.isNull()) {
                 invokeNpcTalk(charon);
@@ -10441,7 +10468,7 @@ rpc.exports = {
             if (itemSlot >= 0) {
                 var actualSlot = (itemSlot < 12) ? (itemSlot + 12) : itemSlot;
                 var relSlot = (actualSlot >= 12) ? (actualSlot - 12) : actualSlot;
-                // Bóc tách REA: Client MEGAMU tại RVA 0xF91678 thực hiện `add dil, 0xc` trước khi ghi vào packet
+                // Bóc tách REA: Client MEGAMU tại RVA <RVA> thực hiện `add dil, 0xc` trước khi ghi vào packet
                 var wireSlot = (actualSlot + 12) & 0xFF;
 
                 var charLvl = 0;
@@ -10452,7 +10479,7 @@ rpc.exports = {
                     }
                 } catch (eLvl) {}
 
-                // Xác định chính xác cấp độ phòng Devil Square (Bóc tách REA từ TableEventEntryLevel - RVA 0xCEA9B0):
+                // Xác định chính xác cấp độ phòng Devil Square (Bóc tách REA từ TableEventEntryLevel - RVA <RVA>):
                 // - Cấp phòng chuẩn theo level nhân vật: dsLevel (0..5 tương ứng DS 1..6, hoặc 6 cho DS 7).
                 // - Vé Master vào được tất cả các level có sẵn. Khi dùng vé Master, gửi cả cấp phòng dsLevel
                 //   và cấp phòng 6 (Master) để GameServer luôn chấp nhận vé dù xử lý theo mốc level nhân vật hay theo mốc vé Master.
@@ -10469,7 +10496,7 @@ rpc.exports = {
                 for (var li = 0; li < levelsToSend.length; li++) {
                     var targetDsLvl = levelsToSend[li];
 
-                    // 1. GỌI TRỰC TIẾP CLOSURE IL2CPP NATIVE CỦA CLIENT (RVA 0xF91530: DevilSquare.ECEGJEAOELA.ILEAOLLJKPG)
+                    // 1. GỌI TRỰC TIẾP CLOSURE IL2CPP NATIVE CỦA CLIENT (RVA <RVA>: DevilSquare.ECEGJEAOELA.ILEAOLLJKPG)
                     // Đây chính là hàm native được client MEGAMU gọi khi người chơi bấm nút xác nhận OK trên popup!
                     // Thực thi trực tiếp closure này trong RAM đảm bảo 100% Zero-Confirm (không hiển thị UI, không dialog)
                     if (nativeDevilClosureEnter !== null && typeof il2cpp_object_new !== 'undefined' && il2cpp_object_new !== null) {
@@ -10489,7 +10516,7 @@ rpc.exports = {
                         } catch (eClosure) {}
                     }
 
-                    // 2. GỬI PACKET GIAO THỨC TẦNG MẠNG CHUẨN XÁC 100% THEO CLIENT NATIVE 0xF91530:
+                    // 2. GỬI PACKET GIAO THỨC TẦNG MẠNG CHUẨN XÁC 100% THEO CLIENT NATIVE <RVA>:
                     // Packet mã hóa: [0xC1, 0x05, 0x5B (0x90 ^ 0xCB), targetDsLvl, wireSlot]
                     sendGSPacket([0xC1, 0x05, 0x5B, targetDsLvl, wireSlot]);
                     // Fallback raw opcode 0x90
@@ -11903,7 +11930,14 @@ class MegDirectEngine:
            đọc `config/megamu_offsets.json` phục vụ kiểm thử nội bộ.
         """
         self.offsets = dict(DEFAULT_OFFSETS)
-        is_frozen = bool(getattr(sys, "frozen", False))
+        main_mod = sys.modules.get("__main__")
+        is_frozen = bool(
+            getattr(sys, "frozen", False)
+            or "__compiled__" in globals()
+            or (main_mod is not None and getattr(main_mod, "__compiled__", None) is not None)
+            or os.environ.get("NUITKA_ONEFILE_PARENT")
+            or os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+        )
 
         # 1. Nạp từ RAM của Native C++ Security Bridge (Strict Online)
         try:
@@ -13349,7 +13383,7 @@ class MegDirectEngine:
             pass
         return {"found": False}
 
-    def interact_moss_npc(self, category_id: int = 0) -> Dict[str, Any]:
+    def interact_moss_npc(self, category_id: int = 0, force_reopen: bool = False) -> Dict[str, Any]:
         """
         Tương tác/click trực tiếp vào NPC Moss thực tế:
         Phát lệnh Native NPC Talk (Mega.NpcManager) để Server mở phiên đối thoại
@@ -13357,7 +13391,7 @@ class MegDirectEngine:
         """
         if self.is_ready:
             try:
-                res = self._call("interactMossNpc", int(category_id))
+                res = self._call("interactMossNpc", int(category_id), bool(force_reopen))
                 if res and isinstance(res, dict):
                     if res.get("success"):
                         _safe_log(f"[MegDirectEngine] PID {self.pid} tương tác click NPC Moss thành công: {res}")

@@ -292,15 +292,26 @@ MAP_SPOTS = {
 # =========================================================================
 
 def load_game_type_info_offset() -> int:
+    global GAME_TYPE_INFO_RVA
     try:
-        from license_client import get_secure_game_offsets
+        from license_client import get_secure_game_offsets, is_packaged_app
         sec = get_secure_game_offsets()
         val = sec.get("game_type_info") if isinstance(sec, dict) else None
         if val:
-            return int(val, 16) if isinstance(val, str) else int(val)
+            GAME_TYPE_INFO_RVA = int(val, 16) if isinstance(val, str) else int(val)
+            return GAME_TYPE_INFO_RVA
+        if is_packaged_app():
+            return 0
     except Exception:
         pass
-    if getattr(sys, "frozen", False):
+    main_mod = sys.modules.get("__main__")
+    if (
+        getattr(sys, "frozen", False)
+        or "__compiled__" in globals()
+        or (main_mod is not None and getattr(main_mod, "__compiled__", None) is not None)
+        or os.environ.get("NUITKA_ONEFILE_PARENT")
+        or os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+    ):
         return 0
     try:
         for rel in (os.path.join("config", "megamu_offsets.json"), "megamu_offsets.json"):
@@ -310,7 +321,8 @@ def load_game_type_info_offset() -> int:
                     d = json.load(f)
                     val = d.get("game_type_info")
                     if val:
-                        return int(val, 16) if isinstance(val, str) else int(val)
+                        GAME_TYPE_INFO_RVA = int(val, 16) if isinstance(val, str) else int(val)
+                        return GAME_TYPE_INFO_RVA
     except Exception:
         pass
     return 0
@@ -584,7 +596,11 @@ class MemoryScanner:
                     scanner.close()
                     continue
                 try:
-                    t_info = scanner.read_ptr(scanner.base_addr + GAME_TYPE_INFO_RVA)
+                    gti_rva = GAME_TYPE_INFO_RVA or load_game_type_info_offset()
+                    if not gti_rva:
+                        scanner.close()
+                        continue
+                    t_info = scanner.read_ptr(scanner.base_addr + gti_rva)
                     if not t_info:
                         scanner.close()
                         continue
@@ -667,7 +683,9 @@ class MemoryScanner:
 
         try:
             # 1. Truy cập Game.Instance qua type_info
-            type_info = self.read_ptr(self.base_addr + GAME_TYPE_INFO_RVA)
+            gti_rva = GAME_TYPE_INFO_RVA or load_game_type_info_offset()
+            if not gti_rva: return {"error": "Chưa có Game.TypeInfo từ License RAM"}
+            type_info = self.read_ptr(self.base_addr + gti_rva)
             if not type_info: return {"error": "Không đọc được Game.TypeInfo"}
             static_fields = self.read_ptr(type_info + 0xB8)
             if not static_fields: return {"error": "Không đọc được Game.StaticFields"}

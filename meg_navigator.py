@@ -229,15 +229,24 @@ def _load_navigator_offsets():
     """Nạp RVA từ RAM của meg_license_bridge.dll (Strict Online trên bản phát hành; dev local mới đọc JSON)."""
     # 1. Ưu tiên tuyệt đối: RAM Vault từ C++ Native Security Bridge
     try:
-        from license_client import get_secure_game_offsets
+        from license_client import get_secure_game_offsets, is_packaged_app
         sec = get_secure_game_offsets()
         if sec and _apply_navigator_offsets_dict(sec):
+            return
+        if is_packaged_app():
             return
     except Exception:
         pass
 
-    # 2. Bản đóng gói (.exe frozen): TUYỆT ĐỐI KHÔNG đọc file megamu_offsets.json từ đĩa!
-    if getattr(sys, "frozen", False):
+    # 2. Bản đóng gói (.exe frozen / Nuitka): TUYỆT ĐỐI KHÔNG đọc file megamu_offsets.json từ đĩa!
+    main_mod = sys.modules.get("__main__")
+    if (
+        getattr(sys, "frozen", False)
+        or "__compiled__" in globals()
+        or (main_mod is not None and getattr(main_mod, "__compiled__", None) is not None)
+        or os.environ.get("NUITKA_ONEFILE_PARENT")
+        or os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+    ):
         return
 
     # 3. Môi trường Dev nội bộ (.py chưa đóng gói)
@@ -777,6 +786,15 @@ class ProcessMemoryReader:
         written = ctypes.c_size_t()
         return bool(kernel32.WriteProcessMemory(handle, ctypes.c_void_p(addr), ctypes.byref(buf), ctypes.sizeof(buf), ctypes.byref(written)))
 
+    @classmethod
+    def _read_game_type_info(cls, handle: int, base: int) -> int:
+        """Đảm bảo GAME_TYPE_INFO_RVA đã được nạp từ License RAM trước khi đọc TypeInfo."""
+        if not GAME_TYPE_INFO_RVA:
+            _load_navigator_offsets()
+        if not GAME_TYPE_INFO_RVA:
+            return 0
+        return cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+
     @staticmethod
     def write_u8(handle: int, addr: int, val: int) -> bool:
         buf = ctypes.c_uint8(val)
@@ -798,7 +816,7 @@ class ProcessMemoryReader:
             if not base:
                 return None
 
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return None
 
@@ -868,7 +886,7 @@ class ProcessMemoryReader:
             if not base:
                 return default_res
 
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return default_res
 
@@ -986,7 +1004,7 @@ class ProcessMemoryReader:
             if not base:
                 return default_res
 
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return default_res
 
@@ -1053,7 +1071,7 @@ class ProcessMemoryReader:
             if not base:
                 return title_lvl
 
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return title_lvl
 
@@ -1128,7 +1146,7 @@ class ProcessMemoryReader:
             if not base:
                 return None
 
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return None
 
@@ -1225,7 +1243,7 @@ class ProcessMemoryReader:
             if not base:
                 return None
 
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return None
 
@@ -1269,7 +1287,7 @@ class ProcessMemoryReader:
             base = cls.get_module_base(pid)
             if not base:
                 return False
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return False
             static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
@@ -1301,7 +1319,7 @@ class ProcessMemoryReader:
             base = cls.get_module_base(pid)
             if not base:
                 return (False, -1, False, None)
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return (False, -1, False, None)
             static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
@@ -1346,7 +1364,7 @@ class ProcessMemoryReader:
             base = cls.get_module_base(pid)
             if not base:
                 return False
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return False
             static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
@@ -1396,7 +1414,7 @@ class ProcessMemoryReader:
             base = cls.get_module_base(pid)
             if not base:
                 return False
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return False
             static_fields = cls.read_ptr(handle, type_info + KLASS_STATIC_FIELDS_OFFSET)
@@ -1430,7 +1448,7 @@ class ProcessMemoryReader:
             if not base:
                 return None
 
-            type_info = cls.read_ptr(handle, base + GAME_TYPE_INFO_RVA)
+            type_info = cls._read_game_type_info(handle, base)
             if not type_info:
                 return None
 

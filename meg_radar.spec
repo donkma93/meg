@@ -5,7 +5,6 @@ import os
 block_cipher = None
 
 datas = [
-    ('megamu_offsets.json', '.'),
     ('megamu_dashboard_icon.ico', '.'),
     ('megamu_dashboard_logo.png', '.'),
     ('map_commands.json', '.'),

@@ -14,7 +14,7 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [1/2] Dang bien dich DLL: native_bridge\license_bridge.cpp -> meg_license_bridge.dll...
-g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lbcrypt -lcrypt32 -ladvapi32 -s -static-libgcc -static-libstdc++
+g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lbcrypt -lcrypt32 -ladvapi32 -s -static -static-libgcc -static-libstdc++
 if %ERRORLEVEL% NEQ 0 (
     echo [THAT BAI] Khong the bien dich meg_license_bridge.dll!
     exit /b 1

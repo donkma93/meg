@@ -207,6 +207,47 @@ class Win32MemoryScanner:
         self.k32 = ctypes.windll.kernel32
         self.hProc = None
         self.base_addr = None
+        self._game_type_info_rva = 0
+
+    def _get_game_type_info_rva(self) -> int:
+        """Lấy RVA Game_TypeInfo từ License RAM Vault (dev local mới fallback JSON)."""
+        if self._game_type_info_rva:
+            return self._game_type_info_rva
+        try:
+            from license_client import get_secure_game_offsets
+            sec = get_secure_game_offsets()
+            val = sec.get("game_type_info") if isinstance(sec, dict) else None
+            if val:
+                self._game_type_info_rva = int(val, 16) if isinstance(val, str) else int(val)
+                return self._game_type_info_rva
+        except Exception:
+            pass
+        main_mod = sys.modules.get("__main__")
+        is_packaged = bool(
+            getattr(sys, "frozen", False)
+            or "__compiled__" in globals()
+            or (main_mod is not None and getattr(main_mod, "__compiled__", None) is not None)
+            or os.environ.get("NUITKA_ONEFILE_PARENT")
+            or os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+        )
+        if is_packaged:
+            return 0
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        for p in (
+            os.path.join(base_dir, "config", "megamu_offsets.json"),
+            os.path.join(base_dir, "megamu_offsets.json"),
+        ):
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        d = json.load(f)
+                    val = d.get("game_type_info") if isinstance(d, dict) else None
+                    if val:
+                        self._game_type_info_rva = int(val, 16) if isinstance(val, str) else int(val)
+                        return self._game_type_info_rva
+                except Exception:
+                    pass
+        return 0
 
     def open(self) -> bool:
         if self.hProc:
@@ -305,7 +346,9 @@ class Win32MemoryScanner:
 
     def get_game_instance(self) -> int:
         if not self.base_addr: return 0
-        type_info = self.read_ptr(self.base_addr + 0x553B900) # Game_TypeInfo
+        rva = self._get_game_type_info_rva()
+        if not rva: return 0
+        type_info = self.read_ptr(self.base_addr + rva) # Game_TypeInfo
         if not type_info: return 0
         static_fields = self.read_ptr(type_info + 0xB8)
         if not static_fields: return 0
@@ -486,7 +529,9 @@ class Win32MemoryScanner:
         if not self.open():
             return items
         try:
-            type_info = self.read_ptr(self.base_addr + 0x553B900)
+            rva = self._get_game_type_info_rva()
+            if not rva: return items
+            type_info = self.read_ptr(self.base_addr + rva)
             if not type_info: return items
             static_fields = self.read_ptr(type_info + 0xB8)
             if not static_fields: return items

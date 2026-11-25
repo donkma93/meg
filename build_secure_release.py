@@ -24,11 +24,65 @@ IGNORED_HEX_CONSTANTS = {
     "0X0000FF", "0X100000", "0X400000", "0X800000",
     "0X6A09E667", "0XBB67AE85", "0X3C6EF372", "0XA54FF53A",
     "0X510E527F", "0X9B05688C", "0X1F83D9AB", "0X5BE0CD19",
+    "0XC0000005", "0X00000005", "0X00000008", "0X00000010",
+    "0X00000002", "0X00000040", "0X20000", "0X00010000",
+    "0X01000000", "0X08000000", "0X80000000",
 }
 
 
 def log(msg: str):
     print(f"[SECURE BUILD] {msg}", flush=True)
+
+
+def find_gxx() -> str:
+    found = shutil.which("g++")
+    if found:
+        return found
+    for cand in (
+        r"C:\msys64\ucrt64\bin\g++.exe",
+        r"C:\msys64\mingw64\bin\g++.exe",
+        r"C:\mingw64\bin\g++.exe",
+        r"C:\MinGW\bin\g++.exe",
+    ):
+        if Path(cand).is_file():
+            return cand
+    return "g++"
+
+
+def regenerate_embedded_bridge(dll_path: Path) -> bool:
+    """Đồng bộ _embedded_bridge.py từ meg_license_bridge.dll v3.0.0 vừa biên dịch."""
+    import zlib
+    import base64
+    try:
+        raw = dll_path.read_bytes()
+        b85 = base64.b85encode(zlib.compress(raw, 9)).decode("ascii")
+        out_py = BASE_DIR / "_embedded_bridge.py"
+        content = (
+            "# -*- coding: utf-8 -*-\n"
+            "import zlib, base64, hashlib\n"
+            "from pathlib import Path\n"
+            f"_B85 = '''{b85}'''\n"
+            "def get_bytes():\n"
+            "    return zlib.decompress(base64.b85decode(_B85.strip()))\n"
+            "def extract_to(target: Path) -> bool:\n"
+            "    try:\n"
+            "        target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "        data = get_bytes()\n"
+            "        need_write = not target.is_file() or target.stat().st_size != len(data)\n"
+            "        if not need_write:\n"
+            "            need_write = hashlib.sha256(target.read_bytes()).digest() != hashlib.sha256(data).digest()\n"
+            "        if need_write:\n"
+            "            target.write_bytes(data)\n"
+            "        return True\n"
+            "    except Exception:\n"
+            "        return False\n"
+        )
+        out_py.write_text(content, encoding="utf-8")
+        log(f"Da dong bo _embedded_bridge.py tu {dll_path.name} ({len(raw):,} bytes).")
+        return True
+    except Exception as e:
+        log(f"LOI dong bo _embedded_bridge.py: {e}")
+        return False
 
 
 def build_native_dll() -> bool:
@@ -38,19 +92,42 @@ def build_native_dll() -> bool:
         log(f"LOI: Khong tim thay {cpp_source}")
         return False
 
-    log("Dang bien dich meg_license_bridge.dll v3.0 (Zero-Offset RAM Vault)...")
+    gxx = find_gxx()
+    env = os.environ.copy()
+    gxx_parent = str(Path(gxx).parent)
+    if Path(gxx).is_file() and gxx_parent not in env.get("PATH", ""):
+        env["PATH"] = gxx_parent + os.pathsep + env.get("PATH", "")
+
+    tmp_dll = BASE_DIR / "meg_license_bridge.dll.tmp"
+    log(f"Dang bien dich meg_license_bridge.dll v3.0 (Zero-Offset RAM Vault) bang {gxx}...")
     cmd = [
-        "g++", "-O3", "-shared", "-std=c++17",
+        gxx, "-O3", "-shared", "-std=c++17",
         str(cpp_source),
-        "-o", str(dll_path),
+        "-o", str(tmp_dll),
         "-lwinhttp", "-lbcrypt", "-lcrypt32", "-ladvapi32",
-        "-s", "-static-libgcc", "-static-libstdc++",
+        "-s", "-static", "-static-libgcc", "-static-libstdc++",
     ]
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, env=env)
+        try:
+            os.replace(str(tmp_dll), str(dll_path))
+        except PermissionError:
+            import time
+            old_bak = BASE_DIR / f"meg_license_bridge.dll.{int(time.time())}.old"
+            try:
+                os.replace(str(dll_path), str(old_bak))
+                os.replace(str(tmp_dll), str(dll_path))
+            except PermissionError:
+                if dll_path.exists():
+                    log("Canh bao: meg_license_bridge.dll dang duoc tien trinh khac su dung, giu nguyen ban hien tai.")
+                    tmp_dll.unlink(missing_ok=True)
+                else:
+                    raise
         native_bin_dir = BASE_DIR / "native_bin"
         native_bin_dir.mkdir(exist_ok=True)
         shutil.copy2(str(dll_path), str(native_bin_dir / "meg_license_bridge.dll"))
+        if not regenerate_embedded_bridge(dll_path):
+            return False
         log("Bien dich meg_license_bridge.dll v3.0 thanh cong!")
         return True
     except Exception as e:
@@ -62,31 +139,34 @@ def audit_zero_offset_leaks() -> bool:
     """
     CỔNG KIỂM DUYỆT BẢO MẬT TRƯỚC KHI BUILD:
     Từ chối build ngay lập tức nếu phát hiện bất kỳ RVA game offset nào bị hardcode
-    trong source Python hoặc trong C++ DLL!
+    trong source Python (kể cả trong string/comment JS), C++ DLL hoặc _embedded_bridge.py!
     """
     log("Dang chay Cong Kiem Duyet Ro Ri Offset (Zero-Offset Leak Gate)...")
     errors = []
 
-    py_targets = [
-        BASE_DIR / "meg_direct_engine.py",
-        BASE_DIR / "meg_navigator.py",
-        BASE_DIR / "test_entity_radar.py",
-        BASE_DIR / "license_client.py",
-        BASE_DIR / "meg_gui_qt.py",
-    ]
-    rva_pat = re.compile(r"\b0x[0-9A-Fa-f]{6,7}\b")
+    py_targets = []
+    for p in sorted(BASE_DIR.glob("meg_*.py")):
+        if any(s in p.name for s in ("backup", "legacy")):
+            continue
+        py_targets.append(p)
+    for name in ("license_client.py", "test_entity_radar.py", "updater.py", "telegram_notifier.py"):
+        p = BASE_DIR / name
+        if p.exists():
+            py_targets.append(p)
+    for sub in ("services", "ui", "ui_qt"):
+        sub_dir = BASE_DIR / sub
+        if sub_dir.exists():
+            py_targets.extend(sorted(sub_dir.glob("*.py")))
+
+    rva_pat = re.compile(r"\b0x[0-9A-Fa-f]{5,8}\b")
 
     for path in py_targets:
         if not path.exists():
             continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
-            s = line.strip()
-            if s.startswith("#") or s.startswith("//") or s.startswith("*"):
-                continue
-            code_part = s.split("#")[0].split("//")[0]
-            for hit in rva_pat.findall(code_part):
+            for hit in rva_pat.findall(line):
                 if hit.upper() not in IGNORED_HEX_CONSTANTS:
-                    errors.append(f"{path.name}:L{lineno} -> {hit} ({code_part[:70]})")
+                    errors.append(f"{path.name}:L{lineno} -> {hit} ({line.strip()[:70]})")
 
     cpp_path = BASE_DIR / "native_bridge" / "license_bridge.cpp"
     if cpp_path.exists():
@@ -94,12 +174,54 @@ def audit_zero_offset_leaks() -> bool:
         if "ENC_GAME_OFFSETS" in cpp_txt:
             errors.append("license_bridge.cpp van con mang tinh ENC_GAME_OFFSETS!")
 
-    dll_path = BASE_DIR / "meg_license_bridge.dll"
-    if dll_path.exists():
+    import ctypes
+    import tempfile
+    sensitive_bytes = (b"0x10D7DD0", b"0x55A4D00", b"0x109D830", b"0xC43C50", b"0x553B900", b"0x10FE4B0", b"gremory_claim_item")
+    for dll_path in (BASE_DIR / "meg_license_bridge.dll", BASE_DIR / "native_bin" / "meg_license_bridge.dll"):
+        if not dll_path.exists():
+            errors.append(f"Thieu DLL bao mat: {dll_path}")
+            continue
         dll_raw = dll_path.read_bytes()
-        for sensitive in (b"0x10D7DD0", b"0x55A4D00", b"0x109D830", b"0xC43C50", b"gremory_claim_item"):
+        for sensitive in sensitive_bytes:
             if sensitive in dll_raw:
-                errors.append(f"meg_license_bridge.dll bi lo chuoi nhay cam: {sensitive!r}")
+                errors.append(f"{dll_path.name} bi lo chuoi nhay cam: {sensitive!r}")
+        try:
+            d = ctypes.CDLL(str(dll_path.resolve()))
+            if d.Bridge_GetVersion() < 300:
+                errors.append(f"{dll_path.name} la ban cu (version={d.Bridge_GetVersion()}, yeu cau >= 300)")
+        except Exception as e_dll:
+            errors.append(f"Khong nap duoc {dll_path.name}: {e_dll}")
+
+    emb_py = BASE_DIR / "_embedded_bridge.py"
+    if emb_py.exists():
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("_emb_audit", str(emb_py))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            raw_emb = mod.get_bytes()
+            for sensitive in sensitive_bytes:
+                if sensitive in raw_emb:
+                    errors.append(f"_embedded_bridge.py bi lo chuoi nhay cam: {sensitive!r}")
+            with tempfile.NamedTemporaryFile(suffix=".dll", delete=False) as tf:
+                tf.write(raw_emb)
+                tf_path = Path(tf.name)
+            try:
+                d_emb = ctypes.CDLL(str(tf_path))
+                ver = d_emb.Bridge_GetVersion()
+                if ver < 300:
+                    errors.append(f"_embedded_bridge.py van nhung DLL cu (version={ver}, yeu cau >= 300)")
+            finally:
+                try:
+                    del d_emb
+                except Exception:
+                    pass
+                try:
+                    tf_path.unlink()
+                except Exception:
+                    pass
+        except Exception as e_emb:
+            errors.append(f"Loi kiem tra _embedded_bridge.py: {e_emb}")
 
     if errors:
         log("!!! BUILD BI CHAN DO PHAT HIEN RO RI OFFSET !!!")
@@ -107,7 +229,7 @@ def audit_zero_offset_leaks() -> bool:
             log(f"  [LEAK] {err}")
         return False
 
-    log("PASS: 0 RVA offset ro ri trong source Python & C++ DLL!")
+    log("PASS: 0 RVA offset ro ri trong source Python, C++ DLL v3.0 & _embedded_bridge.py!")
     return True
 
 
@@ -159,10 +281,15 @@ def run_nuitka_build() -> bool:
         "--windows-console-mode=disable",
         "--windows-uac-admin",
         "--enable-plugin=pyside6",
+        "--enable-plugin=tk-inter",
         "--windows-icon-from-ico=megamu_dashboard_icon.ico",
         "--output-filename=MEGAMU Auto Train Dashboard.exe",
         f"--output-dir={output_dir}",
-        "--include-package=PySide6",
+        "--include-package=PySide6.QtCore",
+        "--include-package=PySide6.QtGui",
+        "--include-package=PySide6.QtWidgets",
+        "--include-package=customtkinter",
+        "--include-package-data=customtkinter",
         "--include-package=frida",
         "--include-package=ui",
         "--include-package=ui_qt",
@@ -176,6 +303,7 @@ def run_nuitka_build() -> bool:
         "--include-module=updater",
         "--include-module=meg_account_manager",
         "--include-module=meg_navigator",
+        "--include-module=meg_gate_navigator",
         "--include-module=meg_trash_cleaner",
         "--include-module=meg_crash_tracer",
         "--include-module=meg_rea_hunter",

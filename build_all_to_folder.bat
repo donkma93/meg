@@ -85,7 +85,7 @@ if "!HAS_GXX!"=="1" (
         exit /b 1
     )
 
-    g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lbcrypt -lcrypt32 -ladvapi32 -s -static-libgcc -static-libstdc++
+    g++ -O3 -shared -std=c++17 "native_bridge\license_bridge.cpp" -o "meg_license_bridge.dll" -lwinhttp -lbcrypt -lcrypt32 -ladvapi32 -s -static -static-libgcc -static-libstdc++
     if %ERRORLEVEL% NEQ 0 (
         color 0c
         echo [LOI] Bien dich meg_license_bridge.dll that bai!
@@ -102,6 +102,16 @@ if "!HAS_GXX!"=="1" (
         exit /b 1
     )
     echo   + meg_license_bridge.dll da san sang de dong goi vao Release!
+)
+echo.
+
+:: Dong bo _embedded_bridge.py va chay Cong Kiem Duyet Ro Ri Offset (Zero-Offset Leak Gate)
+python -c "import build_secure_release, sys; from pathlib import Path; ok = build_secure_release.regenerate_embedded_bridge(Path('meg_license_bridge.dll')) and build_secure_release.audit_zero_offset_leaks(); sys.exit(0 if ok else 1)"
+if errorlevel 1 (
+    color 0c
+    echo [LOI] Phat hien ro ri Offset hoac DLL cu! Huy dong goi.
+    pause
+    exit /b 1
 )
 echo.
 

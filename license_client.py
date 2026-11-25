@@ -25,6 +25,17 @@ try:
 except ImportError:
     _embedded_bridge = None
 
+def is_packaged_app() -> bool:
+    """Kiểm tra ứng dụng đang chạy dưới dạng file đóng gói (.exe PyInstaller hoặc Nuitka)."""
+    if getattr(sys, "frozen", False):
+        return True
+    if "__compiled__" in globals():
+        return True
+    main_mod = sys.modules.get("__main__")
+    if main_mod is not None and getattr(main_mod, "__compiled__", None) is not None:
+        return True
+    return bool(os.environ.get("NUITKA_ONEFILE_PARENT") or os.environ.get("NUITKA_ONEFILE_DIRECTORY"))
+
 def get_real_app_dir() -> Path:
     # 1. Nuitka onefile / standalone binary: __compiled__.containing_dir trỏ chính xác vào thư mục chứa file .exe gốc
     try:
@@ -39,8 +50,8 @@ def get_real_app_dir() -> Path:
     onefile_dir = os.environ.get("NUITKA_ONEFILE_DIRECTORY")
     if onefile_dir and Path(onefile_dir).is_dir():
         return Path(onefile_dir).resolve()
-    # 3. Khi đóng gói exe (frozen): ưu tiên sys.executable hoặc sys.argv[0]
-    if getattr(sys, "frozen", False) or "__compiled__" in globals():
+    # 3. Khi đóng gói exe (frozen/compiled): ưu tiên sys.executable hoặc sys.argv[0]
+    if is_packaged_app():
         try:
             cand = Path(sys.executable).resolve().parent
             if cand.is_dir() and "temp" not in str(cand).lower():
@@ -397,7 +408,7 @@ def _http_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         return False, f"Lỗi kết nối máy chủ ({e})", {}
 
 def _exec_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any]]:
-    is_frozen = bool(getattr(sys, "frozen", False))
+    is_frozen = is_packaged_app()
     bridge = _get_native_bridge()
     if not bridge:
         if is_frozen:
@@ -561,7 +572,7 @@ def _http_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
     return False, "Không nhận được phản hồi từ máy chủ.", lic_data
 
 def _exec_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
-    is_frozen = bool(getattr(sys, "frozen", False))
+    is_frozen = is_packaged_app()
     bridge = _get_native_bridge()
     if not bridge:
         if is_frozen:
@@ -651,10 +662,12 @@ def verify_license(server_url: Optional[str] = None) -> Tuple[bool, str, Dict[st
         except Exception:
             pass
 
-        # Cả hai đều không phản hồi (mất mạng / timeout) -> Duy trì offline grace period
+        # Cả hai đều không phản hồi (mất mạng / timeout) -> xóa RAM offset (chỉ dùng offset khi kết nối internet)
+        clear_secure_game_offsets()
         exp = lic_data.get("expires_at")
         return True, f"Chế độ ngoại tuyến (hạn dùng: {exp}).", lic_data
     except Exception as e:
+        clear_secure_game_offsets()
         exp = lic_data.get("expires_at")
         if exp:
             return True, f"Chế độ ngoại tuyến ({exp})", lic_data
@@ -781,6 +794,11 @@ def get_secure_game_offsets(force_refresh: bool = False) -> Dict[str, Any]:
     Strict Online Zero-Offset-On-Disk: tuyệt đối KHÔNG đọc hay ghi file offset xuống đĩa trên bản phát hành!
     """
     global _ram_offsets_cache
+    if not is_native_bridge_active() or not has_secure_game_offsets():
+        with _ram_offsets_lock:
+            _ram_offsets_cache.clear()
+        return {}
+
     with _ram_offsets_lock:
         if _ram_offsets_cache and not force_refresh:
             return dict(_ram_offsets_cache)

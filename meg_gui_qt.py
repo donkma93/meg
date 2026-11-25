@@ -18,15 +18,104 @@ import time
 import ctypes
 import signal
 import threading
+import traceback
+import faulthandler
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import psutil
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QFrame, QLabel, QPushButton, QStackedWidget, QMessageBox
-)
+
+_BOOT_TRACE_PATH = Path(os.environ.get("TEMP", os.environ.get("TMP", "."))) / "megamu_qt_boot.log"
+try:
+    _fh_file = open(_BOOT_TRACE_PATH, "w", encoding="utf-8")
+    faulthandler.enable(file=_fh_file, all_threads=True)
+except Exception:
+    _fh_file = None
+
+
+def _boot_trace(step: str) -> None:
+    try:
+        with open(_BOOT_TRACE_PATH, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%H:%M:%S')}] {step}\n")
+            f.flush()
+    except Exception:
+        pass
+
+
+def _report_fatal_startup_error(err: BaseException) -> None:
+    """Ghi log và hiển thị hộp thoại Windows nếu ứng dụng lỗi ngay lúc khởi động."""
+    tb_txt = traceback.format_exc()
+    log_msg = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FATAL STARTUP ERROR:\n{tb_txt}\n"
+    candidates = []
+    try:
+        onefile_dir = os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+        if onefile_dir:
+            candidates.append(Path(onefile_dir) / "gui_crash.log")
+        candidates.append(Path(sys.executable).resolve().parent / "gui_crash.log")
+    except Exception:
+        pass
+    try:
+        candidates.append(Path(os.environ.get("TEMP", os.environ.get("TMP", "."))) / "megamu_qt_crash.log")
+    except Exception:
+        pass
+    saved_log = ""
+    for p in candidates:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(log_msg)
+            saved_log = str(p)
+            break
+        except Exception:
+            continue
+    if sys.platform == "win32":
+        try:
+            detail = f"Ứng dụng gặp lỗi khi khởi động:\n\n{type(err).__name__}: {err}"
+            if saved_log:
+                detail += f"\n\nChi tiết đã lưu tại:\n{saved_log}"
+            ctypes.windll.user32.MessageBoxW(0, detail, "MEGAMU Auto Train Dashboard - Lỗi khởi động", 0x10)
+        except Exception:
+            pass
+
+
+def _install_fatal_excepthook():
+    def _hook(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            return
+        tb_txt = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            err = exc_value if isinstance(exc_value, BaseException) else RuntimeError(str(exc_value))
+            try:
+                onefile_dir = os.environ.get("NUITKA_ONEFILE_DIRECTORY")
+                p = (Path(onefile_dir) if onefile_dir else Path(sys.executable).resolve().parent) / "gui_crash.log"
+                with open(p, "a", encoding="utf-8") as f:
+                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] UNCAUGHT:\n{tb_txt}\n")
+            except Exception:
+                pass
+            if sys.platform == "win32":
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"Lỗi không mong muốn:\n\n{exc_type.__name__}: {exc_value}",
+                    "MEGAMU Auto Train Dashboard - Lỗi",
+                    0x10,
+                )
+        except Exception:
+            pass
+    sys.excepthook = _hook
+
+
+_install_fatal_excepthook()
+
+try:
+    import psutil
+    from PySide6.QtCore import Qt, QTimer, Signal
+    from PySide6.QtGui import QIcon, QPixmap
+    from PySide6.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+        QFrame, QLabel, QPushButton, QStackedWidget, QMessageBox
+    )
+except BaseException as _boot_err:
+    _report_fatal_startup_error(_boot_err)
+    raise
 
 # UTF-8 + high-resolution Windows timer
 if sys.platform == "win32":
@@ -44,45 +133,49 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from ui.state import AppStateManager
-from ui.engine_sync import BackgroundEngineSync, build_enhanced_detected_games
-from services.party_manager import PartyManager
+try:
+    from ui.state import AppStateManager
+    from ui.engine_sync import BackgroundEngineSync, build_enhanced_detected_games
+    from services.party_manager import PartyManager
 
-from ui_qt.theme import DARK_OPS_QSS, build_dark_palette
-from ui_qt.train_tab import TrainTabQt, get_default_profile_options
-from ui_qt.profiles_tab import ProfilesTabQt
-from ui_qt.mirror_tab import MirrorTabQt
-from ui_qt.moss_tab import MossTabQt, moss_cat_id, moss_cat_name, MOSS_CAT_OPTIONS
-from ui_qt.quest_tab import QuestTabQt
-from ui_qt.logs_tab import LogsTabQt
-from meg_quest_automation import QuestConfigManager, QuestSlotRunner, summarize_quest_snapshot
-from meg_pk_reporter import PkReportConfigManager, execute_pk_report
-from ui_qt.dialogs import (
-    JunkDisposalDialogQt,
-    LicenseDialogQt,
-    DevilConfigDialogQt,
-    PointConfigDialogQt,
-    PartyConfigDialogQt,
-    PkReportConfigDialogQt,
-    TelegramConfigDialogQt,
-    UpdateDialogQt,
-)
+    from ui_qt.theme import DARK_OPS_QSS, build_dark_palette
+    from ui_qt.train_tab import TrainTabQt, get_default_profile_options
+    from ui_qt.profiles_tab import ProfilesTabQt
+    from ui_qt.mirror_tab import MirrorTabQt
+    from ui_qt.moss_tab import MossTabQt, moss_cat_id, moss_cat_name, MOSS_CAT_OPTIONS
+    from ui_qt.quest_tab import QuestTabQt
+    from ui_qt.logs_tab import LogsTabQt
+    from meg_quest_automation import QuestConfigManager, QuestSlotRunner, summarize_quest_snapshot
+    from meg_pk_reporter import PkReportConfigManager, execute_pk_report
+    from ui_qt.dialogs import (
+        JunkDisposalDialogQt,
+        LicenseDialogQt,
+        DevilConfigDialogQt,
+        PointConfigDialogQt,
+        PartyConfigDialogQt,
+        PkReportConfigDialogQt,
+        TelegramConfigDialogQt,
+        UpdateDialogQt,
+    )
 
-from meg_gui import (
-    BASE_DIR,
-    APP_NAME,
-    APP_VERSION,
-    LOGO_FILE,
-    ICON_FILE,
-    SlotController,
-    ConfigPersistenceManager,
-    DEFAULT_SLOTS,
-    MAX_SLOTS,
-    character_name_from_window_title,
-    server_from_window_title,
-    DashboardApp,
-    MEGAMUWindowManager,
-)
+    from meg_gui import (
+        BASE_DIR,
+        APP_NAME,
+        APP_VERSION,
+        LOGO_FILE,
+        ICON_FILE,
+        SlotController,
+        ConfigPersistenceManager,
+        DEFAULT_SLOTS,
+        MAX_SLOTS,
+        character_name_from_window_title,
+        server_from_window_title,
+        DashboardApp,
+        MEGAMUWindowManager,
+    )
+except BaseException as _imp_err:
+    _report_fatal_startup_error(_imp_err)
+    raise
 
 try:
     from meg_direct_engine import MegDirectEngine
@@ -237,6 +330,7 @@ class DashboardAppQt(QMainWindow):
     MOSS_CAT_OPTIONS = MOSS_CAT_OPTIONS
 
     def __init__(self):
+        _boot_trace("DashboardAppQt.__init__: start")
         super().__init__()
         self._after_signal.connect(self._exec_on_main_thread, Qt.QueuedConnection)
 
@@ -350,9 +444,11 @@ class DashboardAppQt(QMainWindow):
         self.pk_report_config: Dict[str, Any] = self.pk_report_config_mgr.load()
 
         # Build Qt6 Shell
+        _boot_trace("DashboardAppQt.__init__: _build_shell")
         self._build_shell()
 
         # Start background sync
+        _boot_trace("DashboardAppQt.__init__: BackgroundEngineSync")
         self.engine_sync = BackgroundEngineSync(
             controllers_provider=lambda: self.controllers,
             state_mgr=self.state_mgr,
@@ -360,6 +456,7 @@ class DashboardAppQt(QMainWindow):
         self.engine_sync.start()
 
         # Qt Main Thread Heartbeat (250ms, Zero-Lag)
+        _boot_trace("DashboardAppQt.__init__: timers/schedulers")
         self._heartbeat_timer = QTimer(self)
         self._heartbeat_timer.setInterval(250)
         self._heartbeat_timer.timeout.connect(self._ui_heartbeat)
@@ -378,11 +475,13 @@ class DashboardAppQt(QMainWindow):
         # Dựng trước nhẹ nhàng các tab Qt6 từng tab một sau khi cửa sổ hiện (~10-30ms/tab) để lần bấm đầu tiên cũng tức thì
         self.after(350, self._warmup_qt_tabs_step)
 
+        _boot_trace("DashboardAppQt.__init__: log_message + stats")
         self.log_message("🚀 MEGAMU Dashboard V3 (Qt6 Native 60FPS) đã khởi động.", "SUCCESS")
         self.log_message(f"Đang quản lý {len(self.controllers)} slots · Auto Login đã ẩn theo yêu cầu.", "INFO")
         self._update_header_stats_internal()
         self.update_modules_visibility()
         self.apply_license_lock_state()
+        _boot_trace("DashboardAppQt.__init__: done")
 
     # ==========================================================================
     # THREAD-SAFE `after()` BRIDGE (TƯƠNG THÍCH 100% TKINTER API)
@@ -2476,41 +2575,55 @@ def _enable_win11_dark_titlebar(win: QMainWindow):
 
 
 def main():
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    app.setPalette(build_dark_palette())
-    app.setStyleSheet(DARK_OPS_QSS)
+    try:
+        _boot_trace("main: creating QApplication")
+        app = QApplication(sys.argv)
+        app.setStyle("Fusion")
+        app.setPalette(build_dark_palette())
+        app.setStyleSheet(DARK_OPS_QSS)
 
-    win = DashboardAppQt()
-    win.show()
-    _enable_win11_dark_titlebar(win)
+        _boot_trace("main: creating DashboardAppQt")
+        win = DashboardAppQt()
+        _boot_trace("main: calling win.show()")
+        win.show()
+        _boot_trace("main: calling _enable_win11_dark_titlebar")
+        _enable_win11_dark_titlebar(win)
+        _boot_trace("main: entering event loop")
 
-    # Cho phép Ctrl+C thoát sạch sẽ trên Windows PowerShell
-    _shutting = {"active": False}
+        if "--smoke-test" in sys.argv:
+            QTimer.singleShot(600, lambda: (win.on_closing(), app.quit()))
 
-    def _sigint(_signum, _frame):
-        if _shutting["active"]:
-            return
-        _shutting["active"] = True
+        # Cho phép Ctrl+C thoát sạch sẽ trên Windows PowerShell
+        _shutting = {"active": False}
+
+        def _sigint(_signum, _frame):
+            if _shutting["active"]:
+                return
+            _shutting["active"] = True
+            try:
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+            except Exception:
+                pass
+            print("\n[INFO] Đã nhận Ctrl+C. Đang đóng MEGAMU Dashboard Qt6 an toàn...")
+            win.on_closing()
+            app.quit()
+
         try:
-            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.signal(signal.SIGINT, _sigint)
         except Exception:
             pass
-        print("\n[INFO] Đã nhận Ctrl+C. Đang đóng MEGAMU Dashboard Qt6 an toàn...")
-        win.on_closing()
-        app.quit()
 
-    try:
-        signal.signal(signal.SIGINT, _sigint)
-    except Exception:
-        pass
+        sig_timer = QTimer()
+        sig_timer.setInterval(250)
+        sig_timer.timeout.connect(lambda: None)
+        sig_timer.start()
 
-    sig_timer = QTimer()
-    sig_timer.setInterval(250)
-    sig_timer.timeout.connect(lambda: None)
-    sig_timer.start()
-
-    sys.exit(app.exec())
+        sys.exit(app.exec())
+    except BaseException as exc:
+        if isinstance(exc, SystemExit):
+            raise
+        _report_fatal_startup_error(exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

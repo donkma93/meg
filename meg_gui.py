@@ -3453,11 +3453,15 @@ class SlotController:
                             self._ensure_near_moss_npc(eng, npc_info=npc_chk, max_dist=3.0)
                             if not self.moss_running:
                                 break
-                            eng.interact_moss_npc(self.moss_category)
+                            eng.interact_moss_npc(self.moss_category, force_reopen=True)
                             for _ in range(25):
                                 if not self.moss_running:
                                     break
                                 if eng.is_moss_ready():
+                                    try:
+                                        eng.reset_moss_ui(self.moss_category)
+                                    except Exception:
+                                        pass
                                     reopened = True
                                     break
                                 time.sleep(0.1)
@@ -3667,17 +3671,23 @@ class SlotController:
                             ))
                             break
                         else:
-                            # Nếu phiên đối thoại Moss đã đóng hoặc lần thử 2 bị lệch phiên Server -> tự click lại NPC Moss thật
-                            if eng and (not eng.is_moss_ready() or consecutive_fails == 2):
+                            # Nếu phiên đối thoại Moss đã đóng hoặc bị lệch phiên Server (vd vừa đi bán đồ về) -> ép mở lại phiên NPC Moss thật
+                            if eng and (not eng.is_moss_ready() or consecutive_fails >= 1):
                                 try:
                                     npc_retry = eng.find_moss_npc()
                                     if npc_retry and npc_retry.get("found"):
                                         self._ensure_near_moss_npc(eng, npc_info=npc_retry, max_dist=3.0)
-                                        eng.interact_moss_npc(self.moss_category)
-                                        for _ in range(20):
+                                        eng.interact_moss_npc(self.moss_category, force_reopen=True)
+                                        for _ in range(25):
                                             if not self.moss_running or eng.is_moss_ready():
                                                 break
                                             time.sleep(0.1)
+                                        if eng.is_moss_ready():
+                                            try:
+                                                eng.reset_moss_ui(self.moss_category)
+                                            except Exception:
+                                                pass
+                                            time.sleep(0.2)
                                 except Exception:
                                     pass
                             self.app.after(0, lambda s=self.slot_idx, cf=consecutive_fails: self.app.append_moss_log(
@@ -4354,6 +4364,7 @@ class SlotController:
         if not eng or not eng.is_ready:
             return False
 
+        moved_back_to_moss = False
         try:
             # Đóng bảng Moss & mở khóa nhân vật trước khi di chuyển để tránh kẹt trạng thái giao diện
             eng.close_moss()
@@ -4653,12 +4664,20 @@ class SlotController:
                     ))
             time.sleep(0.45)
 
-            # Đóng phiên giao dịch Shop tại Silvia (gửi C1:31 và dọn WindowHandler)
+            # Đóng phiên giao dịch Shop tại Rhea/Silvia (gửi C1:31 và dọn WindowHandler)
+            # CHÚ Ý: Phải chờ unlock_character_and_inventory() xử lý xong TRƯỚC khi quay lại mở Moss,
+            # tuyệt đối không gọi unlock (C1:31) sau khi _move_back_to_moss() đã mở bảng Moss!
             eng.close_merchant_npc()
             eng.unlock_character_and_inventory()
-            time.sleep(0.4)
+            t_close = time.time()
+            while time.time() - t_close < 1.5:
+                if not eng.is_merchant_open():
+                    break
+                time.sleep(0.1)
+            time.sleep(0.35)
 
-            # BƯỚC 4: Di chuyển quay lại bệ NPC Moss (22, 225)
+            # BƯỚC 4: Di chuyển quay lại bệ NPC Moss (22, 225) và mở lại phiên NPC Moss thật
+            moved_back_to_moss = True
             self._move_back_to_moss(eng)
             return True
         except Exception as e:
@@ -4667,10 +4686,11 @@ class SlotController:
             ))
             return False
         finally:
-            try:
-                eng.unlock_character_and_inventory()
-            except Exception:
-                pass
+            if not moved_back_to_moss:
+                try:
+                    eng.unlock_character_and_inventory()
+                except Exception:
+                    pass
 
     def sell_moss_inventory(self):
         """Kích hoạt thủ công tiến trình đi bán đồ Moss +5..+7 tại NPC Silvia trên luồng riêng."""
@@ -4713,15 +4733,23 @@ class SlotController:
                 break
 
         eng.stop_auto_move()
-        time.sleep(0.6)
+        time.sleep(0.45)
 
-        # Tương tác lại với NPC Moss để khôi phục phiên quay thưởng (chờ Server thực sự mở bảng)
+        # Bảo đảm đứng sát đúng NPC Moss thực tế (<= 3 ô) và mở lại phiên quay thưởng từ Server
         if getattr(self, "moss_running", True):
             try:
+                npc_moss = eng.find_moss_npc()
+                if npc_moss and npc_moss.get("found"):
+                    self._ensure_near_moss_npc(eng, npc_info=npc_moss, max_dist=3.0)
+
                 reopened = False
-                for _attempt in range(2):
-                    eng.interact_moss_npc(self.moss_category)
-                    for _ in range(20):
+                for _attempt in range(3):
+                    if not getattr(self, "moss_running", True):
+                        break
+                    res_open = eng.interact_moss_npc(self.moss_category, force_reopen=True)
+                    if not res_open or not res_open.get("success"):
+                        self._ensure_near_moss_npc(eng, npc_info=None, max_dist=3.0)
+                    for _ in range(25):
                         if not getattr(self, "moss_running", True):
                             break
                         if eng.is_moss_ready():
@@ -4729,11 +4757,20 @@ class SlotController:
                             break
                         time.sleep(0.1)
                     if reopened:
+                        try:
+                            eng.reset_moss_ui(self.moss_category)
+                        except Exception:
+                            pass
+                        time.sleep(0.25)
                         break
-                    time.sleep(0.3)
+                    time.sleep(0.35)
                 if reopened:
                     self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
                         f"[Slot {s:02d} - {c}] 🎰 Đã tự động mở lại bảng NPC Moss (22, 225) từ Server. Tiếp tục chu trình quay thưởng!"
+                    ))
+                else:
+                    self.app.after(0, lambda s=self.slot_idx, c=self.char_name: self.app.append_moss_log(
+                        f"[Slot {s:02d} - {c}] ⚠️ Đã quay lại bệ Moss nhưng Server chưa mở lại bảng, vòng lặp sẽ tự thử lại..."
                     ))
             except Exception:
                 pass
@@ -4993,7 +5030,7 @@ class SlotController:
             pinfo = eng.get_player_info()
             if pinfo:
                 cmap = pinfo.get("mapId", -1)
-                # Map 53: Event Square, Map 40: Event Square VIP/Alt, Map 82-90: Double Goer (chuẩn PAGCDNAAHMO 0x100D680)
+                # Map 53: Event Square, Map 40: Event Square VIP/Alt, Map 82-90: Double Goer (chuẩn PAGCDNAAHMO)
                 if (cmap in (53, 40)) or (82 <= cmap <= 90):
                     return True
             eng.send_chat("/m ev")
@@ -5621,7 +5658,7 @@ class SlotController:
                                                 pass
                                         _stop_movement_immediately()
 
-                                # THAO TÁC 1 (CHUẨN NATIVE): Gọi NpcManager.GEBGEGOEFAD (0x1023B10) gửi C3:30 mở rương tại chỗ
+                                # THAO TÁC 1 (CHUẨN NATIVE): Gọi NpcManager.GEBGEGOEFAD gửi C3:30 mở rương tại chỗ
                                 if hasattr(eng, "open_and_loot_mirror"):
                                     try:
                                         eng.open_and_loot_mirror(chest_ptr=c_ptr, chest_index=c_idx, radius=6.0)
