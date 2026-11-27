@@ -57,6 +57,7 @@ class TrainTabQt(QWidget):
         on_slot_pid_selected: Optional[Callable[[int, str], None]] = None,
         on_slot_profile_selected: Optional[Callable[[int, str], None]] = None,
         on_stack_jewels: Optional[Callable[[], None]] = None,
+        on_talisman_gather: Optional[Callable[[], None]] = None,
         on_devil_config: Optional[Callable[[], None]] = None,
         on_point_config: Optional[Callable[[], None]] = None,
         on_toggle_point: Optional[Callable[[int], None]] = None,
@@ -82,6 +83,7 @@ class TrainTabQt(QWidget):
         self.on_slot_pid_selected = on_slot_pid_selected
         self.on_slot_profile_selected = on_slot_profile_selected
         self.on_stack_jewels = on_stack_jewels
+        self.on_talisman_gather = on_talisman_gather
         self.on_devil_config = on_devil_config
         self.on_point_config = on_point_config
         self.on_toggle_point = on_toggle_point
@@ -185,6 +187,7 @@ class TrainTabQt(QWidget):
 
         for label, cb, tip in (
             ("💎 Gom Ngọc", self.on_stack_jewels, "Tự động nén và gom tất cả loại ngọc trong túi đồ"),
+            ("🧿 Gom Bùa", self.on_talisman_gather, "Gom Bùa Luck (7221) & Bùa Chaos Assembly (7264) — Gom chồng + Cất Kho"),
             ("🔥 Devil Square", self.on_devil_config, "Cài đặt & đi sự kiện Devil Square"),
             ("⭐ Cộng Point", self.on_point_config, "Cấu hình tự động cộng điểm tiềm năng"),
             ("🤝 Auto PT", self.on_party_config, "Tự động ghép nhiều nhóm Party theo mật khẩu"),

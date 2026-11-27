@@ -40,6 +40,7 @@ config/party_config.json
 config/pk_report_config.json
 config/quest_config.json
 config/slot_assignments.json
+config/talisman_gatherer_config.json
 config/telegram_config.json
 config/ui_settings.json
 config/world_gates_cache.json

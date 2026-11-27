@@ -50,6 +50,7 @@ hiddenimports = [
     'meg_rea_hunter',
     'meg_quest_automation',
     'meg_pk_reporter',
+    'meg_talisman_gatherer',
     'PySide6',
     'PySide6.QtCore',
     'PySide6.QtGui',

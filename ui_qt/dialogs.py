@@ -1022,3 +1022,190 @@ class PkReportConfigDialogQt(QDialog):
         self.accept()
 
 
+class TalismanGatherDialogQt(QDialog):
+    """Hộp thoại Gom Bùa Luck (7221) & Bùa Chaos Assembly (7264) — kết hợp Hướng A (Stack) + Hướng B (Cất Kho)."""
+
+    TOWN_OPTIONS = [
+        ("auto", "Tự động (Ưu tiên thành hiện tại → Lorencia → Noria → Devias)"),
+        ("lorencia", "Lorencia (Thủ Kho 147, 145)"),
+        ("noria", "Noria (Thủ Kho 172, 96)"),
+        ("devias", "Devias (Thủ Kho 218, 63)"),
+    ]
+
+    def __init__(
+        self,
+        cfg: Dict[str, Any],
+        on_save: Optional[Callable[[Dict[str, Any]], None]] = None,
+        on_scan_now: Optional[Callable[[], str]] = None,
+        on_run_now: Optional[Callable[[Dict[str, Any]], None]] = None,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.setWindowTitle("🧿 Gom Bùa Luck & Chaos Assembly (Hướng A + Hướng B)")
+        self.resize(580, 470)
+        self._cfg = dict(cfg or {})
+        self._on_save = on_save
+        self._on_scan_now = on_scan_now
+        self._on_run_now = on_run_now
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(10)
+
+        hdr = QLabel("🧿 GOM BÙA LUCK (7221) & BÙA CHAOS ASSEMBLY (7264)")
+        hdr.setStyleSheet("font-size: 13px; font-weight: 800; color: #38bdf8;")
+        root.addWidget(hdr)
+
+        desc = QLabel(
+            "• Hướng A (Gom chồng): Đọc trực tiếp ItemStackInfo & MaxStack thực tế của server trong RAM "
+            "để gộp chồng Bùa Luck (và Chaos Assembly nếu server mở stack).\n"
+            "• Hướng B (Gom về Kho): Lôi bùa từ Thùng đồ K → Tự về thành mở NPC Thủ Kho (Vault Keeper 240) "
+            "→ Cất gọn toàn bộ Bùa Chaos Assembly & Bùa Luck vào ô trống của Kho đồ."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        root.addWidget(desc)
+
+        card = QFrame()
+        card.setProperty("surface", "card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(14, 12, 14, 12)
+        cl.setSpacing(8)
+
+        row_items = QHBoxLayout()
+        self.cb_luck = QCheckBox("🍀 Talisman of Luck (7221)")
+        self.cb_luck.setChecked(bool(self._cfg.get("include_luck", True)))
+        self.cb_luck.setStyleSheet("font-weight: 700; color: #f1f5f9;")
+        self.cb_chaos = QCheckBox("🛡️ Talisman of Chaos Assembly (7264)")
+        self.cb_chaos.setChecked(bool(self._cfg.get("include_chaos_assembly", True)))
+        self.cb_chaos.setStyleSheet("font-weight: 700; color: #f1f5f9;")
+        row_items.addWidget(self.cb_luck)
+        row_items.addWidget(self.cb_chaos)
+        row_items.addStretch(1)
+        cl.addLayout(row_items)
+
+        self.cb_gremory = QCheckBox("📦 Lôi bùa từ Thùng đồ K (Gremory Case) trước khi gom")
+        self.cb_gremory.setChecked(bool(self._cfg.get("claim_from_gremory", True)))
+        cl.addWidget(self.cb_gremory)
+
+        self.cb_stack = QCheckBox("✨ Hướng A: Gom chồng (Stack) bùa trong Hòm đồ & Kho theo MaxStack thực tế")
+        self.cb_stack.setChecked(bool(self._cfg.get("stack_in_inventory", True)))
+        cl.addWidget(self.cb_stack)
+
+        self.cb_deposit = QCheckBox("🏦 Hướng B: Tự mở Thủ Kho & cất gọn toàn bộ bùa vào Kho đồ (Warehouse)")
+        self.cb_deposit.setChecked(bool(self._cfg.get("deposit_to_warehouse", True)))
+        cl.addWidget(self.cb_deposit)
+
+        row_town = QHBoxLayout()
+        lbl_t = QLabel("Thành mở Thủ Kho:")
+        lbl_t.setStyleSheet("color: #cbd5e1; font-weight: 600;")
+        self.combo_town = QComboBox()
+        cur_town = str(self._cfg.get("town", "auto")).lower()
+        if cur_town == "davias":
+            cur_town = "devias"
+        sel_idx = 0
+        for idx, (key, label) in enumerate(self.TOWN_OPTIONS):
+            self.combo_town.addItem(label, key)
+            if key == cur_town:
+                sel_idx = idx
+        self.combo_town.setCurrentIndex(sel_idx)
+        row_town.addWidget(lbl_t)
+        row_town.addWidget(self.combo_town, 1)
+        cl.addLayout(row_town)
+
+        row_vault = QHBoxLayout()
+        lbl_v = QLabel("Số kho /bau (0 = giữ nguyên kho hiện tại):")
+        lbl_v.setStyleSheet("color: #cbd5e1; font-weight: 600;")
+        self.spin_vault = QSpinBox()
+        self.spin_vault.setRange(0, 99)
+        self.spin_vault.setValue(int(self._cfg.get("vault_number", 0) or 0))
+        self.spin_vault.setFixedWidth(78)
+        self.cb_prefer_ext = QCheckBox("Ưu tiên Kho mở rộng (120..239)")
+        self.cb_prefer_ext.setChecked(bool(self._cfg.get("prefer_ext_warehouse", False)))
+        row_vault.addWidget(lbl_v)
+        row_vault.addWidget(self.spin_vault)
+        row_vault.addSpacing(10)
+        row_vault.addWidget(self.cb_prefer_ext)
+        row_vault.addStretch(1)
+        cl.addLayout(row_vault)
+
+        self.cb_close_wh = QCheckBox("Đóng Kho đồ (C1:31) sau khi cất xong")
+        self.cb_close_wh.setChecked(bool(self._cfg.get("close_warehouse_after", True)))
+        cl.addWidget(self.cb_close_wh)
+
+        root.addWidget(card)
+
+        self.lbl_scan = QLabel("💡 Bấm 'Quét RAM' để kiểm tra số lượng bùa & MaxStack thực tế từ server.")
+        self.lbl_scan.setWordWrap(True)
+        self.lbl_scan.setStyleSheet(
+            "background-color: #0f172a; border: 1px solid #1e293b; border-radius: 6px; "
+            "padding: 8px; color: #cbd5e1; font-size: 11px;"
+        )
+        root.addWidget(self.lbl_scan)
+        root.addStretch(1)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        b_scan = QPushButton("🔍 Quét RAM")
+        b_scan.setFixedHeight(32)
+        b_scan.clicked.connect(self._handle_scan)
+
+        b_run = QPushButton("🧿 Gom Bùa Ngay (Slot đang nối)")
+        b_run.setProperty("tone", "primary")
+        b_run.setFixedHeight(32)
+        b_run.clicked.connect(self._handle_run_now)
+
+        b_cancel = QPushButton("Đóng")
+        b_cancel.setFixedHeight(32)
+        b_cancel.clicked.connect(self.reject)
+
+        b_save = QPushButton("💾 Lưu")
+        b_save.setProperty("tone", "success")
+        b_save.setFixedHeight(32)
+        b_save.clicked.connect(self._handle_save)
+
+        btn_row.addWidget(b_scan)
+        btn_row.addWidget(b_run)
+        btn_row.addStretch(1)
+        btn_row.addWidget(b_cancel)
+        btn_row.addWidget(b_save)
+        root.addLayout(btn_row)
+
+    def collect_config(self) -> Dict[str, Any]:
+        return {
+            "include_luck": self.cb_luck.isChecked(),
+            "include_chaos_assembly": self.cb_chaos.isChecked(),
+            "claim_from_gremory": self.cb_gremory.isChecked(),
+            "stack_in_inventory": self.cb_stack.isChecked(),
+            "deposit_to_warehouse": self.cb_deposit.isChecked(),
+            "town": str(self.combo_town.currentData() or "auto"),
+            "vault_number": int(self.spin_vault.value()),
+            "prefer_ext_warehouse": self.cb_prefer_ext.isChecked(),
+            "close_warehouse_after": self.cb_close_wh.isChecked(),
+            "max_duration_s": float(self._cfg.get("max_duration_s", 60.0) or 60.0),
+        }
+
+    def _handle_scan(self):
+        if self._on_scan_now:
+            try:
+                txt = self._on_scan_now()
+                self.lbl_scan.setText(txt or "Không có dữ liệu.")
+            except Exception as e:
+                self.lbl_scan.setText(f"Lỗi quét RAM: {e}")
+
+    def _handle_save(self):
+        data = self.collect_config()
+        if self._on_save:
+            self._on_save(data)
+        self.accept()
+
+    def _handle_run_now(self):
+        data = self.collect_config()
+        if self._on_save:
+            self._on_save(data)
+        if self._on_run_now:
+            self._on_run_now(data)
+        self.accept()
+
+

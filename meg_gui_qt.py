@@ -147,6 +147,11 @@ try:
     from ui_qt.logs_tab import LogsTabQt
     from meg_quest_automation import QuestConfigManager, QuestSlotRunner, summarize_quest_snapshot
     from meg_pk_reporter import PkReportConfigManager, execute_pk_report
+    from meg_talisman_gatherer import (
+        TalismanGatherConfigManager,
+        execute_talisman_gather,
+        format_talisman_scan_summary,
+    )
     from ui_qt.dialogs import (
         JunkDisposalDialogQt,
         LicenseDialogQt,
@@ -154,6 +159,7 @@ try:
         PointConfigDialogQt,
         PartyConfigDialogQt,
         PkReportConfigDialogQt,
+        TalismanGatherDialogQt,
         TelegramConfigDialogQt,
         UpdateDialogQt,
     )
@@ -443,6 +449,10 @@ class DashboardAppQt(QMainWindow):
         self.pk_report_config_mgr = PkReportConfigManager(BASE_DIR)
         self.pk_report_config: Dict[str, Any] = self.pk_report_config_mgr.load()
 
+        # Gom Bùa Luck (7221) & Chaos Assembly (7264)
+        self.talisman_gather_mgr = TalismanGatherConfigManager(BASE_DIR)
+        self.talisman_gather_config: Dict[str, Any] = self.talisman_gather_mgr.load()
+
         # Build Qt6 Shell
         _boot_trace("DashboardAppQt.__init__: _build_shell")
         self._build_shell()
@@ -663,6 +673,7 @@ class DashboardAppQt(QMainWindow):
             on_slot_pid_selected=self.on_slot_pid_selected,
             on_slot_profile_selected=self.on_slot_profile_selected,
             on_stack_jewels=self.stack_all_jewels,
+            on_talisman_gather=self.open_talisman_gather_dialog,
             on_devil_config=self.open_devil_global_config_dialog,
             on_point_config=self.open_point_global_config_dialog,
             on_toggle_point=self.on_toggle_slot_point,
@@ -1472,6 +1483,56 @@ class DashboardAppQt(QMainWindow):
 
         for ctrl in targets:
             threading.Thread(target=_run_slot, args=(ctrl,), name=f"PkReportSlot-{ctrl.slot_idx}", daemon=True).start()
+
+    def open_talisman_gather_dialog(self):
+        self.talisman_gather_config = self.talisman_gather_mgr.load()
+
+        def _on_save(new_cfg: Dict[str, Any]):
+            self.talisman_gather_config = dict(new_cfg)
+            self.talisman_gather_mgr.save(self.talisman_gather_config)
+            self.log_message("🧿 Đã lưu cấu hình Gom Bùa Luck & Chaos Assembly.", "SUCCESS")
+
+        def _on_scan() -> str:
+            targets = [c for c in self.controllers if getattr(c, "engine", None) and getattr(c.engine, "is_ready", False)]
+            if not targets:
+                return "⚠️ Chưa có Slot nào đang kết nối Direct Engine để quét RAM."
+            lines = []
+            for c in targets:
+                snap = c.engine.scan_talismans_info()
+                lines.append(f"Slot {c.slot_idx}: {format_talisman_scan_summary(snap)}")
+            return "\n".join(lines)
+
+        def _on_run(run_cfg: Dict[str, Any]):
+            self.run_talisman_gather_all(run_cfg)
+
+        dlg = TalismanGatherDialogQt(
+            self.talisman_gather_config,
+            on_save=_on_save,
+            on_scan_now=_on_scan,
+            on_run_now=_on_run,
+            parent=self,
+        )
+        dlg.exec()
+
+    def run_talisman_gather_all(self, cfg: Optional[Dict[str, Any]] = None):
+        """Chạy gom Bùa Luck & Chaos Assembly (Hướng A + Hướng B) cho các slot đang kết nối."""
+        use_cfg = dict(cfg or self.talisman_gather_mgr.load())
+        targets = [c for c in self.controllers if getattr(c, "engine", None) and getattr(c.engine, "is_ready", False)]
+        if not targets:
+            self.log_message("⚠️ Chưa có Slot nào đang kết nối Direct Engine để Gom Bùa.", "WARN")
+            return
+        self.log_message(f"🧿 Bắt đầu Gom Bùa Luck & Chaos Assembly cho {len(targets)} slot đang kết nối...", "INFO")
+
+        def _run_slot(ctrl):
+            tag = f"[Slot {ctrl.slot_idx}]"
+            execute_talisman_gather(
+                ctrl.engine,
+                cfg=use_cfg,
+                log_cb=lambda m, lv="INFO": self.log_message(f"{tag} {m}", lv),
+            )
+
+        for ctrl in targets:
+            threading.Thread(target=_run_slot, args=(ctrl,), name=f"TalismanGatherSlot-{ctrl.slot_idx}", daemon=True).start()
 
     def open_telegram_settings_dialog(self):
         dlg = TelegramConfigDialogQt(self.telegram_config, send_raw_fn=send_telegram_raw, parent=self)

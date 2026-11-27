@@ -377,7 +377,7 @@ def _http_activate(cleaned_key: str, srv: str) -> Tuple[bool, str, Dict[str, Any
         "license_key": cleaned_key,
         "hwid": hwid,
         "machine_name": os.environ.get("COMPUTERNAME", "PC"),
-        "client_version": "v1.6.6",
+        "client_version": "v1.6.7",
         "product_code": "megamu-navigator"
     }).encode("utf-8")
 
@@ -517,7 +517,7 @@ def _http_verify(key: str, srv: str, lic_data: Dict[str, Any]) -> Tuple[bool, st
     payload = json.dumps({
         "license_key": str(key).strip(),
         "hwid": hwid,
-        "client_version": "v1.6.6"
+        "client_version": "v1.6.7"
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=payload, headers=BROWSER_HEADERS)

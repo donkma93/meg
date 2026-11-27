@@ -1742,6 +1742,93 @@ function flushGateActionsOnMainThread() {
 }
 var pendingQuestWindowClose = false;
 var pendingPkWindowClose = false;
+var pendingWarehouseWindowClose = false;
+
+var TALISMAN_LUCK_ID = 7221;
+var TALISMAN_CHAOS_ASSEMBLY_ID = 7264;
+
+function readItemStackMeta(itemPtr) {
+    var meta = { stackable: false, maxStack: 1, count: 1 };
+    if (!itemPtr || itemPtr.isNull()) return meta;
+    var hasStackInfo = false;
+    var maxSt = 1;
+    try {
+        var infoPtr = itemPtr.add(0x58).readPointer();
+        if (infoPtr && !infoPtr.isNull()) {
+            var stInfoPtr = infoPtr.add(0x118).readPointer();
+            if (stInfoPtr && !stInfoPtr.isNull()) {
+                var ms = stInfoPtr.add(0x10).readS32();
+                if (ms > 1 && ms <= 255) {
+                    hasStackInfo = true;
+                    maxSt = ms;
+                }
+            }
+        }
+    } catch (eSM) {}
+
+    var cnt = 1;
+    var gotCount = false;
+    try {
+        var ovr = itemPtr.add(0x6C).readS32();
+        if (ovr >= 1 && ovr <= 255) {
+            cnt = ovr;
+            gotCount = true;
+        }
+    } catch (eOvr) {}
+    if (!gotCount && hasStackInfo) {
+        try {
+            var dur64 = itemPtr.add(0x64).readS32();
+            if (dur64 >= 1 && dur64 <= 255) {
+                cnt = dur64;
+                gotCount = true;
+            }
+        } catch (eD64) {}
+    }
+    if (!gotCount) {
+        try {
+            var dur1c = itemPtr.add(0x1C).readS32();
+            if (dur1c >= 1 && dur1c <= 255) {
+                cnt = dur1c;
+                gotCount = true;
+            }
+        } catch (eD1C) {}
+    }
+    meta.stackable = hasStackInfo && maxSt > 1;
+    meta.maxStack = maxSt;
+    meta.count = cnt;
+    return meta;
+}
+
+function classifyTalismanItem(idx, name) {
+    var nmL = String(name || "").toLowerCase();
+    if (nmL.indexOf("elemental") !== -1) return null;
+    if (idx === TALISMAN_LUCK_ID || nmL.indexOf("talisman of luck") !== -1) {
+        return { key: "TalismanOfLuck", id: TALISMAN_LUCK_ID, label: "Talisman of Luck" };
+    }
+    if (idx === TALISMAN_CHAOS_ASSEMBLY_ID || nmL.indexOf("chaos assembly") !== -1) {
+        return { key: "TalismanOfChaosAssembly", id: TALISMAN_CHAOS_ASSEMBLY_ID, label: "Talisman of Chaos Assembly" };
+    }
+    return null;
+}
+
+function isWarehouseWindowActuallyOpen(whWin) {
+    if (!whWin || whWin.isNull()) return { mainOpen: false, extOpen: false };
+    var mainOpen = false;
+    var extOpen = false;
+    try {
+        var mw = whWin.add(0x48).readPointer();
+        if (mw && !mw.isNull()) {
+            mainOpen = (mw.add(0x48).readU8() === 1);
+        }
+    } catch (eM) {}
+    try {
+        var ew = whWin.add(0x50).readPointer();
+        if (ew && !ew.isNull()) {
+            extOpen = (ew.add(0x48).readU8() === 1);
+        }
+    } catch (eE) {}
+    return { mainOpen: mainOpen, extOpen: extOpen };
+}
 var _autoReportConfirmUntilMs = 0;
 var _autoReportKillerName = "";
 var _autoReportConfirmCount = 0;
@@ -4598,6 +4685,29 @@ try {
                             } catch (ePKWC) {}
                         }
 
+                        if (pendingWarehouseWindowClose) {
+                            try {
+                                pendingWarehouseWindowClose = false;
+                                if (gui && !gui.isNull() && nativeWindowHide !== null) {
+                                    var whOffC = off('__UI_WAREHOUSE_WINDOW__');
+                                    var whWinC = whOffC.isNull() ? gui.add(ptr('0x290')).readPointer() : gui.add(whOffC).readPointer();
+                                    if (whWinC && !whWinC.isNull()) {
+                                        try {
+                                            var mwC = whWinC.add(0x48).readPointer();
+                                            if (mwC && !mwC.isNull()) nativeWindowHide(mwC, ptr(0));
+                                        } catch (eWH1) {}
+                                        try {
+                                            var ewC = whWinC.add(0x50).readPointer();
+                                            if (ewC && !ewC.isNull()) nativeWindowHide(ewC, ptr(0));
+                                        } catch (eWH2) {}
+                                    }
+                                }
+                                if (nativeCloseTalk !== null) {
+                                    try { nativeCloseTalk(); } catch (eWHCT) {}
+                                }
+                            } catch (eWHWC) {}
+                        }
+
                         if (pendingMossOpenCategory !== null) {
                             try {
                                 var cat = pendingMossOpenCategory;
@@ -4978,6 +5088,32 @@ try {
                             try { nativeCloseTalk(); } catch (ePKCT2) {}
                         }
                     } catch (ePKWC2) {}
+                }
+
+                if (pendingWarehouseWindowClose) {
+                    try {
+                        pendingWarehouseWindowClose = false;
+                        if (nativeGetGameUI !== null && nativeWindowHide !== null) {
+                            var guiWH = nativeGetGameUI();
+                            if (guiWH && !guiWH.isNull()) {
+                                var whOffGU = off('__UI_WAREHOUSE_WINDOW__');
+                                var whWinGU = whOffGU.isNull() ? guiWH.add(ptr('0x290')).readPointer() : guiWH.add(whOffGU).readPointer();
+                                if (whWinGU && !whWinGU.isNull()) {
+                                    try {
+                                        var mwGU = whWinGU.add(0x48).readPointer();
+                                        if (mwGU && !mwGU.isNull()) nativeWindowHide(mwGU, ptr(0));
+                                    } catch (eWHG1) {}
+                                    try {
+                                        var ewGU = whWinGU.add(0x50).readPointer();
+                                        if (ewGU && !ewGU.isNull()) nativeWindowHide(ewGU, ptr(0));
+                                    } catch (eWHG2) {}
+                                }
+                            }
+                        }
+                        if (nativeCloseTalk !== null) {
+                            try { nativeCloseTalk(); } catch (eWHGCT) {}
+                        }
+                    } catch (eWHGWC) {}
                 }
 
                 if (pendingQuestNextAction !== null) {
@@ -9578,6 +9714,10 @@ rpc.exports = {
             function readJewelCount(itemPtr) {
                 if (!itemPtr || itemPtr.isNull()) return 1;
                 try {
+                    var sm = readItemStackMeta(itemPtr);
+                    if (sm && sm.count >= 1 && sm.count <= 255) return sm.count;
+                } catch (eSMJ) {}
+                try {
                     var dur = itemPtr.add(0x1C).readS32();
                     if (dur >= 1 && dur <= 100) return dur;
                 } catch (eD) {}
@@ -9596,11 +9736,12 @@ rpc.exports = {
                 var nmL = (name || "").toLowerCase();
                 if (nmL.indexOf("darkness") !== -1 || nmL.indexOf("dark") !== -1) return null;
                 if (nmL.indexOf("elevation") !== -1 || nmL.indexOf("extension") !== -1) return null;
+                if (nmL.indexOf("talisman") !== -1 || nmL.indexOf("chaos assembly") !== -1 || nmL.indexOf("chaos card") !== -1 || idx === TALISMAN_LUCK_ID || idx === TALISMAN_CHAOS_ASSEMBLY_ID) return null;
                 if (COMBINABLE_JEWEL_MAP[idx]) return COMBINABLE_JEWEL_MAP[idx];
                 if (nmL.indexOf("bless") !== -1) return "Bless";
                 if (nmL.indexOf("soul") !== -1) return "Soul";
                 if (nmL.indexOf("life") !== -1) return "Life";
-                if (nmL.indexOf("chaos") !== -1) return "Chaos";
+                if (nmL.indexOf("jewel of chaos") !== -1 || nmL === "chaos") return "Chaos";
                 if (nmL.indexOf("creation") !== -1) return "Creation";
                 if (nmL.indexOf("guardian") !== -1) return "Guardian";
                 if (nmL.indexOf("harmony") !== -1) return "Harmony";
@@ -9772,6 +9913,10 @@ rpc.exports = {
             function readJewelCount(itemPtr) {
                 if (!itemPtr || itemPtr.isNull()) return 1;
                 try {
+                    var sm = readItemStackMeta(itemPtr);
+                    if (sm && sm.count >= 1 && sm.count <= 255) return sm.count;
+                } catch (eSMJ) {}
+                try {
                     var dur = itemPtr.add(0x1C).readS32();
                     if (dur >= 1 && dur <= 100) return dur;
                 } catch (eD) {}
@@ -9790,11 +9935,12 @@ rpc.exports = {
                 var nmL = (name || "").toLowerCase();
                 if (nmL.indexOf("darkness") !== -1 || nmL.indexOf("dark") !== -1) return null;
                 if (nmL.indexOf("elevation") !== -1 || nmL.indexOf("extension") !== -1) return null;
+                if (nmL.indexOf("talisman") !== -1 || nmL.indexOf("chaos assembly") !== -1 || nmL.indexOf("chaos card") !== -1 || idx === TALISMAN_LUCK_ID || idx === TALISMAN_CHAOS_ASSEMBLY_ID) return null;
                 if (COMBINABLE_JEWEL_MAP[idx]) return COMBINABLE_JEWEL_MAP[idx];
                 if (nmL.indexOf("bless") !== -1) return "Bless";
                 if (nmL.indexOf("soul") !== -1) return "Soul";
                 if (nmL.indexOf("life") !== -1) return "Life";
-                if (nmL.indexOf("chaos") !== -1) return "Chaos";
+                if (nmL.indexOf("jewel of chaos") !== -1 || nmL === "chaos") return "Chaos";
                 if (nmL.indexOf("creation") !== -1) return "Creation";
                 if (nmL.indexOf("guardian") !== -1) return "Guardian";
                 if (nmL.indexOf("harmony") !== -1) return "Harmony";
@@ -10007,6 +10153,10 @@ rpc.exports = {
             function readJewelCount(itemPtr) {
                 if (!itemPtr || itemPtr.isNull()) return 1;
                 try {
+                    var sm = readItemStackMeta(itemPtr);
+                    if (sm && sm.count >= 1 && sm.count <= 255) return sm.count;
+                } catch (eSMJ) {}
+                try {
                     var dur = itemPtr.add(0x1C).readS32();
                     if (dur >= 1 && dur <= 100) return dur;
                 } catch (eD) {}
@@ -10025,11 +10175,12 @@ rpc.exports = {
                 var nmL = (name || "").toLowerCase();
                 if (nmL.indexOf("darkness") !== -1 || nmL.indexOf("dark") !== -1) return null;
                 if (nmL.indexOf("elevation") !== -1 || nmL.indexOf("extension") !== -1) return null;
+                if (nmL.indexOf("talisman") !== -1 || nmL.indexOf("chaos assembly") !== -1 || nmL.indexOf("chaos card") !== -1 || idx === TALISMAN_LUCK_ID || idx === TALISMAN_CHAOS_ASSEMBLY_ID) return null;
                 if (COMBINABLE_JEWEL_MAP[idx]) return COMBINABLE_JEWEL_MAP[idx];
                 if (nmL.indexOf("bless") !== -1) return "Bless";
                 if (nmL.indexOf("soul") !== -1) return "Soul";
                 if (nmL.indexOf("life") !== -1) return "Life";
-                if (nmL.indexOf("chaos") !== -1) return "Chaos";
+                if (nmL.indexOf("jewel of chaos") !== -1 || nmL === "chaos") return "Chaos";
                 if (nmL.indexOf("creation") !== -1) return "Creation";
                 if (nmL.indexOf("guardian") !== -1) return "Guardian";
                 if (nmL.indexOf("harmony") !== -1) return "Harmony";
@@ -10314,6 +10465,791 @@ rpc.exports = {
             });
         } catch (e) {
             return JSON.stringify({ ok: false, success: false, claimed: 0, remaining: 0, error: String(e) });
+        }
+    },
+
+    // =========================================================================
+    // TALISMAN GATHERER (BÙA LUCK 7221 & BÙA CHAOS ASSEMBLY 7264)
+    // Hướng A: Gom chồng theo ItemStackInfo (+0x58 -> +0x118 -> MaxStack +0x10)
+    // Hướng B: Lôi từ Thùng đồ K -> Mở Thủ Kho (NPC 240) -> Cất gọn vào Kho đồ
+    // =========================================================================
+    scanTalismansInfo: function() {
+        try {
+            ensureThreadAttached();
+            var invItems = [];
+            var whItems = [];
+            var gremItems = [];
+            var whMainFree = [];
+            var whExtFree = [];
+            var stackInfo = {};
+            stackInfo[String(TALISMAN_LUCK_ID)] = { seen: false, stackable: false, maxStack: 1 };
+            stackInfo[String(TALISMAN_CHAOS_ASSEMBLY_ID)] = { seen: false, stackable: false, maxStack: 1 };
+            var totals = {};
+            totals[String(TALISMAN_LUCK_ID)] = { inventory: 0, warehouse: 0, gremory: 0 };
+            totals[String(TALISMAN_CHAOS_ASSEMBLY_ID)] = { inventory: 0, warehouse: 0, gremory: 0 };
+
+            function recordStackMeta(tid, sm) {
+                var k = String(tid);
+                if (!stackInfo[k]) stackInfo[k] = { seen: false, stackable: false, maxStack: 1 };
+                stackInfo[k].seen = true;
+                stackInfo[k].stackable = !!sm.stackable;
+                stackInfo[k].maxStack = sm.maxStack || 1;
+            }
+
+            // 1. Quét Hòm đồ nhân vật (12..203)
+            try {
+                var p = getPlayerPtr();
+                if (p && !p.isNull()) {
+                    var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                    if (inv && !inv.isNull()) {
+                        var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                        if (itemsArr && !itemsArr.isNull()) {
+                            var arrLen = 204;
+                            try { var l = itemsArr.add(0x18).readS32(); if (l > 12 && l <= 204) arrLen = l; } catch (eL) {}
+                            for (var s = 12; s < arrLen; s++) {
+                                try {
+                                    var it = itemsArr.add(0x20 + s * 8).readPointer();
+                                    if (!it || it.isNull()) continue;
+                                    var idx = readItemIndex(it);
+                                    var nm = getItemName(it) || "";
+                                    var cls = classifyTalismanItem(idx, nm);
+                                    if (!cls) continue;
+                                    var sm = readItemStackMeta(it);
+                                    recordStackMeta(cls.id, sm);
+                                    invItems.push({
+                                        slot: s,
+                                        id: cls.id,
+                                        key: cls.key,
+                                        name: nm || cls.label,
+                                        count: sm.count,
+                                        stackable: sm.stackable,
+                                        maxStack: sm.maxStack
+                                    });
+                                    totals[String(cls.id)].inventory += sm.count;
+                                } catch (eIt) {}
+                            }
+                        }
+                    }
+                }
+            } catch (eInv) {}
+
+            // 2. Quét Kho đồ (Thủ Kho: Main 0..119 & Ext 120..239) + danh sách ô trống thật
+            var whOpen = false;
+            var extWhOpen = false;
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (gui && !gui.isNull()) {
+                        var whOff = off('__UI_WAREHOUSE_WINDOW__');
+                        var whWin = whOff.isNull() ? gui.add(ptr('0x290')).readPointer() : gui.add(whOff).readPointer();
+                        if (whWin && !whWin.isNull()) {
+                            var openSt = isWarehouseWindowActuallyOpen(whWin);
+                            whOpen = openSt.mainOpen;
+                            extWhOpen = openSt.extOpen;
+                            var occupiedSlots = {};
+                            var whFoundMap = {};
+
+                            // A. Từ WarehouseWindow.Items (+0x30)
+                            try {
+                                var dictPtr = whWin.add(ptr('0x30')).readPointer();
+                                if (dictPtr && !dictPtr.isNull()) {
+                                    var entries = dictPtr.add(ptr('0x18')).readPointer();
+                                    var count = dictPtr.add(ptr('0x20')).readS32();
+                                    if (entries && !entries.isNull() && count > 0 && count <= 300) {
+                                        for (var di = 0; di < count; di++) {
+                                            try {
+                                                var ent = entries.add(0x20 + di * 24);
+                                                if (ent.readS32() < 0) continue;
+                                                var wSlot = ent.add(0x08).readS32();
+                                                var wItem = ent.add(0x10).readPointer();
+                                                if (wItem && !wItem.isNull() && wSlot >= 0 && wSlot < 240) {
+                                                    occupiedSlots[wSlot] = true;
+                                                    var wIdx = readItemIndex(wItem);
+                                                    var wNm = getItemName(wItem) || "";
+                                                    var wCls = classifyTalismanItem(wIdx, wNm);
+                                                    if (wCls) {
+                                                        var wSm = readItemStackMeta(wItem);
+                                                        recordStackMeta(wCls.id, wSm);
+                                                        whFoundMap[wSlot] = {
+                                                            slot: wSlot,
+                                                            id: wCls.id,
+                                                            key: wCls.key,
+                                                            name: wNm || wCls.label,
+                                                            count: wSm.count,
+                                                            stackable: wSm.stackable,
+                                                            maxStack: wSm.maxStack,
+                                                            storage: wSlot < 120 ? "Kho chính" : "Kho mở rộng"
+                                                        };
+                                                    }
+                                                }
+                                            } catch (eWE) {}
+                                        }
+                                    }
+                                }
+                            } catch (eWI) {}
+
+                            // B. Quét từng ItemSlot trong MainStorage (+0x58) & ExtStorage (+0x60) để xác định 100% ô trống (Parent == NULL && Item == NULL)
+                            function scanStorageCells(sPtr, bStart, bEnd, freeOut, stLabel) {
+                                if (!sPtr || sPtr.isNull()) return;
+                                try {
+                                    var startIdx = bStart;
+                                    try { var stI = sPtr.add(0x28).readS32(); if (stI >= 0 && stI <= 240) startIdx = stI; } catch (eS) {}
+                                    var cDict = sPtr.add(ptr('0x38')).readPointer();
+                                    if (!cDict || cDict.isNull()) return;
+                                    var cEnt = cDict.add(ptr('0x18')).readPointer();
+                                    var cCnt = cDict.add(ptr('0x20')).readS32();
+                                    if (!cEnt || cEnt.isNull() || cCnt <= 0 || cCnt > 300) return;
+                                    var seenSlot = {};
+                                    for (var ci = 0; ci < cCnt; ci++) {
+                                        try {
+                                            var ce = cEnt.add(0x20 + ci * 24);
+                                            if (ce.readS32() < 0) continue;
+                                            var sk = ce.add(0x08).readS32();
+                                            var so = ce.add(0x10).readPointer();
+                                            if (!so || so.isNull()) continue;
+                                            var sn = so.add(ptr('0x20')).readS32();
+                                            var rs = sn < startIdx ? (sn + startIdx) : sn;
+                                            if (rs < bStart || rs >= bEnd) rs = sk;
+                                            if (rs < bStart || rs >= bEnd || seenSlot[rs]) continue;
+                                            seenSlot[rs] = true;
+
+                                            var parentSlot = so.add(0x38).readPointer();
+                                            var slotItem = so.add(0x48).readPointer();
+                                            var itemAlive = false;
+                                            if (slotItem && !slotItem.isNull()) {
+                                                var isDel = 0;
+                                                try { isDel = slotItem.add(0x80).readU8(); } catch (eD) {}
+                                                if (isDel === 0) itemAlive = true;
+                                            }
+                                            var hasParent = false;
+                                            if (parentSlot && !parentSlot.isNull()) {
+                                                try {
+                                                    var pCached = parentSlot.add(0x10).readPointer();
+                                                    if (pCached && !pCached.isNull()) hasParent = true;
+                                                } catch (eP) { hasParent = true; }
+                                            }
+
+                                            if (itemAlive) {
+                                                occupiedSlots[rs] = true;
+                                                if (!whFoundMap[rs]) {
+                                                    var ciIdx = readItemIndex(slotItem);
+                                                    var ciNm = getItemName(slotItem) || "";
+                                                    var ciCls = classifyTalismanItem(ciIdx, ciNm);
+                                                    if (ciCls) {
+                                                        var ciSm = readItemStackMeta(slotItem);
+                                                        recordStackMeta(ciCls.id, ciSm);
+                                                        whFoundMap[rs] = {
+                                                            slot: rs,
+                                                            id: ciCls.id,
+                                                            key: ciCls.key,
+                                                            name: ciNm || ciCls.label,
+                                                            count: ciSm.count,
+                                                            stackable: ciSm.stackable,
+                                                            maxStack: ciSm.maxStack,
+                                                            storage: stLabel
+                                                        };
+                                                    }
+                                                }
+                                            } else if (!hasParent && !occupiedSlots[rs]) {
+                                                freeOut.push(rs);
+                                            }
+                                        } catch (eC) {}
+                                    }
+                                } catch (eSC) {}
+                            }
+
+                            if (whOpen) {
+                                try { scanStorageCells(whWin.add(ptr('0x58')).readPointer(), 0, 120, whMainFree, "Kho chính"); } catch (eM1) {}
+                            }
+                            if (extWhOpen) {
+                                try { scanStorageCells(whWin.add(ptr('0x60')).readPointer(), 120, 240, whExtFree, "Kho mở rộng"); } catch (eE1) {}
+                            }
+                            whMainFree.sort(function(a, b) { return a - b; });
+                            whExtFree.sort(function(a, b) { return a - b; });
+
+                            for (var wk in whFoundMap) {
+                                var wi = whFoundMap[wk];
+                                whItems.push(wi);
+                                totals[String(wi.id)].warehouse += wi.count;
+                            }
+                        }
+                    }
+                }
+            } catch (eWH) {}
+
+            // 3. Quét Thùng đồ K (Gremory Case) tìm Bùa Luck & Chaos Assembly
+            try {
+                var gSnap = readGremoryCaseSnapshot(0);
+                if (gSnap && gSnap.ok && gSnap.items) {
+                    for (var gi = 0; gi < gSnap.items.length; gi++) {
+                        var git = gSnap.items[gi];
+                        var gCls = classifyTalismanItem(git.code, git.name);
+                        if (!gCls) continue;
+                        gremItems.push({
+                            storageType: git.storageType,
+                            authCode: git.authCode,
+                            guid: git.guid,
+                            code: gCls.id,
+                            key: gCls.key,
+                            name: git.name || gCls.label
+                        });
+                        totals[String(gCls.id)].gremory += 1;
+                    }
+                }
+            } catch (eGr) {}
+
+            return JSON.stringify({
+                ok: true,
+                warehouseOpen: whOpen,
+                extWarehouseOpen: extWhOpen,
+                warehouseFreeMainCount: whMainFree.length,
+                warehouseFreeExtCount: whExtFree.length,
+                warehouseFreeCount: whMainFree.length + whExtFree.length,
+                stackInfo: stackInfo,
+                totals: totals,
+                inventoryItems: invItems,
+                warehouseItems: whItems,
+                gremoryItems: gremItems
+            });
+        } catch (eTS) {
+            return JSON.stringify({ ok: false, error: String(eTS) });
+        }
+    },
+
+    claimGremoryTalismans: function(includeLuck, includeChaosAssembly) {
+        try {
+            ensureThreadAttached();
+            if (nativeGremoryClaim === null) {
+                var gClaimOff = off('__GREMORY_CLAIM_ITEM__');
+                if (gClaimOff.isNull()) {
+                    return JSON.stringify({ ok: false, claimed: 0, remaining: 0, reason: "gremory_offsets_missing" });
+                }
+                nativeGremoryClaim = new NativeFunction(baseAddr.add(gClaimOff), 'void', ['pointer', 'pointer']);
+            }
+            var wantLuck = !!includeLuck;
+            var wantChaos = !!includeChaosAssembly;
+            var initialSnap = readGremoryCaseSnapshot(0);
+            if (!initialSnap || !initialSnap.ok) {
+                return JSON.stringify({ ok: false, claimed: 0, remaining: 0, reason: initialSnap ? initialSnap.reason : "snap_failed" });
+            }
+            var targets = [];
+            for (var i = 0; i < initialSnap.items.length; i++) {
+                var it = initialSnap.items[i];
+                var cls = classifyTalismanItem(it.code, it.name);
+                if (!cls) continue;
+                if ((cls.id === TALISMAN_LUCK_ID && wantLuck) || (cls.id === TALISMAN_CHAOS_ASSEMBLY_ID && wantChaos)) {
+                    targets.push(it);
+                }
+            }
+            if (targets.length === 0) {
+                return JSON.stringify({ ok: true, claimed: 0, remaining: 0, items: [] });
+            }
+
+            var claimed = 0;
+            var failStreak = 0;
+            var claimedItems = [];
+            for (var ti = 0; ti < targets.length; ti++) {
+                var tgt = targets[ti];
+                dispatchGremoryClaim(tgt.ptr);
+                var removed = false;
+                for (var wi = 0; wi < 18; wi++) {
+                    Thread.sleep(0.05);
+                    var curSnap = readGremoryCaseSnapshot(0);
+                    if (curSnap && curSnap.ok) {
+                        var still = false;
+                        for (var j = 0; j < curSnap.items.length; j++) {
+                            var ci = curSnap.items[j];
+                            if (ci.storageType === tgt.storageType && ci.authCode === tgt.authCode && ci.guid === tgt.guid) {
+                                still = true;
+                                break;
+                            }
+                        }
+                        if (!still) { removed = true; break; }
+                    }
+                    if (wi === 8) dispatchGremoryClaim(tgt.ptr);
+                }
+                if (removed) {
+                    claimed++;
+                    failStreak = 0;
+                    claimedItems.push({ code: tgt.code, name: tgt.name, guid: tgt.guid });
+                    Thread.sleep(0.08);
+                } else {
+                    failStreak++;
+                    if (failStreak >= 2) break;
+                }
+            }
+            return JSON.stringify({
+                ok: true,
+                claimed: claimed,
+                remaining: Math.max(0, targets.length - claimed),
+                items: claimedItems
+            });
+        } catch (eCG) {
+            return JSON.stringify({ ok: false, claimed: 0, remaining: 0, error: String(eCG) });
+        }
+    },
+
+    stackTalismans: function(includeLuck, includeChaosAssembly) {
+        try {
+            ensureThreadAttached();
+            if (nativeItemStorageMove === null) {
+                return JSON.stringify({ ok: false, moved: 0, error: "no_native_move_fn" });
+            }
+            var wantLuck = !!includeLuck;
+            var wantChaos = !!includeChaosAssembly;
+            var totalMoved = 0;
+            var details = [];
+
+            function wantItem(cls) {
+                if (!cls) return false;
+                if (cls.id === TALISMAN_LUCK_ID && wantLuck) return true;
+                if (cls.id === TALISMAN_CHAOS_ASSEMBLY_ID && wantChaos) return true;
+                return false;
+            }
+
+            function stackList(storageLabel, storageFlag, itemsList) {
+                var groups = {};
+                for (var i = 0; i < itemsList.length; i++) {
+                    var it = itemsList[i];
+                    if (!it.stackable || it.maxStack <= 1) continue;
+                    if (!groups[it.id]) groups[it.id] = [];
+                    groups[it.id].push(it);
+                }
+                for (var gid in groups) {
+                    var grp = groups[gid];
+                    if (grp.length <= 1) continue;
+                    grp.sort(function(a, b) { return a.slot - b.slot; });
+                    var tIdx = 0;
+                    for (var sIdx = 1; sIdx < grp.length; sIdx++) {
+                        var src = grp[sIdx];
+                        if (src.count <= 0) continue;
+                        while (src.count > 0 && tIdx < sIdx) {
+                            var tgt = grp[tIdx];
+                            var maxSt = tgt.maxStack || 1;
+                            var space = maxSt - tgt.count;
+                            if (space <= 0) { tIdx++; continue; }
+                            if (!src.ptr || src.ptr.isNull() || !tgt.ptr || tgt.ptr.isNull()) break;
+                            if (src.slot === tgt.slot) break;
+                            var toMove = Math.min(src.count, space);
+                            try {
+                                nativeItemStorageMove(src.ptr, storageFlag, src.slot, storageFlag, tgt.slot, ptr(0));
+                                totalMoved++;
+                                tgt.count += toMove;
+                                src.count -= toMove;
+                                details.push({
+                                    storage: storageLabel,
+                                    id: src.id,
+                                    name: src.name,
+                                    fromSlot: src.slot,
+                                    toSlot: tgt.slot,
+                                    amount: toMove,
+                                    targetTotal: tgt.count,
+                                    maxStack: maxSt
+                                });
+                                try { Thread.sleep(0.2); } catch (eSl) {}
+                            } catch (eMv) {
+                                break;
+                            }
+                            if (tgt.count >= maxSt) tIdx++;
+                        }
+                    }
+                }
+            }
+
+            // 1. Gom chồng trong Hòm đồ nhân vật (flag = 0)
+            var invList = [];
+            try {
+                var p = getPlayerPtr();
+                if (p && !p.isNull()) {
+                    var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                    if (inv && !inv.isNull()) {
+                        var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                        if (itemsArr && !itemsArr.isNull()) {
+                            var arrLen = 204;
+                            try { var l = itemsArr.add(0x18).readS32(); if (l > 12 && l <= 204) arrLen = l; } catch (eL) {}
+                            for (var s = 12; s < arrLen; s++) {
+                                try {
+                                    var it = itemsArr.add(0x20 + s * 8).readPointer();
+                                    if (!it || it.isNull()) continue;
+                                    var idx = readItemIndex(it);
+                                    var nm = getItemName(it) || "";
+                                    var cls = classifyTalismanItem(idx, nm);
+                                    if (!wantItem(cls)) continue;
+                                    var sm = readItemStackMeta(it);
+                                    invList.push({
+                                        slot: s, ptr: it, id: cls.id, name: nm || cls.label,
+                                        count: sm.count, stackable: sm.stackable, maxStack: sm.maxStack
+                                    });
+                                } catch (eI) {}
+                            }
+                        }
+                    }
+                }
+            } catch (eInv) {}
+            if (invList.length > 1) stackList("Hòm đồ nhân vật", 0, invList);
+
+            // 2. Gom chồng trong Kho đồ (flag = 2) nếu Kho đang mở
+            try {
+                if (nativeGetGameUI !== null) {
+                    var gui = nativeGetGameUI();
+                    if (gui && !gui.isNull()) {
+                        var whOff = off('__UI_WAREHOUSE_WINDOW__');
+                        var whWin = whOff.isNull() ? gui.add(ptr('0x290')).readPointer() : gui.add(whOff).readPointer();
+                        if (whWin && !whWin.isNull() && isWarehouseWindowActuallyOpen(whWin).mainOpen) {
+                            var mainWh = [];
+                            var extWh = [];
+                            var dictPtr = whWin.add(ptr('0x30')).readPointer();
+                            if (dictPtr && !dictPtr.isNull()) {
+                                var entries = dictPtr.add(ptr('0x18')).readPointer();
+                                var count = dictPtr.add(ptr('0x20')).readS32();
+                                if (entries && !entries.isNull() && count > 0 && count <= 300) {
+                                    for (var di = 0; di < count; di++) {
+                                        try {
+                                            var ent = entries.add(0x20 + di * 24);
+                                            if (ent.readS32() < 0) continue;
+                                            var wSlot = ent.add(0x08).readS32();
+                                            var wIt = ent.add(0x10).readPointer();
+                                            if (!wIt || wIt.isNull() || wSlot < 0 || wSlot >= 240) continue;
+                                            var wIdx = readItemIndex(wIt);
+                                            var wNm = getItemName(wIt) || "";
+                                            var wCls = classifyTalismanItem(wIdx, wNm);
+                                            if (!wantItem(wCls)) continue;
+                                            var wSm = readItemStackMeta(wIt);
+                                            var obj = {
+                                                slot: wSlot, ptr: wIt, id: wCls.id, name: wNm || wCls.label,
+                                                count: wSm.count, stackable: wSm.stackable, maxStack: wSm.maxStack
+                                            };
+                                            if (wSlot < 120) mainWh.push(obj);
+                                            else extWh.push(obj);
+                                        } catch (eW) {}
+                                    }
+                                }
+                            }
+                            if (mainWh.length > 1) stackList("Kho chính", 2, mainWh);
+                            if (extWh.length > 1) stackList("Kho mở rộng", 2, extWh);
+                        }
+                    }
+                }
+            } catch (eWH) {}
+
+            return JSON.stringify({ ok: true, moved: totalMoved, details: details });
+        } catch (eST) {
+            return JSON.stringify({ ok: false, moved: 0, error: String(eST) });
+        }
+    },
+
+    depositTalismansToWarehouse: function(includeLuck, includeChaosAssembly, preferExt, maxMoves) {
+        try {
+            ensureThreadAttached();
+            if (nativeItemStorageMove === null) {
+                return JSON.stringify({ ok: false, deposited: 0, error: "no_native_move_fn" });
+            }
+            var wantLuck = !!includeLuck;
+            var wantChaos = !!includeChaosAssembly;
+            var limit = (maxMoves && parseInt(maxMoves) > 0) ? parseInt(maxMoves) : 64;
+
+            if (nativeGetGameUI === null) {
+                return JSON.stringify({ ok: false, deposited: 0, error: "no_game_ui" });
+            }
+            var gui = nativeGetGameUI();
+            if (!gui || gui.isNull()) {
+                return JSON.stringify({ ok: false, deposited: 0, error: "null_game_ui" });
+            }
+            var whOff = off('__UI_WAREHOUSE_WINDOW__');
+            var whWin = whOff.isNull() ? gui.add(ptr('0x290')).readPointer() : gui.add(whOff).readPointer();
+            var openSt = isWarehouseWindowActuallyOpen(whWin);
+            if (!openSt.mainOpen) {
+                return JSON.stringify({ ok: false, deposited: 0, warehouseOpen: false, error: "warehouse_not_open" });
+            }
+
+            // Thu thập các ô bùa đang có trong Kho (để ưu tiên gộp chồng) & các ô trống thật
+            var occupied = {};
+            var partialStacks = {};
+            try {
+                var dictPtr = whWin.add(ptr('0x30')).readPointer();
+                if (dictPtr && !dictPtr.isNull()) {
+                    var entries = dictPtr.add(ptr('0x18')).readPointer();
+                    var count = dictPtr.add(ptr('0x20')).readS32();
+                    if (entries && !entries.isNull() && count > 0 && count <= 300) {
+                        for (var di = 0; di < count; di++) {
+                            try {
+                                var ent = entries.add(0x20 + di * 24);
+                                if (ent.readS32() < 0) continue;
+                                var ws = ent.add(0x08).readS32();
+                                var wi = ent.add(0x10).readPointer();
+                                if (!wi || wi.isNull() || ws < 0 || ws >= 240) continue;
+                                occupied[ws] = true;
+                                var wIdx = readItemIndex(wi);
+                                var wNm = getItemName(wi) || "";
+                                var wCls = classifyTalismanItem(wIdx, wNm);
+                                if (wCls) {
+                                    var wSm = readItemStackMeta(wi);
+                                    if (wSm.stackable && wSm.count < wSm.maxStack) {
+                                        if (!partialStacks[wCls.id]) partialStacks[wCls.id] = [];
+                                        partialStacks[wCls.id].push({ slot: ws, count: wSm.count, maxStack: wSm.maxStack });
+                                    }
+                                }
+                            } catch (eWD) {}
+                        }
+                    }
+                }
+            } catch (eW0) {}
+
+            var freeMain = [];
+            var freeExt = [];
+            function collectFree(sPtr, bStart, bEnd, outArr) {
+                if (!sPtr || sPtr.isNull()) return;
+                try {
+                    var startIdx = bStart;
+                    try { var s0 = sPtr.add(0x28).readS32(); if (s0 >= 0 && s0 <= 240) startIdx = s0; } catch (eS) {}
+                    var cDict = sPtr.add(ptr('0x38')).readPointer();
+                    if (!cDict || cDict.isNull()) return;
+                    var cEnt = cDict.add(ptr('0x18')).readPointer();
+                    var cCnt = cDict.add(ptr('0x20')).readS32();
+                    if (!cEnt || cEnt.isNull() || cCnt <= 0 || cCnt > 300) return;
+                    var seen = {};
+                    for (var ci = 0; ci < cCnt; ci++) {
+                        try {
+                            var ce = cEnt.add(0x20 + ci * 24);
+                            if (ce.readS32() < 0) continue;
+                            var sk = ce.add(0x08).readS32();
+                            var so = ce.add(0x10).readPointer();
+                            if (!so || so.isNull()) continue;
+                            var sn = so.add(ptr('0x20')).readS32();
+                            var rs = sn < startIdx ? (sn + startIdx) : sn;
+                            if (rs < bStart || rs >= bEnd) rs = sk;
+                            if (rs < bStart || rs >= bEnd || seen[rs] || occupied[rs]) continue;
+                            seen[rs] = true;
+                            var pSlot = so.add(0x38).readPointer();
+                            var sIt = so.add(0x48).readPointer();
+                            var hasIt = false;
+                            if (sIt && !sIt.isNull()) {
+                                var del = 0;
+                                try { del = sIt.add(0x80).readU8(); } catch (eD) {}
+                                if (del === 0) hasIt = true;
+                            }
+                            var hasPar = false;
+                            if (pSlot && !pSlot.isNull()) {
+                                try {
+                                    var pc = pSlot.add(0x10).readPointer();
+                                    if (pc && !pc.isNull()) hasPar = true;
+                                } catch (eP) { hasPar = true; }
+                            }
+                            if (!hasIt && !hasPar) outArr.push(rs);
+                        } catch (eCI) {}
+                    }
+                } catch (eCF) {}
+            }
+            collectFree(whWin.add(ptr('0x58')).readPointer(), 0, 120, freeMain);
+            if (openSt.extOpen) {
+                collectFree(whWin.add(ptr('0x60')).readPointer(), 120, 240, freeExt);
+            }
+            freeMain.sort(function(a, b) { return a - b; });
+            freeExt.sort(function(a, b) { return a - b; });
+            var freeSlots = preferExt ? freeExt.concat(freeMain) : freeMain.concat(freeExt);
+
+            // Quét bùa trong Hòm đồ nhân vật (flag = 0, slot 12..203)
+            var invTargets = [];
+            var p = getPlayerPtr();
+            if (p && !p.isNull()) {
+                var inv = p.add(off('__PLAYER_INVENTORY__')).readPointer();
+                if (inv && !inv.isNull()) {
+                    var itemsArr = inv.add(off('__INVENTORY_ITEMS__')).readPointer();
+                    if (itemsArr && !itemsArr.isNull()) {
+                        var arrLen = 204;
+                        try { var l = itemsArr.add(0x18).readS32(); if (l > 12 && l <= 204) arrLen = l; } catch (eL) {}
+                        for (var s = 12; s < arrLen; s++) {
+                            try {
+                                var it = itemsArr.add(0x20 + s * 8).readPointer();
+                                if (!it || it.isNull()) continue;
+                                var idx = readItemIndex(it);
+                                var nm = getItemName(it) || "";
+                                var cls = classifyTalismanItem(idx, nm);
+                                if (!cls) continue;
+                                if ((cls.id === TALISMAN_LUCK_ID && !wantLuck) || (cls.id === TALISMAN_CHAOS_ASSEMBLY_ID && !wantChaos)) continue;
+                                var sm = readItemStackMeta(it);
+                                invTargets.push({
+                                    slot: s, ptr: it, id: cls.id, name: nm || cls.label,
+                                    count: sm.count, stackable: sm.stackable, maxStack: sm.maxStack
+                                });
+                            } catch (eIT) {}
+                        }
+                    }
+                }
+            }
+
+            var deposited = 0;
+            var details = [];
+            var warehouseFull = false;
+            var freeIdx = 0;
+
+            for (var k = 0; k < invTargets.length && deposited < limit; k++) {
+                var srcIt = invTargets[k];
+                var dstSlot = -1;
+                var merged = false;
+
+                // Ưu tiên 1: Gộp thẳng vào chồng đang có sẵn trong Kho nếu stackable & đủ chỗ
+                if (srcIt.stackable && partialStacks[srcIt.id]) {
+                    var psList = partialStacks[srcIt.id];
+                    for (var pi = 0; pi < psList.length; pi++) {
+                        if (psList[pi].count + srcIt.count <= psList[pi].maxStack) {
+                            dstSlot = psList[pi].slot;
+                            psList[pi].count += srcIt.count;
+                            merged = true;
+                            break;
+                        }
+                    }
+                }
+
+                // Ưu tiên 2: Cất vào ô trống tiếp theo trong Kho (bắt buộc cho Chaos Assembly không stack)
+                if (dstSlot < 0) {
+                    if (freeIdx >= freeSlots.length) {
+                        warehouseFull = true;
+                        break;
+                    }
+                    dstSlot = freeSlots[freeIdx++];
+                    if (srcIt.stackable && srcIt.count < srcIt.maxStack) {
+                        if (!partialStacks[srcIt.id]) partialStacks[srcIt.id] = [];
+                        partialStacks[srcIt.id].push({ slot: dstSlot, count: srcIt.count, maxStack: srcIt.maxStack });
+                    }
+                }
+
+                try {
+                    nativeItemStorageMove(srcIt.ptr, 0, srcIt.slot, 2, dstSlot, ptr(0));
+                    deposited++;
+                    details.push({
+                        id: srcIt.id,
+                        name: srcIt.name,
+                        count: srcIt.count,
+                        fromSlot: srcIt.slot,
+                        toSlot: dstSlot,
+                        merged: merged
+                    });
+                    try { Thread.sleep(0.22); } catch (eSl2) {}
+                } catch (eDep) {
+                    break;
+                }
+            }
+
+            return JSON.stringify({
+                ok: true,
+                warehouseOpen: true,
+                deposited: deposited,
+                remainingInInventory: Math.max(0, invTargets.length - deposited),
+                warehouseFull: warehouseFull,
+                details: details
+            });
+        } catch (eDW) {
+            return JSON.stringify({ ok: false, deposited: 0, error: String(eDW) });
+        }
+    },
+
+    findVaultKeeperNpc: function() {
+        try {
+            ensureThreadAttached();
+            var localPlayer = getPlayerPtr();
+            var px = -1, py = -1;
+            if (localPlayer && !localPlayer.isNull()) {
+                try {
+                    var pCoord = localPlayer.add(off('__PLAYER_COORD__')).readPointer();
+                    if (pCoord && !pCoord.isNull()) {
+                        px = pCoord.add(0x10).readS32();
+                        py = pCoord.add(0x14).readS32();
+                    }
+                } catch (ePC) {}
+            }
+            var typeInfo = baseAddr.add(off('__GAME_TYPE_INFO__')).readPointer();
+            if (typeInfo.isNull()) return JSON.stringify({ found: false });
+            var staticFields = typeInfo.add(ptr('0xB8')).readPointer();
+            if (staticFields.isNull()) return JSON.stringify({ found: false });
+            var gameInstance = staticFields.add(ptr('0x8')).readPointer();
+            if (gameInstance.isNull()) return JSON.stringify({ found: false });
+            var viewport = gameInstance.add(off('__VIEWPORT__')).readPointer();
+            if (viewport.isNull()) return JSON.stringify({ found: false });
+            var objDict = viewport.add(ptr('0x20')).readPointer();
+            if (objDict.isNull()) return JSON.stringify({ found: false });
+            var entries = objDict.add(ptr('0x18')).readPointer();
+            var count = objDict.add(ptr('0x20')).readS32();
+            if (entries.isNull() || count <= 0 || count > 600) return JSON.stringify({ found: false });
+
+            var best = null;
+            var bestDist = 999999;
+            for (var i = 0; i < count; i++) {
+                var entryAddr = entries.add(0x20 + i * 24);
+                if (entryAddr.readS32() < 0) continue;
+                var val = entryAddr.add(16).readPointer();
+                if (val.isNull()) continue;
+                var body = ptr(0);
+                try {
+                    if (getIl2CppClassNameSafe(val).indexOf("ViewportBody") === -1) continue;
+                    body = val.add(0x18).readPointer();
+                } catch (eVB) { continue; }
+                if (body.isNull() || (localPlayer && !localPlayer.isNull() && body.equals(localPlayer))) continue;
+
+                var bodyCls = "";
+                try { bodyCls = getIl2CppClassNameSafe(body); } catch (eC) {}
+                if (bodyCls.indexOf("PlayerBody") !== -1 || bodyCls.indexOf("CharacterBody") !== -1) continue;
+
+                var bSkin = -1, bClass = -1, bIdx = -1;
+                try { bIdx = body.add(0x20).readS32(); } catch (e1) {}
+                try { bClass = body.add(0x34).readS32(); } catch (e2) {}
+                try { bSkin = body.add(0x60).readS32(); } catch (e3) {}
+                if (bSkin === 247 || bSkin === 249 || bClass === 247 || bClass === 249) continue;
+
+                var bName = "";
+                try {
+                    var np = body.add(off('__PLAYER_NAME__')).readPointer();
+                    if (!np.isNull()) {
+                        var nl = np.add(0x10).readS32();
+                        if (nl > 0 && nl < 64) bName = np.add(0x14).readUtf16String(nl);
+                    }
+                } catch (e4) {}
+
+                var lowN = bName.toLowerCase();
+                var isVaultSkin = (bSkin === 240 || bClass === 240);
+                var isVaultName = (
+                    lowN.indexOf("vault") !== -1 || lowN.indexOf("warehouse") !== -1 ||
+                    lowN.indexOf("baú") !== -1 || lowN.indexOf("bau ") !== -1 ||
+                    lowN.indexOf("thủ kho") !== -1 || lowN.indexOf("storage") !== -1
+                );
+                if (!isVaultSkin && !isVaultName) continue;
+
+                var nx = 0, ny = 0;
+                try {
+                    var nc = body.add(off('__PLAYER_COORD__')).readPointer();
+                    if (!nc.isNull()) {
+                        nx = nc.add(0x10).readS32();
+                        ny = nc.add(0x14).readS32();
+                    }
+                } catch (e5) {}
+                var dist = (px >= 0 && py >= 0) ? Math.sqrt((nx - px) * (nx - px) + (ny - py) * (ny - py)) : 0;
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = {
+                        found: true,
+                        ptr: body.toString(),
+                        index: bIdx,
+                        skin: bSkin,
+                        class_id: bClass,
+                        name: bName || "Vault Keeper",
+                        x: nx,
+                        y: ny,
+                        dist: Math.round(dist * 10) / 10
+                    };
+                }
+            }
+            return JSON.stringify(best || { found: false });
+        } catch (eFV) {
+            return JSON.stringify({ found: false, error: String(eFV) });
+        }
+    },
+
+    closeWarehouseWindow: function() {
+        try {
+            pendingWarehouseWindowClose = true;
+            return true;
+        } catch (eCW) {
+            return false;
         }
     },
 
@@ -14593,6 +15529,61 @@ class MegDirectEngine:
         if self.is_ready:
             try:
                 return bool(self._call("closePkWindow"))
+            except Exception:
+                pass
+        return False
+
+    # ==========================================================================
+    # TALISMAN GATHERER (BÙA LUCK 7221 & BÙA CHAOS ASSEMBLY 7264) RPC WRAPPERS
+    # ==========================================================================
+    def scan_talismans_info(self) -> Dict[str, Any]:
+        """Quét RAM lấy số lượng Bùa Luck (7221) & Chaos Assembly (7264), trạng thái ItemStackInfo/MaxStack và ô trống Kho."""
+        return self._call_json("scanTalismansInfo", default={"ok": False, "error": "not_ready"})
+
+    def claim_gremory_talismans(self, include_luck: bool = True, include_chaos_assembly: bool = True) -> Dict[str, Any]:
+        """Lôi riêng Bùa Luck (7221) và/hoặc Bùa Chaos Assembly (7264) từ Thùng đồ K (Gremory Case)."""
+        return self._call_json(
+            "claimGremoryTalismans",
+            bool(include_luck),
+            bool(include_chaos_assembly),
+            default={"ok": False, "claimed": 0, "remaining": 0},
+        )
+
+    def stack_talismans(self, include_luck: bool = True, include_chaos_assembly: bool = True) -> Dict[str, Any]:
+        """Hướng A: Gom chồng các bùa có ItemStackInfo trong Hòm đồ & Kho theo đúng MaxStack từ RAM."""
+        return self._call_json(
+            "stackTalismans",
+            bool(include_luck),
+            bool(include_chaos_assembly),
+            default={"ok": False, "moved": 0, "details": []},
+        )
+
+    def deposit_talismans_to_warehouse(
+        self,
+        include_luck: bool = True,
+        include_chaos_assembly: bool = True,
+        prefer_ext: bool = False,
+        max_moves: int = 64,
+    ) -> Dict[str, Any]:
+        """Hướng B: Cất toàn bộ Bùa Luck & Bùa Chaos Assembly từ Hòm đồ vào Kho đồ (ưu tiên gộp chồng nếu stackable)."""
+        return self._call_json(
+            "depositTalismansToWarehouse",
+            bool(include_luck),
+            bool(include_chaos_assembly),
+            bool(prefer_ext),
+            int(max_moves),
+            default={"ok": False, "deposited": 0, "details": []},
+        )
+
+    def find_vault_keeper_npc(self) -> Dict[str, Any]:
+        """Quét Viewport tìm NPC Thủ Kho (Vault Keeper skin 240)."""
+        return self._call_json("findVaultKeeperNpc", default={"found": False})
+
+    def close_warehouse_window(self) -> bool:
+        """Đóng cửa sổ Kho đồ (MainWindow/ExtWindow) và gửi C1:31 trên Unity MainThread."""
+        if self.is_ready:
+            try:
+                return bool(self._call("closeWarehouseWindow"))
             except Exception:
                 pass
         return False
